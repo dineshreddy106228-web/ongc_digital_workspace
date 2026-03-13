@@ -1,100 +1,518 @@
 {% extends "base.html" %}
 {% block title %}Dashboard – {{ app_name }}{% endblock %}
 
+{% block head_extra %}
+{% if is_super and dashboard_analytics %}
+<script nonce="{{ csp_nonce() }}" src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+{% endif %}
+{% endblock %}
+
 {% block content %}
-<section class="dashboard">
+<section class="dashboard dashboard-shell" id="dashboard-root" data-dashboard-page>
 
-    <div class="dashboard-welcome">
-        <h1>Welcome, {{ user.full_name or user.username }}</h1>
-        <p class="welcome-meta">
-            Role: <strong>{{ user.role.name if user.role else '—' }}</strong>
-            &nbsp;·&nbsp;
-            Office: <strong>{{ user.office.office_name if user.office else '—' }}</strong>
-            {% if user.office and user.office.location %}
-                ({{ user.office.location }})
+    <div class="dashboard-topbar">
+        <div class="dashboard-welcome">
+            <div class="dashboard-title-row">
+                <h1>Welcome, {{ user.full_name or user.username }}</h1>
+                <span class="status-pill status-pill-neutral">Pilot v1</span>
+            </div>
+            <p class="welcome-meta">
+                Role: <strong>{{ user.role.name if user.role else '—' }}</strong>
+                &nbsp;·&nbsp;
+                Office: <strong>{{ user.office.office_name if user.office else '—' }}</strong>
+                {% if user.office and user.office.location %}
+                    ({{ user.office.location }})
+                {% endif %}
+                {% if user.controlling_officer %}
+                &nbsp;·&nbsp;
+                Controlling Officer: <strong>{{ user.controlling_officer.full_name or user.controlling_officer.username }}</strong>
+                {% endif %}
+                {% if user.reviewing_officer %}
+                &nbsp;·&nbsp;
+                Reviewing Officer: <strong>{{ user.reviewing_officer.full_name or user.reviewing_officer.username }}</strong>
+                {% endif %}
+            </p>
+        </div>
+
+        <div class="dashboard-actions">
+            <div class="dashboard-refresh-label">
+                Last refreshed:
+                <strong>{{ last_refreshed.strftime('%d %b %Y, %H:%M UTC') }}</strong>
+            </div>
+            {% if is_super %}
+            <button
+                type="button"
+                class="btn btn-sm btn-secondary dashboard-mode-toggle js-mission-control-toggle"
+                aria-pressed="false"
+            >
+                <span class="dashboard-mode-indicator" aria-hidden="true"></span>
+                <span>Mission Control</span>
+            </button>
             {% endif %}
-            {% if user.controlling_officer %}
-            &nbsp;·&nbsp;
-            Controlling Officer: <strong>{{ user.controlling_officer.full_name or user.controlling_officer.username }}</strong>
-            {% endif %}
-            {% if user.reviewing_officer %}
-            &nbsp;·&nbsp;
-            Reviewing Officer: <strong>{{ user.reviewing_officer.full_name or user.reviewing_officer.username }}</strong>
-            {% endif %}
-        </p>
+        </div>
     </div>
 
-    <div class="pilot-banner">
-        Pilot Deployment — Corporate Chemistry
-    </div>
-
-    {# Dashboard metrics only render for modules that are both enabled and assigned. #}
     {% if task_module_active and metrics %}
-    <div class="dashboard-section">
+    <div class="dashboard-section dashboard-section-metrics">
         <h2 class="section-title">Task Metrics</h2>
         <div class="metrics-grid">
-            <div class="metric-tile">
-                <div class="metric-label">Open Tasks</div>
+            <div class="metric-card metric-card-primary">
+                <div class="metric-card-header">
+                    <div class="metric-label-group">
+                        <div class="metric-title">Open Tasks</div>
+                        <div class="metric-meta">Current active workload across your queue.</div>
+                    </div>
+                    <div class="metric-icon">
+                        <i class="bi bi-list-check"></i>
+                    </div>
+                </div>
                 <div class="metric-value">{{ metrics.open_tasks }}</div>
             </div>
-            <div class="metric-tile metric-danger">
-                <div class="metric-label">Overdue Tasks</div>
+            <div class="metric-card metric-card-danger">
+                <div class="metric-card-header">
+                    <div class="metric-label-group">
+                        <div class="metric-title">Overdue Tasks</div>
+                        <div class="metric-meta">Requires immediate follow-up and review.</div>
+                    </div>
+                    <div class="metric-icon">
+                        <i class="bi bi-exclamation-triangle"></i>
+                    </div>
+                </div>
                 <div class="metric-value">{{ metrics.overdue_tasks }}</div>
             </div>
-            <div class="metric-tile metric-warning">
-                <div class="metric-label">Due This Week</div>
+            <div class="metric-card metric-card-warning">
+                <div class="metric-card-header">
+                    <div class="metric-label-group">
+                        <div class="metric-title">Due This Week</div>
+                        <div class="metric-meta">Upcoming deadlines in the near-term horizon.</div>
+                    </div>
+                    <div class="metric-icon">
+                        <i class="bi bi-calendar-week"></i>
+                    </div>
+                </div>
                 <div class="metric-value">{{ metrics.due_this_week }}</div>
             </div>
-            <div class="metric-tile metric-success">
-                <div class="metric-label">Completed This Month</div>
+            <div class="metric-card metric-card-success">
+                <div class="metric-card-header">
+                    <div class="metric-label-group">
+                        <div class="metric-title">Completed This Month</div>
+                        <div class="metric-meta">Closed tasks contributing to monthly throughput.</div>
+                    </div>
+                    <div class="metric-icon">
+                        <i class="bi bi-check-circle"></i>
+                    </div>
+                </div>
                 <div class="metric-value">{{ metrics.completed_this_month }}</div>
             </div>
         </div>
     </div>
     {% endif %}
 
-    <div class="dashboard-section">
-        <h2 class="section-title">Modules</h2>
-        <div class="card-grid">
+    <div class="dashboard-layout">
+        <div class="dashboard-primary-column">
+            <div class="dashboard-section">
+                <h2 class="section-title">Modules</h2>
+                <div class="card-grid">
+                    {% for module in module_cards %}
+                        {% if module.clickable %}
+                        <a href="{{ module.href }}" class="card card-link">
+                            <div class="card-icon">{{ module.icon }}</div>
+                            <h3>{{ module.label }}</h3>
+                            <p>{{ module.description }}</p>
+                            <span class="card-tag">{{ module.badge }}</span>
+                        </a>
+                        {% else %}
+                        <div class="card card-disabled">
+                            <div class="card-icon">{{ module.icon }}</div>
+                            <h3>{{ module.label }}</h3>
+                            <p>{{ module.description }}</p>
+                            <span class="card-tag">{{ module.badge }}</span>
+                        </div>
+                        {% endif %}
+                    {% endfor %}
 
-            {# Module cards come from the feature registry so disabled modules stay non-routable. #}
-            {% for module in module_cards %}
-                {% if module.clickable %}
-                <a href="{{ module.href }}" class="card card-link">
-                    <div class="card-icon">{{ module.icon }}</div>
-                    <h3>{{ module.label }}</h3>
-                    <p>{{ module.description }}</p>
-                    <span class="card-tag">{{ module.badge }}</span>
-                </a>
-                {% else %}
-                <div class="card card-disabled">
-                    <div class="card-icon">{{ module.icon }}</div>
-                    <h3>{{ module.label }}</h3>
-                    <p>{{ module.description }}</p>
-                    <span class="card-tag">{{ module.badge }}</span>
+                    {% if not has_clickable_modules %}
+                    <div class="card card-disabled" style="grid-column: 1 / -1; text-align: center;">
+                        <div class="card-icon">🔒</div>
+                        <h3>No Active Modules Assigned</h3>
+                        <p>Contact your administrator to request access to an enabled module.</p>
+                    </div>
+                    {% endif %}
                 </div>
-                {% endif %}
-            {% endfor %}
+            </div>
 
-            {% if user.has_module_access('admin_users') %}
-            <a href="{{ url_for('admin.users') }}" class="card card-link">
-                <div class="card-icon">👥</div>
-                <h3>User Management</h3>
-                <p>Create, edit, and manage user accounts and access permissions.</p>
-                <span class="card-tag">Active</span>
-            </a>
-            {% endif %}
-
-            {% if not has_clickable_modules %}
-            <div class="card card-disabled" style="grid-column: 1 / -1; text-align: center;">
-                <div class="card-icon">🔒</div>
-                <h3>No Active Modules Assigned</h3>
-                <p>Contact your administrator to request access to an enabled module.</p>
+            {% if is_super and recent_activity %}
+            <div class="dashboard-section">
+                <div class="activity-header">
+                    <h2 class="section-title">Recent Activity</h2>
+                    <a href="{{ url_for('admin.activity_history') }}" class="activity-view-all">View all</a>
+                </div>
+                <div class="activity-feed">
+                    {% for entry in recent_activity %}
+                    <div class="activity-item">
+                        <div class="activity-dot" style="background: {{ entry.accent_color }};"></div>
+                        <div class="activity-body">
+                            <div class="activity-summary">
+                                <i class="bi {{ entry.icon_class }} activity-action-icon"
+                                   style="color: {{ entry.accent_color }};"></i>
+                                <span>{{ entry.summary }}</span>
+                            </div>
+                            {% if entry.details %}
+                            <div class="activity-details">{{ entry.details }}</div>
+                            {% endif %}
+                            <div class="activity-time">{{ entry.created_at.strftime('%d %b %Y, %H:%M') }}</div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
             </div>
             {% endif %}
 
+            {% if is_super and dashboard_analytics %}
+            <div class="dashboard-section dashboard-analytics-section">
+                <div class="activity-header">
+                    <h2 class="section-title">Executive Analytics</h2>
+                    <span class="status-pill status-pill-info">Superuser</span>
+                </div>
+
+                <div class="analytics-signal-grid">
+                    <div class="analytics-signal-card">
+                        <span class="analytics-signal-label">Open Load</span>
+                        <strong class="analytics-signal-value">{{ dashboard_analytics.signals.open_tasks }}</strong>
+                    </div>
+                    <div class="analytics-signal-card">
+                        <span class="analytics-signal-label">Completion Rate</span>
+                        <strong class="analytics-signal-value">{{ dashboard_analytics.signals.completion_pct }}%</strong>
+                    </div>
+                    <div class="analytics-signal-card analytics-signal-alert">
+                        <span class="analytics-signal-label">Critical Open</span>
+                        <strong class="analytics-signal-value">{{ dashboard_analytics.signals.critical_open }}</strong>
+                    </div>
+                    <div class="analytics-signal-card analytics-signal-alert">
+                        <span class="analytics-signal-label">Unassigned</span>
+                        <strong class="analytics-signal-value">{{ dashboard_analytics.signals.unassigned_open }}</strong>
+                    </div>
+                </div>
+
+                <div class="analytics-grid">
+                    <div class="analytics-card analytics-card-wide">
+                        <div class="analytics-card-header">
+                            <h3>Tasks by Owner</h3>
+                            <span>Open workload distribution</span>
+                        </div>
+                        <div class="analytics-chart-wrap analytics-chart-tall">
+                            <canvas id="chartOwnerWorkload"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="analytics-card">
+                        <div class="analytics-card-header">
+                            <h3>Status Mix</h3>
+                            <span>Active portfolio state</span>
+                        </div>
+                        <div class="analytics-chart-wrap">
+                            <canvas id="chartStatusMix"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="analytics-card">
+                        <div class="analytics-card-header">
+                            <h3>Priority Pressure</h3>
+                            <span>Open task intensity</span>
+                        </div>
+                        <div class="analytics-chart-wrap">
+                            <canvas id="chartPriorityPressure"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="analytics-card">
+                        <div class="analytics-card-header">
+                            <h3>Due Horizon</h3>
+                            <span>Operational deadline risk</span>
+                        </div>
+                        <div class="analytics-chart-wrap">
+                            <canvas id="chartDueHorizon"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="analytics-card">
+                        <div class="analytics-card-header">
+                            <h3>Task Aging</h3>
+                            <span>Open backlog maturity</span>
+                        </div>
+                        <div class="analytics-chart-wrap">
+                            <canvas id="chartAging"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
         </div>
+
+        <aside class="dashboard-secondary-column">
+            <div class="dashboard-section">
+                <div class="activity-header">
+                    <h2 class="section-title">{{ alerts_panel_title }}</h2>
+                    <a href="{{ url_for('notifications.index') }}" class="activity-view-all">View all</a>
+                </div>
+                <div class="notification-feed-widget">
+                    {% for notification in recent_notifications %}
+                    <a
+                        href="{{ url_for('notifications.open_notification', notification_id=notification.id) }}"
+                        class="notification-widget-item notification-widget-{{ notification.severity }}"
+                    >
+                        <div class="notification-widget-topline">
+                            <span class="notification-widget-title">{{ notification.title }}</span>
+                            <span class="notification-widget-time">{{ notification.created_at.strftime('%d %b %Y, %H:%M') }}</span>
+                        </div>
+                        <p>{{ notification.message }}</p>
+                    </a>
+                    {% else %}
+                    <div class="notification-empty-state">
+                        <h3>No alerts right now</h3>
+                        <p>New workflow and account notifications will appear here.</p>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="dashboard-section">
+                <div class="activity-header">
+                    <h2 class="section-title">System Status</h2>
+                    <span class="status-pill status-pill-success">Operational</span>
+                </div>
+                <div class="system-status-panel">
+                    {% for item in system_status %}
+                    <div class="system-status-item">
+                        <span class="system-status-label">{{ item.label }}</span>
+                        <span class="status-pill status-pill-{{ item.tone }}">{{ item.value }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </aside>
     </div>
 
 </section>
+{% endblock %}
+
+{% block scripts_extra %}
+<script nonce="{{ csp_nonce() }}">
+document.addEventListener("DOMContentLoaded", function () {
+    const root = document.querySelector("[data-dashboard-page]");
+    const toggle = document.querySelector(".js-mission-control-toggle");
+
+    {% if is_super %}
+    if (root && toggle) {
+        const storageKey = "ongc-dashboard-mission-control";
+
+        function applyMissionControl(enabled) {
+            root.classList.toggle("mission-control", enabled);
+            toggle.classList.toggle("is-active", enabled);
+            toggle.setAttribute("aria-pressed", String(enabled));
+        }
+
+        applyMissionControl(localStorage.getItem(storageKey) === "true");
+
+        toggle.addEventListener("click", function () {
+            const nextState = !root.classList.contains("mission-control");
+            localStorage.setItem(storageKey, String(nextState));
+            applyMissionControl(nextState);
+        });
+    }
+    {% endif %}
+
+    {% if is_super and dashboard_analytics %}
+    const ANALYTICS = {{ dashboard_analytics | tojson }};
+
+    function themeValue(name, fallback) {
+        const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+        return value || fallback;
+    }
+
+    const charts = [];
+
+    function destroyCharts() {
+        while (charts.length) {
+            charts.pop().destroy();
+        }
+    }
+
+    function renderCharts() {
+        destroyCharts();
+
+        const chartText = themeValue('--chart-text', '#475569');
+        const chartGrid = themeValue('--chart-grid', '#e2e8f0');
+        const chartBorder = themeValue('--chart-border', '#ffffff');
+        const priorityColorsMap = {
+            'Low': themeValue('--chart-priority-low', '#34d399'),
+            'Medium': themeValue('--chart-priority-medium', '#60a5fa'),
+            'High': themeValue('--chart-priority-high', '#f97316'),
+            'Critical': themeValue('--chart-priority-critical', '#ef4444'),
+        };
+        const statusColorsMap = {
+            'Not Started': themeValue('--chart-status-not-started', '#94a3b8'),
+            'In Progress': themeValue('--chart-status-in-progress', '#3b82f6'),
+            'On Hold': themeValue('--chart-status-on-hold', '#f59e0b'),
+            'Completed': themeValue('--chart-status-completed', '#22c55e'),
+            'Cancelled': themeValue('--chart-status-cancelled', '#ef4444'),
+        };
+        const dueHorizonColors = {
+            'Overdue': themeValue('--danger', '#ef4444'),
+            'Next 7 Days': themeValue('--warning', '#f59e0b'),
+            'Next 30 Days': themeValue('--accent', '#f97316'),
+            'No Due Date': themeValue('--muted', '#94a3b8'),
+            'Stable': themeValue('--success', '#22c55e'),
+        };
+        const agingColors = [
+            themeValue('--primary', '#3b82f6'),
+            themeValue('--info', '#0ea5e9'),
+            themeValue('--warning', '#f59e0b'),
+            themeValue('--danger', '#ef4444'),
+        ];
+
+        const chartDefaults = {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        boxWidth: 12,
+                        padding: 12,
+                        font: { size: 11 },
+                        color: chartText,
+                    },
+                },
+                tooltip: {
+                    displayColors: true,
+                },
+            },
+        };
+
+        charts.push(new Chart(document.getElementById('chartOwnerWorkload'), {
+            type: 'bar',
+            data: {
+                labels: ANALYTICS.owner_workload.labels,
+                datasets: [{
+                    label: 'Open tasks',
+                    data: ANALYTICS.owner_workload.values,
+                    backgroundColor: themeValue('--primary', '#3b82f6'),
+                    borderRadius: 8,
+                    borderSkipped: false,
+                    maxBarThickness: 28,
+                }],
+            },
+            options: {
+                ...chartDefaults,
+                plugins: { ...chartDefaults.plugins, legend: { display: false } },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: { stepSize: 1, color: chartText },
+                        grid: { color: chartGrid },
+                    },
+                    x: {
+                        ticks: { color: chartText },
+                        grid: { display: false },
+                    },
+                },
+            },
+        }));
+
+        const statusKeys = Object.keys(ANALYTICS.status);
+        charts.push(new Chart(document.getElementById('chartStatusMix'), {
+            type: 'doughnut',
+            data: {
+                labels: statusKeys,
+                datasets: [{
+                    data: Object.values(ANALYTICS.status),
+                    backgroundColor: statusKeys.map((key) => statusColorsMap[key] || chartText),
+                    borderColor: chartBorder,
+                    borderWidth: 2,
+                }],
+            },
+            options: { ...chartDefaults, cutout: '58%' },
+        }));
+
+        const priorityKeys = Object.keys(ANALYTICS.priority);
+        charts.push(new Chart(document.getElementById('chartPriorityPressure'), {
+            type: 'bar',
+            data: {
+                labels: priorityKeys,
+                datasets: [{
+                    label: 'Open tasks',
+                    data: Object.values(ANALYTICS.priority),
+                    backgroundColor: priorityKeys.map((key) => priorityColorsMap[key] || chartText),
+                    borderRadius: 8,
+                    borderSkipped: false,
+                }],
+            },
+            options: {
+                ...chartDefaults,
+                plugins: { ...chartDefaults.plugins, legend: { display: false } },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: { stepSize: 1, color: chartText },
+                        grid: { color: chartGrid },
+                    },
+                    x: {
+                        ticks: { color: chartText },
+                        grid: { display: false },
+                    },
+                },
+            },
+        }));
+
+        const dueKeys = Object.keys(ANALYTICS.due_horizon);
+        charts.push(new Chart(document.getElementById('chartDueHorizon'), {
+            type: 'doughnut',
+            data: {
+                labels: dueKeys,
+                datasets: [{
+                    data: Object.values(ANALYTICS.due_horizon),
+                    backgroundColor: dueKeys.map((key) => dueHorizonColors[key] || chartText),
+                    borderColor: chartBorder,
+                    borderWidth: 2,
+                }],
+            },
+            options: { ...chartDefaults, cutout: '56%' },
+        }));
+
+        charts.push(new Chart(document.getElementById('chartAging'), {
+            type: 'bar',
+            data: {
+                labels: Object.keys(ANALYTICS.aging),
+                datasets: [{
+                    label: 'Open tasks',
+                    data: Object.values(ANALYTICS.aging),
+                    backgroundColor: agingColors,
+                    borderRadius: 8,
+                    borderSkipped: false,
+                }],
+            },
+            options: {
+                ...chartDefaults,
+                plugins: { ...chartDefaults.plugins, legend: { display: false } },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: { stepSize: 1, color: chartText },
+                        grid: { color: chartGrid },
+                    },
+                    x: {
+                        ticks: { color: chartText },
+                        grid: { display: false },
+                    },
+                },
+            },
+        }));
+    }
+
+    renderCharts();
+    document.addEventListener("themechange", renderCharts);
+    {% endif %}
+});
+</script>
 {% endblock %}

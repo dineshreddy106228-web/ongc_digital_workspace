@@ -1,14 +1,20 @@
 """Main routes – dashboard and root redirect."""
 
-from datetime import date, datetime, timedelta
+from datetime import datetime, timezone
+
 from flask import render_template, redirect, url_for
 from flask_login import login_required, current_user
 from app.features import get_dashboard_module_cards
 from app.main import main_bp
-from app.models.task import Task
-
-
-CLOSED_TASK_STATUSES = ["Completed", "Cancelled"]
+from app.models.activity_log import ActivityLog
+from app.services.dashboard import (
+    get_dashboard_summary_metrics,
+    get_superuser_dashboard_analytics,
+)
+from app.services.notifications import (
+    get_recent_notifications,
+    get_unread_notifications,
+)
 
 
 @main_bp.route("/")
@@ -23,46 +29,42 @@ def index():
 def dashboard():
     module_cards = get_dashboard_module_cards(current_user)
     task_module_active = current_user.has_module_access("tasks")
-    metrics = None
+    metrics = get_dashboard_summary_metrics("global") if task_module_active else None
+    modules_enabled_count = 1 if task_module_active else 0
+    last_refreshed = datetime.now(timezone.utc)
+    system_status = [
+        {"label": "Database", "value": "Connected", "tone": "success"},
+        {"label": "App Mode", "value": "Pilot", "tone": "neutral"},
+        {
+            "label": "Modules Enabled",
+            "value": str(modules_enabled_count),
+            "tone": "info",
+        },
+        {"label": "Status", "value": "Operational", "tone": "success"},
+    ]
 
-    if task_module_active:
-        today = date.today()
-        week_start = today - timedelta(days=today.weekday())
-        week_end = week_start + timedelta(days=6)
-        month_start = datetime(today.year, today.month, 1)
-        if today.month == 12:
-            next_month_start = datetime(today.year + 1, 1, 1)
-        else:
-            next_month_start = datetime(today.year, today.month + 1, 1)
+    has_clickable_modules = any(card["clickable"] for card in module_cards)
 
-        metrics = {
-            "open_tasks": Task.query.filter(
-                Task.is_active.is_(True),
-                Task.status.notin_(CLOSED_TASK_STATUSES),
-            ).count(),
-            "overdue_tasks": Task.query.filter(
-                Task.is_active.is_(True),
-                Task.due_date.isnot(None),
-                Task.due_date < today,
-                Task.status.notin_(CLOSED_TASK_STATUSES),
-            ).count(),
-            "due_this_week": Task.query.filter(
-                Task.is_active.is_(True),
-                Task.due_date.isnot(None),
-                Task.due_date >= week_start,
-                Task.due_date <= week_end,
-                Task.status.notin_(CLOSED_TASK_STATUSES),
-            ).count(),
-            "completed_this_month": Task.query.filter(
-                Task.status == "Completed",
-                Task.updated_at >= month_start,
-                Task.updated_at < next_month_start,
-            ).count(),
-        }
+    # Activity feed – super users see the latest 10 platform-wide entries.
+    recent_activity = []
+    is_super = current_user.is_super_user()
+    dashboard_analytics = None
+    if is_super:
+        recent_activity = (
+            ActivityLog.query
+            .order_by(ActivityLog.created_at.desc())
+            .limit(10)
+            .all()
+        )
+        if task_module_active:
+            dashboard_analytics = get_superuser_dashboard_analytics()
 
-    has_clickable_modules = any(card["clickable"] for card in module_cards) or current_user.has_module_access(
-        "admin_users"
-    )
+    recent_notifications = get_unread_notifications(current_user.id, limit=5)
+    alerts_panel_title = "Unread Alerts"
+    if not recent_notifications:
+        recent_notifications = get_recent_notifications(current_user.id, limit=5)
+        alerts_panel_title = "Recent Alerts"
+
     return render_template(
         "main/dashboard.html",
         user=current_user,
@@ -70,4 +72,12 @@ def dashboard():
         module_cards=module_cards,
         task_module_active=task_module_active,
         has_clickable_modules=has_clickable_modules,
+        recent_activity=recent_activity,
+        is_super=is_super,
+        recent_notifications=recent_notifications,
+        alerts_panel_title=alerts_panel_title,
+        system_status=system_status,
+        modules_enabled_count=modules_enabled_count,
+        last_refreshed=last_refreshed,
+        dashboard_analytics=dashboard_analytics,
     )

@@ -13,16 +13,25 @@ from flask import current_app
 from flask.cli import with_appcontext
 from sqlalchemy.exc import SQLAlchemyError
 from app.extensions import db
+from app.models.notification import Notification
 from app.models.role import Role
 from app.models.office import Office
 from app.models.user import User
+from app.core.roles import (
+    ADMIN_ROLE,
+    SUPERUSER_ROLE,
+    USER_ROLE,
+    ROLE_REGISTRY,
+    ROLE_DESCRIPTIONS,
+    ROLE_RENAME_MAP,
+)
+from app.services.notifications import create_notification
 
 
 # ── Role definitions ─────────────────────────────────────────────
-# Two-role model: super_user has full access; user has explicit module access only.
+# Derived from the central registry so this file never drifts from core/roles.py.
 DEFAULT_ROLES = [
-    ("super_user", "Full access – all modules, all actions, user management"),
-    ("user",       "Explicit module access only – controlled by super_user"),
+    (name, ROLE_DESCRIPTIONS[name]) for name in ROLE_REGISTRY
 ]
 
 
@@ -62,13 +71,13 @@ def _seed_bootstrap_admin():
         click.echo(f"  Bootstrap admin '{username}' already exists – skipping.")
         return
 
-    role = Role.query.filter_by(name="super_user").first()
+    role = Role.query.filter_by(name=SUPERUSER_ROLE).first()
     office = Office.query.filter_by(
         office_code=current_app.config["PILOT_OFFICE_CODE"]
     ).first()
 
     if role is None:
-        click.echo("  ERROR: super_user role not found. Run role seed first.")
+        click.echo(f"  ERROR: '{SUPERUSER_ROLE}' role not found. Run role seed first.")
         return
 
     admin = User(
@@ -91,11 +100,13 @@ def _seed_default_module_permissions():
 
     Rules:
       super_user  → all SUPER_USER_MODULES (persisted so admin UI reflects state)
+      admin       → admin_users only
       user        → dashboard only by default (super_user assigns further access)
 
     Safe to run multiple times – skips users who already have permissions.
     """
     from app.models.user_module_permission import (
+        ADMIN_DEFAULT_MODULES,
         UserModulePermission,
         SUPER_USER_MODULES,
     )
@@ -109,8 +120,10 @@ def _seed_default_module_permissions():
 
         role_name = user.role.name
 
-        if role_name == "super_user":
+        if role_name == SUPERUSER_ROLE:
             codes = list(SUPER_USER_MODULES)
+        elif role_name == ADMIN_ROLE:
+            codes = list(ADMIN_DEFAULT_MODULES)
         else:
             # role == 'user' (or any unrecognised legacy role) → dashboard only
             codes = ["dashboard"]
@@ -185,23 +198,25 @@ def _ensure_office(office_code: str) -> Office:
 
 
 def _ensure_superuser_role() -> Role:
-    """
-    Ensure a superuser role exists.
+    """Ensure the canonical superuser role exists, with legacy fallback.
 
-    Preference:
-      1. superuser (requested role)
-      2. super_user (legacy convention fallback)
-      3. create superuser only when no conflicting super* naming exists
+    Resolution order:
+      1. SUPERUSER_ROLE (canonical name from app.core.roles)
+      2. Any legacy name that maps to SUPERUSER_ROLE via ROLE_RENAME_MAP
+      3. Create SUPERUSER_ROLE only when no conflicting super-like names exist
     """
-    role = Role.query.filter_by(name="superuser").first()
+    role = Role.query.filter_by(name=SUPERUSER_ROLE).first()
     if role:
-        click.echo("Role found: superuser")
+        click.echo(f"Role found: {SUPERUSER_ROLE}")
         return role
 
-    legacy_role = Role.query.filter_by(name="super_user").first()
-    if legacy_role:
-        click.echo("Role found (legacy convention): super_user")
-        return legacy_role
+    # Try legacy name(s) that rename to SUPERUSER_ROLE
+    for legacy_name, canonical in ROLE_RENAME_MAP.items():
+        if canonical == SUPERUSER_ROLE:
+            legacy_role = Role.query.filter_by(name=legacy_name).first()
+            if legacy_role:
+                click.echo(f"Role found (legacy name): {legacy_name}")
+                return legacy_role
 
     similar_super_roles = [
         r.name
@@ -209,22 +224,22 @@ def _ensure_superuser_role() -> Role:
     ]
     if similar_super_roles:
         raise click.ClickException(
-            "Role 'superuser' does not exist, and existing super-like roles "
+            f"Role '{SUPERUSER_ROLE}' does not exist, and super-like roles "
             f"were found ({', '.join(similar_super_roles)}). "
-            "Create/align roles explicitly before running seed-admin."
+            "Run 'flask normalize-roles' to align the database first."
         )
 
-    # No conflicting conventions detected; safe to create requested role.
-    role_kwargs = {"name": "superuser"}
+    # No conflicting conventions detected; safe to create canonical role.
+    role_kwargs = {"name": SUPERUSER_ROLE}
     if hasattr(Role, "description"):
-        role_kwargs["description"] = "Bootstrap superuser account role"
+        role_kwargs["description"] = ROLE_DESCRIPTIONS[SUPERUSER_ROLE]
     if hasattr(Role, "is_active"):
         role_kwargs["is_active"] = True
 
     role = Role(**role_kwargs)
     db.session.add(role)
     db.session.flush()
-    click.echo("Role created: superuser")
+    click.echo(f"Role created: {SUPERUSER_ROLE}")
     return role
 
 
@@ -376,3 +391,47 @@ def list_users():
             f"{username} | {email} | {role_name} | {office_code} | "
             f"{'yes' if is_active else 'no'}"
         )
+
+
+@click.command("seed-notifications")
+@with_appcontext
+def seed_notifications():
+    """Create sample in-app notifications for active users."""
+    users = User.query.filter_by(is_active=True).order_by(User.created_at.asc()).limit(5).all()
+    if not users:
+        click.echo("No active users found. Skipping notification seed.")
+        return
+
+    created = 0
+    for user in users:
+        if Notification.query.filter_by(
+            user_id=user.id,
+            title="Welcome to ONGC Digital Workspace",
+        ).first():
+            continue
+
+        create_notification(
+            user_id=user.id,
+            title="Welcome to ONGC Digital Workspace",
+            message="Your workspace is ready. Review the latest alerts from the bell icon.",
+            severity="success",
+            link="/dashboard",
+        )
+        create_notification(
+            user_id=user.id,
+            title="Pending action review",
+            message="Check your dashboard for recent alerts and outstanding work items.",
+            severity="info",
+            link="/dashboard",
+        )
+        create_notification(
+            user_id=user.id,
+            title="Platform readiness",
+            message="Notifications are now enabled for your account.",
+            severity="warning",
+            link="/notifications",
+        )
+        created += 3
+
+    db.session.commit()
+    click.echo(f"Seeded {created} notifications.")

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "components/ui.html" import page_header %}
 {% block title %}Edit User – {{ target.username }}{% endblock %}
 
 {% block head_extra %}
@@ -7,15 +8,12 @@
 
 {% block content %}
 <div class="page-wrapper">
-  <div class="page-header">
-    <div class="page-header-left">
-      <h1 class="page-title">Edit User</h1>
-      <p class="page-subtitle">Editing account for <strong>{{ target.username }}</strong>.</p>
-    </div>
-    <div class="page-header-right">
-      <a href="{{ url_for('admin.users') }}" class="btn btn-secondary">← Back to Users</a>
-    </div>
-  </div>
+  {% call page_header("Edit User", "Editing account for <strong>" ~ target.username ~ "</strong>.", "Administration", "Admin", "neutral") %}
+    <a href="{{ url_for('admin.users') }}" class="btn btn-secondary">
+      <i class="bi bi-arrow-left"></i>
+      <span>Back to Users</span>
+    </a>
+  {% endcall %}
 
   {# Flash messages #}
   {% with messages = get_flashed_messages(with_categories=true) %}
@@ -233,7 +231,8 @@
           <h3 class="form-section-title">Module Access</h3>
           <p class="form-section-hint">
             Select the modules this user can access.
-            For <strong>super_user</strong> role, access is managed automatically (all modules).
+            <strong>admin</strong> role receives <strong>User Management</strong> only.
+            <strong>superuser</strong> role receives all business modules automatically.
             For <strong>user</strong> role, only checked modules will be accessible.
           </p>
 

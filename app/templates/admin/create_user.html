@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "components/ui.html" import page_header %}
 {% block title %}Create User{% endblock %}
 
 {% block head_extra %}
@@ -7,15 +8,12 @@
 
 {% block content %}
 <div class="page-wrapper">
-  <div class="page-header">
-    <div class="page-header-left">
-      <h1 class="page-title">Create User</h1>
-      <p class="page-subtitle">Add a new user account to the system.</p>
-    </div>
-    <div class="page-header-right">
-      <a href="{{ url_for('admin.users') }}" class="btn btn-secondary">← Back to Users</a>
-    </div>
-  </div>
+  {% call page_header("Create User", "Add a new user account to the system.", "Administration", "Admin", "neutral") %}
+    <a href="{{ url_for('admin.users') }}" class="btn btn-secondary">
+      <i class="bi bi-arrow-left"></i>
+      <span>Back to Users</span>
+    </a>
+  {% endcall %}
 
   {# Flash messages #}
   {% with messages = get_flashed_messages(with_categories=true) %}
@@ -223,7 +221,8 @@
           <h3 class="form-section-title">Module Access</h3>
           <p class="form-section-hint">
             Select which modules this user can access.
-            <strong>super_user</strong> role automatically receives full business access.
+            <strong>admin</strong> role receives <strong>User Management</strong> only.
+            <strong>superuser</strong> role automatically receives full business access.
             For <strong>user</strong> role, only checked modules will be accessible.
           </p>
 
@@ -247,7 +246,7 @@
             {% endfor %}
           </div>
           <small class="form-hint" style="margin-top: 0.5rem; display: block;">
-            Note: For super_user role, module access is managed automatically and these checkboxes are informational only.
+            Note: For <strong>admin</strong> and <strong>superuser</strong> roles, module access is managed automatically and these checkboxes are informational only.
           </small>
         </div>
 

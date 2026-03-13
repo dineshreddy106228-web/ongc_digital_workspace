@@ -11,7 +11,10 @@ from app.extensions import db
 from app.models.user import User
 from app.models.task import Task, TASK_SCOPES
 from app.models.task_update import TaskUpdate
+from app.services.dashboard import invalidate_dashboard_summary_metrics
+from app.services.notifications import create_notification
 from app.utils.audit import log_action
+from app.utils.activity import log_activity
 from app.utils.decorators import module_access_required
 
 
@@ -176,6 +179,25 @@ def _db_error(message: str):
     db.session.rollback()
     current_app.logger.exception("Task module database operation failed")
     flash(message, "danger")
+
+
+def _notify_task_owner(
+    task: Task,
+    title: str,
+    message: str,
+    severity: str = "info",
+    skip_user_id: int | None = None,
+):
+    if not task.owner_id or task.owner_id == skip_user_id:
+        return None
+
+    return create_notification(
+        user_id=task.owner_id,
+        title=title,
+        message=message,
+        severity=severity,
+        link=url_for("tasks.task_detail", task_id=task.id),
+    )
 
 
 def _month_bounds(year: int, month: int):
@@ -509,6 +531,21 @@ def create_task():
                     f"priority '{task.priority}', scope '{task.task_scope}'."
                 ),
             )
+            log_activity(current_user.username, "task_created", "task",
+                         task.task_title,
+                         details=f"priority={task.priority}, scope={task.task_scope}")
+            if owner:
+                _notify_task_owner(
+                    task,
+                    title="New task assigned",
+                    message=(
+                        f"{current_user.full_name or current_user.username} assigned "
+                        f"'{task.task_title}' to you."
+                    ),
+                    severity="info",
+                    skip_user_id=current_user.id,
+                )
+            invalidate_dashboard_summary_metrics()
             db.session.commit()
         except SQLAlchemyError:
             _db_error("Could not create task due to a database error.")
@@ -629,6 +666,7 @@ def edit_task(task_id):
             )
 
         changed_fields = []
+        previous_owner_id = task.owner_id
         new_owner_id = owner.id if owner else None
 
         if task.task_title != task_title:
@@ -671,6 +709,33 @@ def edit_task(task_id):
                     f"Changes: {'; '.join(changed_fields) if changed_fields else 'no field changes'}."
                 ),
             )
+            if changed_fields:
+                log_activity(current_user.username, "task_updated", "task",
+                             task.task_title,
+                             details="; ".join(changed_fields))
+            if new_owner_id and previous_owner_id != new_owner_id:
+                _notify_task_owner(
+                    task,
+                    title="Task assignment updated",
+                    message=(
+                        f"{current_user.full_name or current_user.username} assigned "
+                        f"'{task.task_title}' to you."
+                    ),
+                    severity="info",
+                    skip_user_id=current_user.id,
+                )
+            elif changed_fields:
+                _notify_task_owner(
+                    task,
+                    title="Task updated",
+                    message=(
+                        f"{current_user.full_name or current_user.username} updated "
+                        f"'{task.task_title}'."
+                    ),
+                    severity="warning",
+                    skip_user_id=current_user.id,
+                )
+            invalidate_dashboard_summary_metrics()
             db.session.commit()
         except SQLAlchemyError:
             _db_error("Could not update task due to a database error.")
@@ -755,6 +820,20 @@ def update_task_status(task_id):
                     f"to '{new_status}'. Remarks: {update_text[:250]}"
                 ),
             )
+            log_activity(current_user.username, "task_status_changed", "task",
+                         task.task_title,
+                         details=f"{old_status} → {new_status}")
+            _notify_task_owner(
+                task,
+                title="Task status changed",
+                message=(
+                    f"{current_user.full_name or current_user.username} changed "
+                    f"'{task.task_title}' from '{old_status}' to '{new_status}'."
+                ),
+                severity="warning",
+                skip_user_id=current_user.id,
+            )
+            invalidate_dashboard_summary_metrics()
             db.session.commit()
         except SQLAlchemyError:
             _db_error("Could not update task status due to a database error.")
@@ -838,6 +917,19 @@ def add_task_update(task_id):
                     f"Note: {update_text[:250]}"
                 ),
             )
+            log_activity(current_user.username, "task_update_added", "task",
+                         task.task_title, details=status_for_log)
+            _notify_task_owner(
+                task,
+                title="Task update added",
+                message=(
+                    f"{current_user.full_name or current_user.username} added an update "
+                    f"to '{task.task_title}'."
+                ),
+                severity="info",
+                skip_user_id=current_user.id,
+            )
+            invalidate_dashboard_summary_metrics()
             db.session.commit()
         except SQLAlchemyError:
             _db_error("Could not add task update due to a database error.")

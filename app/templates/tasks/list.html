@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "components/ui.html" import page_header %}
 {% block title %}Task Tracker{% endblock %}
 
 {% block head_extra %}
@@ -9,7 +10,7 @@
 {% set perms = task_permissions.get(task.id, {}) %}
 <tr>
   <td>
-    <div style="display: flex; align-items: center; gap: 0.4rem;">
+    <div class="task-row-title-group">
       {% if task.task_scope == 'GLOBAL' %}
       <span class="scope-tag scope-global" title="Global Task">🌐</span>
       {% elif task.task_scope == 'TEAM' %}
@@ -17,10 +18,10 @@
       {% else %}
       <span class="scope-tag scope-my" title="My Task">👤</span>
       {% endif %}
-      <div>
-        <strong>{{ task.task_title }}</strong>
+      <div class="task-row-title-body">
+        <span class="task-row-title">{{ task.task_title }}</span>
         {% if task.task_origin %}
-        <div class="text-muted" style="font-size: 0.78rem; margin-top: 0.1rem;">{{ task.task_origin }}</div>
+        <div class="task-row-origin">{{ task.task_origin }}</div>
         {% endif %}
       </div>
     </div>
@@ -76,7 +77,7 @@
         {% endfor %}
       {% else %}
       <tr>
-        <td colspan="8" style="text-align: center; padding: 1.5rem 1rem; color: var(--color-text-muted);">
+        <td colspan="8" class="table-empty-row">
           {{ empty_msg }}
         </td>
       </tr>
@@ -89,16 +90,16 @@
 {% block content %}
 <div class="page-wrapper">
 
-  <div class="page-header">
-    <div class="page-header-left">
-      <h1 class="page-title">Office Management / Task Tracker</h1>
-      <p class="page-subtitle">Track tasks, ownership, status, and updates across Global, Team, and personal views.</p>
-    </div>
-    <div class="page-header-right" style="display:flex; gap:0.5rem; flex-wrap:wrap;">
-      <a href="{{ url_for('tasks.task_dashboard') }}" class="btn btn-secondary">📊 Dashboard</a>
-      <a href="{{ url_for('tasks.create_task') }}" class="btn btn-primary">+ Create Task</a>
-    </div>
-  </div>
+  {% call page_header("Task Tracker", "Track tasks, ownership, status, and updates across Global, Team, and personal views.", "Office Management", "Pilot v1", "info") %}
+    <a href="{{ url_for('tasks.task_dashboard') }}" class="btn btn-secondary">
+      <i class="bi bi-speedometer2"></i>
+      <span>Dashboard</span>
+    </a>
+    <a href="{{ url_for('tasks.create_task') }}" class="btn btn-primary">
+      <i class="bi bi-plus-lg"></i>
+      <span>Create Task</span>
+    </a>
+  {% endcall %}
 
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% for category, message in messages %}
@@ -110,7 +111,7 @@
   <div class="card" style="margin-bottom: 1rem;">
     <div class="card-body">
       <form method="GET" action="{{ url_for('tasks.list_tasks') }}"
-            class="form-row" style="align-items: flex-end; gap: 0.75rem; margin-bottom: 0; flex-wrap: wrap;">
+            class="task-filter-grid">
         <div class="form-group" style="margin-bottom: 0;">
           <label class="form-label" for="filter_scope">Scope</label>
           <select id="filter_scope" name="scope" class="form-control">
@@ -153,7 +154,7 @@
         {% endif %}
         <div class="form-group" style="margin-bottom: 0;">
           <label class="form-label" style="visibility:hidden;">Apply</label>
-          <div style="display: flex; gap: 0.5rem;">
+          <div class="task-filter-submit">
             <button type="submit" class="btn btn-primary btn-sm">Apply</button>
             <a href="{{ url_for('tasks.list_tasks') }}" class="btn btn-secondary btn-sm">Reset</a>
           </div>
@@ -165,8 +166,11 @@
   {% if filters.scope %}
   {# ── Filtered view (single scope) ───────────────────── #}
   <div class="card">
-    <div class="card-header" style="padding: 0.75rem 1rem; border-bottom: 1px solid var(--color-border);">
-      <strong>Filtered: {{ filters.scope }} Tasks ({{ tasks|length }})</strong>
+    <div class="table-card-header">
+      <div>
+        <div class="table-card-title">Filtered: {{ filters.scope }} Tasks</div>
+        <div class="table-card-subtitle">{{ tasks|length }} result{{ '' if tasks|length == 1 else 's' }}</div>
+      </div>
     </div>
     {{ task_table(tasks, task_permissions, 'No tasks found for the selected filters.') }}
   </div>
@@ -182,7 +186,7 @@
       <span class="task-count-badge">{{ global_tasks|length }}</span>
       <span class="task-section-info">Visible to all users with Task Tracker access</span>
       {% if can_create_global %}
-      <a href="{{ url_for('tasks.create_task') }}?scope=GLOBAL" class="btn btn-sm btn-secondary" style="margin-left: auto;">+ Global</a>
+      <a href="{{ url_for('tasks.create_task') }}?scope=GLOBAL" class="btn btn-sm btn-secondary task-section-action">+ Global</a>
       {% endif %}
     </div>
     <div class="card">

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "components/ui.html" import page_header %}
 {% block title %}Create Task{% endblock %}
 
 {% block head_extra %}
@@ -8,15 +9,12 @@
 {% block content %}
 <div class="page-wrapper">
 
-  <div class="page-header">
-    <div class="page-header-left">
-      <h1 class="page-title">Create Task</h1>
-      <p class="page-subtitle">Add a new task for office operations.</p>
-    </div>
-    <div class="page-header-right">
-      <a href="{{ url_for('tasks.list_tasks') }}" class="btn btn-secondary">← Back to List</a>
-    </div>
-  </div>
+  {% call page_header("Create Task", "Add a new task for office operations.", "Office Management", "Pilot v1", "info") %}
+    <a href="{{ url_for('tasks.list_tasks') }}" class="btn btn-secondary">
+      <i class="bi bi-arrow-left"></i>
+      <span>Back to List</span>
+    </a>
+  {% endcall %}
 
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% for category, message in messages %}

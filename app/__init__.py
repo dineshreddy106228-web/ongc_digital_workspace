@@ -1,10 +1,16 @@
 """Application factory for ONGC Digital Workspace."""
 
 import secrets
+from importlib import import_module
 from flask import Flask, g
+from flask_login import current_user
 from config import Config
-from app.extensions import db, migrate, login_manager, csrf
-from app.features import is_module_enabled, register_feature_blueprints
+from app.extensions import cache, csrf, db, login_manager, migrate
+from app.features import (
+    get_nav_modules,
+    is_module_enabled,
+    register_feature_blueprints,
+)
 
 
 def create_app(config_class=Config):
@@ -27,6 +33,11 @@ def create_app(config_class=Config):
     migrate.init_app(app, db)
     login_manager.init_app(app)
     csrf.init_app(app)
+    cache.init_app(app)
+
+    # Import all models so relationship resolution and Alembic autogenerate
+    # see the complete metadata set.
+    import_module("app.models")
 
     # ── Flask-Login user loader ──────────────────────────────────
     from app.models.user import User
@@ -38,12 +49,13 @@ def create_app(config_class=Config):
     # ── Register blueprints ──────────────────────────────────────
     from app.auth import auth_bp
     from app.main import main_bp
-    from app.admin import admin_bp
+    from app.notifications import notifications_bp
     app.register_blueprint(auth_bp)
     app.register_blueprint(main_bp)
-    app.register_blueprint(admin_bp, url_prefix="/admin")
+    app.register_blueprint(notifications_bp, url_prefix="/notifications")
 
-    # Business modules are feature-flagged so production can expose only approved areas.
+    # Registry-managed modules are registered dynamically so production can expose
+    # only the approved surfaces for the current environment.
     register_feature_blueprints(app)
 
     # ── Register CLI commands ────────────────────────────────────
@@ -53,10 +65,24 @@ def create_app(config_class=Config):
     # ── Inject common template context ───────────────────────────
     @app.context_processor
     def inject_globals():
+        from app.services.notifications import (
+            get_unread_notification_count,
+            get_unread_notifications,
+        )
+
         return dict(
             app_name=app.config["APP_NAME"],
             csp_nonce=lambda: getattr(g, "csp_nonce", ""),
             is_module_enabled=lambda module_code: is_module_enabled(module_code, app),
+            nav_modules=get_nav_modules(current_user, app)
+            if current_user.is_authenticated
+            else [],
+            unread_notification_count=get_unread_notification_count(current_user.id)
+            if current_user.is_authenticated
+            else 0,
+            unread_notifications=get_unread_notifications(current_user.id, limit=5)
+            if current_user.is_authenticated
+            else [],
         )
 
     # ── Per-request nonce for CSP-compatible inline scripts ──────
