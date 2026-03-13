@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+{% block title %}Create User{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+  <div class="page-header">
+    <div class="page-header-left">
+      <h1 class="page-title">Create User</h1>
+      <p class="page-subtitle">Add a new user account to the system.</p>
+    </div>
+    <div class="page-header-right">
+      <a href="{{ url_for('admin.users') }}" class="btn btn-secondary">← Back to Users</a>
+    </div>
+  </div>
+
+  {# Flash messages #}
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <div class="alert alert-{{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <div class="card form-card">
+    <div class="card-body">
+      <form method="POST" action="{{ url_for('admin.create_user') }}" novalidate>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <div class="form-section">
+          <h3 class="form-section-title">Account Details</h3>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="username" class="form-label">
+                Username <span class="required">*</span>
+              </label>
+              <input
+                type="text"
+                id="username"
+                name="username"
+                class="form-control"
+                value="{{ form_data.get('username', '') }}"
+                required
+                autocomplete="off"
+                placeholder="e.g. john.doe"
+              >
+              <small class="form-hint">Unique login identifier. Cannot be changed later.</small>
+            </div>
+
+            <div class="form-group">
+              <label for="full_name" class="form-label">
+                Full Name <span class="required">*</span>
+              </label>
+              <input
+                type="text"
+                id="full_name"
+                name="full_name"
+                class="form-control"
+                value="{{ form_data.get('full_name', '') }}"
+                required
+                placeholder="e.g. John Doe"
+              >
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="email" class="form-label">
+                Email Address <span class="required">*</span>
+              </label>
+              <input
+                type="email"
+                id="email"
+                name="email"
+                class="form-control"
+                value="{{ form_data.get('email', '') }}"
+                required
+                placeholder="user@ongc.co.in"
+              >
+            </div>
+
+            <div class="form-group">
+              <label for="temporary_password" class="form-label">
+                Temporary Password <span class="required">*</span>
+              </label>
+              <input
+                type="password"
+                id="temporary_password"
+                name="temporary_password"
+                class="form-control"
+                required
+                minlength="6"
+                autocomplete="new-password"
+              >
+              <small class="form-hint">Minimum 6 characters. User must change on first login.</small>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h3 class="form-section-title">Role &amp; Office Assignment</h3>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="role_id" class="form-label">
+                Role <span class="required">*</span>
+              </label>
+              <select id="role_id" name="role_id" class="form-control" required>
+                <option value="">— Select Role —</option>
+                {% for r in roles %}
+                  <option value="{{ r.id }}"
+                    {{ 'selected' if form_data.get('role_id', '') == r.id|string }}>
+                    {{ r.name }}{% if r.description %} — {{ r.description }}{% endif %}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="office_id" class="form-label">
+                Office <span class="required">*</span>
+              </label>
+              <select id="office_id" name="office_id" class="form-control" required>
+                <option value="">— Select Office —</option>
+                {% for o in offices %}
+                  <option value="{{ o.id }}"
+                    {{ 'selected' if form_data.get('office_id', '') == o.id|string }}>
+                    {{ o.office_name }}{% if o.office_code %} ({{ o.office_code }}){% endif %}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h3 class="form-section-title">Additional Information</h3>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="designation" class="form-label">Designation</label>
+              <input
+                type="text"
+                id="designation"
+                name="designation"
+                class="form-control"
+                value="{{ form_data.get('designation', '') }}"
+                placeholder="e.g. Senior Geologist"
+              >
+            </div>
+
+            <div class="form-group">
+              <label for="employee_code" class="form-label">Employee Code</label>
+              <input
+                type="text"
+                id="employee_code"
+                name="employee_code"
+                class="form-control"
+                value="{{ form_data.get('employee_code', '') }}"
+                placeholder="e.g. EMP-12345"
+              >
+            </div>
+          </div>
+
+          <div class="form-group form-group-checkbox">
+            <label class="checkbox-label">
+              <input
+                type="checkbox"
+                name="is_active"
+                id="is_active"
+                {{ 'checked' if form_data.get('is_active', 'on') == 'on' }}
+              >
+              <span>Account is active (user can log in immediately)</span>
+            </label>
+          </div>
+        </div>
+
+        {# ── Reporting Hierarchy ─────────────────────────────────── #}
+        <div class="form-section">
+          <h3 class="form-section-title">Reporting Hierarchy</h3>
+          <p class="form-section-hint">Assign a controlling officer (direct supervisor) and/or a reviewing officer (team lead / reviewer) for this user.</p>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="controlling_officer_id" class="form-label">Controlling Officer</label>
+              <select id="controlling_officer_id" name="controlling_officer_id" class="form-control">
+                <option value="">— None —</option>
+                {% for officer in officers %}
+                  <option value="{{ officer.id }}"
+                    {{ 'selected' if form_data.get('controlling_officer_id', '') == officer.id|string }}>
+                    {{ officer.full_name or officer.username }}
+                    {% if officer.designation %} ({{ officer.designation }}){% endif %}
+                  </option>
+                {% endfor %}
+              </select>
+              <small class="form-hint">Can view this user's MY tasks and add remarks.</small>
+            </div>
+
+            <div class="form-group">
+              <label for="reviewing_officer_id" class="form-label">Reviewing Officer</label>
+              <select id="reviewing_officer_id" name="reviewing_officer_id" class="form-control">
+                <option value="">— None —</option>
+                {% for officer in officers %}
+                  <option value="{{ officer.id }}"
+                    {{ 'selected' if form_data.get('reviewing_officer_id', '') == officer.id|string }}>
+                    {{ officer.full_name or officer.username }}
+                    {% if officer.designation %} ({{ officer.designation }}){% endif %}
+                  </option>
+                {% endfor %}
+              </select>
+              <small class="form-hint">Can view this user's TEAM and MY tasks.</small>
+            </div>
+          </div>
+        </div>
+
+        {# ── Module Access ────────────────────────────────────────── #}
+        <div class="form-section">
+          <h3 class="form-section-title">Module Access</h3>
+          <p class="form-section-hint">
+            Select which modules this user can access.
+            <strong>super_user</strong> role automatically receives full business access.
+            For <strong>user</strong> role, only checked modules will be accessible.
+          </p>
+
+          <div class="module-access-grid">
+            {% for module_code, module_label in supported_modules %}
+            <label class="module-access-item checkbox-label">
+              <input
+                type="checkbox"
+                name="module_access"
+                value="{{ module_code }}"
+                {{ 'checked' if module_code in selected_modules }}
+              >
+              <span class="module-access-label">
+                <strong>{{ module_label }}</strong>
+                <small class="module-code-tag">{{ module_code }}</small>
+              </span>
+            </label>
+            {% endfor %}
+          </div>
+          <small class="form-hint" style="margin-top: 0.5rem; display: block;">
+            Note: For super_user role, module access is managed automatically and these checkboxes are informational only.
+          </small>
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">Create User</button>
+          <a href="{{ url_for('admin.users') }}" class="btn btn-secondary">Cancel</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

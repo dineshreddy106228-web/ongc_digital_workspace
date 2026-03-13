@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Dashboard – {{ app_name }}{% endblock %}
+
+{% block content %}
+<section class="dashboard">
+
+    <div class="dashboard-welcome">
+        <h1>Welcome, {{ user.full_name or user.username }}</h1>
+        <p class="welcome-meta">
+            Role: <strong>{{ user.role.name if user.role else '—' }}</strong>
+            &nbsp;·&nbsp;
+            Office: <strong>{{ user.office.office_name if user.office else '—' }}</strong>
+            {% if user.office and user.office.location %}
+                ({{ user.office.location }})
+            {% endif %}
+            {% if user.controlling_officer %}
+            &nbsp;·&nbsp;
+            Controlling Officer: <strong>{{ user.controlling_officer.full_name or user.controlling_officer.username }}</strong>
+            {% endif %}
+            {% if user.reviewing_officer %}
+            &nbsp;·&nbsp;
+            Reviewing Officer: <strong>{{ user.reviewing_officer.full_name or user.reviewing_officer.username }}</strong>
+            {% endif %}
+        </p>
+    </div>
+
+    <div class="pilot-banner">
+        Pilot Deployment — Corporate Chemistry
+    </div>
+
+    {% if user.has_module_access('tasks') %}
+    <div class="dashboard-section">
+        <h2 class="section-title">Task Metrics</h2>
+        <div class="metrics-grid">
+            <div class="metric-tile">
+                <div class="metric-label">Open Tasks</div>
+                <div class="metric-value">{{ metrics.open_tasks }}</div>
+            </div>
+            <div class="metric-tile metric-danger">
+                <div class="metric-label">Overdue Tasks</div>
+                <div class="metric-value">{{ metrics.overdue_tasks }}</div>
+            </div>
+            <div class="metric-tile metric-warning">
+                <div class="metric-label">Due This Week</div>
+                <div class="metric-value">{{ metrics.due_this_week }}</div>
+            </div>
+            <div class="metric-tile metric-success">
+                <div class="metric-label">Completed This Month</div>
+                <div class="metric-value">{{ metrics.completed_this_month }}</div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="dashboard-section">
+        <h2 class="section-title">Modules</h2>
+        <div class="card-grid">
+
+            {% if user.has_module_access('tasks') %}
+            <a href="{{ url_for('tasks.list_tasks') }}" class="card card-link">
+                <div class="card-icon">🏢</div>
+                <h3>Office Management / Task Tracker</h3>
+                <p>Create tasks, track progress, and maintain task update history.</p>
+                <span class="card-tag">Active</span>
+            </a>
+            {% endif %}
+
+            {% if user.has_module_access('inventory') %}
+            <div class="card card-disabled">
+                <div class="card-icon">📦</div>
+                <h3>Inventory Control</h3>
+                <p>Track chemicals, equipment, and consumable stock levels.</p>
+                <span class="card-tag">Coming Soon</span>
+            </div>
+            {% endif %}
+
+            {% if user.has_module_access('csc') %}
+            <div class="card card-disabled">
+                <div class="card-icon">🔬</div>
+                <h3>CSC Workflow</h3>
+                <p>Sample registration, testing workflows, and certificate generation.</p>
+                <span class="card-tag">Coming Soon</span>
+            </div>
+            {% endif %}
+
+            {% if user.has_module_access('reports') %}
+            <div class="card card-disabled">
+                <div class="card-icon">📊</div>
+                <h3>Reports</h3>
+                <p>Operational dashboards, audit trails, and data exports.</p>
+                <span class="card-tag">Coming Soon</span>
+            </div>
+            {% endif %}
+
+            {% if user.has_module_access('admin_users') %}
+            <a href="{{ url_for('admin.users') }}" class="card card-link">
+                <div class="card-icon">👥</div>
+                <h3>User Management</h3>
+                <p>Create, edit, and manage user accounts and access permissions.</p>
+                <span class="card-tag">Active</span>
+            </a>
+            {% endif %}
+
+            {% if not user.get_accessible_module_codes() | reject('equalto', 'dashboard') | list %}
+            <div class="card card-disabled" style="grid-column: 1 / -1; text-align: center;">
+                <div class="card-icon">🔒</div>
+                <h3>No Modules Assigned</h3>
+                <p>Contact your administrator to request access to specific modules.</p>
+            </div>
+            {% endif %}
+
+        </div>
+    </div>
+
+</section>
+{% endblock %}

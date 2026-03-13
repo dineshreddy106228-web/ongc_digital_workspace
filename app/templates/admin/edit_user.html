@@ -1,0 +1,269 @@
+{% extends "base.html" %}
+{% block title %}Edit User – {{ target.username }}{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+  <div class="page-header">
+    <div class="page-header-left">
+      <h1 class="page-title">Edit User</h1>
+      <p class="page-subtitle">Editing account for <strong>{{ target.username }}</strong>.</p>
+    </div>
+    <div class="page-header-right">
+      <a href="{{ url_for('admin.users') }}" class="btn btn-secondary">← Back to Users</a>
+    </div>
+  </div>
+
+  {# Flash messages #}
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <div class="alert alert-{{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <div class="card form-card">
+    <div class="card-body">
+      <form method="POST"
+            action="{{ url_for('admin.edit_user', user_id=target.id) }}"
+            novalidate>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <div class="form-section">
+          <h3 class="form-section-title">Account Details</h3>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Username</label>
+              <input
+                type="text"
+                class="form-control form-control-readonly"
+                value="{{ target.username }}"
+                disabled
+                readonly
+              >
+              <small class="form-hint">Username cannot be changed.</small>
+            </div>
+
+            <div class="form-group">
+              <label for="full_name" class="form-label">
+                Full Name <span class="required">*</span>
+              </label>
+              <input
+                type="text"
+                id="full_name"
+                name="full_name"
+                class="form-control"
+                value="{{ form_data.get('full_name', target.full_name or '') }}"
+                required
+                placeholder="e.g. John Doe"
+              >
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="email" class="form-label">
+                Email Address <span class="required">*</span>
+              </label>
+              <input
+                type="email"
+                id="email"
+                name="email"
+                class="form-control"
+                value="{{ form_data.get('email', target.email or '') }}"
+                required
+                placeholder="user@ongc.co.in"
+              >
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h3 class="form-section-title">Role &amp; Office Assignment</h3>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="role_id" class="form-label">
+                Role <span class="required">*</span>
+              </label>
+              <select id="role_id" name="role_id" class="form-control" required>
+                <option value="">— Select Role —</option>
+                {% for r in roles %}
+                  <option value="{{ r.id }}"
+                    {% if form_data %}
+                      {{ 'selected' if form_data.get('role_id', '') == r.id|string }}
+                    {% else %}
+                      {{ 'selected' if target.role_id == r.id }}
+                    {% endif %}>
+                    {{ r.name }}{% if r.description %} — {{ r.description }}{% endif %}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="office_id" class="form-label">
+                Office <span class="required">*</span>
+              </label>
+              <select id="office_id" name="office_id" class="form-control" required>
+                <option value="">— Select Office —</option>
+                {% for o in offices %}
+                  <option value="{{ o.id }}"
+                    {% if form_data %}
+                      {{ 'selected' if form_data.get('office_id', '') == o.id|string }}
+                    {% else %}
+                      {{ 'selected' if target.office_id == o.id }}
+                    {% endif %}>
+                    {{ o.office_name }}{% if o.office_code %} ({{ o.office_code }}){% endif %}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h3 class="form-section-title">Additional Information</h3>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="designation" class="form-label">Designation</label>
+              <input
+                type="text"
+                id="designation"
+                name="designation"
+                class="form-control"
+                value="{{ form_data.get('designation', target.designation or '') }}"
+                placeholder="e.g. Senior Geologist"
+              >
+            </div>
+
+            <div class="form-group">
+              <label for="employee_code" class="form-label">Employee Code</label>
+              <input
+                type="text"
+                id="employee_code"
+                name="employee_code"
+                class="form-control"
+                value="{{ form_data.get('employee_code', target.employee_code or '') }}"
+                placeholder="e.g. EMP-12345"
+              >
+            </div>
+          </div>
+
+          <div class="form-group form-group-checkbox">
+            <label class="checkbox-label">
+              <input
+                type="checkbox"
+                name="is_active"
+                id="is_active"
+                {% if form_data %}
+                  {{ 'checked' if form_data.get('is_active') == 'on' }}
+                {% else %}
+                  {{ 'checked' if target.is_active }}
+                {% endif %}
+                {% if target.id == current_user.id %}disabled title="You cannot deactivate your own account here."{% endif %}
+              >
+              <span>
+                Account is active (user can log in)
+                {% if target.id == current_user.id %}
+                  <em class="text-muted">&nbsp;— cannot change your own status</em>
+                {% endif %}
+              </span>
+            </label>
+          </div>
+        </div>
+
+        {# ── Reporting Hierarchy ─────────────────────────────────── #}
+        <div class="form-section">
+          <h3 class="form-section-title">Reporting Hierarchy</h3>
+          <p class="form-section-hint">
+            Controlling Officer sees this user's MY tasks and can add remarks.
+            Reviewing Officer sees TEAM tasks of users in their hierarchy.
+          </p>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="controlling_officer_id" class="form-label">Controlling Officer</label>
+              <select id="controlling_officer_id" name="controlling_officer_id" class="form-control">
+                <option value="">— None —</option>
+                {% for officer in officers %}
+                  {% set co_selected = false %}
+                  {% if form_data %}
+                    {% set co_selected = form_data.get('controlling_officer_id', '') == officer.id|string %}
+                  {% else %}
+                    {% set co_selected = target.controlling_officer_id == officer.id %}
+                  {% endif %}
+                  <option value="{{ officer.id }}" {{ 'selected' if co_selected }}>
+                    {{ officer.full_name or officer.username }}
+                    {% if officer.designation %} ({{ officer.designation }}){% endif %}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="reviewing_officer_id" class="form-label">Reviewing Officer</label>
+              <select id="reviewing_officer_id" name="reviewing_officer_id" class="form-control">
+                <option value="">— None —</option>
+                {% for officer in officers %}
+                  {% set ro_selected = false %}
+                  {% if form_data %}
+                    {% set ro_selected = form_data.get('reviewing_officer_id', '') == officer.id|string %}
+                  {% else %}
+                    {% set ro_selected = target.reviewing_officer_id == officer.id %}
+                  {% endif %}
+                  <option value="{{ officer.id }}" {{ 'selected' if ro_selected }}>
+                    {{ officer.full_name or officer.username }}
+                    {% if officer.designation %} ({{ officer.designation }}){% endif %}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {# ── Module Access ────────────────────────────────────────── #}
+        <div class="form-section">
+          <h3 class="form-section-title">Module Access</h3>
+          <p class="form-section-hint">
+            Select the modules this user can access.
+            For <strong>super_user</strong> role, access is managed automatically (all modules).
+            For <strong>user</strong> role, only checked modules will be accessible.
+          </p>
+
+          <div class="module-access-grid">
+            {% for module_code, module_label in supported_modules %}
+            <label class="module-access-item checkbox-label">
+              <input
+                type="checkbox"
+                name="module_access"
+                value="{{ module_code }}"
+                {{ 'checked' if module_code in current_module_codes }}
+              >
+              <span class="module-access-label">
+                <strong>{{ module_label }}</strong>
+                <small class="module-code-tag">{{ module_code }}</small>
+              </span>
+            </label>
+            {% endfor %}
+          </div>
+          <small class="form-hint" style="margin-top: 0.5rem; display: block;">
+            Currently saved modules: <strong>{{ current_module_codes | join(', ') or 'none' }}</strong>
+          </small>
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">Save Changes</button>
+          <a href="{{ url_for('admin.users') }}" class="btn btn-secondary">Cancel</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

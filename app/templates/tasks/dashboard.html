@@ -1,0 +1,568 @@
+{% extends "base.html" %}
+{% block title %}Task Dashboard – Office Management{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+{% if is_privileged %}
+<script nonce="{{ csp_nonce() }}" src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+
+  {# ── Page header ──────────────────────────────────────────── #}
+  <div class="page-header">
+    <div class="page-header-left">
+      <h1 class="page-title">Office Management / Task Dashboard</h1>
+      <p class="page-subtitle">Calendar view, task summary, and activity overview.</p>
+    </div>
+    <div class="page-header-right" style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+      <a href="{{ url_for('tasks.list_tasks') }}" class="btn btn-secondary">📋 Task List</a>
+      <a href="{{ url_for('tasks.create_task') }}" class="btn btn-primary">+ New Task</a>
+    </div>
+  </div>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+    <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  {# ── Scope Summary Cards ─────────────────────────────────── #}
+  <div class="db-summary-row">
+
+    <a href="{{ url_for('tasks.list_tasks', scope='GLOBAL') }}" class="db-summary-card db-card-global">
+      <div class="db-card-icon">🌐</div>
+      <div class="db-card-body">
+        <div class="db-card-count">{{ global_tasks|length }}</div>
+        <div class="db-card-label">Global Tasks</div>
+        <div class="db-card-hint">Visible to all users</div>
+      </div>
+      <span class="db-scope-dot dot-global"></span>
+    </a>
+
+    <a href="{{ url_for('tasks.list_tasks', scope='TEAM') }}" class="db-summary-card db-card-team">
+      <div class="db-card-icon">👥</div>
+      <div class="db-card-body">
+        <div class="db-card-count">{{ team_tasks|length }}</div>
+        <div class="db-card-label">Team Tasks</div>
+        <div class="db-card-hint">Via reporting hierarchy</div>
+      </div>
+      <span class="db-scope-dot dot-team"></span>
+    </a>
+
+    <a href="{{ url_for('tasks.list_tasks', scope='MY') }}" class="db-summary-card db-card-my">
+      <div class="db-card-icon">👤</div>
+      <div class="db-card-body">
+        <div class="db-card-count">{{ my_tasks|length }}</div>
+        <div class="db-card-label">My Tasks</div>
+        <div class="db-card-hint">Assigned to you</div>
+      </div>
+      <span class="db-scope-dot dot-my"></span>
+    </a>
+
+    {% if is_privileged and analytics %}
+    <div class="db-summary-card db-card-stat">
+      <div class="db-card-icon">⚠️</div>
+      <div class="db-card-body">
+        <div class="db-card-count" style="color: #dc2626;">{{ analytics.overdue }}</div>
+        <div class="db-card-label">Overdue Tasks</div>
+        <div class="db-card-hint">Past due, not completed</div>
+      </div>
+    </div>
+
+    <div class="db-summary-card db-card-stat">
+      <div class="db-card-icon">✅</div>
+      <div class="db-card-body">
+        <div class="db-card-count" style="color: #059669;">{{ analytics.completion_pct }}%</div>
+        <div class="db-card-label">Completion Rate</div>
+        <div class="db-card-hint">{{ analytics.completed }} / {{ analytics.total }} tasks</div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  {# ── Main layout: Calendar + Sidebar ─────────────────────── #}
+  <div class="db-main-layout">
+
+    {# Calendar #}
+    <div class="db-calendar-panel">
+      <div class="card">
+        <div class="card-body" style="padding: 0;">
+
+          {# Calendar navigation #}
+          <div class="cal-nav">
+            <button class="btn btn-secondary btn-sm" id="cal-prev" title="Previous month">‹</button>
+            <span class="cal-month-label" id="cal-month-label">Loading…</span>
+            <button class="btn btn-secondary btn-sm" id="cal-next" title="Next month">›</button>
+            <button class="btn btn-secondary btn-sm" id="cal-today" style="margin-left:auto;">Today</button>
+          </div>
+
+          {# Scope legend #}
+          <div class="cal-legend">
+            <span class="cal-legend-item"><span class="db-scope-dot dot-global"></span> Global</span>
+            <span class="cal-legend-item"><span class="db-scope-dot dot-team"></span> Team</span>
+            <span class="cal-legend-item"><span class="db-scope-dot dot-my"></span> My</span>
+          </div>
+
+          {# Calendar grid – rendered by JS #}
+          <div class="cal-grid" id="cal-grid"></div>
+        </div>
+      </div>
+    </div>
+
+    {# Sidebar: Recent Activity #}
+    <div class="db-sidebar-panel">
+      <div class="card">
+        <div class="card-body">
+          <h3 class="db-section-title">Recent Activity</h3>
+          {% if recent_updates %}
+          <ul class="db-activity-list">
+            {% for upd in recent_updates %}
+            <li class="db-activity-item">
+              <div class="db-activity-meta">
+                <span class="db-activity-user">{{ upd.updater.full_name or upd.updater.username if upd.updater else '—' }}</span>
+                <span class="db-activity-time">{{ upd.created_at.strftime('%d %b, %H:%M') }}</span>
+              </div>
+              <div class="db-activity-text">
+                <a href="{{ url_for('tasks.task_detail', task_id=upd.task_id) }}" class="db-activity-link">
+                  {{ upd.task.task_title if upd.task else 'Task #' ~ upd.task_id }}
+                </a>
+                {% if upd.old_status and upd.new_status %}
+                <span class="db-status-change">
+                  <span class="task-badge status-{{ upd.old_status|lower|replace(' ','-') }}" style="font-size:0.68rem;">{{ upd.old_status }}</span>
+                  → <span class="task-badge status-{{ upd.new_status|lower|replace(' ','-') }}" style="font-size:0.68rem;">{{ upd.new_status }}</span>
+                </span>
+                {% endif %}
+              </div>
+            </li>
+            {% endfor %}
+          </ul>
+          {% else %}
+          <p class="db-empty-hint">No recent activity.</p>
+          {% endif %}
+        </div>
+      </div>
+
+      {# Upcoming due tasks #}
+      <div class="card" style="margin-top: 1rem;">
+        <div class="card-body">
+          <h3 class="db-section-title">Due Soon</h3>
+          <ul class="db-activity-list">
+            {% if due_soon_tasks %}
+              {% for t in due_soon_tasks %}
+              <li class="db-activity-item">
+                <div class="db-activity-meta">
+                  <span class="db-scope-dot dot-{{ t.scope|lower }}" title="{{ t.scope }} task"></span>
+                  <span class="db-activity-time">
+                    {{- t.due_date[8:10] }}&nbsp;{{ ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][t.due_date[5:7]|int - 1] -}}
+                  </span>
+                </div>
+                <div style="display:flex; align-items:center; gap:0.4rem; flex:1; min-width:0;">
+                  <a href="{{ url_for('tasks.task_detail', task_id=t.id) }}" class="db-activity-link">
+                    {{ t.title }}
+                  </a>
+                  <span class="task-badge status-{{ t.status|lower|replace(' ','-') }}"
+                        style="font-size:0.65rem; flex-shrink:0;">{{ t.status }}</span>
+                </div>
+              </li>
+              {% endfor %}
+            {% else %}
+            <li style="color: var(--color-text-muted,#888); font-size:0.85rem; padding: 0.5rem 0;">No tasks with due dates found.</li>
+            {% endif %}
+          </ul>
+        </div>
+      </div>
+    </div>
+
+  </div>{# end db-main-layout #}
+
+
+  {# ── Super-user Analytics ─────────────────────────────────── #}
+  {% if is_privileged and analytics %}
+  <div class="db-analytics-section">
+    <h2 class="db-analytics-title">📊 Visual Analytics</h2>
+
+    <div class="db-charts-grid">
+
+      {# Status Distribution #}
+      <div class="card db-chart-card">
+        <div class="card-body">
+          <h4 class="db-chart-title">Task Status Distribution</h4>
+          <div class="db-chart-wrap">
+            <canvas id="chartStatus"></canvas>
+          </div>
+        </div>
+      </div>
+
+      {# Priority Breakdown #}
+      <div class="card db-chart-card">
+        <div class="card-body">
+          <h4 class="db-chart-title">Priority Breakdown</h4>
+          <div class="db-chart-wrap">
+            <canvas id="chartPriority"></canvas>
+          </div>
+        </div>
+      </div>
+
+      {# Scope Overview #}
+      <div class="card db-chart-card">
+        <div class="card-body">
+          <h4 class="db-chart-title">Scope Overview</h4>
+          <div class="db-chart-wrap">
+            <canvas id="chartScope"></canvas>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  {# Chart data injected for JS #}
+  <script nonce="{{ csp_nonce() }}">
+    const ANALYTICS = {
+      status: {{ analytics.status | tojson }},
+      priority: {{ analytics.priority | tojson }},
+      scope: {{ analytics.scope | tojson }},
+    };
+  </script>
+  {% endif %}
+
+</div>{# end page-wrapper #}
+
+
+{# ── Day-detail Modal ─────────────────────────────────────── #}
+<div id="cal-modal-overlay" class="cal-modal-overlay hidden" role="dialog" aria-modal="true">
+  <div class="cal-modal-box">
+    <div class="cal-modal-header">
+      <h3 class="cal-modal-title" id="cal-modal-title">Tasks due on …</h3>
+      <button class="cal-modal-close" id="cal-modal-close" title="Close">✕</button>
+    </div>
+    <ul class="cal-modal-list" id="cal-modal-list"></ul>
+  </div>
+</div>
+
+
+{# ── Calendar + Charts JS ─────────────────────────────────── #}
+<script nonce="{{ csp_nonce() }}">
+/* ── Calendar data endpoint (month-wise lazy loading) ────────── */
+const CALENDAR_API_URL = "{{ url_for('tasks.calendar_data') }}";
+
+const SCOPE_COLORS = {
+  GLOBAL: '#059669',
+  TEAM:   '#7c3aed',
+  MY:     '#0284c7',
+};
+
+const SCOPE_LABELS = {
+  GLOBAL: 'Global',
+  TEAM:   'Team',
+  MY:     'My',
+};
+
+const MONTH_NAMES = [
+  'January','February','March','April','May','June',
+  'July','August','September','October','November','December'
+];
+
+const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+/* ── State ───────────────────────────────────────────────────── */
+const today = new Date();
+let currentYear = {{ calendar_initial.year }};
+let currentMonth = {{ calendar_initial.month }} - 1;  // 0-based
+const monthCache = new Map(); // key: "YYYY-MM"
+let activeDateMap = {};
+
+function monthKey(year, month0) {
+  return `${year}-${String(month0 + 1).padStart(2, '0')}`;
+}
+
+function buildDateMapFromItems(items) {
+  const map = {};
+  items.forEach(item => {
+    if (!map[item.due_date]) map[item.due_date] = [];
+    map[item.due_date].push(item);
+  });
+  return map;
+}
+
+function setCalendarNavDisabled(disabled) {
+  document.getElementById('cal-prev').disabled = disabled;
+  document.getElementById('cal-next').disabled = disabled;
+  document.getElementById('cal-today').disabled = disabled;
+}
+
+async function loadCalendarMonth(year, month0) {
+  const key = monthKey(year, month0);
+  if (monthCache.has(key)) {
+    activeDateMap = monthCache.get(key);
+    return;
+  }
+
+  setCalendarNavDisabled(true);
+  try {
+    const qs = new URLSearchParams({ year: String(year), month: String(month0 + 1) });
+    const response = await fetch(`${CALENDAR_API_URL}?${qs.toString()}`, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+      credentials: 'same-origin',
+      cache: 'no-store',
+    });
+    if (!response.ok) throw new Error(`Calendar API failed (${response.status})`);
+    const payload = await response.json();
+    const map = buildDateMapFromItems(Array.isArray(payload.items) ? payload.items : []);
+    monthCache.set(key, map);
+    activeDateMap = map;
+  } catch (err) {
+    console.error('Calendar month load failed:', err);
+    activeDateMap = {};
+  } finally {
+    setCalendarNavDisabled(false);
+  }
+}
+
+/* ── Render calendar ─────────────────────────────────────────── */
+async function renderCalendar() {
+  await loadCalendarMonth(currentYear, currentMonth);
+  const grid    = document.getElementById('cal-grid');
+  const label   = document.getElementById('cal-month-label');
+
+  label.textContent = `${MONTH_NAMES[currentMonth]} ${currentYear}`;
+
+  // Day-of-week headers
+  let html = '<div class="cal-week-header">';
+  DAY_NAMES.forEach(d => {
+    html += `<div class="cal-day-name">${d}</div>`;
+  });
+  html += '</div>';
+
+  // Cells grid
+  html += '<div class="cal-cells">';
+
+  const firstDay  = new Date(currentYear, currentMonth, 1).getDay();   // 0=Sun
+  const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+
+  // Leading blank cells
+  for (let i = 0; i < firstDay; i++) {
+    html += '<div class="cal-cell cal-cell-empty"></div>';
+  }
+
+  // Day cells
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    const dayTasks = activeDateMap[dateStr] || [];
+
+    const isToday = (
+      today.getDate() === day &&
+      today.getMonth() === currentMonth &&
+      today.getFullYear() === currentYear
+    );
+
+    const hasTask   = dayTasks.length > 0;
+    let todayClass  = isToday  ? ' cal-today'    : '';
+    let activeClass = hasTask  ? ' cal-has-tasks' : '';
+
+    html += `<div class="cal-cell${todayClass}${activeClass}"
+                  data-date="${dateStr}"
+                  role="button" tabindex="0"
+                  title="${hasTask ? dayTasks.length + ' task(s) due' : ''}">`;
+    html += `<span class="cal-day-num">${day}</span>`;
+
+    if (hasTask) {
+      html += '<div class="cal-dots">';
+      // Deduplicate scopes to show max 1 dot per scope; keep order GLOBAL, TEAM, MY
+      const scopes = [...new Set(dayTasks.map(t => t.scope))].sort((a,b) => {
+        const order = { GLOBAL: 0, TEAM: 1, MY: 2 };
+        return (order[a] ?? 9) - (order[b] ?? 9);
+      });
+      scopes.forEach(scope => {
+        const count = dayTasks.filter(t => t.scope === scope).length;
+        html += `<span class="cal-dot" style="background:${SCOPE_COLORS[scope] || '#999'}"
+                       title="${count} ${SCOPE_LABELS[scope] || scope} task(s)"></span>`;
+      });
+      html += '</div>';
+    }
+
+    html += '</div>';  // cal-cell
+  }
+
+  html += '</div>';  // cal-cells
+  grid.innerHTML = html;
+
+  // Attach click handlers
+  grid.querySelectorAll('.cal-cell.cal-has-tasks').forEach(cell => {
+    cell.addEventListener('click', () => openModalByDate(cell.dataset.date));
+    cell.addEventListener('keypress', e => {
+      if (e.key === 'Enter' || e.key === ' ') openModalByDate(cell.dataset.date);
+    });
+  });
+}
+
+/* ── Modal ───────────────────────────────────────────────────── */
+const overlay   = document.getElementById('cal-modal-overlay');
+const modalList = document.getElementById('cal-modal-list');
+const modalTitle= document.getElementById('cal-modal-title');
+
+function openModalByDate(dateStr) {
+  const tasks = activeDateMap[dateStr] || [];
+  const [yyyy, mm, dd] = dateStr.split('-');
+  const d        = new Date(yyyy, mm - 1, dd);
+  const label    = `${MONTH_NAMES[d.getMonth()]} ${dd}, ${yyyy}`;
+
+  modalTitle.textContent = `Tasks due on ${label}`;
+  modalList.innerHTML = '';
+
+  if (tasks.length === 0) {
+    const empty = document.createElement('li');
+    empty.style.color = '#888';
+    empty.textContent = 'No tasks.';
+    modalList.appendChild(empty);
+  } else {
+    tasks.forEach((task) => {
+      const li = document.createElement('li');
+      li.className = 'cal-modal-task-item';
+
+      const dot = document.createElement('span');
+      dot.className = 'cal-modal-scope-dot';
+      dot.style.background = SCOPE_COLORS[task.scope] || '#666';
+      dot.title = SCOPE_LABELS[task.scope] || String(task.scope || '');
+
+      const link = document.createElement('a');
+      link.className = 'cal-modal-task-link';
+      link.href = `/tasks/${Number(task.id) || 0}`;
+      link.textContent = String(task.title || '');
+
+      const status = document.createElement('span');
+      status.className = 'cal-modal-status';
+      status.textContent = String(task.status || '');
+
+      li.appendChild(dot);
+      li.appendChild(link);
+      li.appendChild(status);
+      modalList.appendChild(li);
+    });
+  }
+
+  overlay.classList.remove('hidden');
+  overlay.focus();
+}
+
+function closeModal() {
+  overlay.classList.add('hidden');
+}
+
+document.getElementById('cal-modal-close').addEventListener('click', closeModal);
+overlay.addEventListener('click', e => { if (e.target === overlay) closeModal(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+/* ── Navigation ─────────────────────────────────────────────── */
+document.getElementById('cal-prev').addEventListener('click', async () => {
+  currentMonth--;
+  if (currentMonth < 0) { currentMonth = 11; currentYear--; }
+  await renderCalendar();
+});
+document.getElementById('cal-next').addEventListener('click', async () => {
+  currentMonth++;
+  if (currentMonth > 11) { currentMonth = 0; currentYear++; }
+  await renderCalendar();
+});
+document.getElementById('cal-today').addEventListener('click', async () => {
+  currentYear  = today.getFullYear();
+  currentMonth = today.getMonth();
+  await renderCalendar();
+});
+
+/* ── Init calendar on page load ─────────────────────────────── */
+renderCalendar();
+
+
+/* ══ ANALYTICS CHARTS (super user only) ════════════════════════ */
+{% if is_privileged and analytics %}
+(function() {
+  const STATUS_COLORS = {
+    'Not Started': '#94a3b8',
+    'In Progress': '#3b82f6',
+    'On Hold':     '#f59e0b',
+    'Completed':   '#22c55e',
+    'Cancelled':   '#ef4444',
+  };
+  const PRIORITY_COLORS = {
+    'Low':      '#34d399',
+    'Medium':   '#60a5fa',
+    'High':     '#f97316',
+    'Critical': '#ef4444',
+  };
+  const SCOPE_CHART_COLORS = {
+    'GLOBAL': '#059669',
+    'TEAM':   '#7c3aed',
+    'MY':     '#0284c7',
+  };
+
+  const chartDefaults = {
+    responsive: true,
+    maintainAspectRatio: true,
+    plugins: {
+      legend: {
+        position: 'bottom',
+        labels: { boxWidth: 12, padding: 12, font: { size: 11 } },
+      },
+    },
+  };
+
+  /* Status donut */
+  const statusKeys   = Object.keys(ANALYTICS.status);
+  const statusVals   = Object.values(ANALYTICS.status);
+  const statusColors = statusKeys.map(k => STATUS_COLORS[k] || '#ccc');
+  new Chart(document.getElementById('chartStatus'), {
+    type: 'doughnut',
+    data: {
+      labels: statusKeys,
+      datasets: [{ data: statusVals, backgroundColor: statusColors, borderWidth: 2, borderColor: '#fff' }],
+    },
+    options: { ...chartDefaults, cutout: '60%' },
+  });
+
+  /* Priority bar */
+  const priKeys   = Object.keys(ANALYTICS.priority);
+  const priVals   = Object.values(ANALYTICS.priority);
+  const priColors = priKeys.map(k => PRIORITY_COLORS[k] || '#ccc');
+  new Chart(document.getElementById('chartPriority'), {
+    type: 'bar',
+    data: {
+      labels: priKeys,
+      datasets: [{
+        label: 'Tasks',
+        data: priVals,
+        backgroundColor: priColors,
+        borderRadius: 6,
+        borderSkipped: false,
+      }],
+    },
+    options: {
+      ...chartDefaults,
+      plugins: { ...chartDefaults.plugins, legend: { display: false } },
+      scales: {
+        y: { beginAtZero: true, ticks: { stepSize: 1, font: { size: 11 } }, grid: { color: '#f1f5f9' } },
+        x: { ticks: { font: { size: 11 } }, grid: { display: false } },
+      },
+    },
+  });
+
+  /* Scope donut */
+  const scopeKeys   = Object.keys(ANALYTICS.scope);
+  const scopeVals   = Object.values(ANALYTICS.scope);
+  const scopeColors = scopeKeys.map(k => SCOPE_CHART_COLORS[k] || '#ccc');
+  new Chart(document.getElementById('chartScope'), {
+    type: 'doughnut',
+    data: {
+      labels: scopeKeys.map(k => k === 'MY' ? 'My' : k === 'TEAM' ? 'Team' : 'Global'),
+      datasets: [{ data: scopeVals, backgroundColor: scopeColors, borderWidth: 2, borderColor: '#fff' }],
+    },
+    options: { ...chartDefaults, cutout: '55%' },
+  });
+})();
+{% endif %}
+</script>
+{% endblock %}

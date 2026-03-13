@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}Edit Task{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+
+  <div class="page-header">
+    <div class="page-header-left">
+      <h1 class="page-title">Edit Task</h1>
+      <p class="page-subtitle">Update task details for "{{ task.task_title }}".</p>
+    </div>
+    <div class="page-header-right">
+      <a href="{{ url_for('tasks.task_detail', task_id=task.id) }}" class="btn btn-secondary">← Back to Task</a>
+    </div>
+  </div>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+    <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  <div class="card form-card">
+    <div class="card-body">
+      <form method="POST" action="{{ url_for('tasks.edit_task', task_id=task.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <!-- Section: Task Details -->
+        <div class="form-section">
+          <div class="form-section-title">Task Details</div>
+
+          <div class="form-group">
+            <label class="form-label" for="task_title">Task Title <span class="required">*</span></label>
+            <input type="text" id="task_title" name="task_title" class="form-control"
+                   value="{{ form_data.get('task_title', task.task_title) }}" required maxlength="255">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="task_description">Task Description</label>
+            <textarea id="task_description" name="task_description" class="form-control"
+                      rows="4" maxlength="5000">{{ form_data.get('task_description', task.task_description or '') }}</textarea>
+          </div>
+        </div>
+
+        <!-- Section: Classification & Assignment -->
+        <div class="form-section">
+          <div class="form-section-title">Classification &amp; Assignment</div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="task_origin">Task Origin</label>
+              <input type="text" id="task_origin" name="task_origin" class="form-control"
+                     value="{{ form_data.get('task_origin', task.task_origin or '') }}" maxlength="100">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="status">Status <span class="required">*</span></label>
+              {% set selected_status = form_data.get('status', task.status) %}
+              <select id="status" name="status" class="form-control" required>
+                {% for status in task_statuses %}
+                <option value="{{ status }}" {{ 'selected' if selected_status == status }}>{{ status }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="priority">Priority <span class="required">*</span></label>
+              {% set selected_priority = form_data.get('priority', task.priority) %}
+              <select id="priority" name="priority" class="form-control" required>
+                {% for priority in task_priorities %}
+                <option value="{{ priority }}" {{ 'selected' if selected_priority == priority }}>{{ priority }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="due_date">Due Date</label>
+              {% set due_value = form_data.get('due_date', task.due_date.strftime('%Y-%m-%d') if task.due_date else '') %}
+              <input type="date" id="due_date" name="due_date" class="form-control" value="{{ due_value }}">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="owner_id">Owner</label>
+              {% set selected_owner = form_data.get('owner_id', task.owner_id|string if task.owner_id else '') %}
+              <select id="owner_id" name="owner_id" class="form-control">
+                <option value="">Unassigned</option>
+                {% for owner in owners %}
+                <option value="{{ owner.id }}" {{ 'selected' if selected_owner == owner.id|string }}>
+                  {{ owner.full_name or owner.username }}{% if owner.office %} ({{ owner.office.office_code }}){% endif %}
+                </option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="task_scope">Task Scope <span class="required">*</span></label>
+              {% set selected_scope = form_data.get('task_scope', task.task_scope) %}
+              <select id="task_scope" name="task_scope" class="form-control" required>
+                <option value="MY" {{ 'selected' if selected_scope == 'MY' }}>MY — Personal task</option>
+                <option value="TEAM" {{ 'selected' if selected_scope == 'TEAM' }}>TEAM — Team task</option>
+                {% if can_create_global %}
+                <option value="GLOBAL" {{ 'selected' if selected_scope == 'GLOBAL' }}>GLOBAL — Office-wide task</option>
+                {% else %}
+                {% if selected_scope == 'GLOBAL' %}
+                <option value="GLOBAL" selected disabled>GLOBAL (read-only — no permission to change)</option>
+                {% endif %}
+                {% endif %}
+              </select>
+            </div>
+
+            <div class="form-group form-group-checkbox">
+              <label class="checkbox-label">
+                {% if form_data %}
+                  {% set active_checked = form_data.get('is_active') == 'on' %}
+                {% else %}
+                  {% set active_checked = task.is_active %}
+                {% endif %}
+                <input type="checkbox" name="is_active" id="is_active" {{ 'checked' if active_checked }}>
+                <span>Task is active</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">Save Changes</button>
+          <a href="{{ url_for('tasks.task_detail', task_id=task.id) }}" class="btn btn-secondary">Cancel</a>
+        </div>
+      </form>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

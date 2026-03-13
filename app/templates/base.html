@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <meta name="robots" content="noindex, nofollow">
+    <title>{% block title %}{{ app_name }}{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    {% block head_extra %}{% endblock %}
+</head>
+<body>
+    <header class="site-header">
+        <div class="header-inner">
+            <a href="{{ url_for('main.index') }}" class="logo-strip">
+                <img
+                    class="org-logo"
+                    src="{{ url_for('static', filename='images/hcc-logo.jpg') }}"
+                    alt="HCC Logo"
+                >
+
+            </a>
+            {% if current_user.is_authenticated %}
+            <nav class="nav-links">
+                <a href="{{ url_for('main.dashboard') }}">Dashboard</a>
+                {% if current_user.has_module_access('tasks') %}
+                <a href="{{ url_for('tasks.list_tasks') }}">Task Tracker</a>
+                {% endif %}
+                {% if current_user.has_module_access('admin_users') %}
+                <a href="{{ url_for('admin.users') }}">Users</a>
+                {% endif %}
+                <a href="{{ url_for('auth.change_password') }}">Change Password</a>
+            </nav>
+            <div class="user-area">
+                <span class="user-badge" title="Logged in as {{ current_user.username }}">{{ current_user.username }}</span>
+                {% if current_user.role %}<span class="user-role-badge">{{ current_user.role.name }}</span>{% endif %}
+                <a href="{{ url_for('auth.logout') }}" class="btn btn-sm btn-nav-outline">Logout</a>
+            </div>
+            {% endif %}
+        </div>
+    </header>
+
+    <div class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+            <div class="flash-area">
+                {% for category, message in messages %}
+                <div class="flash flash-{{ category }}">
+                    {{ message }}
+                    <button class="flash-close js-flash-close" type="button" aria-label="Dismiss alert">&times;</button>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </div>
+
+    <footer class="site-footer">
+        <span>&copy; {{ app_name }} &mdash; Pilot: Corporate Chemistry</span>
+    </footer>
+
+    <script nonce="{{ csp_nonce() }}" src="{{ url_for('static', filename='js/main.js') }}"></script>
+    {% block scripts_extra %}{% endblock %}
+</body>
+</html>

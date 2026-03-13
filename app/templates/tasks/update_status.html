@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Update Task Status{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+
+  <div class="page-header">
+    <div class="page-header-left">
+      <h1 class="page-title">Update Task Status</h1>
+      <p class="page-subtitle">{{ task.task_title }}</p>
+    </div>
+    <div class="page-header-right">
+      <a href="{{ url_for('tasks.task_detail', task_id=task.id) }}" class="btn btn-secondary">← Back to Task</a>
+    </div>
+  </div>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+    <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  <div class="card form-card-narrow">
+    <div class="card-body">
+      <form method="POST" action="{{ url_for('tasks.update_task_status', task_id=task.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <div class="form-section">
+          <div class="form-section-title">Status Change</div>
+
+          <div class="form-group">
+            <label class="form-label">Current Status</label>
+            <div class="form-control form-control-readonly" style="display: flex; align-items: center;">
+              <span class="task-badge status-{{ task.status|lower|replace(' ', '-') }}">{{ task.status }}</span>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="new_status">New Status <span class="required">*</span></label>
+            {% set selected_status = form_data.get('new_status', task.status) %}
+            <select id="new_status" name="new_status" class="form-control" required>
+              {% for status in task_statuses %}
+              <option value="{{ status }}" {{ 'selected' if selected_status == status }}>{{ status }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="update_text">Remarks <span class="required">*</span></label>
+            <textarea id="update_text" name="update_text" class="form-control"
+                      rows="4" required maxlength="5000">{{ form_data.get('update_text', '') }}</textarea>
+            <div class="form-hint">Describe the reason for the status change.</div>
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">Update Status</button>
+          <a href="{{ url_for('tasks.task_detail', task_id=task.id) }}" class="btn btn-secondary">Cancel</a>
+        </div>
+      </form>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

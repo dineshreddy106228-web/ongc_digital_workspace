@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}User Management{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+  <div class="page-header">
+    <div class="page-header-left">
+      <h1 class="page-title">User Management</h1>
+      <p class="page-subtitle">Manage system users, roles, and account status.</p>
+    </div>
+    <div class="page-header-right">
+      <a href="{{ url_for('admin.create_user') }}" class="btn btn-primary">
+        + Create User
+      </a>
+    </div>
+  </div>
+
+  {# Flash messages #}
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <div class="alert alert-{{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <div class="card">
+    <div class="card-body">
+      {% if users %}
+      <div class="table-responsive">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Username</th>
+              <th>Full Name</th>
+              <th>Email</th>
+              <th>Role</th>
+              <th>Office</th>
+              <th>Status</th>
+              <th>Last Login</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for u in users %}
+            <tr>
+              <td>{{ loop.index }}</td>
+              <td><strong>{{ u.username }}</strong></td>
+              <td>{{ u.full_name or '—' }}</td>
+              <td>{{ u.email or '—' }}</td>
+              <td>
+                {% if u.role %}
+                  <span class="badge badge-role">{{ u.role.name }}</span>
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if u.office %}
+                  {{ u.office.office_name }}
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if u.is_active %}
+                  <span class="badge badge-active">Active</span>
+                {% else %}
+                  <span class="badge badge-inactive">Inactive</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if u.last_login_at %}
+                  {{ u.last_login_at.strftime('%d %b %Y %H:%M') }}
+                {% else %}
+                  <span class="text-muted">Never</span>
+                {% endif %}
+              </td>
+              <td class="actions-cell">
+                <a href="{{ url_for('admin.edit_user', user_id=u.id) }}"
+                   class="btn btn-sm btn-secondary"
+                   title="Edit user">Edit</a>
+
+                {% if u.id != current_user.id %}
+                  <a href="{{ url_for('admin.reset_user_password', user_id=u.id) }}"
+                     class="btn btn-sm btn-warning"
+                     title="Reset password">Reset Pwd</a>
+
+                  <form method="POST"
+                        action="{{ url_for('admin.toggle_user_active', user_id=u.id) }}"
+                        style="display:inline;"
+                        onsubmit="return confirm('{{ 'Deactivate' if u.is_active else 'Activate' }} user {{ u.username }}?');">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit"
+                            class="btn btn-sm {{ 'btn-danger' if u.is_active else 'btn-success' }}"
+                            title="{{ 'Deactivate' if u.is_active else 'Activate' }} user">
+                      {{ 'Deactivate' if u.is_active else 'Activate' }}
+                    </button>
+                  </form>
+                {% else %}
+                  <span class="text-muted" style="font-size:0.8rem;">(you)</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+        <p class="text-muted" style="text-align:center;padding:2rem 0;">
+          No users found. <a href="{{ url_for('admin.create_user') }}">Create the first user.</a>
+        </p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

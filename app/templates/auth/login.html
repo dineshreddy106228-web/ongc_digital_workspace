@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Login – {{ app_name }}{% endblock %}
+
+{% block content %}
+<div class="auth-wrapper">
+    <div class="auth-card auth-card-login">
+        <div class="auth-header">
+            <div class="auth-logo-wrap">
+                <img
+                    class="auth-logo-image"
+                    src="{{ url_for('static', filename='images/hcc-emblem.jpg') }}"
+                    alt="HCC Emblem"
+                >
+            </div>
+            <p class="auth-subtitle">Sign in to your workplace</p>
+        </div>
+
+        <form method="POST" action="{{ url_for('auth.login') }}" autocomplete="off" novalidate>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" required
+                       autofocus maxlength="80" autocomplete="username"
+                       placeholder="Enter your username">
+            </div>
+
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required
+                       maxlength="128" autocomplete="current-password"
+                       placeholder="Enter your password">
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-block">Sign In</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

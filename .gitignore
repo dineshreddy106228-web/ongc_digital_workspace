@@ -1,0 +1,36 @@
+# Environment secrets – NEVER commit
+.env
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+.ruff_cache/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Flask instance folder
+instance/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Database migrations auto-generated
+migrations/versions/__pycache__/
