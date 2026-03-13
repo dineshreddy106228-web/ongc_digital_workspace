@@ -11,13 +11,13 @@ from flask import render_template, redirect, url_for, flash, request
 from flask_login import login_required, current_user
 from app.admin import admin_bp
 from app.extensions import db
+from app.features import get_admin_module_options
 from app.models.user import User
 from app.models.role import Role
 from app.models.office import Office
 from app.models.audit_log import AuditLog
 from app.models.user_module_permission import (
     UserModulePermission,
-    SUPPORTED_MODULES,
     SUPER_USER_MODULES,
 )
 from app.utils.decorators import roles_required
@@ -51,8 +51,13 @@ def _set_module_permissions(user: User, selected_codes: list, role: Role):
                 module_code=code,
                 can_access=True,
             )
-        )
+    )
     db.session.flush()
+
+
+def _module_options():
+    """Expose module permissions with app-level feature status for admin forms."""
+    return get_admin_module_options()
 
 
 # ── Users List ───────────────────────────────────────────────────
@@ -142,7 +147,7 @@ def create_user():
                 roles=roles,
                 offices=offices,
                 officers=officers,
-                supported_modules=SUPPORTED_MODULES,
+                supported_modules=_module_options(),
                 form_data=request.form,
                 selected_modules=selected_modules,
             )
@@ -195,7 +200,7 @@ def create_user():
         roles=roles,
         offices=offices,
         officers=officers,
-        supported_modules=SUPPORTED_MODULES,
+        supported_modules=_module_options(),
         form_data={},
         selected_modules=[],
     )
@@ -282,7 +287,7 @@ def edit_user(user_id):
                 roles=roles,
                 offices=offices,
                 officers=officers,
-                supported_modules=SUPPORTED_MODULES,
+                supported_modules=_module_options(),
                 current_module_codes=selected_modules,
                 form_data=request.form,
             )
@@ -379,7 +384,7 @@ def edit_user(user_id):
         roles=roles,
         offices=offices,
         officers=officers,
-        supported_modules=SUPPORTED_MODULES,
+        supported_modules=_module_options(),
         current_module_codes=current_module_codes,
         form_data={},
     )

@@ -238,17 +238,20 @@
           </p>
 
           <div class="module-access-grid">
-            {% for module_code, module_label in supported_modules %}
+            {% for module in supported_modules %}
             <label class="module-access-item checkbox-label">
               <input
                 type="checkbox"
                 name="module_access"
-                value="{{ module_code }}"
-                {{ 'checked' if module_code in current_module_codes }}
+                value="{{ module.code }}"
+                {{ 'checked' if module.code in current_module_codes }}
               >
               <span class="module-access-label">
-                <strong>{{ module_label }}</strong>
-                <small class="module-code-tag">{{ module_code }}</small>
+                <strong>{{ module.label }}</strong>
+                <small class="module-code-tag">{{ module.code }}</small>
+                {% if not module.enabled %}
+                <small class="module-code-tag">feature off</small>
+                {% endif %}
               </span>
             </label>
             {% endfor %}

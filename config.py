@@ -6,7 +6,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-def _as_bool(value: str, default: bool = False) -> bool:
+def _as_bool(value: str | None, default: bool = False) -> bool:
+    """Parse common truthy environment variable strings into booleans."""
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
@@ -77,3 +78,22 @@ class Config:
     # ── App metadata ─────────────────────────────────────────────
     APP_NAME = os.environ.get("APP_NAME", "ONGC Digital Workspace")
     PILOT_OFFICE_CODE = os.environ.get("PILOT_OFFICE_CODE", "CORP_CHEM")
+
+    # ── Feature flags ────────────────────────────────────────────
+    # These flags control which business modules are registered and exposed.
+    ENABLE_OFFICE_MANAGEMENT = _as_bool(
+        os.environ.get("ENABLE_OFFICE_MANAGEMENT"),
+        default=True,
+    )
+    ENABLE_INVENTORY = _as_bool(
+        os.environ.get("ENABLE_INVENTORY"),
+        default=False,
+    )
+    ENABLE_CSC = _as_bool(
+        os.environ.get("ENABLE_CSC"),
+        default=False,
+    )
+    ENABLE_REPORTS = _as_bool(
+        os.environ.get("ENABLE_REPORTS"),
+        default=False,
+    )

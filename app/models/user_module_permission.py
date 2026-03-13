@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 from app.extensions import db
+from app.features import ASSIGNABLE_MODULE_CODES, MODULE_REGISTRY
 
 
 class UserModulePermission(db.Model):
@@ -40,12 +41,8 @@ class UserModulePermission(db.Model):
 
 # Supported module codes
 SUPPORTED_MODULES = [
-    ("dashboard",    "Dashboard"),
-    ("tasks",        "Office Management / Task Tracker"),
-    ("inventory",    "Inventory Control"),
-    ("csc",          "CSC Workflow"),
-    ("reports",      "Reports"),
-    ("admin_users",  "User Management"),
+    (code, MODULE_REGISTRY[code].label)
+    for code in ASSIGNABLE_MODULE_CODES
 ]
 
 # Modules that super_user gets by default (all business modules)

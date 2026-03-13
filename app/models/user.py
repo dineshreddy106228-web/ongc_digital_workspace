@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
 from app.extensions import db
+from app.features import is_module_enabled
 
 
 class User(UserMixin, db.Model):
@@ -143,9 +144,13 @@ class User(UserMixin, db.Model):
         Return True if this user may enter the given module.
 
         Rules:
+          disabled module → denied before user-level permission checks
           super_user → all SUPER_USER_MODULES + admin_users
           user       → only what is in user_module_permissions with can_access=True
         """
+        if not is_module_enabled(module_code):
+            return False
+
         if self.is_super_user():
             from app.models.user_module_permission import SUPER_USER_MODULES
             return module_code in SUPER_USER_MODULES or module_code == "admin_users"
@@ -161,16 +166,16 @@ class User(UserMixin, db.Model):
 
     def get_accessible_module_codes(self) -> list:
         """Return a list of module codes this user can access."""
-        from app.models.user_module_permission import SUPPORTED_MODULES, SUPER_USER_MODULES
+        from app.models.user_module_permission import SUPPORTED_MODULES
 
         if self.is_super_user():
-            return [code for code, _ in SUPPORTED_MODULES]
+            return [code for code, _ in SUPPORTED_MODULES if is_module_enabled(code)]
 
         from app.models.user_module_permission import UserModulePermission
         explicit = UserModulePermission.query.filter_by(
             user_id=self.id, can_access=True
         ).all()
-        return [p.module_code for p in explicit]
+        return [p.module_code for p in explicit if is_module_enabled(p.module_code)]
 
     def __repr__(self):
         return f"<User {self.username}>"

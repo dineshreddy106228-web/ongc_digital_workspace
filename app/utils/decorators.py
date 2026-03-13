@@ -3,6 +3,7 @@
 from functools import wraps
 from flask import abort, flash, redirect, url_for
 from flask_login import current_user
+from app.features import is_module_enabled
 
 
 def roles_required(*role_names):
@@ -42,6 +43,7 @@ def module_access_required(module_code: str):
     Restrict a view to users who have been granted access to *module_code*.
 
     Access is granted when ANY of these is true:
+      - The module is enabled in the current environment.
       - User is super_user (has access to all modules automatically).
       - User has an explicit UserModulePermission entry with can_access=True.
 
@@ -58,6 +60,9 @@ def module_access_required(module_code: str):
             if not current_user.is_active:
                 flash("Your account has been deactivated.", "danger")
                 return redirect(url_for("auth.login"))
+            # Route guards still enforce feature flags even if a URL is guessed.
+            if not is_module_enabled(module_code):
+                abort(404)
             if current_user.has_module_access(module_code):
                 return fn(*args, **kwargs)
             flash(

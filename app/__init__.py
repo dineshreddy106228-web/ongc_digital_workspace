@@ -4,6 +4,7 @@ import secrets
 from flask import Flask, g
 from config import Config
 from app.extensions import db, migrate, login_manager, csrf
+from app.features import is_module_enabled, register_feature_blueprints
 
 
 def create_app(config_class=Config):
@@ -38,12 +39,12 @@ def create_app(config_class=Config):
     from app.auth import auth_bp
     from app.main import main_bp
     from app.admin import admin_bp
-    from app.tasks import tasks_bp
-
     app.register_blueprint(auth_bp)
     app.register_blueprint(main_bp)
     app.register_blueprint(admin_bp, url_prefix="/admin")
-    app.register_blueprint(tasks_bp, url_prefix="/tasks")
+
+    # Business modules are feature-flagged so production can expose only approved areas.
+    register_feature_blueprints(app)
 
     # ── Register CLI commands ────────────────────────────────────
     from app.cli import register_cli
@@ -55,6 +56,7 @@ def create_app(config_class=Config):
         return dict(
             app_name=app.config["APP_NAME"],
             csp_nonce=lambda: getattr(g, "csp_nonce", ""),
+            is_module_enabled=lambda module_code: is_module_enabled(module_code, app),
         )
 
     # ── Per-request nonce for CSP-compatible inline scripts ──────

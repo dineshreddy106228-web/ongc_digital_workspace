@@ -28,7 +28,8 @@
         Pilot Deployment — Corporate Chemistry
     </div>
 
-    {% if user.has_module_access('tasks') %}
+    {# Dashboard metrics only render for modules that are both enabled and assigned. #}
+    {% if task_module_active and metrics %}
     <div class="dashboard-section">
         <h2 class="section-title">Task Metrics</h2>
         <div class="metrics-grid">
@@ -56,41 +57,24 @@
         <h2 class="section-title">Modules</h2>
         <div class="card-grid">
 
-            {% if user.has_module_access('tasks') %}
-            <a href="{{ url_for('tasks.list_tasks') }}" class="card card-link">
-                <div class="card-icon">🏢</div>
-                <h3>Office Management / Task Tracker</h3>
-                <p>Create tasks, track progress, and maintain task update history.</p>
-                <span class="card-tag">Active</span>
-            </a>
-            {% endif %}
-
-            {% if user.has_module_access('inventory') %}
-            <div class="card card-disabled">
-                <div class="card-icon">📦</div>
-                <h3>Inventory Control</h3>
-                <p>Track chemicals, equipment, and consumable stock levels.</p>
-                <span class="card-tag">Coming Soon</span>
-            </div>
-            {% endif %}
-
-            {% if user.has_module_access('csc') %}
-            <div class="card card-disabled">
-                <div class="card-icon">🔬</div>
-                <h3>CSC Workflow</h3>
-                <p>Sample registration, testing workflows, and certificate generation.</p>
-                <span class="card-tag">Coming Soon</span>
-            </div>
-            {% endif %}
-
-            {% if user.has_module_access('reports') %}
-            <div class="card card-disabled">
-                <div class="card-icon">📊</div>
-                <h3>Reports</h3>
-                <p>Operational dashboards, audit trails, and data exports.</p>
-                <span class="card-tag">Coming Soon</span>
-            </div>
-            {% endif %}
+            {# Module cards come from the feature registry so disabled modules stay non-routable. #}
+            {% for module in module_cards %}
+                {% if module.clickable %}
+                <a href="{{ module.href }}" class="card card-link">
+                    <div class="card-icon">{{ module.icon }}</div>
+                    <h3>{{ module.label }}</h3>
+                    <p>{{ module.description }}</p>
+                    <span class="card-tag">{{ module.badge }}</span>
+                </a>
+                {% else %}
+                <div class="card card-disabled">
+                    <div class="card-icon">{{ module.icon }}</div>
+                    <h3>{{ module.label }}</h3>
+                    <p>{{ module.description }}</p>
+                    <span class="card-tag">{{ module.badge }}</span>
+                </div>
+                {% endif %}
+            {% endfor %}
 
             {% if user.has_module_access('admin_users') %}
             <a href="{{ url_for('admin.users') }}" class="card card-link">
@@ -101,11 +85,11 @@
             </a>
             {% endif %}
 
-            {% if not user.get_accessible_module_codes() | reject('equalto', 'dashboard') | list %}
+            {% if not has_clickable_modules %}
             <div class="card card-disabled" style="grid-column: 1 / -1; text-align: center;">
                 <div class="card-icon">🔒</div>
-                <h3>No Modules Assigned</h3>
-                <p>Contact your administrator to request access to specific modules.</p>
+                <h3>No Active Modules Assigned</h3>
+                <p>Contact your administrator to request access to an enabled module.</p>
             </div>
             {% endif %}
 
