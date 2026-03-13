@@ -1,19 +1,9 @@
-# ── Core Framework ───────────────────────────────────────────────
 Flask>=3.0,<4.0
-Werkzeug>=3.0,<4.0
-
-# ── Database ─────────────────────────────────────────────────────
 Flask-SQLAlchemy>=3.1,<4.0
 Flask-Migrate>=4.0,<5.0
-PyMySQL>=1.1,<2.0
-cryptography>=42.0,<44.0       # Required for PyMySQL SSL connections in production
-
-# ── Authentication & Security ────────────────────────────────────
 Flask-Login>=0.6,<1.0
 Flask-WTF>=1.2,<2.0
-
-# ── Configuration ────────────────────────────────────────────────
 python-dotenv>=1.0,<2.0
-
-# ── Production WSGI Server ───────────────────────────────────────
-gunicorn>=21.2,<24.0            # Use instead of Flask dev server on intranet/production
+PyMySQL>=1.1,<2.0
+Werkzeug>=3.0,<4.0
+gunicorn>=21.0,<22.0
