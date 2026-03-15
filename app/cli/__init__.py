@@ -2,7 +2,6 @@
 
 from app.cli.backups import restore_db, validate_backup
 from app.cli.cache import clear_cache
-from app.cli.inventory import inventory_prune_procurement_low_value, inventory_seed_audit
 from app.cli.seed import (
     fix_password_hashes,
     list_users,
@@ -20,8 +19,6 @@ def register_cli(app):
     app.cli.add_command(restore_db)
     app.cli.add_command(validate_backup)
     app.cli.add_command(clear_cache)
-    app.cli.add_command(inventory_seed_audit)
-    app.cli.add_command(inventory_prune_procurement_low_value)
     app.cli.add_command(seed_initial_data)
     app.cli.add_command(seed_module_permissions)
     app.cli.add_command(seed_admin)
@@ -30,3 +27,14 @@ def register_cli(app):
     app.cli.add_command(normalize_roles)
     app.cli.add_command(generate_recurring_tasks)
     app.cli.add_command(fix_password_hashes)
+
+    # Inventory CLI commands depend on pandas/numpy (heavy optional deps).
+    # Import and register them only when ENABLE_INVENTORY is explicitly True
+    # so a production instance without pandas can still boot cleanly.
+    if app.config.get("ENABLE_INVENTORY", False):
+        from app.cli.inventory import (  # noqa: PLC0415
+            inventory_prune_procurement_low_value,
+            inventory_seed_audit,
+        )
+        app.cli.add_command(inventory_seed_audit)
+        app.cli.add_command(inventory_prune_procurement_low_value)

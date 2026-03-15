@@ -10,7 +10,10 @@ import shutil
 import tempfile
 import uuid
 
-import pandas as pd
+try:
+    import pandas as pd
+except ImportError:  # pragma: no cover – present only when ENABLE_INVENTORY=False
+    pd = None  # type: ignore[assignment]
 
 from app.core.services.inventory_intelligence import (
     CONS_FILE,

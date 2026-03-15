@@ -9,8 +9,12 @@ import re
 import tempfile
 from io import BytesIO
 
-import numpy as np
-import pandas as pd
+try:
+    import numpy as np
+    import pandas as pd
+except ImportError:  # pragma: no cover – present only when ENABLE_INVENTORY=False
+    np = None  # type: ignore[assignment]
+    pd = None  # type: ignore[assignment]
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
