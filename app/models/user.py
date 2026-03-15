@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
 from app.extensions import db
+from app.features import is_module_enabled
+from app.core.roles import ADMIN_ROLE, SUPERUSER_ROLE, canonicalize_role_name
 
 
 class User(UserMixin, db.Model):
@@ -23,7 +25,7 @@ class User(UserMixin, db.Model):
     controlling_officer_id = db.Column(
         db.BigInteger, db.ForeignKey("users.id"), nullable=True
     )
-    # reviewing_officer_id: the officer who reviews this user's team tasks
+    # reviewing_officer_id: reserved for future review workflows
     reviewing_officer_id = db.Column(
         db.BigInteger, db.ForeignKey("users.id"), nullable=True
     )
@@ -65,6 +67,32 @@ class User(UserMixin, db.Model):
         foreign_keys="TaskUpdate.updated_by",
         back_populates="updater",
         lazy="dynamic",
+    )
+    task_collaborations = db.relationship(
+        "TaskCollaborator",
+        foreign_keys="TaskCollaborator.user_id",
+        back_populates="user",
+        lazy="dynamic",
+        cascade="all, delete-orphan",
+    )
+    recurring_templates_owned = db.relationship(
+        "RecurringTaskTemplate",
+        foreign_keys="RecurringTaskTemplate.owner_id",
+        back_populates="owner",
+        lazy="dynamic",
+    )
+    recurring_templates_created = db.relationship(
+        "RecurringTaskTemplate",
+        foreign_keys="RecurringTaskTemplate.created_by",
+        back_populates="creator",
+        lazy="dynamic",
+    )
+    recurring_task_collaborations = db.relationship(
+        "RecurringTaskCollaborator",
+        foreign_keys="RecurringTaskCollaborator.user_id",
+        back_populates="user",
+        lazy="dynamic",
+        cascade="all, delete-orphan",
     )
 
     # ── Hierarchy relationships ────────────────────────────────────
@@ -111,31 +139,50 @@ class User(UserMixin, db.Model):
         lazy="dynamic",
         cascade="all, delete-orphan",
     )
+    notifications = db.relationship(
+        "Notification",
+        back_populates="user",
+        lazy="dynamic",
+        cascade="all, delete-orphan",
+        order_by="desc(Notification.created_at)",
+    )
 
     # ── Password helpers ──────────────────────────────────────────
     def set_password(self, password: str) -> None:
-        self.password_hash = generate_password_hash(password)
+        # Explicitly use pbkdf2:sha256 — Werkzeug 3.x defaults to scrypt,
+        # which is unavailable in Python 3.9 on some platforms (macOS).
+        self.password_hash = generate_password_hash(password, method="pbkdf2:sha256")
 
     def check_password(self, password: str) -> bool:
-        return check_password_hash(self.password_hash, password)
+        # Guard against scrypt hashes on platforms where hashlib.scrypt is
+        # absent (Python 3.9 + macOS system OpenSSL).  If the stored hash
+        # used scrypt and the runtime can't verify it, treat it as a failed
+        # authentication so the app never 500s — the admin can reset that
+        # user's password via the CLI (flask reset-password).
+        try:
+            return check_password_hash(self.password_hash, password)
+        except (AttributeError, ValueError):
+            return False
 
     # ── Role helpers (existing – preserved) ──────────────────────
     def has_role(self, *role_names: str) -> bool:
         if self.role is None:
             return False
-        return self.role.name in role_names
+        actual_role = canonicalize_role_name(self.role.name)
+        expected_roles = {canonicalize_role_name(role_name) for role_name in role_names}
+        return actual_role in expected_roles
 
-    # ── Governance helpers (two-role model: super_user / user) ────
+    # ── Governance helpers ────────────────────────────────────────
     def is_super_user(self) -> bool:
-        """True when this user holds the super_user role (full access)."""
-        return self.has_role("super_user")
+        """True when this user holds the superuser business-access role."""
+        return self.has_role(SUPERUSER_ROLE)
 
     # Aliases kept so existing call-sites don't break during migration
     def is_super_admin(self) -> bool:
         return self.is_super_user()
 
     def is_admin_user(self) -> bool:
-        return self.is_super_user()
+        return self.has_role(ADMIN_ROLE)
 
     # ── Module access helper ──────────────────────────────────────
     def has_module_access(self, module_code: str) -> bool:
@@ -143,12 +190,20 @@ class User(UserMixin, db.Model):
         Return True if this user may enter the given module.
 
         Rules:
-          super_user → all SUPER_USER_MODULES + admin_users
-          user       → only what is in user_module_permissions with can_access=True
+          disabled module  → denied before user-level permission checks
+          admin            → admin_users only
+          superuser        → all business modules
+          user             → only what is in user_module_permissions with can_access=True
         """
+        if not is_module_enabled(module_code):
+            return False
+
+        if self.has_role(ADMIN_ROLE):
+            return module_code == "admin_users"
+
         if self.is_super_user():
             from app.models.user_module_permission import SUPER_USER_MODULES
-            return module_code in SUPER_USER_MODULES or module_code == "admin_users"
+            return module_code in SUPER_USER_MODULES
 
         # Explicit permission row check for plain 'user' role
         from app.models.user_module_permission import UserModulePermission
@@ -161,16 +216,19 @@ class User(UserMixin, db.Model):
 
     def get_accessible_module_codes(self) -> list:
         """Return a list of module codes this user can access."""
-        from app.models.user_module_permission import SUPPORTED_MODULES, SUPER_USER_MODULES
+        from app.models.user_module_permission import SUPPORTED_MODULES
+
+        if self.has_role(ADMIN_ROLE):
+            return ["admin_users"]
 
         if self.is_super_user():
-            return [code for code, _ in SUPPORTED_MODULES]
+            return [code for code, _ in SUPPORTED_MODULES if is_module_enabled(code)]
 
         from app.models.user_module_permission import UserModulePermission
         explicit = UserModulePermission.query.filter_by(
             user_id=self.id, can_access=True
         ).all()
-        return [p.module_code for p in explicit]
+        return [p.module_code for p in explicit if is_module_enabled(p.module_code)]
 
     def __repr__(self):
         return f"<User {self.username}>"

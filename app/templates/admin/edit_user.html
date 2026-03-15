@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "components/ui.html" import page_header %}
 {% block title %}Edit User – {{ target.username }}{% endblock %}
 
 {% block head_extra %}
@@ -7,15 +8,12 @@
 
 {% block content %}
 <div class="page-wrapper">
-  <div class="page-header">
-    <div class="page-header-left">
-      <h1 class="page-title">Edit User</h1>
-      <p class="page-subtitle">Editing account for <strong>{{ target.username }}</strong>.</p>
-    </div>
-    <div class="page-header-right">
-      <a href="{{ url_for('admin.users') }}" class="btn btn-secondary">← Back to Users</a>
-    </div>
-  </div>
+  {% call page_header("Edit User", "Editing account for <strong>" ~ target.username ~ "</strong>.", "Administration", "Admin", "neutral") %}
+    <a href="{{ url_for('admin.users') }}" class="btn btn-secondary">
+      <i class="bi bi-arrow-left"></i>
+      <span>Back to Users</span>
+    </a>
+  {% endcall %}
 
   {# Flash messages #}
   {% with messages = get_flashed_messages(with_categories=true) %}
@@ -184,7 +182,6 @@
           <h3 class="form-section-title">Reporting Hierarchy</h3>
           <p class="form-section-hint">
             Controlling Officer sees this user's MY tasks and can add remarks.
-            Reviewing Officer sees TEAM tasks of users in their hierarchy.
           </p>
 
           <div class="form-row">
@@ -206,25 +203,6 @@
                 {% endfor %}
               </select>
             </div>
-
-            <div class="form-group">
-              <label for="reviewing_officer_id" class="form-label">Reviewing Officer</label>
-              <select id="reviewing_officer_id" name="reviewing_officer_id" class="form-control">
-                <option value="">— None —</option>
-                {% for officer in officers %}
-                  {% set ro_selected = false %}
-                  {% if form_data %}
-                    {% set ro_selected = form_data.get('reviewing_officer_id', '') == officer.id|string %}
-                  {% else %}
-                    {% set ro_selected = target.reviewing_officer_id == officer.id %}
-                  {% endif %}
-                  <option value="{{ officer.id }}" {{ 'selected' if ro_selected }}>
-                    {{ officer.full_name or officer.username }}
-                    {% if officer.designation %} ({{ officer.designation }}){% endif %}
-                  </option>
-                {% endfor %}
-              </select>
-            </div>
           </div>
         </div>
 
@@ -233,22 +211,26 @@
           <h3 class="form-section-title">Module Access</h3>
           <p class="form-section-hint">
             Select the modules this user can access.
-            For <strong>super_user</strong> role, access is managed automatically (all modules).
+            <strong>admin</strong> role receives <strong>User Management</strong> only.
+            <strong>superuser</strong> role receives all business modules automatically.
             For <strong>user</strong> role, only checked modules will be accessible.
           </p>
 
           <div class="module-access-grid">
-            {% for module_code, module_label in supported_modules %}
+            {% for module in supported_modules %}
             <label class="module-access-item checkbox-label">
               <input
                 type="checkbox"
                 name="module_access"
-                value="{{ module_code }}"
-                {{ 'checked' if module_code in current_module_codes }}
+                value="{{ module.code }}"
+                {{ 'checked' if module.code in current_module_codes }}
               >
               <span class="module-access-label">
-                <strong>{{ module_label }}</strong>
-                <small class="module-code-tag">{{ module_code }}</small>
+                <strong>{{ module.label }}</strong>
+                <small class="module-code-tag">{{ module.code }}</small>
+                {% if not module.enabled %}
+                <small class="module-code-tag">feature off</small>
+                {% endif %}
               </span>
             </label>
             {% endfor %}

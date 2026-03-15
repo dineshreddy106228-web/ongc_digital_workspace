@@ -1,0 +1,979 @@
+{% extends "base.html" %}
+{% block title %}Inventory Intelligence — {{ app_name }}{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}">
+<script nonce="{{ csp_nonce() }}" src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="inv-page">
+    <div class="inv-module-header">
+        <div>
+            <h1 class="inv-module-title"><i class="bi bi-box-seam"></i> Inventory Intelligence</h1>
+            <p class="inv-module-subtitle" id="pageSubtitle">
+                SAP Material Consumption &amp; Procurement Analytics — Value basis: procurement effective value — Seed data: {{ kpis.period_from }} to {{ kpis.period_to }}
+            </p>
+        </div>
+        <div class="inv-header-actions">
+            <span class="inv-badge inv-badge-info" id="recordBadge">{{ '{:,}'.format(kpis.data_points | default(0)) }} records</span>
+            <span class="inv-badge inv-badge-muted" id="monthBadge">{{ kpis.total_months | default(0) }} months</span>
+            <a href="{{ url_for('inventory.seed_files') }}" class="btn btn-sm btn-secondary">
+                <i class="bi bi-upload"></i> Update Seed Files
+            </a>
+        </div>
+    </div>
+
+    {# ── Sub-navigation ───────────────────────────────────────────────── #}
+    <nav class="inv-subnav" aria-label="Inventory sub-navigation">
+        <a href="{{ url_for('inventory.index') }}" class="inv-subnav-link active">
+            <i class="bi bi-bar-chart-line"></i> Materials Intelligence
+        </a>
+        <a href="{{ url_for('inventory.forecast_page') }}" class="inv-subnav-link">
+            <i class="bi bi-graph-up-arrow"></i> Demand Forecast
+        </a>
+        <a href="{{ url_for('inventory.seed_files') }}" class="inv-subnav-link">
+            <i class="bi bi-database-gear"></i> Data Management
+        </a>
+    </nav>
+
+    <div class="inv-kpi-row">
+        <div class="inv-kpi-card">
+            <div class="inv-kpi-icon inv-kpi-blue"><i class="bi bi-boxes"></i></div>
+            <div>
+                <div class="inv-kpi-value" id="kpiMaterials">{{ kpis.total_materials }}</div>
+                <div class="inv-kpi-label">Total Materials</div>
+                <div class="inv-kpi-hint">Unique SAP materials tracked</div>
+            </div>
+        </div>
+        <div class="inv-kpi-card">
+            <div class="inv-kpi-icon inv-kpi-green"><i class="bi bi-building"></i></div>
+            <div>
+                <div class="inv-kpi-value" id="kpiPlants">{{ kpis.unique_plants }}</div>
+                <div class="inv-kpi-label">Plants</div>
+                <div class="inv-kpi-hint" id="kpiPlantHint">Across all storage locations</div>
+            </div>
+        </div>
+        <div class="inv-kpi-card">
+            <div class="inv-kpi-icon inv-kpi-amber"><i class="bi bi-truck"></i></div>
+            <div>
+                <div class="inv-kpi-value" id="kpiVendors">{{ kpis.total_vendors }}</div>
+                <div class="inv-kpi-label">Vendors</div>
+                <div class="inv-kpi-hint">Procurement records in scope</div>
+            </div>
+        </div>
+        <div class="inv-kpi-card">
+            <div class="inv-kpi-icon inv-kpi-purple"><i class="bi bi-currency-rupee"></i></div>
+            <div>
+                <div class="inv-kpi-value inv-kpi-value-sm" id="kpiValue">
+                    {% if kpis.total_procurement_value >= 10000000 %}
+                        ₹ {{ '{:,.1f}'.format(kpis.total_procurement_value / 10000000) }} Cr
+                    {% elif kpis.total_procurement_value >= 100000 %}
+                        ₹ {{ '{:,.1f}'.format(kpis.total_procurement_value / 100000) }} L
+                    {% else %}
+                        ₹ {{ '{:,.0f}'.format(kpis.total_procurement_value) }}
+                    {% endif %}
+                </div>
+                <div class="inv-kpi-label">Total Procurement Value</div>
+                <div class="inv-kpi-hint" id="kpiPeriod">{{ kpis.period_from }} — {{ kpis.period_to }}</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="inv-card inv-chart-card">
+        <div class="inv-card-header">
+            <div>
+                <h2 class="inv-card-title">Top Consumers</h2>
+                <p class="inv-card-subtitle" id="topConsumersScope">Top 10 materials by procurement value across all plants.</p>
+            </div>
+        </div>
+        <div class="inv-card-body">
+            <div class="inv-top-chart-wrap">
+                <canvas id="topConsumersChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <div class="inv-toolbar">
+        <div class="inv-search-wrap inv-search-wide">
+            <i class="bi bi-search inv-search-icon"></i>
+            <input
+                type="text"
+                id="materialSearch"
+                class="inv-search-input"
+                placeholder="Search by material, material code, or vendor..."
+                autocomplete="off"
+            >
+        </div>
+        <div class="inv-filter-group-inline">
+            <label for="plantFilter" class="inv-filter-label">Plant</label>
+            <select id="plantFilter" class="inv-filter-select">
+                <option value="">All Plants</option>
+                {% for plant in filter_options.plants %}
+                <option value="{{ plant }}">{{ plant }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="inv-toolbar-meta">
+            <span id="materialCount" class="inv-count-badge">{{ materials_count }} materials</span>
+            <a id="btnExport" href="{{ url_for('inventory.export_excel') }}" class="btn btn-sm btn-primary">
+                <i class="bi bi-file-earmark-excel"></i> Export Excel
+            </a>
+            <button type="button" id="btnCollapseAll" class="btn btn-sm btn-secondary" title="Collapse all expanded rows">
+                <i class="bi bi-arrows-collapse"></i> Collapse All
+            </button>
+        </div>
+    </div>
+
+    <div class="inv-table-wrap" id="tableWrap">
+        <table class="inv-data-table" id="materialsTable">
+            <thead>
+                <tr>
+                    <th class="inv-rank-col">#</th>
+                    <th class="inv-th-material" data-sort="material">Material <i class="bi bi-arrow-down-up inv-sort-icon"></i></th>
+                    <th data-sort="material_code">Material Code <i class="bi bi-arrow-down-up inv-sort-icon"></i></th>
+                    <th>UoM</th>
+                    <th class="text-right" data-sort="avg_monthly_consumption">Avg Monthly <i class="bi bi-arrow-down-up inv-sort-icon"></i></th>
+                    <th class="text-right" data-sort="forecast_6m_qty">Forecast 6M Qty <i class="bi bi-arrow-down-up inv-sort-icon"></i></th>
+                    <th class="text-right" data-sort="last_unit_price">Last Unit Price <i class="bi bi-arrow-down-up inv-sort-icon"></i></th>
+                    <th class="text-right" data-sort="last_proc_value">Last Procurement Value <i class="bi bi-arrow-down-up inv-sort-icon"></i></th>
+                    <th class="text-right" data-sort="max_price_swing_pct">Max Price Swing <i class="bi bi-arrow-down-up inv-sort-icon"></i></th>
+                    <th>Vendor(s)</th>
+                </tr>
+            </thead>
+            <tbody id="materialsBody"></tbody>
+        </table>
+    </div>
+
+    <div id="emptyState" class="inv-empty-state" style="display:none;">
+        <span class="inv-empty-icon"><i class="bi bi-search"></i></span>
+        <p>No materials match your search criteria.</p>
+    </div>
+</div>
+
+<div class="inv-modal-backdrop" id="analyticsModal" style="display:none;">
+    <div class="inv-modal inv-modal-wide">
+        <div class="inv-modal-header">
+            <div>
+                <h3 class="inv-modal-title" id="analyticsTitle">Material Analysis</h3>
+                <div class="inv-modal-meta" id="analyticsMeta"></div>
+            </div>
+            <button type="button" class="inv-modal-close" id="analyticsModalClose" aria-label="Close">&times;</button>
+        </div>
+        <div class="inv-modal-body">
+            <div class="inv-chart-tabs">
+                <button class="inv-chart-tab is-active" data-tab="trend">Trend</button>
+                <button class="inv-chart-tab" data-tab="forecast">Forecast</button>
+                <button class="inv-chart-tab" data-tab="yoy">YoY</button>
+                <button class="inv-chart-tab" data-tab="vendors">Vendors</button>
+                <button class="inv-chart-tab" data-tab="storage">Storage</button>
+                <button class="inv-chart-tab" data-tab="variance">Cost Variance</button>
+            </div>
+            <div id="analyticsCanvasWrap" class="inv-chart-area">
+                <canvas id="analyticsChart"></canvas>
+            </div>
+            <div class="inv-chart-summary" id="analyticsSummary"></div>
+            <div class="inv-analytics-panel" id="analyticsPanel"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts_extra %}
+<script nonce="{{ csp_nonce() }}">
+(function() {
+    'use strict';
+
+    var dashboardData = {{ dashboard_json | safe }};
+    var MATERIALS = dashboardData.materials || [];
+    var TOP_CONSUMERS = dashboardData.top_consumers || [];
+    var currentPlant = dashboardData.kpis ? (dashboardData.kpis.selected_plant || '') : '';
+    var filteredMaterials = MATERIALS.slice();
+    var sortCol = 'total_value';
+    var sortAsc = false;
+    var expandedRows = {};
+    var topConsumersChart = null;
+    var analyticsChart = null;
+    var analyticsData = null;
+    var activeAnalyticsTab = 'trend';
+
+    function fmtNum(value, digits) {
+        if (value == null || isNaN(value)) return '\u2014';
+        return Number(value).toLocaleString('en-IN', {
+            minimumFractionDigits: digits == null ? 2 : digits,
+            maximumFractionDigits: digits == null ? 2 : digits
+        });
+    }
+
+    function fmtCurrency(value) {
+        if (value == null || isNaN(value) || Number(value) === 0) return '\u2014';
+        if (value >= 1e7) return '\u20B9 ' + fmtNum(value / 1e7, 2) + ' Cr';
+        if (value >= 1e5) return '\u20B9 ' + fmtNum(value / 1e5, 2) + ' L';
+        return '\u20B9 ' + fmtNum(value, 0);
+    }
+
+    function fmtPct(value) {
+        if (value == null || isNaN(value)) return '\u2014';
+        var sign = Number(value) > 0 ? '+' : '';
+        return sign + fmtNum(value, 2) + '%';
+    }
+
+    function esc(value) {
+        if (value == null) return '';
+        var div = document.createElement('div');
+        div.textContent = value;
+        return div.innerHTML;
+    }
+
+    function buildQuery(params) {
+        var search = new URLSearchParams();
+        Object.keys(params).forEach(function(key) {
+            if (params[key]) search.set(key, params[key]);
+        });
+        var query = search.toString();
+        return query ? '?' + query : '';
+    }
+
+    function trendClass(value) {
+        if (value == null || isNaN(value)) return 'inv-trend-neutral';
+        return Number(value) >= 0 ? 'inv-trend-up' : 'inv-trend-down';
+    }
+
+    function showLoadingModal(material) {
+        analyticsData = null;
+        document.getElementById('analyticsTitle').textContent = material;
+        document.getElementById('analyticsMeta').innerHTML = '';
+        document.getElementById('analyticsSummary').innerHTML =
+            '<div class="inv-loading"><i class="bi bi-arrow-repeat inv-spin"></i> Loading analytics\u2026</div>';
+        document.getElementById('analyticsPanel').innerHTML = '';
+        document.getElementById('analyticsCanvasWrap').style.display = '';
+        document.getElementById('analyticsModal').style.display = '';
+    }
+
+    function closeModal() {
+        document.getElementById('analyticsModal').style.display = 'none';
+        if (analyticsChart) {
+            analyticsChart.destroy();
+            analyticsChart = null;
+        }
+    }
+
+    function updateHeader(kpis) {
+        document.getElementById('recordBadge').textContent = fmtNum(kpis.data_points, 0) + ' records';
+        document.getElementById('monthBadge').textContent = fmtNum(kpis.total_months, 0) + ' months';
+        document.getElementById('kpiMaterials').textContent = fmtNum(kpis.total_materials, 0);
+        document.getElementById('kpiPlants').textContent = fmtNum(kpis.unique_plants, 0);
+        document.getElementById('kpiVendors').textContent = fmtNum(kpis.total_vendors, 0);
+        document.getElementById('kpiValue').textContent = fmtCurrency(kpis.total_procurement_value);
+        document.getElementById('kpiPeriod').textContent = (kpis.period_from || '') + ' — ' + (kpis.period_to || '');
+        document.getElementById('kpiPlantHint').textContent = kpis.selected_plant ? ('Focused on plant ' + kpis.selected_plant) : 'Across all storage locations';
+        document.getElementById('pageSubtitle').textContent =
+            'SAP Material Consumption & Procurement Analytics — Value basis: procurement effective value — Seed data: ' +
+            (kpis.period_from || '—') + ' to ' + (kpis.period_to || '—') +
+            (kpis.selected_plant ? ' · Plant ' + kpis.selected_plant : '');
+        document.getElementById('topConsumersScope').textContent = kpis.selected_plant
+            ? 'Top 10 materials by procurement value for plant ' + kpis.selected_plant + '.'
+            : 'Top 10 materials by procurement value across all plants.';
+    }
+
+    function renderTopConsumers(consumers) {
+        var canvas = document.getElementById('topConsumersChart');
+        if (topConsumersChart) {
+            topConsumersChart.destroy();
+            topConsumersChart = null;
+        }
+        if (!consumers || consumers.length === 0) {
+            var ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            return;
+        }
+
+        topConsumersChart = new Chart(canvas, {
+            type: 'bar',
+            data: {
+                labels: consumers.map(function(item) { return item.material; }),
+                datasets: [{
+                    label: 'Procurement Value',
+                    data: consumers.map(function(item) { return item.total_value; }),
+                    backgroundColor: [
+                        '#0f5aa6', '#10736e', '#d97706', '#0d9488', '#b45309',
+                        '#14532d', '#1d4ed8', '#0369a1', '#7c2d12', '#166534'
+                    ],
+                    borderRadius: 5,
+                    borderSkipped: false
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return fmtCurrency(context.raw);
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { color: 'rgba(15, 23, 42, 0.08)' },
+                        ticks: {
+                            callback: function(value) {
+                                return fmtCurrency(value);
+                            }
+                        }
+                    },
+                    y: {
+                        grid: { display: false }
+                    }
+                }
+            }
+        });
+    }
+
+    function updateExportLink() {
+        var query = document.getElementById('materialSearch').value.trim();
+        document.getElementById('btnExport').href = '/inventory/export' + buildQuery({
+            plant: currentPlant,
+            q: query
+        });
+    }
+
+    var tbody = document.getElementById('materialsBody');
+    var emptyEl = document.getElementById('emptyState');
+    var tableWrap = document.getElementById('tableWrap');
+    var countEl = document.getElementById('materialCount');
+
+    function renderTable() {
+        var rows = filteredMaterials.slice().sort(function(a, b) {
+            var left = a[sortCol];
+            var right = b[sortCol];
+            if (typeof left === 'string') {
+                left = left.toLowerCase();
+                right = (right || '').toLowerCase();
+            }
+            if (left < right) return sortAsc ? -1 : 1;
+            if (left > right) return sortAsc ? 1 : -1;
+            return 0;
+        });
+
+        tbody.innerHTML = '';
+        emptyEl.style.display = rows.length ? 'none' : '';
+        tableWrap.style.display = rows.length ? '' : 'none';
+        countEl.textContent = rows.length + ' material' + (rows.length === 1 ? '' : 's');
+
+        rows.forEach(function(material, index) {
+            var tr = document.createElement('tr');
+            tr.className = 'inv-row-main';
+            tr.dataset.material = material.material;
+
+            var vendors = material.vendors || [];
+            var vendorStr = vendors.slice(0, 2).map(esc).join(', ');
+            var vendorMore = vendors.length > 2 ? ' <span class="inv-vendor-more">+' + (vendors.length - 2) + ' more</span>' : '';
+            var swingClass = material.max_price_swing_pct >= 15 ? 'inv-status-chip inv-status-alert' : 'inv-status-chip';
+            var swingSymbol = '';
+            if (material.max_price_swing_direction === 'up') swingSymbol = '\u25B2 ';
+            if (material.max_price_swing_direction === 'down') swingSymbol = '\u25BC ';
+
+            tr.innerHTML =
+                '<td class="inv-rank-col"><span class="inv-rank-badge">' + (index + 1) + '</span></td>' +
+                '<td class="inv-td-material"><a href="#" class="inv-material-link" data-action="analytics" data-material="' + esc(material.material) + '">' +
+                    '<i class="bi bi-graph-up-arrow inv-chart-hint"></i> ' + esc(material.material) + '</a></td>' +
+                '<td class="inv-td-code"><a href="#" class="inv-code-link" data-action="analytics" data-material="' + esc(material.material) + '">' + esc(material.material_code || '\u2014') + '</a></td>' +
+                '<td>' + esc(material.uom || '\u2014') + '</td>' +
+                '<td class="text-right inv-num inv-td-expandable" data-action="expand-consumption" data-material="' + esc(material.material) + '">' + fmtNum(material.avg_monthly_consumption, 2) + '</td>' +
+                '<td class="text-right inv-num">' + fmtNum(material.forecast_6m_qty, 2) + '</td>' +
+                '<td class="text-right inv-num">' + fmtCurrency(material.last_unit_price) + '</td>' +
+                '<td class="text-right inv-num inv-val inv-td-expandable" data-action="expand-procurement" data-material="' + esc(material.material) + '">' + fmtCurrency(material.last_proc_value) + '</td>' +
+                '<td class="text-right"><span class="' + swingClass + '">' + swingSymbol + fmtPct(material.max_price_swing_pct) + '</span></td>' +
+                '<td class="inv-td-vendors">' + (vendorStr || '<span class="inv-muted">\u2014</span>') + vendorMore + '</td>';
+            tbody.appendChild(tr);
+        });
+    }
+
+    function applyFilters() {
+        var query = document.getElementById('materialSearch').value.toLowerCase().trim();
+        filteredMaterials = MATERIALS.filter(function(material) {
+            if (!query) return true;
+            return (material.material || '').toLowerCase().indexOf(query) !== -1 ||
+                (material.material_code || '').toLowerCase().indexOf(query) !== -1 ||
+                (material.vendors || []).join(' ').toLowerCase().indexOf(query) !== -1;
+        });
+        expandedRows = {};
+        renderTable();
+        updateExportLink();
+    }
+
+    function fetchOverview(plant) {
+        var url = '/inventory/api/overview' + buildQuery({ plant: plant });
+        return fetch(url).then(function(response) { return response.json(); });
+    }
+
+    document.getElementById('materialSearch').addEventListener('input', function() {
+        applyFilters();
+    });
+
+    document.getElementById('plantFilter').addEventListener('change', function(event) {
+        currentPlant = event.target.value;
+        fetchOverview(currentPlant).then(function(payload) {
+            dashboardData = payload;
+            MATERIALS = payload.materials || [];
+            TOP_CONSUMERS = payload.top_consumers || [];
+            updateHeader(payload.kpis || {});
+            renderTopConsumers(TOP_CONSUMERS);
+            applyFilters();
+        });
+    });
+
+    document.querySelectorAll('[data-sort]').forEach(function(th) {
+        th.style.cursor = 'pointer';
+        th.addEventListener('click', function() {
+            var col = th.dataset.sort;
+            if (sortCol === col) {
+                sortAsc = !sortAsc;
+            } else {
+                sortCol = col;
+                sortAsc = col === 'material' || col === 'material_code';
+            }
+            renderTable();
+        });
+    });
+
+    tbody.addEventListener('click', function(event) {
+        var actionEl = event.target.closest('[data-action]');
+        if (!actionEl) return;
+        event.preventDefault();
+        var action = actionEl.dataset.action;
+        var material = actionEl.dataset.material;
+        var row = actionEl.closest('tr');
+        if (action === 'analytics') {
+            openAnalytics(material);
+        } else if (action === 'expand-consumption') {
+            toggleExpand(material, row, 'consumption');
+        } else if (action === 'expand-procurement') {
+            toggleExpand(material, row, 'procurement');
+        }
+    });
+
+    document.getElementById('btnCollapseAll').addEventListener('click', function() {
+        expandedRows = {};
+        document.querySelectorAll('.inv-expand-row').forEach(function(row) { row.remove(); });
+        document.querySelectorAll('.inv-row-main.is-expanded').forEach(function(row) { row.classList.remove('is-expanded'); });
+    });
+
+    function toggleExpand(material, mainRow, type) {
+        var next = mainRow.nextElementSibling;
+        if (next && next.classList.contains('inv-expand-row') && next.dataset.expandType === type) {
+            next.remove();
+            mainRow.classList.remove('is-expanded');
+            delete expandedRows[material + ':' + type];
+            return;
+        }
+        if (next && next.classList.contains('inv-expand-row')) next.remove();
+
+        mainRow.classList.add('is-expanded');
+        expandedRows[material + ':' + type] = true;
+
+        var expandRow = document.createElement('tr');
+        expandRow.className = 'inv-expand-row';
+        expandRow.dataset.expandType = type;
+        expandRow.innerHTML = '<td colspan="11"><div class="inv-expand-content"><div class="inv-loading"><i class="bi bi-arrow-repeat inv-spin"></i> Loading ' + type + ' data\u2026</div></div></td>';
+        mainRow.after(expandRow);
+
+        var url = type === 'consumption'
+            ? '/inventory/api/consumption/' + encodeURIComponent(material)
+            : '/inventory/api/procurement/' + encodeURIComponent(material);
+        url += buildQuery({ plant: currentPlant });
+
+        fetch(url).then(function(response) { return response.json(); }).then(function(data) {
+            if (!data || data.length === 0) {
+                expandRow.querySelector('.inv-expand-content').innerHTML = '<div class="inv-muted">No ' + type + ' data available for this material.</div>';
+                return;
+            }
+            if (type === 'consumption') renderConsumptionExpand(expandRow, data, material);
+            else renderProcurementExpand(expandRow, data, material);
+        }).catch(function() {
+            expandRow.querySelector('.inv-expand-content').innerHTML = '<div class="inv-error">Failed to load data. Please try again.</div>';
+        });
+    }
+
+    function renderConsumptionExpand(row, data, material) {
+        var html = '<div class="inv-expand-header"><i class="bi bi-bar-chart"></i><strong>Monthly Consumption Detail</strong> — ' + esc(material) + '</div>';
+        html += '<div class="inv-expand-table-wrap"><table class="inv-expand-table">';
+        html += '<thead><tr><th>Period</th><th class="text-right">Usage Quantity</th><th>UoM</th><th class="text-right">Consumption Value</th></tr></thead><tbody>';
+        data.forEach(function(item) {
+            html += '<tr><td>' + esc(item.period) + '</td><td class="text-right inv-num">' + fmtNum(item.quantity, 2) +
+                '</td><td>' + esc(item.uom) + '</td><td class="text-right inv-num inv-val">' + fmtCurrency(item.value) + '</td></tr>';
+        });
+        html += '</tbody></table></div>';
+        row.querySelector('.inv-expand-content').innerHTML = html;
+    }
+
+    function renderProcurementExpand(row, data, material) {
+        var html = '<div class="inv-expand-header"><i class="bi bi-receipt"></i><strong>Procurement History</strong> — ' + esc(material) + '</div>';
+        html += '<div class="inv-expand-table-wrap"><table class="inv-expand-table">';
+        html += '<thead><tr><th>PO Number</th><th>Date</th><th>Plant</th><th>Vendor</th><th class="text-right">Order Qty</th><th>Unit</th><th class="text-right">Unit Price</th><th class="text-right">Effective Value</th></tr></thead><tbody>';
+        data.forEach(function(item) {
+            html += '<tr><td class="inv-mono">' + esc(item.po_number) + '</td><td>' + esc(item.doc_date) + '</td><td>' + esc(item.plant) + '</td><td>' + esc(item.vendor) +
+                '</td><td class="text-right inv-num">' + fmtNum(item.order_qty, 2) + '</td><td>' + esc(item.order_unit) + '</td><td class="text-right inv-num">' +
+                fmtCurrency(item.unit_price) + '</td><td class="text-right inv-num inv-val">' + fmtCurrency(item.effective_value) + '</td></tr>';
+        });
+        html += '</tbody></table></div>';
+        row.querySelector('.inv-expand-content').innerHTML = html;
+    }
+
+    function openAnalytics(material) {
+        activeAnalyticsTab = 'trend';
+        document.querySelectorAll('.inv-chart-tab').forEach(function(tab) {
+            tab.classList.toggle('is-active', tab.dataset.tab === activeAnalyticsTab);
+        });
+        showLoadingModal(material);
+        fetch('/inventory/api/analytics/' + encodeURIComponent(material) + buildQuery({ plant: currentPlant }))
+            .then(function(response) { return response.json(); })
+            .then(function(payload) {
+                analyticsData = payload;
+                renderAnalytics();
+            })
+            .catch(function() {
+                document.getElementById('analyticsSummary').innerHTML = '<div class="inv-error">Failed to load analytics.</div>';
+            });
+    }
+
+    function renderAnalytics() {
+        if (!analyticsData) return;
+        document.getElementById('analyticsTitle').textContent = analyticsData.material;
+        var meta = [];
+        if (analyticsData.plant) meta.push('<span class="inv-badge inv-badge-info">Plant ' + esc(analyticsData.plant) + '</span>');
+        meta.push('<span class="inv-badge inv-badge-muted">' + fmtNum(analyticsData.summary.active_months, 0) + ' active months</span>');
+        meta.push('<span class="inv-badge inv-badge-muted">' + fmtNum(analyticsData.summary.storage_location_count, 0) + ' storage locations</span>');
+        document.getElementById('analyticsMeta').innerHTML = meta.join('');
+
+        if (activeAnalyticsTab === 'trend') renderTrendTab();
+        if (activeAnalyticsTab === 'forecast') renderForecastTab();
+        if (activeAnalyticsTab === 'yoy') renderYoYTab();
+        if (activeAnalyticsTab === 'vendors') renderVendorsTab();
+        if (activeAnalyticsTab === 'storage') renderStorageTab();
+        if (activeAnalyticsTab === 'variance') renderVarianceTab();
+    }
+
+    function destroyAnalyticsChart() {
+        if (analyticsChart) {
+            analyticsChart.destroy();
+            analyticsChart = null;
+        }
+    }
+
+    function renderTrendTab() {
+        destroyAnalyticsChart();
+        document.getElementById('analyticsCanvasWrap').style.display = '';
+        document.getElementById('analyticsPanel').innerHTML = '';
+
+        analyticsChart = new Chart(document.getElementById('analyticsChart'), {
+            type: 'line',
+            data: {
+                labels: analyticsData.consumption.labels,
+                datasets: [
+                    {
+                        label: 'Usage Quantity',
+                        data: analyticsData.consumption.quantities,
+                        borderColor: '#0f5aa6',
+                        backgroundColor: 'rgba(15, 90, 166, 0.12)',
+                        yAxisID: 'y',
+                        tension: 0.25,
+                        fill: true
+                    },
+                    {
+                        label: 'Consumption Value',
+                        data: analyticsData.consumption.values,
+                        borderColor: '#0f766e',
+                        backgroundColor: 'rgba(15, 118, 110, 0.08)',
+                        yAxisID: 'y1',
+                        tension: 0.25
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                scales: {
+                    y: { beginAtZero: true, grid: { color: 'rgba(15, 23, 42, 0.08)' } },
+                    y1: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false } }
+                }
+            }
+        });
+
+        document.getElementById('analyticsSummary').innerHTML =
+            renderSummaryGrid([
+                ['Total Quantity', fmtNum(analyticsData.summary.total_qty, 2)],
+                ['Total Procurement Value', fmtCurrency(analyticsData.summary.total_value)],
+                ['Vendors', fmtNum(analyticsData.summary.vendor_count, 0)],
+                ['Last Unit Price', fmtCurrency(analyticsData.summary.last_unit_price)]
+            ]);
+    }
+
+    function renderForecastTab() {
+        destroyAnalyticsChart();
+        document.getElementById('analyticsCanvasWrap').style.display = '';
+        document.getElementById('analyticsPanel').innerHTML = '';
+
+        var f = analyticsData.forecast;
+        var historyLabels  = f.history_labels   || [];
+        var historyValues  = f.history_quantities || [];
+        var forecastLabels = f.forecast_labels   || [];
+        var p5Values  = f.p5_quantities  || [];
+        var p10Values = f.p10_quantities || [];
+        var p50Values = f.p50_quantities || f.forecast_quantities || [];
+        var p90Values = f.p90_quantities || [];
+        var p95Values = f.p95_quantities || [];
+        var forecastRows = f.forecast_rows || [];
+
+        var nHist = historyLabels.length;
+        var nFore = forecastLabels.length;
+        var padHist = new Array(nHist).fill(null);
+        var padFore = new Array(nFore).fill(null);
+
+        var labels        = historyLabels.concat(forecastLabels);
+        var historySeries = historyValues.concat(padFore);
+        var p5Series  = padHist.concat(p5Values);
+        var p10Series = padHist.concat(p10Values);
+        var p50Series = padHist.concat(p50Values);
+        var p90Series = padHist.concat(p90Values);
+        var p95Series = padHist.concat(p95Values);
+
+        // Chart.js v4: fill between datasets to render shaded probability bands
+        // Order: P5 (floor) → P95 fills back to P5 (outer band)
+        //        P10 (inner floor) → P90 fills back to P10 (inner band)
+        //        P50 median line on top
+        analyticsChart = new Chart(document.getElementById('analyticsChart'), {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Historical Quantity',
+                        data: historySeries,
+                        borderColor: '#0f5aa6',
+                        backgroundColor: 'rgba(15, 90, 166, 0.10)',
+                        borderWidth: 2,
+                        tension: 0.25,
+                        pointRadius: 2,
+                        fill: true,
+                        order: 1
+                    },
+                    // Outer band floor (P5) — invisible line, used as fill target
+                    {
+                        label: 'P5',
+                        data: p5Series,
+                        borderColor: 'rgba(234, 88, 12, 0.35)',
+                        borderWidth: 1,
+                        borderDash: [3, 4],
+                        pointRadius: 0,
+                        backgroundColor: 'transparent',
+                        fill: false,
+                        order: 5
+                    },
+                    // Outer band ceiling (P95) — fills back to P5 (index offset -1)
+                    {
+                        label: 'P95',
+                        data: p95Series,
+                        borderColor: 'rgba(234, 88, 12, 0.35)',
+                        borderWidth: 1,
+                        borderDash: [3, 4],
+                        pointRadius: 0,
+                        backgroundColor: 'rgba(217, 119, 6, 0.08)',
+                        fill: '-1',
+                        order: 4
+                    },
+                    // Inner band floor (P10) — invisible line, used as fill target
+                    {
+                        label: 'P10',
+                        data: p10Series,
+                        borderColor: 'rgba(180, 83, 9, 0.50)',
+                        borderWidth: 1,
+                        borderDash: [5, 3],
+                        pointRadius: 0,
+                        backgroundColor: 'transparent',
+                        fill: false,
+                        order: 6
+                    },
+                    // Inner band ceiling (P90) — fills back to P10
+                    {
+                        label: 'P90',
+                        data: p90Series,
+                        borderColor: 'rgba(180, 83, 9, 0.50)',
+                        borderWidth: 1,
+                        borderDash: [5, 3],
+                        pointRadius: 0,
+                        backgroundColor: 'rgba(180, 83, 9, 0.18)',
+                        fill: '-1',
+                        order: 3
+                    },
+                    // P50 median — prominent forecast line
+                    {
+                        label: 'P50 Expected',
+                        data: p50Series,
+                        borderColor: '#d97706',
+                        backgroundColor: 'rgba(217, 119, 6, 0.0)',
+                        borderWidth: 2.5,
+                        tension: 0.25,
+                        pointRadius: 3,
+                        fill: false,
+                        order: 2
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: {
+                        labels: {
+                            filter: function(item) {
+                                // Hide P5/P10/P90/P95 from legend — show only History & P50
+                                return item.text === 'Historical Quantity' || item.text === 'P50 Expected';
+                            }
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(ctx) {
+                                if (ctx.parsed.y === null) return null;
+                                return ctx.dataset.label + ': ' + fmtNum(ctx.parsed.y, 2);
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: { beginAtZero: true, grid: { color: 'rgba(15, 23, 42, 0.08)' } }
+                }
+            }
+        });
+
+        document.getElementById('analyticsSummary').innerHTML =
+            renderSummaryGrid([
+                ['Method', f.method || '—'],
+                ['Demand Type', f.demand_type ? f.demand_type.charAt(0).toUpperCase() + f.demand_type.slice(1) : '—'],
+                ['Recent Active Months', fmtNum(f.recent_active_months, 0) + ' / 6'],
+                ['Backtest Window', f.band_selection_window_label || '—'],
+                ['6M P5 Total',  fmtNum(f.p5_total_qty,  2)],
+                ['6M P50 Total', fmtNum(f.p50_total_qty, 2)],
+                ['6M P95 Total', fmtNum(f.p95_total_qty, 2)],
+                ['6M Buffer (P95 − P5)', fmtNum(f.buffer_total_qty, 2)],
+                ['History Points', fmtNum(historyValues.length, 0)]
+            ]);
+
+        var panelHtml = '';
+        if (f.consistency_message) {
+            panelHtml += '<div class="inv-muted" style="margin-bottom:0.75rem;">' + esc(f.consistency_message) + '</div>';
+        }
+
+        if (forecastRows.length) {
+            panelHtml += '<div class="inv-analytics-section">';
+            panelHtml += '<h4 class="inv-section-heading">6-Month Demand Forecast with Probability Bands</h4>';
+            panelHtml += '<p class="inv-card-subtitle" style="margin-bottom:0.5rem;">Buffer = P95 − P5 per month. Procure at least the P50 quantity; hold buffer stock equal to the Buffer column to cover demand uncertainty.</p>';
+            panelHtml += '<div class="inv-expand-table-wrap"><table class="inv-expand-table">';
+            panelHtml += '<thead><tr>';
+            panelHtml += '<th>Month</th>';
+            panelHtml += '<th class="text-right" title="5th percentile — only 5% chance demand falls below this">P5 <span class="inv-muted inv-small">(Low)</span></th>';
+            panelHtml += '<th class="text-right" title="10th percentile">P10</th>';
+            panelHtml += '<th class="text-right" title="50th percentile median forecast" style="background:rgba(217,119,6,0.06);">P50 <span class="inv-muted inv-small">(Expected)</span></th>';
+            panelHtml += '<th class="text-right" title="90th percentile">P90</th>';
+            panelHtml += '<th class="text-right" title="95th percentile — 5% chance demand exceeds this">P95 <span class="inv-muted inv-small">(High)</span></th>';
+            panelHtml += '<th class="text-right" title="Buffer stock required: P95 minus P5">Buffer <span class="inv-muted inv-small">(P95−P5)</span></th>';
+            panelHtml += '</tr></thead><tbody>';
+            var p5Tot = 0, p10Tot = 0, p50Tot = 0, p90Tot = 0, p95Tot = 0, bufTot = 0;
+            forecastRows.forEach(function(row) {
+                var p5q  = row.p5_qty  || 0;
+                var p10q = row.p10_qty || 0;
+                var p50q = row.p50_qty || 0;
+                var p90q = row.p90_qty || 0;
+                var p95q = row.p95_qty || 0;
+                var buf  = row.buffer_qty || 0;
+                p5Tot += p5q; p10Tot += p10q; p50Tot += p50q; p90Tot += p90q; p95Tot += p95q; bufTot += buf;
+                panelHtml += '<tr>';
+                panelHtml += '<td><strong>' + esc(row.period) + '</strong></td>';
+                panelHtml += '<td class="text-right inv-num">' + fmtNum(p5q, 2) + '</td>';
+                panelHtml += '<td class="text-right inv-num">' + fmtNum(p10q, 2) + '</td>';
+                panelHtml += '<td class="text-right inv-num" style="background:rgba(217,119,6,0.06);font-weight:600;">' + fmtNum(p50q, 2) + '</td>';
+                panelHtml += '<td class="text-right inv-num">' + fmtNum(p90q, 2) + '</td>';
+                panelHtml += '<td class="text-right inv-num">' + fmtNum(p95q, 2) + '</td>';
+                panelHtml += '<td class="text-right inv-num" style="font-weight:600;color:#b45309;">' + fmtNum(buf, 2) + '</td>';
+                panelHtml += '</tr>';
+            });
+            // Totals row
+            panelHtml += '<tr style="border-top:2px solid rgba(15,23,42,0.15);font-weight:700;">';
+            panelHtml += '<td>6M Total</td>';
+            panelHtml += '<td class="text-right inv-num">' + fmtNum(p5Tot, 2) + '</td>';
+            panelHtml += '<td class="text-right inv-num">' + fmtNum(p10Tot, 2) + '</td>';
+            panelHtml += '<td class="text-right inv-num" style="background:rgba(217,119,6,0.06);">' + fmtNum(p50Tot, 2) + '</td>';
+            panelHtml += '<td class="text-right inv-num">' + fmtNum(p90Tot, 2) + '</td>';
+            panelHtml += '<td class="text-right inv-num">' + fmtNum(p95Tot, 2) + '</td>';
+            panelHtml += '<td class="text-right inv-num" style="color:#b45309;">' + fmtNum(bufTot, 2) + '</td>';
+            panelHtml += '</tr>';
+            panelHtml += '</tbody></table></div></div>';
+        }
+
+        // Backtest band selection detail (collapsible context for analysts)
+        var candidateBands = f.candidate_bands || [];
+        if (candidateBands.length) {
+            panelHtml += '<details class="inv-analytics-section" style="margin-top:0.5rem;">';
+            panelHtml += '<summary class="inv-section-heading" style="cursor:pointer;">Band Backtest Detail</summary>';
+            panelHtml += '<div class="inv-expand-table-wrap" style="margin-top:0.5rem;"><table class="inv-expand-table">';
+            panelHtml += '<thead><tr><th>Band</th><th class="text-right">Target Coverage</th><th class="text-right">Actual Coverage</th><th class="text-right">Avg Width</th><th class="text-right">Fit Score</th><th>Status</th></tr></thead><tbody>';
+            candidateBands.forEach(function(band) {
+                panelHtml += '<tr><td>' + esc(band.label) + '</td>';
+                panelHtml += '<td class="text-right inv-num">' + fmtNum(band.target_coverage_pct, 0) + '%</td>';
+                panelHtml += '<td class="text-right inv-num">' + fmtNum(band.coverage_pct, 1) + '%</td>';
+                panelHtml += '<td class="text-right inv-num">' + fmtNum(band.avg_width_pct, 2) + '%</td>';
+                panelHtml += '<td class="text-right inv-num">' + fmtNum(band.fit_score, 2) + '</td>';
+                panelHtml += '<td>' + (band.is_selected ? '<span class="inv-badge inv-badge-info">Selected</span>' : '<span class="inv-muted">Candidate</span>') + '</td></tr>';
+            });
+            panelHtml += '</tbody></table></div></details>';
+        }
+
+        document.getElementById('analyticsPanel').innerHTML = panelHtml;
+    }
+
+    function renderYoYTab() {
+        destroyAnalyticsChart();
+        document.getElementById('analyticsCanvasWrap').style.display = 'none';
+        document.getElementById('analyticsSummary').innerHTML = '';
+
+        var records = analyticsData.yoy.records || [];
+        if (!records.length) {
+            document.getElementById('analyticsPanel').innerHTML = '<div class="inv-muted">No year-over-year data available.</div>';
+            return;
+        }
+
+        var html = '<div class="inv-analytics-section"><h4 class="inv-section-heading">Year-over-Year Comparison</h4>';
+        html += '<div class="inv-expand-table-wrap"><table class="inv-expand-table">';
+        html += '<thead><tr><th>Year</th><th class="text-right">Months Observed</th><th class="text-right">Active Months</th><th class="text-right">Total Quantity</th><th class="text-right">Total Procurement Value</th><th class="text-right">Avg Monthly Qty</th><th class="text-right">Qty YoY</th><th class="text-right">Procurement Value YoY</th></tr></thead><tbody>';
+        records.forEach(function(record) {
+            html += '<tr><td>' + esc(record.year) + '</td><td class="text-right inv-num">' + fmtNum(record.months_observed, 0) + '</td><td class="text-right inv-num">' +
+                fmtNum(record.active_months, 0) + '</td><td class="text-right inv-num">' + fmtNum(record.total_qty, 2) + '</td><td class="text-right inv-num inv-val">' +
+                fmtCurrency(record.total_value) + '</td><td class="text-right inv-num">' + fmtNum(record.avg_monthly_qty, 2) + '</td><td class="text-right inv-num ' +
+                trendClass(record.yoy_qty_pct) + '">' + fmtPct(record.yoy_qty_pct) + '</td><td class="text-right inv-num ' + trendClass(record.yoy_value_pct) + '">' +
+                fmtPct(record.yoy_value_pct) + '</td></tr>';
+        });
+        html += '</tbody></table></div></div>';
+        document.getElementById('analyticsPanel').innerHTML = html;
+    }
+
+    function renderVendorsTab() {
+        destroyAnalyticsChart();
+        document.getElementById('analyticsCanvasWrap').style.display = 'none';
+        document.getElementById('analyticsSummary').innerHTML = '';
+
+        var rows = analyticsData.vendor_scores || [];
+        if (!rows.length) {
+            document.getElementById('analyticsPanel').innerHTML = '<div class="inv-muted">No vendor pricing history available.</div>';
+            return;
+        }
+
+        var html = '<div class="inv-analytics-section"><h4 class="inv-section-heading">Vendor Performance Scoring</h4>';
+        html += '<div class="inv-note">Scores balance price competitiveness, price consistency, and transaction depth.</div>';
+        html += '<div class="inv-expand-table-wrap"><table class="inv-expand-table">';
+        html += '<thead><tr><th>Vendor</th><th class="text-right">Score</th><th class="text-right">Transactions</th><th class="text-right">Avg Unit Price</th><th class="text-right">Latest Unit Price</th><th class="text-right">Premium vs Best</th><th class="text-right">Volatility</th><th class="text-right">Spend Share</th><th>Latest PO Date</th></tr></thead><tbody>';
+        rows.forEach(function(row) {
+            html += '<tr><td>' + esc(row.vendor) + '</td><td class="text-right inv-num">' + fmtNum(row.score, 1) + '</td><td class="text-right inv-num">' +
+                fmtNum(row.transactions, 0) + '</td><td class="text-right inv-num">' + fmtCurrency(row.avg_unit_price) + '</td><td class="text-right inv-num">' +
+                fmtCurrency(row.latest_unit_price) + '</td><td class="text-right inv-num ' + trendClass(-row.premium_vs_best_pct) + '">' +
+                fmtPct(row.premium_vs_best_pct) + '</td><td class="text-right inv-num">' + fmtPct(row.volatility_pct) + '</td><td class="text-right inv-num">' +
+                fmtPct(row.spend_share_pct) + '</td><td>' + esc(row.latest_doc_date) + '</td></tr>';
+        });
+        html += '</tbody></table></div></div>';
+        document.getElementById('analyticsPanel').innerHTML = html;
+    }
+
+    function renderStorageTab() {
+        destroyAnalyticsChart();
+        document.getElementById('analyticsCanvasWrap').style.display = 'none';
+        document.getElementById('analyticsSummary').innerHTML = '';
+
+        var rows = analyticsData.storage_breakdown || [];
+        if (!rows.length) {
+            document.getElementById('analyticsPanel').innerHTML = '<div class="inv-muted">No storage location data available.</div>';
+            return;
+        }
+
+        var html = '<div class="inv-analytics-section"><h4 class="inv-section-heading">Storage Location Drill-down</h4>';
+        html += '<div class="inv-expand-table-wrap"><table class="inv-expand-table">';
+        html += '<thead><tr><th>Location</th><th class="text-right">Total Quantity</th><th class="text-right">Active Months</th><th class="text-right">Quantity Share</th></tr></thead><tbody>';
+        rows.forEach(function(row) {
+            html += '<tr><td>' + esc(row.label) + '</td><td class="text-right inv-num">' + fmtNum(row.total_qty, 2) + '</td><td class="text-right inv-num">' + fmtNum(row.active_months, 0) + '</td><td><div class="inv-share-cell"><span class="inv-share-bar"><span style="width:' +
+                Math.min(row.share_qty_pct, 100) + '%"></span></span><span class="inv-share-label">' + fmtPct(row.share_qty_pct) + '</span></div></td></tr>';
+        });
+        html += '</tbody></table></div></div>';
+        document.getElementById('analyticsPanel').innerHTML = html;
+    }
+
+    function renderVarianceTab() {
+        destroyAnalyticsChart();
+        document.getElementById('analyticsCanvasWrap').style.display = 'none';
+
+        var variance = analyticsData.cost_variance || {};
+        document.getElementById('analyticsSummary').innerHTML = renderSummaryGrid([
+            ['Latest Unit Price', fmtCurrency(variance.latest_unit_price)],
+            ['Average Unit Price', fmtCurrency(variance.avg_unit_price)],
+            ['Max Increase', fmtPct(variance.max_increase_pct)],
+            ['Max Decrease', fmtPct(variance.max_decrease_pct)]
+        ]);
+
+        var events = variance.significant_events || [];
+        if (!events.length) {
+            document.getElementById('analyticsPanel').innerHTML = '<div class="inv-muted">No significant price swings above ' + fmtPct(variance.threshold_pct) + '.</div>';
+            return;
+        }
+
+        var html = '<div class="inv-analytics-section"><h4 class="inv-section-heading">Significant Price Swings</h4>';
+        html += '<div class="inv-note">Threshold: ' + fmtPct(variance.threshold_pct) + '.</div>';
+        html += '<div class="inv-expand-table-wrap"><table class="inv-expand-table">';
+        html += '<thead><tr><th>From</th><th>To</th><th>Vendor Change</th><th class="text-right">From Price</th><th class="text-right">To Price</th><th class="text-right">Change</th></tr></thead><tbody>';
+        events.forEach(function(event) {
+            html += '<tr><td>' + esc(event.from_date) + '</td><td>' + esc(event.to_date) + '</td><td>' + esc(event.from_vendor) + ' → ' + esc(event.to_vendor) + '</td>' +
+                '<td class="text-right inv-num">' + fmtCurrency(event.from_price) + '</td><td class="text-right inv-num">' + fmtCurrency(event.to_price) + '</td><td class="text-right inv-num ' +
+                trendClass(event.pct_change) + '">' + fmtPct(event.pct_change) + '</td></tr>';
+        });
+        html += '</tbody></table></div></div>';
+        document.getElementById('analyticsPanel').innerHTML = html;
+    }
+
+    function renderSummaryGrid(items) {
+        var html = '<div class="inv-summary-grid">';
+        items.forEach(function(item) {
+            html += '<div class="inv-summary-item"><div class="inv-summary-val">' + item[1] + '</div><div class="inv-summary-label">' + item[0] + '</div></div>';
+        });
+        html += '</div>';
+        return html;
+    }
+
+    document.querySelectorAll('.inv-chart-tab').forEach(function(tab) {
+        tab.addEventListener('click', function() {
+            activeAnalyticsTab = tab.dataset.tab;
+            document.querySelectorAll('.inv-chart-tab').forEach(function(button) {
+                button.classList.toggle('is-active', button.dataset.tab === activeAnalyticsTab);
+            });
+            renderAnalytics();
+        });
+    });
+
+    document.getElementById('analyticsModalClose').addEventListener('click', closeModal);
+    document.getElementById('analyticsModal').addEventListener('click', function(event) {
+        if (event.target === this) closeModal();
+    });
+    document.addEventListener('keydown', function(event) {
+        if (event.key === 'Escape') closeModal();
+    });
+
+    updateHeader(dashboardData.kpis || {});
+    renderTopConsumers(TOP_CONSUMERS);
+    applyFilters();
+    updateExportLink();
+})();
+</script>
+{% endblock %}

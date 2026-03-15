@@ -3,6 +3,8 @@
 from functools import wraps
 from flask import abort, flash, redirect, url_for
 from flask_login import current_user
+from app.features import is_module_enabled
+from app.core.roles import user_has_permission
 
 
 def roles_required(*role_names):
@@ -42,6 +44,7 @@ def module_access_required(module_code: str):
     Restrict a view to users who have been granted access to *module_code*.
 
     Access is granted when ANY of these is true:
+      - The module is enabled in the current environment.
       - User is super_user (has access to all modules automatically).
       - User has an explicit UserModulePermission entry with can_access=True.
 
@@ -58,6 +61,9 @@ def module_access_required(module_code: str):
             if not current_user.is_active:
                 flash("Your account has been deactivated.", "danger")
                 return redirect(url_for("auth.login"))
+            # Route guards still enforce feature flags even if a URL is guessed.
+            if not is_module_enabled(module_code):
+                abort(404)
             if current_user.has_module_access(module_code):
                 return fn(*args, **kwargs)
             flash(
@@ -66,5 +72,45 @@ def module_access_required(module_code: str):
                 "danger",
             )
             abort(403)
+        return wrapper
+    return decorator
+
+
+def require_permission(permission_name: str):
+    """Restrict a view to users whose role grants *permission_name*.
+
+    Permission→role mappings live in app.core.roles.ROLE_PERMISSIONS and are
+    resolved at request time — no DB query is needed beyond what Flask-Login
+    already loaded for current_user.
+
+    Usage::
+
+        from app.utils.decorators import require_permission
+
+        @admin_bp.route("/users/create")
+        @login_required
+        @require_permission("manage_users")
+        def create_user():
+            ...
+
+    Precedence: authentication → account active → permission check.
+    A 403 is raised (not a redirect) so AJAX callers get a proper status code.
+    """
+    def decorator(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            if not current_user.is_authenticated:
+                flash("Please log in to access this page.", "warning")
+                return redirect(url_for("auth.login"))
+            if not current_user.is_active:
+                flash("Your account has been deactivated.", "danger")
+                return redirect(url_for("auth.login"))
+            if not user_has_permission(current_user, permission_name):
+                flash(
+                    "You do not have permission to perform this action.",
+                    "danger",
+                )
+                abort(403)
+            return fn(*args, **kwargs)
         return wrapper
     return decorator

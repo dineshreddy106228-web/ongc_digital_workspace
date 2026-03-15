@@ -1,0 +1,512 @@
+{% extends "base.html" %}
+{% block title %}Demand Forecast — Inventory Intelligence{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}">
+<script nonce="{{ csp_nonce() }}" src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="inv-page">
+
+    {# ── Page header ───────────────────────────────────────────────── #}
+    <div class="inv-module-header">
+        <div>
+            <h1 class="inv-module-title"><i class="bi bi-graph-up-arrow"></i> Demand Forecast</h1>
+            <p class="inv-module-subtitle">
+                6-month probabilistic demand forecast with P5 / P10 / P50 / P90 / P95 bands.
+                Buffer = P95 &minus; P5 per month.
+            </p>
+        </div>
+        <div class="inv-header-actions">
+            <span class="inv-badge inv-badge-muted" id="matCountBadge">Loading…</span>
+        </div>
+    </div>
+
+    {# ── Sub-navigation ─────────────────────────────────────────────── #}
+    <nav class="inv-subnav" aria-label="Inventory sub-navigation">
+        <a href="{{ url_for('inventory.index') }}" class="inv-subnav-link">
+            <i class="bi bi-bar-chart-line"></i> Materials Intelligence
+        </a>
+        <a href="{{ url_for('inventory.forecast_page') }}" class="inv-subnav-link active">
+            <i class="bi bi-graph-up-arrow"></i> Demand Forecast
+        </a>
+        <a href="{{ url_for('inventory.seed_files') }}" class="inv-subnav-link">
+            <i class="bi bi-database-gear"></i> Data Management
+        </a>
+    </nav>
+
+    {# ── Main layout ──────────────────────────────────────────────────── #}
+    <div class="inv-forecast-layout">
+
+        {# ── Left: material selector ──────────────────────────────────── #}
+        <aside class="card inv-forecast-selector">
+            <div class="card-body">
+                <h2 class="inv-card-title" style="margin-bottom:0.5rem;">Materials</h2>
+                <input
+                    type="search"
+                    id="matSearch"
+                    class="inv-forecast-mat-search"
+                    placeholder="Search material…"
+                    autocomplete="off"
+                >
+                <ul class="inv-forecast-mat-list" id="matList">
+                    <li class="inv-muted" style="padding:0.5rem 0.75rem;font-size:0.8125rem;">Loading materials…</li>
+                </ul>
+            </div>
+        </aside>
+
+        {# ── Right: forecast panel ────────────────────────────────────── #}
+        <div class="inv-forecast-main">
+
+            {# Empty state #}
+            <div id="forecastEmptyState" class="card">
+                <div class="card-body" style="text-align:center;padding:3rem 1.5rem;">
+                    <i class="bi bi-graph-up-arrow" style="font-size:2.5rem;color:rgba(15,23,42,0.25);display:block;margin-bottom:0.75rem;"></i>
+                    <div class="inv-muted">Select a material from the list to view its demand forecast.</div>
+                </div>
+            </div>
+
+            {# Loading state #}
+            <div id="forecastLoading" class="card" style="display:none;">
+                <div class="card-body" style="text-align:center;padding:3rem 1.5rem;">
+                    <div class="inv-muted">Loading forecast…</div>
+                </div>
+            </div>
+
+            {# Forecast content #}
+            <div id="forecastContent" style="display:none;">
+
+                {# Material title card #}
+                <div class="card" style="margin-bottom:1rem;">
+                    <div class="card-body" style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;flex-wrap:wrap;">
+                        <div>
+                            <h2 class="inv-card-title" id="forecastMatName" style="margin-bottom:0.25rem;">—</h2>
+                            <p class="inv-card-subtitle" id="forecastMatMeta">—</p>
+                        </div>
+                        <div id="forecastKpiRow" class="inv-summary-grid" style="min-width:260px;"></div>
+                    </div>
+                </div>
+
+                {# Chart card #}
+                <div class="card" style="margin-bottom:1rem;">
+                    <div class="card-body">
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem;flex-wrap:wrap;gap:0.5rem;">
+                            <h3 class="inv-section-heading">Consumption History &amp; Probabilistic Forecast</h3>
+                            <div class="inv-forecast-band-legend">
+                                <div class="inv-forecast-band-legend-item">
+                                    <div class="inv-forecast-band-swatch" style="background:#0f5aa6;"></div>
+                                    <span>Historical</span>
+                                </div>
+                                <div class="inv-forecast-band-legend-item">
+                                    <div class="inv-forecast-band-swatch" style="background:rgba(217,119,6,0.5);"></div>
+                                    <span>P50 Forecast</span>
+                                </div>
+                                <div class="inv-forecast-band-legend-item">
+                                    <div class="inv-forecast-band-swatch" style="background:rgba(180,83,9,0.35);"></div>
+                                    <span>P10–P90 Band</span>
+                                </div>
+                                <div class="inv-forecast-band-legend-item">
+                                    <div class="inv-forecast-band-swatch" style="background:rgba(217,119,6,0.15);"></div>
+                                    <span>P5–P95 Band</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="inv-forecast-chart-area">
+                            <canvas id="forecastChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                {# Forecast table card #}
+                <div class="card" style="margin-bottom:1rem;">
+                    <div class="card-body">
+                        <h3 class="inv-section-heading" style="margin-bottom:0.25rem;">6-Month Demand Forecast</h3>
+                        <p class="inv-card-subtitle" style="margin-bottom:0.75rem;">
+                            Procure at minimum the <strong>P50</strong> quantity each month. Hold buffer stock equal to the <strong>Buffer (P95 &minus; P5)</strong> column to cover demand uncertainty.
+                        </p>
+                        <div class="inv-expand-table-wrap">
+                            <table class="inv-expand-table" id="forecastTable">
+                                <thead>
+                                    <tr>
+                                        <th>Month</th>
+                                        <th class="text-right" title="5th percentile — demand very unlikely to fall below this">
+                                            P5 <span class="inv-muted inv-small">(Low)</span>
+                                        </th>
+                                        <th class="text-right" title="10th percentile">P10</th>
+                                        <th class="text-right" title="50th percentile median" style="background:rgba(217,119,6,0.06);">
+                                            P50 <span class="inv-muted inv-small">(Expected)</span>
+                                        </th>
+                                        <th class="text-right" title="90th percentile">P90</th>
+                                        <th class="text-right" title="95th percentile — demand very unlikely to exceed this">
+                                            P95 <span class="inv-muted inv-small">(High)</span>
+                                        </th>
+                                        <th class="text-right" title="Buffer stock = P95 minus P5">
+                                            Buffer <span class="inv-muted inv-small">(P95&minus;P5)</span>
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody id="forecastTableBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                {# Backtest detail (collapsed) #}
+                <div class="card">
+                    <div class="card-body">
+                        <details>
+                            <summary class="inv-section-heading" style="cursor:pointer;user-select:none;">
+                                Backtest &amp; Method Details
+                            </summary>
+                            <div id="forecastBacktestDetail" style="margin-top:0.75rem;"></div>
+                        </details>
+                    </div>
+                </div>
+
+            </div>{# /forecastContent #}
+        </div>{# /inv-forecast-main #}
+    </div>{# /inv-forecast-layout #}
+</div>{# /inv-page #}
+{% endblock %}
+
+{% block scripts_extra %}
+<script nonce="{{ csp_nonce() }}">
+(function () {
+    'use strict';
+
+    var API_MATERIALS = '{{ url_for("inventory.api_materials") }}';
+    var API_ANALYTICS = '{{ url_for("inventory.api_analytics", material="__MAT__") }}';
+    var plant = (new URLSearchParams(window.location.search)).get('plant') || '';
+
+    var allMaterials = [];
+    var activeMaterial = null;
+    var forecastChart = null;
+
+    // ── Utilities ──────────────────────────────────────────────────────
+    function esc(s) {
+        var d = document.createElement('div');
+        d.appendChild(document.createTextNode(String(s == null ? '' : s)));
+        return d.innerHTML;
+    }
+
+    function fmtNum(v, dp) {
+        if (v == null || v === '' || isNaN(v)) return '—';
+        return Number(v).toLocaleString('en-IN', { minimumFractionDigits: dp, maximumFractionDigits: dp });
+    }
+
+    function showState(state) {
+        document.getElementById('forecastEmptyState').style.display  = state === 'empty'   ? '' : 'none';
+        document.getElementById('forecastLoading').style.display     = state === 'loading' ? '' : 'none';
+        document.getElementById('forecastContent').style.display     = state === 'content' ? '' : 'none';
+    }
+
+    // ── Material list ──────────────────────────────────────────────────
+    function buildMatList(materials) {
+        var ul = document.getElementById('matList');
+        if (!materials.length) {
+            ul.innerHTML = '<li class="inv-muted" style="padding:0.5rem 0.75rem;font-size:0.8125rem;">No materials found.</li>';
+            return;
+        }
+        ul.innerHTML = materials.map(function (m) {
+            var active = m.material === activeMaterial ? ' active' : '';
+            return '<li class="inv-forecast-mat-item' + active + '" data-mat="' + esc(m.material) + '">' +
+                '<span class="inv-forecast-mat-name" title="' + esc(m.material) + '">' + esc(m.material) + '</span>' +
+                (m.demand_type ? '<span class="inv-forecast-mat-badge">' + esc(m.demand_type) + '</span>' : '') +
+                '</li>';
+        }).join('');
+        ul.querySelectorAll('.inv-forecast-mat-item').forEach(function (li) {
+            li.addEventListener('click', function () {
+                loadForecast(li.dataset.mat);
+            });
+        });
+    }
+
+    function filterMatList() {
+        var q = (document.getElementById('matSearch').value || '').toLowerCase().trim();
+        var filtered = q ? allMaterials.filter(function (m) { return (m.material || '').toLowerCase().indexOf(q) !== -1; }) : allMaterials;
+        buildMatList(filtered);
+    }
+
+    // ── Load materials ─────────────────────────────────────────────────
+    fetch(API_MATERIALS + (plant ? '?plant=' + encodeURIComponent(plant) : ''))
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            allMaterials = (data.materials || data || []).slice().sort(function (a, b) {
+                return (a.material || '').localeCompare(b.material || '');
+            });
+            document.getElementById('matCountBadge').textContent = allMaterials.length + ' materials';
+            buildMatList(allMaterials);
+        })
+        .catch(function () {
+            document.getElementById('matList').innerHTML =
+                '<li class="inv-muted" style="padding:0.5rem 0.75rem;font-size:0.8125rem;">Could not load materials.</li>';
+        });
+
+    document.getElementById('matSearch').addEventListener('input', filterMatList);
+
+    // ── Destroy chart ──────────────────────────────────────────────────
+    function destroyChart() {
+        if (forecastChart) { forecastChart.destroy(); forecastChart = null; }
+    }
+
+    // ── Render summary row ─────────────────────────────────────────────
+    function kpiItem(label, value) {
+        return '<div class="inv-summary-item"><div class="inv-summary-val">' + esc(value) + '</div><div class="inv-summary-label">' + esc(label) + '</div></div>';
+    }
+
+    // ── Load forecast for a material ───────────────────────────────────
+    function loadForecast(material) {
+        activeMaterial = material;
+        // Update active highlight
+        document.querySelectorAll('.inv-forecast-mat-item').forEach(function (li) {
+            li.classList.toggle('active', li.dataset.mat === material);
+        });
+        showState('loading');
+        destroyChart();
+
+        var url = API_ANALYTICS.replace('__MAT__', encodeURIComponent(material)) +
+            (plant ? '?plant=' + encodeURIComponent(plant) : '');
+
+        fetch(url)
+            .then(function (r) { return r.json(); })
+            .then(function (data) { renderForecast(material, data); })
+            .catch(function () {
+                showState('empty');
+            });
+    }
+
+    function renderForecast(material, data) {
+        var f = data.forecast || {};
+        if (!f.forecast_labels || !f.forecast_labels.length) {
+            // No forecast available — show basic message
+            document.getElementById('forecastMatName').textContent = material;
+            document.getElementById('forecastMatMeta').textContent = f.consistency_message || 'No forecast available.';
+            document.getElementById('forecastKpiRow').innerHTML = '';
+            document.getElementById('forecastTableBody').innerHTML =
+                '<tr><td colspan="7" class="inv-muted" style="padding:1rem;text-align:center;">' +
+                esc(f.consistency_message || 'Insufficient data for forecasting.') + '</td></tr>';
+            document.getElementById('forecastBacktestDetail').innerHTML = '';
+            destroyChart();
+            showState('content');
+            return;
+        }
+
+        // ── Header ──────────────────────────────────────────────────────
+        document.getElementById('forecastMatName').textContent = material;
+        document.getElementById('forecastMatMeta').textContent =
+            (f.method || '') +
+            (f.demand_type ? ' · ' + f.demand_type.charAt(0).toUpperCase() + f.demand_type.slice(1) + ' demand' : '') +
+            (f.consistency_message ? ' · ' + f.consistency_message : '');
+
+        document.getElementById('forecastKpiRow').innerHTML =
+            kpiItem('P5 Total',  fmtNum(f.p5_total_qty,  2)) +
+            kpiItem('P50 Total', fmtNum(f.p50_total_qty, 2)) +
+            kpiItem('P95 Total', fmtNum(f.p95_total_qty, 2)) +
+            kpiItem('6M Buffer', fmtNum(f.buffer_total_qty, 2));
+
+        // ── Chart ────────────────────────────────────────────────────────
+        var histLabels  = f.history_labels    || [];
+        var histValues  = f.history_quantities || [];
+        var foreLabels  = f.forecast_labels   || [];
+        var p5Vals  = f.p5_quantities  || [];
+        var p10Vals = f.p10_quantities || [];
+        var p50Vals = f.p50_quantities || [];
+        var p90Vals = f.p90_quantities || [];
+        var p95Vals = f.p95_quantities || [];
+
+        var nH = histLabels.length, nF = foreLabels.length;
+        var labels      = histLabels.concat(foreLabels);
+        var histSeries  = histValues.concat(new Array(nF).fill(null));
+        var p5Series    = new Array(nH).fill(null).concat(p5Vals);
+        var p10Series   = new Array(nH).fill(null).concat(p10Vals);
+        var p50Series   = new Array(nH).fill(null).concat(p50Vals);
+        var p90Series   = new Array(nH).fill(null).concat(p90Vals);
+        var p95Series   = new Array(nH).fill(null).concat(p95Vals);
+
+        destroyChart();
+        var ctx = document.getElementById('forecastChart').getContext('2d');
+        forecastChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Historical',
+                        data: histSeries,
+                        borderColor: '#0f5aa6',
+                        backgroundColor: 'rgba(15,90,166,0.08)',
+                        borderWidth: 2,
+                        tension: 0.25,
+                        pointRadius: 2,
+                        fill: true,
+                        order: 1
+                    },
+                    // Outer band: P5 (floor)
+                    {
+                        label: 'P5',
+                        data: p5Series,
+                        borderColor: 'rgba(234,88,12,0.30)',
+                        borderWidth: 1,
+                        borderDash: [3, 4],
+                        pointRadius: 0,
+                        backgroundColor: 'transparent',
+                        fill: false,
+                        order: 6
+                    },
+                    // Outer band: P95 fills back to P5
+                    {
+                        label: 'P95',
+                        data: p95Series,
+                        borderColor: 'rgba(234,88,12,0.30)',
+                        borderWidth: 1,
+                        borderDash: [3, 4],
+                        pointRadius: 0,
+                        backgroundColor: 'rgba(217,119,6,0.08)',
+                        fill: '-1',
+                        order: 5
+                    },
+                    // Inner band: P10 (floor)
+                    {
+                        label: 'P10',
+                        data: p10Series,
+                        borderColor: 'rgba(180,83,9,0.45)',
+                        borderWidth: 1,
+                        borderDash: [5, 3],
+                        pointRadius: 0,
+                        backgroundColor: 'transparent',
+                        fill: false,
+                        order: 4
+                    },
+                    // Inner band: P90 fills back to P10
+                    {
+                        label: 'P90',
+                        data: p90Series,
+                        borderColor: 'rgba(180,83,9,0.45)',
+                        borderWidth: 1,
+                        borderDash: [5, 3],
+                        pointRadius: 0,
+                        backgroundColor: 'rgba(180,83,9,0.18)',
+                        fill: '-1',
+                        order: 3
+                    },
+                    // P50 median line
+                    {
+                        label: 'P50',
+                        data: p50Series,
+                        borderColor: '#d97706',
+                        borderWidth: 2.5,
+                        tension: 0.25,
+                        pointRadius: 3,
+                        fill: false,
+                        order: 2
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: {
+                        labels: {
+                            filter: function (item) {
+                                return item.text === 'Historical' || item.text === 'P50';
+                            }
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function (ctx) {
+                                if (ctx.parsed.y === null) return null;
+                                return ctx.dataset.label + ': ' + fmtNum(ctx.parsed.y, 2);
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: { beginAtZero: true, grid: { color: 'rgba(15,23,42,0.07)' } }
+                }
+            }
+        });
+
+        // ── Forecast table ───────────────────────────────────────────────
+        var rows = f.forecast_rows || [];
+        var tbody = document.getElementById('forecastTableBody');
+        if (!rows.length) {
+            tbody.innerHTML = '<tr><td colspan="7" class="inv-muted" style="text-align:center;padding:0.75rem;">No forecast rows.</td></tr>';
+        } else {
+            var p5T = 0, p10T = 0, p50T = 0, p90T = 0, p95T = 0, bufT = 0;
+            var html = rows.map(function (row) {
+                var p5  = row.p5_qty  || 0;
+                var p10 = row.p10_qty || 0;
+                var p50 = row.p50_qty || 0;
+                var p90 = row.p90_qty || 0;
+                var p95 = row.p95_qty || 0;
+                var buf = row.buffer_qty || 0;
+                p5T += p5; p10T += p10; p50T += p50; p90T += p90; p95T += p95; bufT += buf;
+                return '<tr>' +
+                    '<td><strong>' + esc(row.period) + '</strong></td>' +
+                    '<td class="text-right inv-num">' + fmtNum(p5, 2) + '</td>' +
+                    '<td class="text-right inv-num">' + fmtNum(p10, 2) + '</td>' +
+                    '<td class="text-right inv-num" style="background:rgba(217,119,6,0.06);font-weight:600;">' + fmtNum(p50, 2) + '</td>' +
+                    '<td class="text-right inv-num">' + fmtNum(p90, 2) + '</td>' +
+                    '<td class="text-right inv-num">' + fmtNum(p95, 2) + '</td>' +
+                    '<td class="text-right inv-num" style="font-weight:600;color:#b45309;">' + fmtNum(buf, 2) + '</td>' +
+                    '</tr>';
+            }).join('');
+            // Totals row
+            html += '<tr style="border-top:2px solid rgba(15,23,42,0.15);font-weight:700;">' +
+                '<td>6M Total</td>' +
+                '<td class="text-right inv-num">' + fmtNum(p5T, 2) + '</td>' +
+                '<td class="text-right inv-num">' + fmtNum(p10T, 2) + '</td>' +
+                '<td class="text-right inv-num" style="background:rgba(217,119,6,0.06);">' + fmtNum(p50T, 2) + '</td>' +
+                '<td class="text-right inv-num">' + fmtNum(p90T, 2) + '</td>' +
+                '<td class="text-right inv-num">' + fmtNum(p95T, 2) + '</td>' +
+                '<td class="text-right inv-num" style="color:#b45309;">' + fmtNum(bufT, 2) + '</td>' +
+                '</tr>';
+            tbody.innerHTML = html;
+        }
+
+        // ── Backtest detail ──────────────────────────────────────────────
+        var candidateBands = f.candidate_bands || [];
+        var btHtml = '';
+        if (f.band_selection_window_label) {
+            btHtml += '<div class="inv-muted" style="margin-bottom:0.5rem;font-size:0.8125rem;">Backtest window: ' + esc(f.band_selection_window_label) + '</div>';
+        }
+        if (candidateBands.length) {
+            btHtml += '<div class="inv-expand-table-wrap"><table class="inv-expand-table">';
+            btHtml += '<thead><tr><th>Band</th><th class="text-right">Target Coverage</th><th class="text-right">Actual Coverage</th><th class="text-right">Avg Width</th><th class="text-right">Fit Score</th><th>Status</th></tr></thead><tbody>';
+            candidateBands.forEach(function (b) {
+                btHtml += '<tr><td>' + esc(b.label) + '</td>';
+                btHtml += '<td class="text-right inv-num">' + fmtNum(b.target_coverage_pct, 0) + '%</td>';
+                btHtml += '<td class="text-right inv-num">' + fmtNum(b.coverage_pct, 1) + '%</td>';
+                btHtml += '<td class="text-right inv-num">' + fmtNum(b.avg_width_pct, 2) + '%</td>';
+                btHtml += '<td class="text-right inv-num">' + fmtNum(b.fit_score, 2) + '</td>';
+                btHtml += '<td>' + (b.is_selected ? '<span class="inv-badge inv-badge-info">Selected</span>' : '<span class="inv-muted">Candidate</span>') + '</td>';
+                btHtml += '</tr>';
+            });
+            btHtml += '</tbody></table></div>';
+        }
+        if (f.demand_type || f.method) {
+            btHtml += '<div style="margin-top:0.75rem;font-size:0.8125rem;color:var(--text-secondary,#64748b);">' +
+                (f.demand_type ? '<strong>Demand type:</strong> ' + esc(f.demand_type) + '&emsp;' : '') +
+                (f.method ? '<strong>Method:</strong> ' + esc(f.method) : '') +
+                '</div>';
+        }
+        document.getElementById('forecastBacktestDetail').innerHTML = btHtml || '<div class="inv-muted">No backtest detail available.</div>';
+
+        showState('content');
+    }
+
+    // ── Handle URL hash to pre-select material ─────────────────────────
+    var hashMat = decodeURIComponent((window.location.hash || '').replace('#', ''));
+    if (hashMat) {
+        loadForecast(hashMat);
+    } else {
+        showState('empty');
+    }
+
+})();
+</script>
+{% endblock %}

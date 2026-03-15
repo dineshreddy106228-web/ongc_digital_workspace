@@ -1,0 +1,23 @@
+{% macro page_header(title, subtitle=None, kicker=None, status_label=None, status_variant='neutral', extra_classes='') -%}
+<div class="page-header {{ extra_classes }}">
+    <div class="page-header-left">
+        {% if kicker %}
+        <div class="page-kicker">{{ kicker }}</div>
+        {% endif %}
+        <div class="page-title-row">
+            <h1 class="page-title">{{ title }}</h1>
+            {% if status_label %}
+            <span class="status-pill status-pill-{{ status_variant }}">{{ status_label }}</span>
+            {% endif %}
+        </div>
+        {% if subtitle %}
+        <p class="page-subtitle">{{ subtitle | safe }}</p>
+        {% endif %}
+    </div>
+    {% if caller is defined %}
+    <div class="page-header-right page-actions">
+        {{ caller() }}
+    </div>
+    {% endif %}
+</div>
+{%- endmacro %}

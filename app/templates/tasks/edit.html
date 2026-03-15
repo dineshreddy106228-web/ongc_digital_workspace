@@ -24,6 +24,13 @@
     {% endfor %}
   {% endwith %}
 
+  {% if task.recurring_template %}
+  <div class="alert alert-info">
+    This task was generated from a recurring series. Changes here apply to this occurrence only.
+    Schedule: {{ recurrence_summary(task.recurring_template) }}.
+  </div>
+  {% endif %}
+
   <div class="card form-card">
     <div class="card-body">
       <form method="POST" action="{{ url_for('tasks.edit_task', task_id=task.id) }}">
@@ -43,6 +50,9 @@
             <label class="form-label" for="task_description">Task Description</label>
             <textarea id="task_description" name="task_description" class="form-control"
                       rows="4" maxlength="5000">{{ form_data.get('task_description', task.task_description or '') }}</textarea>
+            <div class="form-hint">
+              Note supporting officers or contextual responsibilities here when relevant.
+            </div>
           </div>
         </div>
 
@@ -77,14 +87,22 @@
               </select>
             </div>
 
+            {% set due_value = form_data.get('due_date', task.due_date.strftime('%Y-%m-%d') if task.due_date else '') %}
             <div class="form-group">
+              {% if task.recurring_template %}
+              <label class="form-label" for="due_date_display">Occurrence Date</label>
+              <input type="text" id="due_date_display" class="form-control"
+                     value="{{ task.occurrence_date.strftime('%d %b %Y') if task.occurrence_date else (task.due_date.strftime('%d %b %Y') if task.due_date else '—') }}"
+                     readonly>
+              <input type="hidden" name="due_date" value="{{ due_value }}">
+              {% else %}
               <label class="form-label" for="due_date">Due Date</label>
-              {% set due_value = form_data.get('due_date', task.due_date.strftime('%Y-%m-%d') if task.due_date else '') %}
               <input type="date" id="due_date" name="due_date" class="form-control" value="{{ due_value }}">
+              {% endif %}
             </div>
 
             <div class="form-group">
-              <label class="form-label" for="owner_id">Owner</label>
+              <label class="form-label" for="owner_id">Task Owner</label>
               {% set selected_owner = form_data.get('owner_id', task.owner_id|string if task.owner_id else '') %}
               <select id="owner_id" name="owner_id" class="form-control">
                 <option value="">Unassigned</option>
@@ -98,19 +116,47 @@
 
             <div class="form-group">
               <label class="form-label" for="task_scope">Task Scope <span class="required">*</span></label>
-              {% set selected_scope = form_data.get('task_scope', task.task_scope) %}
+              {% set selected_scope = 'GLOBAL' if form_data.get('task_scope', task.task_scope) == 'GLOBAL' else 'LOCAL' %}
               <select id="task_scope" name="task_scope" class="form-control" required>
-                <option value="MY" {{ 'selected' if selected_scope == 'MY' }}>MY — Personal task</option>
-                <option value="TEAM" {{ 'selected' if selected_scope == 'TEAM' }}>TEAM — Team task</option>
-                {% if can_create_global %}
-                <option value="GLOBAL" {{ 'selected' if selected_scope == 'GLOBAL' }}>GLOBAL — Office-wide task</option>
+                <option value="LOCAL" {{ 'selected' if selected_scope == 'LOCAL' }}>Local Task</option>
+                <option value="GLOBAL" {{ 'selected' if selected_scope == 'GLOBAL' }}>Global Task</option>
+              </select>
+              <small class="form-hint">Global Task requires an owner. Local Task covers self-tasks and user-to-user coordination.</small>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="collaborator_count">Collaborators</label>
+              <select id="collaborator_count" name="collaborator_count" class="form-control" {{ 'disabled' if max_collaborator_slots == 0 }}>
+                {% if max_collaborator_slots == 0 %}
+                <option value="0">0</option>
                 {% else %}
-                {% if selected_scope == 'GLOBAL' %}
-                <option value="GLOBAL" selected disabled>GLOBAL (read-only — no permission to change)</option>
-                {% endif %}
+                  {% for slot in range(0, max_collaborator_slots + 1) %}
+                  <option value="{{ slot }}" {{ 'selected' if collaborator_count == slot else '' }}>{{ slot }}</option>
+                  {% endfor %}
                 {% endif %}
               </select>
+              <small class="form-hint">
+                Collaborators can work on the same task in both Local and Global scopes.
+                The task owner cannot be added again as a collaborator.
+              </small>
             </div>
+
+            {% if max_collaborator_slots > 0 %}
+              {% for slot in range(max_collaborator_slots) %}
+              {% set selected_collaborator_id = selected_collaborator_ids[slot] if slot < selected_collaborator_ids|length else '' %}
+              <div class="form-group collaborator-slot" data-collaborator-slot="{{ slot }}">
+                <label class="form-label" for="collaborator_id_{{ slot }}">Collaborator {{ slot + 1 }} <span class="required">*</span></label>
+                <select id="collaborator_id_{{ slot }}" name="collaborator_ids" class="form-control">
+                  <option value="">Select collaborator</option>
+                  {% for user in collaborator_options %}
+                  <option value="{{ user.id }}" {{ 'selected' if selected_collaborator_id == user.id|string }}>
+                    {{ user.full_name or user.username }}{% if user.office %} ({{ user.office.office_code }}){% endif %}
+                  </option>
+                  {% endfor %}
+                </select>
+              </div>
+              {% endfor %}
+            {% endif %}
 
             <div class="form-group form-group-checkbox">
               <label class="checkbox-label">
@@ -135,4 +181,81 @@
   </div>
 
 </div>
+<script nonce="{{ csp_nonce() }}">
+(() => {
+  const scopeInput = document.getElementById('task_scope');
+  const ownerSelect = document.getElementById('owner_id');
+  const collaboratorCount = document.getElementById('collaborator_count');
+  const collaboratorSlots = Array.from(document.querySelectorAll('.collaborator-slot'));
+  const localOwnerId = '{{ task.owner_id or current_user.id }}';
+
+  function getOwnerId() {
+    if (scopeInput && scopeInput.value === 'GLOBAL') {
+      return ownerSelect?.value || '';
+    }
+    return localOwnerId;
+  }
+
+  function syncCollaboratorOptions() {
+    const chosenValues = new Set(
+      collaboratorSlots
+        .map((slot) => slot.querySelector('select'))
+        .filter((select) => select && !select.disabled && select.value)
+        .map((select) => select.value)
+    );
+    const ownerId = getOwnerId();
+
+    collaboratorSlots.forEach((slot) => {
+      const select = slot.querySelector('select');
+      if (!select) {
+        return;
+      }
+      Array.from(select.options).forEach((option) => {
+        if (!option.value) {
+          option.disabled = false;
+          return;
+        }
+        const selectedElsewhere = chosenValues.has(option.value) && option.value !== select.value;
+        option.disabled = option.value === ownerId || selectedElsewhere;
+      });
+      if (select.value && select.options[select.selectedIndex]?.disabled) {
+        select.value = '';
+      }
+    });
+  }
+
+  function syncCollaboratorSlots() {
+    const count = Number.parseInt(collaboratorCount?.value || '0', 10) || 0;
+    collaboratorSlots.forEach((slot, index) => {
+      const active = index < count;
+      const select = slot.querySelector('select');
+      slot.style.display = active ? '' : 'none';
+      if (select) {
+        select.disabled = !active;
+        if (!active) {
+          select.value = '';
+        }
+      }
+    });
+    syncCollaboratorOptions();
+  }
+
+  if (collaboratorCount) {
+    collaboratorCount.addEventListener('change', syncCollaboratorSlots);
+  }
+  if (scopeInput) {
+    scopeInput.addEventListener('change', syncCollaboratorOptions);
+  }
+  if (ownerSelect) {
+    ownerSelect.addEventListener('change', syncCollaboratorOptions);
+  }
+  collaboratorSlots.forEach((slot) => {
+    const select = slot.querySelector('select');
+    if (select) {
+      select.addEventListener('change', syncCollaboratorOptions);
+    }
+  });
+  syncCollaboratorSlots();
+})();
+</script>
 {% endblock %}

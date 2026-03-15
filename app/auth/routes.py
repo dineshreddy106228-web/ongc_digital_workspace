@@ -11,6 +11,7 @@ from app.extensions import db
 from app.models.user import User
 from app.models.audit_log import AuditLog
 from app.utils.request_meta import get_client_ip, get_user_agent
+from app.utils.activity import log_activity
 
 
 _FAILED_LOGIN_ATTEMPTS = defaultdict(deque)
@@ -147,6 +148,8 @@ def login():
             ip_address=_client_ip(),
             user_agent=get_user_agent(),
         )
+        log_activity(user.username, "login", "user", user.full_name or user.username)
+        db.session.commit()
 
         if user.must_change_password:
             flash("Please change your password before continuing.", "warning")
@@ -162,6 +165,7 @@ def login():
 @login_required
 def logout():
     uid = current_user.id
+    uname = current_user.username
     logout_user()
     AuditLog.log(
         action="logout",
@@ -169,6 +173,8 @@ def logout():
         ip_address=_client_ip(),
         user_agent=get_user_agent(),
     )
+    log_activity(uname, "logout", "user", uname)
+    db.session.commit()
     flash("You have been logged out.", "info")
     return redirect(url_for("auth.login"))
 
@@ -210,6 +216,9 @@ def change_password():
             ip_address=_client_ip(),
             user_agent=get_user_agent(),
         )
+        log_activity(current_user.username, "password_changed", "user",
+                      current_user.full_name or current_user.username)
+        db.session.commit()
 
         flash("Password changed successfully.", "success")
         return redirect(url_for("main.dashboard"))

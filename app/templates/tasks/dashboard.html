@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "components/ui.html" import page_header %}
 {% block title %}Task Dashboard – Office Management{% endblock %}
 
 {% block head_extra %}
@@ -12,16 +13,16 @@
 <div class="page-wrapper">
 
   {# ── Page header ──────────────────────────────────────────── #}
-  <div class="page-header">
-    <div class="page-header-left">
-      <h1 class="page-title">Office Management / Task Dashboard</h1>
-      <p class="page-subtitle">Calendar view, task summary, and activity overview.</p>
-    </div>
-    <div class="page-header-right" style="display:flex; gap:0.5rem; flex-wrap:wrap;">
-      <a href="{{ url_for('tasks.list_tasks') }}" class="btn btn-secondary">📋 Task List</a>
-      <a href="{{ url_for('tasks.create_task') }}" class="btn btn-primary">+ New Task</a>
-    </div>
-  </div>
+  {% call page_header("Task Dashboard", "Calendar view, task summary, and activity overview.", "Office Management", "Pilot v1", "info") %}
+    <a href="{{ url_for('tasks.list_tasks') }}" class="btn btn-secondary">
+      <i class="bi bi-table"></i>
+      <span>Task List</span>
+    </a>
+    <a href="{{ url_for('tasks.create_task') }}" class="btn btn-primary">
+      <i class="bi bi-plus-lg"></i>
+      <span>New Task</span>
+    </a>
+  {% endcall %}
 
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% for category, message in messages %}
@@ -33,7 +34,7 @@
   <div class="db-summary-row">
 
     <a href="{{ url_for('tasks.list_tasks', scope='GLOBAL') }}" class="db-summary-card db-card-global">
-      <div class="db-card-icon">🌐</div>
+      <div class="db-card-icon"><i class="bi bi-globe2"></i></div>
       <div class="db-card-body">
         <div class="db-card-count">{{ global_tasks|length }}</div>
         <div class="db-card-label">Global Tasks</div>
@@ -42,40 +43,30 @@
       <span class="db-scope-dot dot-global"></span>
     </a>
 
-    <a href="{{ url_for('tasks.list_tasks', scope='TEAM') }}" class="db-summary-card db-card-team">
-      <div class="db-card-icon">👥</div>
-      <div class="db-card-body">
-        <div class="db-card-count">{{ team_tasks|length }}</div>
-        <div class="db-card-label">Team Tasks</div>
-        <div class="db-card-hint">Via reporting hierarchy</div>
-      </div>
-      <span class="db-scope-dot dot-team"></span>
-    </a>
-
     <a href="{{ url_for('tasks.list_tasks', scope='MY') }}" class="db-summary-card db-card-my">
-      <div class="db-card-icon">👤</div>
+      <div class="db-card-icon"><i class="bi bi-person"></i></div>
       <div class="db-card-body">
         <div class="db-card-count">{{ my_tasks|length }}</div>
         <div class="db-card-label">My Tasks</div>
-        <div class="db-card-hint">Assigned to you</div>
+        <div class="db-card-hint">Includes your tasks and visible direct-report Local Tasks</div>
       </div>
       <span class="db-scope-dot dot-my"></span>
     </a>
 
     {% if is_privileged and analytics %}
-    <div class="db-summary-card db-card-stat">
-      <div class="db-card-icon">⚠️</div>
+    <div class="db-summary-card db-card-stat db-card-stat-danger">
+      <div class="db-card-icon"><i class="bi bi-exclamation-triangle"></i></div>
       <div class="db-card-body">
-        <div class="db-card-count" style="color: #dc2626;">{{ analytics.overdue }}</div>
+        <div class="db-card-count">{{ analytics.overdue }}</div>
         <div class="db-card-label">Overdue Tasks</div>
         <div class="db-card-hint">Past due, not completed</div>
       </div>
     </div>
 
-    <div class="db-summary-card db-card-stat">
-      <div class="db-card-icon">✅</div>
+    <div class="db-summary-card db-card-stat db-card-stat-success">
+      <div class="db-card-icon"><i class="bi bi-check2-circle"></i></div>
       <div class="db-card-body">
-        <div class="db-card-count" style="color: #059669;">{{ analytics.completion_pct }}%</div>
+        <div class="db-card-count">{{ analytics.completion_pct }}%</div>
         <div class="db-card-label">Completion Rate</div>
         <div class="db-card-hint">{{ analytics.completed }} / {{ analytics.total }} tasks</div>
       </div>
@@ -88,7 +79,7 @@
 
     {# Calendar #}
     <div class="db-calendar-panel">
-      <div class="card">
+      <div class="card db-panel-card">
         <div class="card-body" style="padding: 0;">
 
           {# Calendar navigation #}
@@ -102,8 +93,7 @@
           {# Scope legend #}
           <div class="cal-legend">
             <span class="cal-legend-item"><span class="db-scope-dot dot-global"></span> Global</span>
-            <span class="cal-legend-item"><span class="db-scope-dot dot-team"></span> Team</span>
-            <span class="cal-legend-item"><span class="db-scope-dot dot-my"></span> My</span>
+            <span class="cal-legend-item"><span class="db-scope-dot dot-my"></span> Local</span>
           </div>
 
           {# Calendar grid – rendered by JS #}
@@ -114,7 +104,7 @@
 
     {# Sidebar: Recent Activity #}
     <div class="db-sidebar-panel">
-      <div class="card">
+      <div class="card db-panel-card">
         <div class="card-body">
           <h3 class="db-section-title">Recent Activity</h3>
           {% if recent_updates %}
@@ -146,7 +136,7 @@
       </div>
 
       {# Upcoming due tasks #}
-      <div class="card" style="margin-top: 1rem;">
+      <div class="card db-panel-card" style="margin-top: 1rem;">
         <div class="card-body">
           <h3 class="db-section-title">Due Soon</h3>
           <ul class="db-activity-list">
@@ -154,7 +144,7 @@
               {% for t in due_soon_tasks %}
               <li class="db-activity-item">
                 <div class="db-activity-meta">
-                  <span class="db-scope-dot dot-{{ t.scope|lower }}" title="{{ t.scope }} task"></span>
+                  <span class="db-scope-dot dot-{{ 'my' if t.scope == 'MY' else t.scope|lower }}" title="{{ 'Local' if t.scope == 'MY' else 'Global' }} task"></span>
                   <span class="db-activity-time">
                     {{- t.due_date[8:10] }}&nbsp;{{ ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][t.due_date[5:7]|int - 1] -}}
                   </span>
@@ -182,7 +172,7 @@
   {# ── Super-user Analytics ─────────────────────────────────── #}
   {% if is_privileged and analytics %}
   <div class="db-analytics-section">
-    <h2 class="db-analytics-title">📊 Visual Analytics</h2>
+    <h2 class="db-analytics-title">Visual Analytics</h2>
 
     <div class="db-charts-grid">
 
@@ -249,16 +239,9 @@
 /* ── Calendar data endpoint (month-wise lazy loading) ────────── */
 const CALENDAR_API_URL = "{{ url_for('tasks.calendar_data') }}";
 
-const SCOPE_COLORS = {
-  GLOBAL: '#059669',
-  TEAM:   '#7c3aed',
-  MY:     '#0284c7',
-};
-
 const SCOPE_LABELS = {
   GLOBAL: 'Global',
-  TEAM:   'Team',
-  MY:     'My',
+  MY:     'Local',
 };
 
 const MONTH_NAMES = [
@@ -274,6 +257,19 @@ let currentYear = {{ calendar_initial.year }};
 let currentMonth = {{ calendar_initial.month }} - 1;  // 0-based
 const monthCache = new Map(); // key: "YYYY-MM"
 let activeDateMap = {};
+const charts = [];
+
+function themeValue(name, fallback) {
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || fallback;
+}
+
+function getScopeColors() {
+  return {
+    GLOBAL: themeValue('--scope-global', '#059669'),
+    MY: themeValue('--scope-my', '#0284c7'),
+  };
+}
 
 function monthKey(year, month0) {
   return `${year}-${String(month0 + 1).padStart(2, '0')}`;
@@ -372,14 +368,15 @@ async function renderCalendar() {
 
     if (hasTask) {
       html += '<div class="cal-dots">';
-      // Deduplicate scopes to show max 1 dot per scope; keep order GLOBAL, TEAM, MY
+      // Deduplicate scopes to show max 1 dot per scope; keep order GLOBAL, MY
       const scopes = [...new Set(dayTasks.map(t => t.scope))].sort((a,b) => {
-        const order = { GLOBAL: 0, TEAM: 1, MY: 2 };
+        const order = { GLOBAL: 0, MY: 1 };
         return (order[a] ?? 9) - (order[b] ?? 9);
       });
       scopes.forEach(scope => {
         const count = dayTasks.filter(t => t.scope === scope).length;
-        html += `<span class="cal-dot" style="background:${SCOPE_COLORS[scope] || '#999'}"
+        const scopeColors = getScopeColors();
+        html += `<span class="cal-dot" style="background:${scopeColors[scope] || themeValue('--muted', '#999')}"
                        title="${count} ${SCOPE_LABELS[scope] || scope} task(s)"></span>`;
       });
       html += '</div>';
@@ -416,7 +413,7 @@ function openModalByDate(dateStr) {
 
   if (tasks.length === 0) {
     const empty = document.createElement('li');
-    empty.style.color = '#888';
+    empty.style.color = themeValue('--color-text-muted', '#888');
     empty.textContent = 'No tasks.';
     modalList.appendChild(empty);
   } else {
@@ -426,7 +423,7 @@ function openModalByDate(dateStr) {
 
       const dot = document.createElement('span');
       dot.className = 'cal-modal-scope-dot';
-      dot.style.background = SCOPE_COLORS[task.scope] || '#666';
+      dot.style.background = getScopeColors()[task.scope] || themeValue('--muted', '#666');
       dot.title = SCOPE_LABELS[task.scope] || String(task.scope || '');
 
       const link = document.createElement('a');
@@ -481,87 +478,116 @@ renderCalendar();
 /* ══ ANALYTICS CHARTS (super user only) ════════════════════════ */
 {% if is_privileged and analytics %}
 (function() {
-  const STATUS_COLORS = {
-    'Not Started': '#94a3b8',
-    'In Progress': '#3b82f6',
-    'On Hold':     '#f59e0b',
-    'Completed':   '#22c55e',
-    'Cancelled':   '#ef4444',
-  };
-  const PRIORITY_COLORS = {
-    'Low':      '#34d399',
-    'Medium':   '#60a5fa',
-    'High':     '#f97316',
-    'Critical': '#ef4444',
-  };
-  const SCOPE_CHART_COLORS = {
-    'GLOBAL': '#059669',
-    'TEAM':   '#7c3aed',
-    'MY':     '#0284c7',
-  };
+  function destroyCharts() {
+    while (charts.length) {
+      const chart = charts.pop();
+      chart.destroy();
+    }
+  }
 
-  const chartDefaults = {
-    responsive: true,
-    maintainAspectRatio: true,
-    plugins: {
-      legend: {
-        position: 'bottom',
-        labels: { boxWidth: 12, padding: 12, font: { size: 11 } },
+  function renderCharts() {
+    destroyCharts();
+
+    const statusColorsMap = {
+      'Not Started': themeValue('--chart-status-not-started', '#94a3b8'),
+      'In Progress': themeValue('--chart-status-in-progress', '#3b82f6'),
+      'On Hold': themeValue('--chart-status-on-hold', '#f59e0b'),
+      'Completed': themeValue('--chart-status-completed', '#22c55e'),
+      'Cancelled': themeValue('--chart-status-cancelled', '#ef4444'),
+    };
+    const priorityColorsMap = {
+      'Low': themeValue('--chart-priority-low', '#34d399'),
+      'Medium': themeValue('--chart-priority-medium', '#60a5fa'),
+      'High': themeValue('--chart-priority-high', '#f97316'),
+      'Critical': themeValue('--chart-priority-critical', '#ef4444'),
+    };
+    const scopeColorsMap = getScopeColors();
+    const chartText = themeValue('--chart-text', '#475569');
+    const chartGrid = themeValue('--chart-grid', '#e2e8f0');
+    const chartBorder = themeValue('--chart-border', '#ffffff');
+
+    const chartDefaults = {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: {
+            boxWidth: 12,
+            padding: 12,
+            font: { size: 11 },
+            color: chartText,
+          },
+        },
       },
-    },
-  };
+    };
 
-  /* Status donut */
-  const statusKeys   = Object.keys(ANALYTICS.status);
-  const statusVals   = Object.values(ANALYTICS.status);
-  const statusColors = statusKeys.map(k => STATUS_COLORS[k] || '#ccc');
-  new Chart(document.getElementById('chartStatus'), {
-    type: 'doughnut',
-    data: {
-      labels: statusKeys,
-      datasets: [{ data: statusVals, backgroundColor: statusColors, borderWidth: 2, borderColor: '#fff' }],
-    },
-    options: { ...chartDefaults, cutout: '60%' },
-  });
-
-  /* Priority bar */
-  const priKeys   = Object.keys(ANALYTICS.priority);
-  const priVals   = Object.values(ANALYTICS.priority);
-  const priColors = priKeys.map(k => PRIORITY_COLORS[k] || '#ccc');
-  new Chart(document.getElementById('chartPriority'), {
-    type: 'bar',
-    data: {
-      labels: priKeys,
-      datasets: [{
-        label: 'Tasks',
-        data: priVals,
-        backgroundColor: priColors,
-        borderRadius: 6,
-        borderSkipped: false,
-      }],
-    },
-    options: {
-      ...chartDefaults,
-      plugins: { ...chartDefaults.plugins, legend: { display: false } },
-      scales: {
-        y: { beginAtZero: true, ticks: { stepSize: 1, font: { size: 11 } }, grid: { color: '#f1f5f9' } },
-        x: { ticks: { font: { size: 11 } }, grid: { display: false } },
+    const statusKeys = Object.keys(ANALYTICS.status);
+    const statusVals = Object.values(ANALYTICS.status);
+    charts.push(new Chart(document.getElementById('chartStatus'), {
+      type: 'doughnut',
+      data: {
+        labels: statusKeys,
+        datasets: [{
+          data: statusVals,
+          backgroundColor: statusKeys.map((key) => statusColorsMap[key] || chartText),
+          borderWidth: 2,
+          borderColor: chartBorder,
+        }],
       },
-    },
-  });
+      options: { ...chartDefaults, cutout: '60%' },
+    }));
 
-  /* Scope donut */
-  const scopeKeys   = Object.keys(ANALYTICS.scope);
-  const scopeVals   = Object.values(ANALYTICS.scope);
-  const scopeColors = scopeKeys.map(k => SCOPE_CHART_COLORS[k] || '#ccc');
-  new Chart(document.getElementById('chartScope'), {
-    type: 'doughnut',
-    data: {
-      labels: scopeKeys.map(k => k === 'MY' ? 'My' : k === 'TEAM' ? 'Team' : 'Global'),
-      datasets: [{ data: scopeVals, backgroundColor: scopeColors, borderWidth: 2, borderColor: '#fff' }],
-    },
-    options: { ...chartDefaults, cutout: '55%' },
-  });
+    const priKeys = Object.keys(ANALYTICS.priority);
+    const priVals = Object.values(ANALYTICS.priority);
+    charts.push(new Chart(document.getElementById('chartPriority'), {
+      type: 'bar',
+      data: {
+        labels: priKeys,
+        datasets: [{
+          label: 'Tasks',
+          data: priVals,
+          backgroundColor: priKeys.map((key) => priorityColorsMap[key] || chartText),
+          borderRadius: 6,
+          borderSkipped: false,
+        }],
+      },
+      options: {
+        ...chartDefaults,
+        plugins: { ...chartDefaults.plugins, legend: { display: false } },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: { stepSize: 1, font: { size: 11 }, color: chartText },
+            grid: { color: chartGrid },
+          },
+          x: {
+            ticks: { font: { size: 11 }, color: chartText },
+            grid: { display: false },
+          },
+        },
+      },
+    }));
+
+    const scopeKeys = Object.keys(ANALYTICS.scope);
+    const scopeVals = Object.values(ANALYTICS.scope);
+    charts.push(new Chart(document.getElementById('chartScope'), {
+      type: 'doughnut',
+      data: {
+        labels: scopeKeys.map(k => k === 'MY' ? 'Local' : 'Global'),
+        datasets: [{
+          data: scopeVals,
+          backgroundColor: scopeKeys.map((key) => scopeColorsMap[key] || chartText),
+          borderWidth: 2,
+          borderColor: chartBorder,
+        }],
+      },
+      options: { ...chartDefaults, cutout: '55%' },
+    }));
+  }
+
+  renderCharts();
+  document.addEventListener('themechange', renderCharts);
 })();
 {% endif %}
 </script>

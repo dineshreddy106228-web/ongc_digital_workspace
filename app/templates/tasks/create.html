@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "components/ui.html" import page_header %}
 {% block title %}Create Task{% endblock %}
 
 {% block head_extra %}
@@ -8,15 +9,12 @@
 {% block content %}
 <div class="page-wrapper">
 
-  <div class="page-header">
-    <div class="page-header-left">
-      <h1 class="page-title">Create Task</h1>
-      <p class="page-subtitle">Add a new task for office operations.</p>
-    </div>
-    <div class="page-header-right">
-      <a href="{{ url_for('tasks.list_tasks') }}" class="btn btn-secondary">← Back to List</a>
-    </div>
-  </div>
+  {% call page_header("Create Task", "Create a Local Task for multiple users or a Global Task for office-wide tracking.", "Office Management", "Pilot v1", "info") %}
+    <a href="{{ url_for('tasks.list_tasks') }}" class="btn btn-secondary">
+      <i class="bi bi-arrow-left"></i>
+      <span>Back to List</span>
+    </a>
+  {% endcall %}
 
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% for category, message in messages %}
@@ -43,6 +41,71 @@
             <label class="form-label" for="task_description">Task Description</label>
             <textarea id="task_description" name="task_description" class="form-control"
                       rows="4" maxlength="5000">{{ form_data.get('task_description', '') }}</textarea>
+            <div class="form-hint">
+              For Global Task, mention supporting officers or contributors here when relevant.
+              For Local Task, use this to capture the collaboration context or your self-task notes.
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <div class="form-section-title">Task Schedule</div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="schedule_mode">Schedule Type <span class="required">*</span></label>
+              <select id="schedule_mode" name="schedule_mode" class="form-control" required>
+                <option value="ONE_TIME" {{ 'selected' if schedule_mode == 'ONE_TIME' }}>One-time Task</option>
+                <option value="RECURRING" {{ 'selected' if schedule_mode == 'RECURRING' }}>Recurring Task</option>
+              </select>
+              <small class="form-hint">Use recurring tasks for daily, weekly, or monthly work items.</small>
+            </div>
+
+            <div class="form-group recurring-config" id="recurrence-type-group">
+              <label class="form-label" for="recurrence_type">Recurrence Type <span class="required">*</span></label>
+              <select id="recurrence_type" name="recurrence_type" class="form-control">
+                {% for option in recurrence_types %}
+                <option value="{{ option }}" {{ 'selected' if recurrence_type == option }}>{{ option.title() }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="form-group recurring-config" id="recurrence-start-group">
+              <label class="form-label" for="recurrence_start_date">Start Date <span class="required">*</span></label>
+              <input type="date" id="recurrence_start_date" name="recurrence_start_date" class="form-control"
+                     value="{{ recurrence_start_date }}">
+            </div>
+
+            <div class="form-group recurring-config" id="recurrence-end-group">
+              <label class="form-label" for="recurrence_end_date">End Date</label>
+              <input type="date" id="recurrence_end_date" name="recurrence_end_date" class="form-control"
+                     value="{{ recurrence_end_date }}">
+              <small class="form-hint">Optional. Leave blank to keep generating tasks until the series is deactivated.</small>
+            </div>
+
+            <div class="form-group recurring-config" id="weekly-days-group" style="width:100%;">
+              <label class="form-label">Weekly Days <span class="required">*</span></label>
+              <div style="display:flex; flex-wrap:wrap; gap:0.75rem 1rem;">
+                {% for code, label in recurrence_weekdays %}
+                <label class="checkbox-label" style="display:flex; align-items:center; gap:0.4rem; margin:0;">
+                  <input type="checkbox" name="recurrence_weekdays" value="{{ code }}"
+                         {{ 'checked' if code in selected_recurrence_weekdays }}>
+                  <span>{{ label }}</span>
+                </label>
+                {% endfor %}
+              </div>
+            </div>
+
+            <div class="form-group recurring-config" id="monthly-day-group">
+              <label class="form-label" for="recurrence_month_day">Day of Month <span class="required">*</span></label>
+              <select id="recurrence_month_day" name="recurrence_month_day" class="form-control">
+                <option value="">Select day</option>
+                {% for day in range(1, 29) %}
+                <option value="{{ day }}" {{ 'selected' if recurrence_month_day == day|string }}>{{ day }}</option>
+                {% endfor %}
+              </select>
+              <small class="form-hint">Monthly recurring tasks are limited to days 1 to 28.</small>
+            </div>
           </div>
         </div>
 
@@ -75,14 +138,27 @@
               </select>
             </div>
 
-            <div class="form-group">
+            <div class="form-group" id="due-date-group">
               <label class="form-label" for="due_date">Due Date</label>
               <input type="date" id="due_date" name="due_date" class="form-control"
                      value="{{ form_data.get('due_date', '') }}">
+              <small class="form-hint">Used for one-time tasks only.</small>
             </div>
 
             <div class="form-group">
-              <label class="form-label" for="owner_id">Owner</label>
+              <label class="form-label" for="task_scope">Task Scope <span class="required">*</span></label>
+              <select id="task_scope" name="task_scope" class="form-control" required>
+                <option value="LOCAL" {{ 'selected' if current_scope == 'MY' }}>Local Task</option>
+                <option value="GLOBAL" {{ 'selected' if current_scope == 'GLOBAL' }}>Global Task</option>
+              </select>
+              <small class="form-hint">
+                <strong>Local Task</strong>: one shared task for coordination between officers, or a self-task when no collaborators are added.
+                <strong>Global Task</strong>: one office-wide task visible to everyone with tasks access.
+              </small>
+            </div>
+
+            <div class="form-group" id="global-owner-group">
+              <label class="form-label" for="owner_id">Task Owner <span class="required">*</span></label>
               <select id="owner_id" name="owner_id" class="form-control">
                 <option value="">Unassigned</option>
                 {% for owner in owners %}
@@ -91,23 +167,58 @@
                 </option>
                 {% endfor %}
               </select>
+              <small class="form-hint">Required for Global Task.</small>
             </div>
 
-            <div class="form-group">
-              <label class="form-label" for="task_scope">Task Scope <span class="required">*</span></label>
-              <select id="task_scope" name="task_scope" class="form-control" required>
-                <option value="MY" {{ 'selected' if form_data.get('task_scope', 'MY') == 'MY' }}>MY — Personal task (visible to you + your controlling officer)</option>
-                <option value="TEAM" {{ 'selected' if form_data.get('task_scope', '') == 'TEAM' }}>TEAM — Team task (visible to your reviewing officer)</option>
-                {% if can_create_global %}
-                <option value="GLOBAL" {{ 'selected' if form_data.get('task_scope', '') == 'GLOBAL' }}>GLOBAL — Office-wide task (visible to all task-module users)</option>
+            <div id="local-task-group" style="display:none; width:100%;">
+              <div class="form-group">
+                <label class="form-label" for="local_owner_display">Local Task Owner</label>
+                <input
+                  type="text"
+                  id="local_owner_display"
+                  class="form-control"
+                  value="{{ current_user.full_name or current_user.username }}"
+                  readonly
+                >
+                <small class="form-hint">For Local Task, the shared task is owned by you and collaborators are added below.</small>
+              </div>
+            </div>
+
+            <div class="form-group" style="width:100%;">
+              <label class="form-label" for="collaborator_count">Collaborators</label>
+              <select id="collaborator_count" name="collaborator_count" class="form-control" {{ 'disabled' if max_collaborator_slots == 0 }}>
+                {% if max_collaborator_slots == 0 %}
+                <option value="0">0</option>
+                {% else %}
+                  {% for slot in range(0, max_collaborator_slots + 1) %}
+                  <option value="{{ slot }}" {{ 'selected' if collaborator_count == slot else '' }}>{{ slot }}</option>
+                  {% endfor %}
                 {% endif %}
               </select>
               <small class="form-hint">
-                <strong>MY</strong>: visible to assignee + controlling officer.
-                <strong>TEAM</strong>: visible to reviewing officer + privileged roles.
-                {% if can_create_global %}<strong>GLOBAL</strong>: visible to everyone with tasks access.{% endif %}
+                Add collaborators to either Local Task or Global Task. Choose `0` for a Local self-task.
+                The task owner cannot be added again as a collaborator.
               </small>
             </div>
+
+            {% if max_collaborator_slots > 0 %}
+              {% for slot in range(max_collaborator_slots) %}
+              {% set selected_user_id = selected_collaborator_ids[slot] if slot < selected_collaborator_ids|length else '' %}
+              <div class="form-group collaborator-slot" data-collaborator-slot="{{ slot }}">
+                <label class="form-label" for="collaborator_id_{{ slot }}">Collaborator {{ slot + 1 }} <span class="required">*</span></label>
+                <select id="collaborator_id_{{ slot }}" name="collaborator_ids" class="form-control">
+                  <option value="">Select collaborator</option>
+                  {% for user in collaborator_options %}
+                  <option value="{{ user.id }}" {{ 'selected' if selected_user_id == user.id|string else '' }}>
+                    {{ user.full_name or user.username }}{% if user.office %} ({{ user.office.office_code }}){% endif %}
+                  </option>
+                  {% endfor %}
+                </select>
+              </div>
+              {% endfor %}
+            {% else %}
+            <div class="form-hint" style="width:100%;">No collaborator options are currently available.</div>
+            {% endif %}
           </div>
         </div>
 
@@ -120,4 +231,157 @@
   </div>
 
 </div>
+<script nonce="{{ csp_nonce() }}">
+(() => {
+  const scopeInput = document.getElementById('task_scope');
+  const scheduleModeInput = document.getElementById('schedule_mode');
+  const recurrenceTypeInput = document.getElementById('recurrence_type');
+  const dueDateGroup = document.getElementById('due-date-group');
+  const recurrenceGroups = Array.from(document.querySelectorAll('.recurring-config'));
+  const weeklyDaysGroup = document.getElementById('weekly-days-group');
+  const monthlyDayGroup = document.getElementById('monthly-day-group');
+  const recurrenceStartInput = document.getElementById('recurrence_start_date');
+  const recurrenceEndInput = document.getElementById('recurrence_end_date');
+  const recurrenceWeekdayInputs = Array.from(document.querySelectorAll('input[name="recurrence_weekdays"]'));
+  const recurrenceMonthDayInput = document.getElementById('recurrence_month_day');
+  const ownerGroup = document.getElementById('global-owner-group');
+  const ownerSelect = document.getElementById('owner_id');
+  const localGroup = document.getElementById('local-task-group');
+  const collaboratorCount = document.getElementById('collaborator_count');
+  const collaboratorSlots = Array.from(document.querySelectorAll('.collaborator-slot'));
+
+  function syncRecurrenceType() {
+    const isRecurring = scheduleModeInput.value === 'RECURRING';
+    const recurrenceType = recurrenceTypeInput?.value || 'DAILY';
+    const showWeekly = isRecurring && recurrenceType === 'WEEKLY';
+    const showMonthly = isRecurring && recurrenceType === 'MONTHLY';
+
+    weeklyDaysGroup.style.display = showWeekly ? '' : 'none';
+    monthlyDayGroup.style.display = showMonthly ? '' : 'none';
+
+    recurrenceWeekdayInputs.forEach((input) => {
+      input.disabled = !showWeekly;
+      if (!showWeekly) {
+        input.checked = false;
+      }
+    });
+    if (recurrenceMonthDayInput) {
+      recurrenceMonthDayInput.disabled = !showMonthly;
+      if (!showMonthly) {
+        recurrenceMonthDayInput.value = '';
+      }
+    }
+  }
+
+  function syncScheduleMode() {
+    const isRecurring = scheduleModeInput.value === 'RECURRING';
+    if (dueDateGroup) {
+      dueDateGroup.style.display = isRecurring ? 'none' : '';
+    }
+    recurrenceGroups.forEach((group) => {
+      group.style.display = isRecurring ? '' : 'none';
+    });
+    if (recurrenceTypeInput) {
+      recurrenceTypeInput.disabled = !isRecurring;
+    }
+    if (recurrenceStartInput) {
+      recurrenceStartInput.disabled = !isRecurring;
+      recurrenceStartInput.required = isRecurring;
+      if (!isRecurring) {
+        recurrenceStartInput.value = '';
+      }
+    }
+    if (recurrenceEndInput) {
+      recurrenceEndInput.disabled = !isRecurring;
+      if (!isRecurring) {
+        recurrenceEndInput.value = '';
+      }
+    }
+    syncRecurrenceType();
+  }
+
+  function getOwnerId() {
+    if (scopeInput.value === 'GLOBAL') {
+      return ownerSelect.value || '';
+    }
+    return '{{ current_user.id }}';
+  }
+
+  function syncCollaboratorOptions() {
+    const chosenValues = new Set(
+      collaboratorSlots
+        .map((slot) => slot.querySelector('select'))
+        .filter((select) => select && !select.disabled && select.value)
+        .map((select) => select.value)
+    );
+    const ownerId = getOwnerId();
+
+    collaboratorSlots.forEach((slot) => {
+      const select = slot.querySelector('select');
+      if (!select) {
+        return;
+      }
+      Array.from(select.options).forEach((option) => {
+        if (!option.value) {
+          option.disabled = false;
+          return;
+        }
+        const selectedElsewhere = chosenValues.has(option.value) && option.value !== select.value;
+        option.disabled = option.value === ownerId || selectedElsewhere;
+      });
+      if (select.value && select.options[select.selectedIndex]?.disabled) {
+        select.value = '';
+      }
+    });
+  }
+
+  function syncCollaboratorSlots() {
+    const count = Number.parseInt(collaboratorCount?.value || '0', 10) || 0;
+    collaboratorSlots.forEach((slot, index) => {
+      const active = index < count;
+      const select = slot.querySelector('select');
+      slot.style.display = active ? '' : 'none';
+      if (select) {
+        select.disabled = !active;
+        if (!active) {
+          select.value = '';
+        }
+      }
+    });
+    syncCollaboratorOptions();
+  }
+
+  function syncScope() {
+    const isGlobal = scopeInput.value === 'GLOBAL';
+    ownerGroup.style.display = isGlobal ? '' : 'none';
+    ownerSelect.required = isGlobal;
+    ownerSelect.disabled = !isGlobal;
+    if (!isGlobal) {
+      ownerSelect.value = '';
+    }
+
+    localGroup.style.display = isGlobal ? 'none' : '';
+    if (collaboratorCount) {
+      collaboratorCount.disabled = collaboratorCount.options.length === 0;
+    }
+    syncCollaboratorSlots();
+  }
+
+  scopeInput.addEventListener('change', syncScope);
+  scheduleModeInput.addEventListener('change', syncScheduleMode);
+  recurrenceTypeInput.addEventListener('change', syncRecurrenceType);
+  ownerSelect.addEventListener('change', syncCollaboratorOptions);
+  if (collaboratorCount) {
+    collaboratorCount.addEventListener('change', syncCollaboratorSlots);
+  }
+  collaboratorSlots.forEach((slot) => {
+    const select = slot.querySelector('select');
+    if (select) {
+      select.addEventListener('change', syncCollaboratorOptions);
+    }
+  });
+  syncScheduleMode();
+  syncScope();
+})();
+</script>
 {% endblock %}

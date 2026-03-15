@@ -7,7 +7,7 @@ A modular institutional web application for ONGC offices.
 
 | Layer          | Technology                  |
 |----------------|-----------------------------|
-| Backend        | Flask (Python 3.10+)        |
+| Backend        | Flask (Python 3.9-3.12)     |
 | Database       | MySQL 8.x                   |
 | ORM            | SQLAlchemy + Flask-Migrate  |
 | Authentication | Flask-Login + Werkzeug      |
@@ -26,8 +26,12 @@ cd ongc_digital_workspace
 
 ### 2. Create a Python virtual environment
 
+Use Python `3.9` through `3.12`. Do not use Python `3.13+` for this repo.
+If `python run.py` appears to hang during `import flask` or `import werkzeug`,
+the venv was likely created with an unsupported interpreter.
+
 ```bash
-python3 -m venv venv
+/usr/bin/python3 -m venv venv
 source venv/bin/activate        # Linux / macOS
 # venv\Scripts\activate         # Windows
 ```
@@ -91,6 +95,7 @@ HOST=0.0.0.0 PORT=5001 FLASK_DEBUG=0 python run.py
 Visit **http://localhost:5000** and log in with the bootstrap admin credentials.
 
 > The bootstrap admin is forced to change their password on first login.
+> `run.py` now fails fast with a clear error if you start it on an unsupported Python version.
 
 ---
 

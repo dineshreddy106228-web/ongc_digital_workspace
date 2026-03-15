@@ -1,0 +1,359 @@
+{% extends "base.html" %}
+{% block title %}Seed Files — Inventory Intelligence{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+    <div class="inv-page">
+        <div class="inv-module-header">
+            <div>
+                <h1 class="inv-module-title"><i class="bi bi-database-gear"></i> Data Management</h1>
+                <p class="inv-module-subtitle">
+                    Upload both inventory seed workbooks together. The files are sanity-checked before any data is ingested into Inventory Intelligence.
+                </p>
+            </div>
+            <div class="inv-header-actions">
+                <a href="{{ url_for('inventory.index') }}" class="btn btn-sm btn-secondary">
+                    <i class="bi bi-arrow-left"></i> Back to Dashboard
+                </a>
+            </div>
+        </div>
+
+        {# ── Sub-navigation ─────────────────────────────────────────── #}
+        <nav class="inv-subnav" aria-label="Inventory sub-navigation">
+            <a href="{{ url_for('inventory.index') }}" class="inv-subnav-link">
+                <i class="bi bi-bar-chart-line"></i> Materials Intelligence
+            </a>
+            <a href="{{ url_for('inventory.forecast_page') }}" class="inv-subnav-link">
+                <i class="bi bi-graph-up-arrow"></i> Demand Forecast
+            </a>
+            <a href="{{ url_for('inventory.seed_files') }}" class="inv-subnav-link active">
+                <i class="bi bi-database-gear"></i> Data Management
+            </a>
+        </nav>
+
+        {% if upload_error %}
+        <div class="flash flash-danger" style="margin-bottom: 1rem;">
+            <div>{{ upload_error }}</div>
+        </div>
+        {% endif %}
+
+        <div class="inv-upload-grid">
+            <section class="card">
+                <div class="card-body">
+                    <h2 class="inv-card-title">Upload Seed Files</h2>
+                    <p class="inv-card-subtitle">Accepted formats: `.xlsx`, `.xls`, `.csv`. Both files must pass sanity checks before the analysis is updated.</p>
+
+                    <form method="POST" action="{{ url_for('inventory.seed_files') }}" enctype="multipart/form-data" class="inv-seed-form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                        <div class="inv-seed-input-grid">
+                            <div class="inv-seed-input-group">
+                                <label for="consumptionSeed" class="inv-filter-label">Consumption Seed File</label>
+                                <div class="inv-seed-input-meta">Target file: {{ schema["consumption"]["filename"] }}</div>
+                                <input id="consumptionSeed" name="consumption_seed" type="file" class="form-control" accept=".xlsx,.xls,.csv" required>
+                            </div>
+
+                            <div class="inv-seed-input-group">
+                                <label for="procurementSeed" class="inv-filter-label">Procurement Seed File</label>
+                                <div class="inv-seed-input-meta">Target file: {{ schema["procurement"]["filename"] }}</div>
+                                <input id="procurementSeed" name="procurement_seed" type="file" class="form-control" accept=".xlsx,.xls,.csv" required>
+                            </div>
+                        </div>
+
+                        <div class="inv-seed-actions">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-shield-check"></i> Run Sanity Check And Upload
+                            </button>
+                            <a href="{{ url_for('inventory.index') }}" class="btn btn-secondary">Cancel</a>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+            <section class="card">
+                <div class="card-body">
+                    <h2 class="inv-card-title">Expected Columns</h2>
+                    <p class="inv-card-subtitle">Header names can vary in case, but the semantic columns below must be present.</p>
+
+                    <div class="inv-schema-grid">
+                        {% for seed_key, seed in schema.items() %}
+                        <article class="inv-schema-card">
+                            <div class="inv-schema-card-head">
+                                <h3 class="inv-section-heading">{{ seed["title"] }}</h3>
+                                <div class="inv-seed-input-meta">Allowed: {{ (seed["allowed_exts"] | list | sort) | join(', ') }}</div>
+                            </div>
+
+                            <div class="inv-schema-table-wrap">
+                                <table class="inv-expand-table inv-schema-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Column Header</th>
+                                            <th>Description</th>
+                                            <th>Required</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for column_name, description in seed["required"] %}
+                                        <tr>
+                                            <td><code>{{ column_name }}</code></td>
+                                            <td>{{ description }}</td>
+                                            <td><span class="status-pill status-pill-danger">Required</span></td>
+                                        </tr>
+                                        {% endfor %}
+                                        {% for column_name, description in seed["optional"] %}
+                                        <tr>
+                                            <td><code>{{ column_name }}</code></td>
+                                            <td>{{ description }}</td>
+                                            <td><span class="status-pill status-pill-neutral">Optional</span></td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </article>
+                        {% endfor %}
+                    </div>
+                </div>
+            </section>
+
+            <section class="card">
+                <div class="card-body">
+                    <div class="inv-card-head-inline">
+                        <div>
+                            <h2 class="inv-card-title">Procurement Cleanup Preview</h2>
+                            <p class="inv-card-subtitle">Current ingested procurement rows below ₹ {{ '{:,.2f}'.format(cleanup_threshold) }} effective value.</p>
+                        </div>
+                        {% if cleanup_preview["count"] %}
+                        <form method="POST" action="{{ url_for('inventory.procurement_low_value_delete') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-sm btn-danger">
+                                <i class="bi bi-trash"></i> Confirm Delete {{ cleanup_preview["count"] }} Rows
+                            </button>
+                        </form>
+                        {% endif %}
+                    </div>
+
+                    {% if cleanup_preview["count"] %}
+                    <div class="inv-note">These rows are from the currently ingested procurement seed file. They will be deleted only if you confirm.</div>
+                    <div class="inv-audit-table-wrap">
+                        <table class="inv-expand-table inv-audit-table">
+                            <thead>
+                                <tr>
+                                    {% for column in cleanup_preview["columns"] %}
+                                    <th>{{ column }}</th>
+                                    {% endfor %}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in cleanup_preview["rows"] %}
+                                <tr>
+                                    {% for column in cleanup_preview["columns"] %}
+                                    <td>{{ row[column] if row[column] != '' else '—' }}</td>
+                                    {% endfor %}
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="inv-muted">No current procurement rows fall below ₹ {{ '{:,.2f}'.format(cleanup_threshold) }}.</div>
+                    {% endif %}
+                </div>
+            </section>
+        </div>
+
+        {% if audit_report %}
+        <section class="card" style="margin-top: 1.25rem;">
+            <div class="card-body">
+                <div class="inv-card-head-inline">
+                    <div>
+                        <h2 class="inv-card-title">Sanity Check Results</h2>
+                        <p class="inv-card-subtitle">
+                            {% if audit_report.has_failures %}
+                            Sanity Check Failed. Please scroll down to review and clean the flagged rows. Uploaded files are staged until you apply the cleaned version.
+                            {% else %}
+                            Only advisory findings remain. You can apply the staged files now.
+                            {% endif %}
+                        </p>
+                    </div>
+                    <div class="inv-audit-meta">
+                        <span class="inv-badge inv-badge-muted">{{ audit_report.findings | length }} finding(s)</span>
+                        {% if pending_token %}
+                        <form method="POST" action="{{ url_for('inventory.staged_seed_apply') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="pending_token" value="{{ pending_token }}">
+                            <button type="submit" class="btn btn-sm btn-primary" {% if audit_report.has_failures %}disabled{% endif %}>
+                                <i class="bi bi-check2-circle"></i> Apply Cleaned Staged Files
+                            </button>
+                        </form>
+                        <form method="POST" action="{{ url_for('inventory.staged_seed_discard') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="pending_token" value="{{ pending_token }}">
+                            <button type="submit" class="btn btn-sm btn-secondary">
+                                <i class="bi bi-x-circle"></i> Discard Staged Upload
+                            </button>
+                        </form>
+                        {% endif %}
+                        {% if cleanup_preview["count"] %}
+                        <form method="POST" action="{{ url_for('inventory.procurement_low_value_delete') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-sm btn-danger">
+                                <i class="bi bi-trash"></i> Confirm Delete {{ cleanup_preview["count"] }} Low-Value Procurement Rows
+                            </button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </div>
+
+                {% if cleanup_preview["count"] %}
+                <div class="inv-note">Low-value procurement cleanup is available here as well. The current ingested procurement file has {{ cleanup_preview["count"] }} row(s) below ₹ {{ '{:,.2f}'.format(cleanup_threshold) }}.</div>
+                {% endif %}
+
+                <div class="inv-seed-summary-grid">
+                    <div class="inv-summary-item">
+                        <div class="inv-summary-val">{{ audit_report.summary.consumption.rows }}</div>
+                        <div class="inv-summary-label">Consumption Rows</div>
+                    </div>
+                    <div class="inv-summary-item">
+                        <div class="inv-summary-val">{{ audit_report.summary.procurement.rows }}</div>
+                        <div class="inv-summary-label">Procurement Rows</div>
+                    </div>
+                    <div class="inv-summary-item">
+                        <div class="inv-summary-val">{{ audit_report.summary.cross_file.material_overlap }}</div>
+                        <div class="inv-summary-label">Material Overlap</div>
+                    </div>
+                    <div class="inv-summary-item">
+                        <div class="inv-summary-val">{{ audit_report.summary.cross_file.plant_overlap }}</div>
+                        <div class="inv-summary-label">Plant Overlap</div>
+                    </div>
+                </div>
+
+                <div class="inv-audit-findings">
+                    {% for finding in audit_report.findings %}
+                    {% set group_id = 'group-' ~ loop.index %}
+                    <article class="inv-audit-card">
+                        <div class="inv-audit-card-head">
+                            <div>
+                                <h3 class="inv-section-heading">{{ finding.scope | replace('_', ' ') | title }} · {{ finding.check | replace('_', ' ') | title }}</h3>
+                                <p class="inv-card-subtitle">{{ finding.message }}</p>
+                            </div>
+                            <div class="inv-audit-meta">
+                                <span class="status-pill {{ 'status-pill-danger' if finding.severity == 'error' else 'status-pill-warning' if finding.severity == 'warning' else 'status-pill-neutral' }}">
+                                    {{ finding.severity | upper }}
+                                </span>
+                                <span class="inv-badge inv-badge-muted">{{ finding.count }}</span>
+                            </div>
+                        </div>
+
+                                {% if finding.rows %}
+                        <form method="POST" action="{{ url_for('inventory.staged_seed_delete_rows') }}" class="inv-audit-form">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="pending_token" value="{{ pending_token }}">
+                            <input type="hidden" name="seed_type" value="{{ 'consumption' if finding.scope == 'consumption' else 'procurement' }}">
+                            <input type="hidden" name="finding_check" value="{{ finding.check }}">
+                            <div class="inv-audit-actions">
+                                <label class="inv-check-inline">
+                                    <input
+                                        type="checkbox"
+                                        class="inv-check-all"
+                                        data-target="{{ group_id }}"
+                                        {% if not finding.selectable_rows %}disabled{% endif %}
+                                    >
+                                    <span>Select All Rows</span>
+                                </label>
+                                <div class="inv-audit-action-buttons">
+                                    {% if finding.primary_action == 'normalize' %}
+                                    <button
+                                        type="submit"
+                                        class="btn btn-sm btn-primary"
+                                        formaction="{{ url_for('inventory.staged_seed_normalize_price_unit') }}"
+                                    >
+                                        <i class="bi bi-arrow-repeat"></i> Normalize Selected Rows
+                                    </button>
+                                    {% else %}
+                                    <button type="submit" class="btn btn-sm btn-danger">
+                                        <i class="bi bi-trash"></i> Delete Selected Rows
+                                    </button>
+                                    {% endif %}
+                                    <button
+                                        type="submit"
+                                        class="btn btn-sm btn-secondary"
+                                        formaction="{{ url_for('inventory.staged_seed_keep_rows') }}"
+                                    >
+                                        <i class="bi bi-shield-check"></i> Keep Selected Rows
+                                    </button>
+                                </div>
+                            </div>
+                        <div class="inv-audit-table-wrap">
+                            <table class="inv-expand-table inv-audit-table">
+                                <thead>
+                                    <tr>
+                                        <th>Select</th>
+                                        {% for column in finding.columns %}
+                                        <th>{{ column }}</th>
+                                        {% endfor %}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for row in finding.rows %}
+                                    <tr>
+                                        <td>
+                                            <input
+                                                type="checkbox"
+                                                name="excel_rows"
+                                                value="{{ row['Excel Row'] }}"
+                                                class="inv-row-check"
+                                                data-group="{{ group_id }}"
+                                                {% if row['Excel Row'] not in finding.selectable_rows %}disabled{% endif %}
+                                            >
+                                        </td>
+                                        {% for column in finding.columns %}
+                                        <td>
+                                            {% if column == 'Selection Status' and row[column] == 'Keep (Frozen)' %}
+                                            <span class="status-pill status-pill-neutral">Keep</span>
+                                            {% elif column == 'Selection Status' and row[column] == 'Delete Candidate' %}
+                                            <span class="status-pill status-pill-warning">Delete</span>
+                                            {% else %}
+                                            {{ row[column] if row[column] != '' else '—' }}
+                                            {% endif %}
+                                        </td>
+                                        {% endfor %}
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        </form>
+                        {% else %}
+                        <div class="inv-note">Affected keys: {{ finding.examples | join(', ') }}</div>
+                        {% endif %}
+                    </article>
+                    {% endfor %}
+                </div>
+            </div>
+        </section>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts_extra %}
+<script nonce="{{ csp_nonce() }}">
+(function () {
+    document.querySelectorAll('.inv-check-all').forEach(function (toggle) {
+        toggle.addEventListener('change', function () {
+            var group = toggle.dataset.target;
+            document.querySelectorAll('.inv-row-check[data-group="' + group + '"]').forEach(function (box) {
+                if (box.disabled) return;
+                box.checked = toggle.checked;
+            });
+        });
+    });
+})();
+</script>
+{% endblock %}

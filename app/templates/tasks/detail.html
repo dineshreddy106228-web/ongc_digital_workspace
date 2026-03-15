@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "components/ui.html" import page_header %}
 {% block title %}Task Details{% endblock %}
 
 {% block head_extra %}
@@ -8,24 +9,24 @@
 {% block content %}
 <div class="page-wrapper">
 
-  <div class="page-header">
-    <div class="page-header-left">
-      <h1 class="page-title">{{ task.task_title }}</h1>
-      <p class="page-subtitle">Task ID: {{ task.id }}</p>
-    </div>
-    <div class="page-header-right" style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-      <a href="{{ url_for('tasks.list_tasks') }}" class="btn btn-secondary btn-sm">← Back to List</a>
+  {% call page_header(task.task_title, "Task ID: " ~ task.id, "Office Management") %}
+      <a href="{{ url_for('tasks.list_tasks') }}" class="btn btn-secondary btn-sm">
+        <i class="bi bi-arrow-left"></i>
+        <span>Back to List</span>
+      </a>
       {% if can_edit %}
-      <a href="{{ url_for('tasks.edit_task', task_id=task.id) }}" class="btn btn-secondary btn-sm">Edit Task</a>
-      {% endif %}
-      {% if can_update_status %}
-      <a href="{{ url_for('tasks.update_task_status', task_id=task.id) }}" class="btn btn-warning btn-sm">Update Status</a>
+      <a href="{{ url_for('tasks.edit_task', task_id=task.id) }}" class="btn btn-secondary btn-sm">
+        <i class="bi bi-pencil-square"></i>
+        <span>Edit Task</span>
+      </a>
       {% endif %}
       {% if can_add_update %}
-      <a href="{{ url_for('tasks.add_task_update', task_id=task.id) }}" class="btn btn-primary btn-sm">+ Add Update</a>
+      <a href="{{ url_for('tasks.add_task_update', task_id=task.id) }}" class="btn btn-primary btn-sm">
+        <i class="bi bi-plus-lg"></i>
+        <span>Add Update</span>
+      </a>
       {% endif %}
-    </div>
-  </div>
+  {% endcall %}
 
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% for category, message in messages %}
@@ -36,54 +37,82 @@
   <!-- Task Info Card -->
   <div class="card" style="margin-bottom: 1.25rem;">
     <div class="card-body">
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.25rem;">
+      <div class="detail-overview-grid">
 
-        <div>
-          <div class="form-label" style="margin-bottom: 0.25rem;">Description</div>
-          <div style="font-size: 0.9rem; color: var(--color-text);">{{ task.task_description or '—' }}</div>
+        <div class="detail-field detail-field-wide">
+          <div class="form-label">Description</div>
+          <div class="detail-value preserve-whitespace">{{ task.task_description or '—' }}</div>
         </div>
 
-        <div>
-          <div class="form-label" style="margin-bottom: 0.25rem;">Task Origin</div>
-          <div style="font-size: 0.9rem; color: var(--color-text);">{{ task.task_origin or '—' }}</div>
+        <div class="detail-field">
+          <div class="form-label">Task Origin</div>
+          <div class="detail-value">{{ task.task_origin or '—' }}</div>
         </div>
 
-        <div>
-          <div class="form-label" style="margin-bottom: 0.25rem;">Status</div>
+        <div class="detail-field">
+          <div class="form-label">Status</div>
           <span class="task-badge status-{{ task.status|lower|replace(' ', '-') }}">{{ task.status }}</span>
         </div>
 
-        <div>
-          <div class="form-label" style="margin-bottom: 0.25rem;">Priority</div>
+        <div class="detail-field">
+          <div class="form-label">Priority</div>
           <span class="task-badge priority-{{ task.priority|lower }}">{{ task.priority }}</span>
         </div>
 
-        <div>
-          <div class="form-label" style="margin-bottom: 0.25rem;">Due Date</div>
-          <div style="font-size: 0.9rem; color: var(--color-text);">{{ task.due_date.strftime('%d %b %Y') if task.due_date else '—' }}</div>
+        <div class="detail-field">
+          <div class="form-label">Due Date</div>
+          <div class="detail-value">{{ task.due_date.strftime('%d %b %Y') if task.due_date else '—' }}</div>
         </div>
 
-        <div>
-          <div class="form-label" style="margin-bottom: 0.25rem;">Owner</div>
-          <div style="font-size: 0.9rem; color: var(--color-text);">
+        <div class="detail-field">
+          <div class="form-label">Owner</div>
+          <div class="detail-value">
             {{ task.owner.full_name if task.owner and task.owner.full_name else (task.owner.username if task.owner else '—') }}
           </div>
         </div>
 
-        <div>
-          <div class="form-label" style="margin-bottom: 0.25rem;">Created By</div>
-          <div style="font-size: 0.9rem; color: var(--color-text);">
+        <div class="detail-field">
+          <div class="form-label">Task Scope</div>
+          <div class="detail-value">{{ 'Global Task' if task.task_scope == 'GLOBAL' else 'Local Task' }}</div>
+        </div>
+
+        <div class="detail-field">
+          <div class="form-label">Task Schedule</div>
+          <div class="detail-value">{{ recurrence_summary(task.recurring_template) }}</div>
+        </div>
+
+        <div class="detail-field">
+          <div class="form-label">Occurrence Date</div>
+          <div class="detail-value">{{ task.occurrence_date.strftime('%d %b %Y') if task.occurrence_date else '—' }}</div>
+        </div>
+
+        <div class="detail-field">
+          <div class="form-label">Collaborators</div>
+          <div class="detail-value">
+            {% if task.collaborator_links %}
+              {% for link in task.collaborator_links %}
+                {{ link.user.full_name or link.user.username }}{% if not loop.last %}, {% endif %}
+              {% endfor %}
+            {% else %}
+              —
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="detail-field">
+          <div class="form-label">Created By</div>
+          <div class="detail-value">
             {{ task.creator.full_name if task.creator and task.creator.full_name else (task.creator.username if task.creator else '—') }}
           </div>
         </div>
 
-        <div>
-          <div class="form-label" style="margin-bottom: 0.25rem;">Office</div>
-          <div style="font-size: 0.9rem; color: var(--color-text);">{{ task.office.office_name if task.office else '—' }}</div>
+        <div class="detail-field">
+          <div class="form-label">Office</div>
+          <div class="detail-value">{{ task.office.office_name if task.office else '—' }}</div>
         </div>
 
-        <div>
-          <div class="form-label" style="margin-bottom: 0.25rem;">Active</div>
+        <div class="detail-field">
+          <div class="form-label">Active</div>
           {% if task.is_active %}
           <span class="badge badge-active">Yes</span>
           {% else %}
@@ -91,14 +120,14 @@
           {% endif %}
         </div>
 
-        <div>
-          <div class="form-label" style="margin-bottom: 0.25rem;">Created At</div>
-          <div style="font-size: 0.9rem; color: var(--color-text);">{{ task.created_at.strftime('%d %b %Y %H:%M') if task.created_at else '—' }}</div>
+        <div class="detail-field">
+          <div class="form-label">Created At</div>
+          <div class="detail-value">{{ task.created_at.strftime('%d %b %Y %H:%M') if task.created_at else '—' }}</div>
         </div>
 
-        <div>
-          <div class="form-label" style="margin-bottom: 0.25rem;">Last Updated</div>
-          <div style="font-size: 0.9rem; color: var(--color-text);">{{ task.updated_at.strftime('%d %b %Y %H:%M') if task.updated_at else '—' }}</div>
+        <div class="detail-field">
+          <div class="form-label">Last Updated</div>
+          <div class="detail-value">{{ task.updated_at.strftime('%d %b %Y %H:%M') if task.updated_at else '—' }}</div>
         </div>
 
       </div>
@@ -108,7 +137,9 @@
   <!-- Update History Card -->
   <div class="card">
     <div class="card-body" style="padding-bottom: 0;">
-      <h2 style="font-size: 1rem; font-weight: 700; margin: 0 0 1rem; color: var(--color-text);">Update History</h2>
+      <div class="section-heading">
+        <h2 class="section-heading-title">Update History</h2>
+      </div>
     </div>
     <div class="table-responsive">
       <table class="data-table">
@@ -125,16 +156,16 @@
           {% if updates %}
             {% for update in updates %}
             <tr>
-              <td style="white-space: nowrap;">{{ update.created_at.strftime('%d %b %Y %H:%M') if update.created_at else '—' }}</td>
+              <td>{{ update.created_at.strftime('%d %b %Y %H:%M') if update.created_at else '—' }}</td>
               <td>{{ update.updater.full_name if update.updater and update.updater.full_name else (update.updater.username if update.updater else '—') }}</td>
               <td>{{ update.old_status or '—' }}</td>
               <td>{{ update.new_status or '—' }}</td>
-              <td style="white-space: normal; min-width: 200px;">{{ update.update_text }}</td>
+              <td class="preserve-whitespace">{{ update.update_text }}</td>
             </tr>
             {% endfor %}
           {% else %}
           <tr>
-            <td colspan="5" style="text-align: center; padding: 2rem 1rem; color: var(--color-text-muted);">No updates added yet.</td>
+            <td colspan="5" class="table-empty-row">No updates added yet.</td>
           </tr>
           {% endif %}
         </tbody>

@@ -34,3 +34,8 @@ build/
 
 # Database migrations auto-generated
 migrations/versions/__pycache__/
+
+backups/
+*.sql
+*.sql.gz
+.DS_Store

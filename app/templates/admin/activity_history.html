@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Activity History{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+  <div class="page-header">
+    <div class="page-header-left">
+      <h1 class="page-title">Activity History</h1>
+      <p class="page-subtitle">Platform-wide timeline of user actions.</p>
+    </div>
+    <div class="page-header-right">
+      <a href="{{ url_for('main.dashboard') }}" class="btn btn-secondary">Back to Dashboard</a>
+    </div>
+  </div>
+
+  {# ── Filters ──────────────────────────────────────────────── #}
+  <form method="get" class="activity-filter-bar">
+    <select name="action" class="form-select form-select-sm">
+      <option value="">All Actions</option>
+      {% for at in action_types %}
+      <option value="{{ at }}" {{ 'selected' if filters.action == at }}>{{ at }}</option>
+      {% endfor %}
+    </select>
+    <select name="actor" class="form-select form-select-sm">
+      <option value="">All Users</option>
+      {% for a in actors %}
+      <option value="{{ a }}" {{ 'selected' if filters.actor == a }}>{{ a }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn btn-sm btn-primary">Filter</button>
+    {% if filters.action or filters.actor %}
+    <a href="{{ url_for('admin.activity_history') }}" class="btn btn-sm btn-secondary">Clear</a>
+    {% endif %}
+  </form>
+
+  {# ── Activity Table ───────────────────────────────────────── #}
+  {% if activities %}
+  <div class="card" style="margin-top: 1rem;">
+    <div class="card-body" style="padding: 0; overflow-x: auto;">
+      <table class="activity-table">
+        <thead>
+          <tr>
+            <th style="width: 170px;">Time</th>
+            <th style="width: 140px;">User</th>
+            <th style="width: 160px;">Action</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for entry in activities %}
+          <tr>
+            <td class="activity-table-time">{{ entry.created_at.strftime('%d %b %Y, %H:%M') }}</td>
+            <td>
+              <span class="activity-table-actor">{{ entry.actor_username or 'System' }}</span>
+            </td>
+            <td>
+              <span class="activity-table-badge" style="color: {{ entry.accent_color }};">
+                <i class="bi {{ entry.icon_class }}"></i>
+                {{ entry.action_type }}
+              </span>
+            </td>
+            <td>
+              <span class="activity-table-summary">{{ entry.summary }}</span>
+              {% if entry.details %}
+              <span class="activity-table-details">{{ entry.details }}</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {# ── Pagination ───────────────────────────────────────────── #}
+  {% if pagination.pages > 1 %}
+  <nav class="activity-pagination">
+    {% if pagination.has_prev %}
+    <a href="{{ url_for('admin.activity_history', page=pagination.prev_num, action=filters.action, actor=filters.actor) }}"
+       class="btn btn-sm btn-secondary">&laquo; Prev</a>
+    {% endif %}
+    <span class="activity-page-info">Page {{ pagination.page }} of {{ pagination.pages }}</span>
+    {% if pagination.has_next %}
+    <a href="{{ url_for('admin.activity_history', page=pagination.next_num, action=filters.action, actor=filters.actor) }}"
+       class="btn btn-sm btn-secondary">Next &raquo;</a>
+    {% endif %}
+  </nav>
+  {% endif %}
+
+  {% else %}
+  <div class="card" style="margin-top: 1rem;">
+    <div class="card-body" style="text-align: center; padding: 2rem;">
+      <p style="color: var(--muted); margin: 0;">No activity records found.</p>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

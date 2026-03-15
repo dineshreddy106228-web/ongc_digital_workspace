@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}Backup Center{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+  <div class="page-header">
+    <div class="page-header-left">
+      <h1 class="page-title">Backup Center</h1>
+      <p class="page-subtitle">Create on-demand database exports without exposing destructive restore actions in the browser.</p>
+    </div>
+    <div class="page-header-right" style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+      <a href="{{ url_for('admin.users') }}" class="btn btn-secondary">Back to Users</a>
+    </div>
+  </div>
+
+  <div class="backup-grid">
+    <section class="card">
+      <div class="card-body">
+        <h2 class="backup-section-title">Export Backup</h2>
+        <p class="backup-copy">
+          Generate a fresh MySQL dump for the current <strong>{{ environment_name }}</strong> environment.
+          The file is streamed immediately as <code>.sql.gz</code> and is not retained on the web server.
+        </p>
+        <form method="POST" action="{{ url_for('admin.export_backup') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-primary">Download Backup</button>
+        </form>
+        <div class="backup-note backup-note-warning">
+          <strong>Runtime requirement:</strong> the deployment environment must include
+          <code>mysqldump</code>. On Railway this usually means adding a MySQL client package
+          to the service image.
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-body">
+        <h2 class="backup-section-title">Restore Procedure</h2>
+        <p class="backup-copy">
+          Restore remains terminal-only by design. There is no web restore button yet because
+          full database restores are destructive and not fully rollback-safe.
+        </p>
+        <div class="backup-command-block">
+          <code>python -m flask validate-backup --file path/to/backup.sql.gz</code>
+        </div>
+        <div class="backup-command-block">
+          <code>python -m flask restore-db --file path/to/backup.sql.gz --confirm-restore</code>
+        </div>
+        <div class="backup-note">
+          If a restore fails midway, MySQL may already have applied part of the dump. Take a fresh backup before restoring.
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <section class="card" style="margin-top: 1.5rem;">
+    <div class="card-body">
+      <div class="backup-history-header">
+        <div>
+          <h2 class="backup-section-title" style="margin-bottom: 0.25rem;">Recent Export History</h2>
+          <p class="page-subtitle">Most recent admin-triggered exports recorded by the application.</p>
+        </div>
+      </div>
+
+      {% if not history_available %}
+      <div class="alert alert-warning" style="margin-bottom: 0;">
+        Backup history is temporarily unavailable. Apply the latest database migration to enable snapshot logging.
+      </div>
+      {% elif snapshots %}
+      <div class="table-responsive">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Filename</th>
+              <th>Created By</th>
+              <th>Created At</th>
+              <th>Environment</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for snapshot in snapshots %}
+            <tr>
+              <td><strong>{{ snapshot.filename }}</strong></td>
+              <td>{{ snapshot.created_by_username }}</td>
+              <td>{{ snapshot.created_at.strftime('%d %b %Y %H:%M') }}</td>
+              <td>{{ snapshot.environment or '—' }}</td>
+              <td>{{ snapshot.notes or '—' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="text-muted" style="margin: 0;">No backup exports have been recorded yet.</p>
+      {% endif %}
+    </div>
+  </section>
+</div>
+{% endblock %}

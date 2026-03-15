@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "components/ui.html" import page_header %}
 {% block title %}Create User{% endblock %}
 
 {% block head_extra %}
@@ -7,15 +8,12 @@
 
 {% block content %}
 <div class="page-wrapper">
-  <div class="page-header">
-    <div class="page-header-left">
-      <h1 class="page-title">Create User</h1>
-      <p class="page-subtitle">Add a new user account to the system.</p>
-    </div>
-    <div class="page-header-right">
-      <a href="{{ url_for('admin.users') }}" class="btn btn-secondary">← Back to Users</a>
-    </div>
-  </div>
+  {% call page_header("Create User", "Add a new user account to the system.", "Administration", "Admin", "neutral") %}
+    <a href="{{ url_for('admin.users') }}" class="btn btn-secondary">
+      <i class="bi bi-arrow-left"></i>
+      <span>Back to Users</span>
+    </a>
+  {% endcall %}
 
   {# Flash messages #}
   {% with messages = get_flashed_messages(with_categories=true) %}
@@ -183,7 +181,7 @@
         {# ── Reporting Hierarchy ─────────────────────────────────── #}
         <div class="form-section">
           <h3 class="form-section-title">Reporting Hierarchy</h3>
-          <p class="form-section-hint">Assign a controlling officer (direct supervisor) and/or a reviewing officer (team lead / reviewer) for this user.</p>
+          <p class="form-section-hint">Assign a controlling officer (direct supervisor) for this user.</p>
 
           <div class="form-row">
             <div class="form-group">
@@ -200,21 +198,6 @@
               </select>
               <small class="form-hint">Can view this user's MY tasks and add remarks.</small>
             </div>
-
-            <div class="form-group">
-              <label for="reviewing_officer_id" class="form-label">Reviewing Officer</label>
-              <select id="reviewing_officer_id" name="reviewing_officer_id" class="form-control">
-                <option value="">— None —</option>
-                {% for officer in officers %}
-                  <option value="{{ officer.id }}"
-                    {{ 'selected' if form_data.get('reviewing_officer_id', '') == officer.id|string }}>
-                    {{ officer.full_name or officer.username }}
-                    {% if officer.designation %} ({{ officer.designation }}){% endif %}
-                  </option>
-                {% endfor %}
-              </select>
-              <small class="form-hint">Can view this user's TEAM and MY tasks.</small>
-            </div>
           </div>
         </div>
 
@@ -223,28 +206,32 @@
           <h3 class="form-section-title">Module Access</h3>
           <p class="form-section-hint">
             Select which modules this user can access.
-            <strong>super_user</strong> role automatically receives full business access.
+            <strong>admin</strong> role receives <strong>User Management</strong> only.
+            <strong>superuser</strong> role automatically receives full business access.
             For <strong>user</strong> role, only checked modules will be accessible.
           </p>
 
           <div class="module-access-grid">
-            {% for module_code, module_label in supported_modules %}
+            {% for module in supported_modules %}
             <label class="module-access-item checkbox-label">
               <input
                 type="checkbox"
                 name="module_access"
-                value="{{ module_code }}"
-                {{ 'checked' if module_code in selected_modules }}
+                value="{{ module.code }}"
+                {{ 'checked' if module.code in selected_modules }}
               >
               <span class="module-access-label">
-                <strong>{{ module_label }}</strong>
-                <small class="module-code-tag">{{ module_code }}</small>
+                <strong>{{ module.label }}</strong>
+                <small class="module-code-tag">{{ module.code }}</small>
+                {% if not module.enabled %}
+                <small class="module-code-tag">feature off</small>
+                {% endif %}
               </span>
             </label>
             {% endfor %}
           </div>
           <small class="form-hint" style="margin-top: 0.5rem; display: block;">
-            Note: For super_user role, module access is managed automatically and these checkboxes are informational only.
+            Note: For <strong>admin</strong> and <strong>superuser</strong> roles, module access is managed automatically and these checkboxes are informational only.
           </small>
         </div>
 

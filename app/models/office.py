@@ -22,6 +22,9 @@ class Office(db.Model):
 
     users = db.relationship("User", back_populates="office", lazy="dynamic")
     tasks = db.relationship("Task", back_populates="office", lazy="dynamic")
+    recurring_templates = db.relationship(
+        "RecurringTaskTemplate", back_populates="office", lazy="dynamic"
+    )
 
     def __repr__(self):
         return f"<Office {self.office_code}>"

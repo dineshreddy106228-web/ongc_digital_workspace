@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{% from "components/ui.html" import page_header %}
+{% block title %}Upload SAP Export – Inventory Intelligence{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+
+  {% call page_header("Upload SAP Export", "Import a monthly material-usage export from SAP.", "Inventory Intelligence", "Import", "neutral") %}
+    <a href="{{ url_for('inventory.director_report_form') }}" class="btn btn-primary">
+      <i class="bi bi-file-earmark-arrow-down"></i>
+      <span>Director Report</span>
+    </a>
+    <a href="{{ url_for('inventory.index') }}" class="btn btn-secondary">
+      <i class="bi bi-arrow-left"></i>
+      <span>Back to Dashboard</span>
+    </a>
+  {% endcall %}
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+    <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  <div class="inv-upload-layout">
+
+    {# ── Upload Form ───────────────────────────────────────────── #}
+    <div class="card">
+      <div class="card-body">
+        <h2 class="inv-section-title">Select File</h2>
+        <p class="inv-section-desc">
+          Upload a CSV or Excel file exported from SAP (MB52, MB51, or equivalent usage reports).
+          Maximum file size: 20 MB.
+        </p>
+
+        <form method="POST" action="{{ url_for('inventory.upload_file') }}"
+              enctype="multipart/form-data" id="uploadForm">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+          <div class="inv-drop-zone" id="dropZone">
+            <input type="file" name="sap_export" id="sapFile"
+                   accept=".csv,.xlsx,.xls"
+                   class="inv-file-input"
+                   required>
+            <div class="inv-drop-content" id="dropContent">
+              <i class="bi bi-file-earmark-spreadsheet inv-drop-icon"></i>
+              <p class="inv-drop-title">Drop your SAP export file here</p>
+              <p class="inv-drop-sub">or <span class="inv-drop-link">click to browse</span></p>
+              <p class="inv-drop-hint">Accepts .csv, .xlsx — max 20 MB</p>
+            </div>
+            <div class="inv-file-chosen" id="fileChosen" style="display:none;">
+              <i class="bi bi-file-check inv-file-chosen-icon"></i>
+              <span id="fileChosenName"></span>
+              <span class="inv-file-clear" id="fileClear" title="Remove">×</span>
+            </div>
+          </div>
+
+          <div class="inv-upload-actions">
+            <button type="submit" class="btn btn-primary" id="submitBtn" disabled>
+              <i class="bi bi-cloud-upload"></i>
+              <span>Import Data</span>
+            </button>
+            <a href="{{ url_for('inventory.index') }}" class="btn btn-secondary">Cancel</a>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    {# ── Expected Format ───────────────────────────────────────── #}
+    <div class="card">
+      <div class="card-body">
+        <h2 class="inv-section-title">Expected Column Headers</h2>
+        <p class="inv-section-desc">
+          The file must contain the following SAP export columns (order does not matter, header names are case-insensitive):
+        </p>
+        <div class="inv-schema-table-wrap">
+          <table class="inv-schema-table">
+            <thead>
+              <tr>
+                <th>Column Header</th>
+                <th>Description</th>
+                <th>Required</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><code>Plant</code></td><td>SAP Plant code</td><td><span class="status-pill status-pill-danger">Required</span></td></tr>
+              <tr><td><code>Material</code></td><td>Material number / code</td><td><span class="status-pill status-pill-danger">Required</span></td></tr>
+              <tr><td><code>Storage Location</code></td><td>Storage location within plant</td><td><span class="status-pill status-pill-neutral">Optional</span></td></tr>
+              <tr><td><code>Material Type</code></td><td>SAP material type (e.g. ROH, FERT)</td><td><span class="status-pill status-pill-neutral">Optional</span></td></tr>
+              <tr><td><code>Material Group</code></td><td>Material group / commodity</td><td><span class="status-pill status-pill-neutral">Optional</span></td></tr>
+              <tr><td><code>Business Area</code></td><td>Business area code</td><td><span class="status-pill status-pill-neutral">Optional</span></td></tr>
+              <tr><td><code>Division</code></td><td>SAP division</td><td><span class="status-pill status-pill-neutral">Optional</span></td></tr>
+              <tr><td><code>Month</code></td><td>Reporting period (YYYY.MM, MM/YYYY, etc.)</td><td><span class="status-pill status-pill-danger">Required</span></td></tr>
+              <tr><td><code>Tot. usage</code></td><td>Total quantity consumed</td><td><span class="status-pill status-pill-neutral">Optional</span></td></tr>
+              <tr><td><code>Tot. usage UoM</code></td><td>Unit of measure</td><td><span class="status-pill status-pill-neutral">Optional</span></td></tr>
+              <tr><td><code>Tot.us.val</code></td><td>Total usage value in currency</td><td><span class="status-pill status-pill-neutral">Optional</span></td></tr>
+              <tr><td><code>Tot.us.val Currency</code></td><td>Currency code (e.g. INR)</td><td><span class="status-pill status-pill-neutral">Optional</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="inv-upload-tip">
+          <i class="bi bi-lightbulb"></i>
+          <strong>Tip:</strong> Export from SAP using transaction MB52 (Warehouse Stocks) or MB51 (Material Document List) with the above fields. Save as Excel or CSV before uploading.
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts_extra %}
+<script nonce="{{ csp_nonce() }}">
+(function () {
+  const fileInput      = document.getElementById('sapFile');
+  const dropZone       = document.getElementById('dropZone');
+  const dropContent    = document.getElementById('dropContent');
+  const fileChosen     = document.getElementById('fileChosen');
+  const fileChosenName = document.getElementById('fileChosenName');
+  const fileClear      = document.getElementById('fileClear');
+  const submitBtn      = document.getElementById('submitBtn');
+
+  function showFile(name) {
+    dropContent.style.display = 'none';
+    fileChosen.style.display  = 'flex';
+    fileChosenName.textContent = name;
+    submitBtn.disabled = false;
+  }
+
+  function clearFile() {
+    fileInput.value = '';
+    dropContent.style.display = 'flex';
+    fileChosen.style.display  = 'none';
+    fileChosenName.textContent = '';
+    submitBtn.disabled = true;
+  }
+
+  // Native file-picker selection
+  fileInput.addEventListener('change', function () {
+    if (this.files.length > 0) showFile(this.files[0].name);
+    else clearFile();
+  });
+
+  // ✕ clear button — stop propagation so dropZone click doesn't re-fire
+  fileClear.addEventListener('click', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    clearFile();
+  });
+
+  // Click anywhere on the drop zone opens the file picker.
+  // BUG FIX: calling fileInput.click() dispatches a synthetic click that
+  // bubbles back up to dropZone, causing an infinite loop.
+  // Guard: skip when the event originated from the file input itself.
+  dropZone.addEventListener('click', function (e) {
+    if (e.target === fileInput) return;
+    if (e.target === fileClear || fileClear.contains(e.target)) return;
+    fileInput.click();
+  });
+
+  // Drag-and-drop
+  dropZone.addEventListener('dragover', function (e) {
+    e.preventDefault();
+    dropZone.classList.add('inv-drop-zone--active');
+  });
+
+  // BUG FIX: plain dragleave fires when the cursor moves over a *child*
+  // element, causing the highlight to flicker off mid-drag.
+  // Only remove the highlight when the cursor genuinely leaves the zone.
+  dropZone.addEventListener('dragleave', function (e) {
+    if (!dropZone.contains(e.relatedTarget)) {
+      dropZone.classList.remove('inv-drop-zone--active');
+    }
+  });
+
+  dropZone.addEventListener('drop', function (e) {
+    e.preventDefault();
+    dropZone.classList.remove('inv-drop-zone--active');
+    const files = e.dataTransfer.files;
+    if (files.length === 0) return;
+
+    // BUG FIX: fileInput.files is read-only — direct assignment fails in
+    // many browsers.  Use the DataTransfer API to properly transfer the
+    // dropped file onto the input so the form POST includes it.
+    try {
+      const dt = new DataTransfer();
+      dt.items.add(files[0]);
+      fileInput.files = dt.files;
+    } catch (_) {
+      // DataTransfer not supported (very old Safari) — file name shows
+      // but form submit will fall back to empty; user can use Browse instead.
+    }
+    showFile(files[0].name);
+  });
+})();
+</script>
+{% endblock %}

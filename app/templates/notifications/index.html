@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% from "components/ui.html" import page_header %}
+{% block title %}Notifications – {{ app_name }}{% endblock %}
+
+{% block content %}
+<section class="notifications-page">
+    {% call page_header("Notifications", "Track platform alerts, assignment updates, and account changes for your user.", "Workspace", unread_count ~ " unread" if unread_count else "All caught up", "info" if unread_count else "neutral") %}
+            {% if unread_count %}
+            <form method="POST" action="{{ url_for('notifications.read_all') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-secondary">Mark all as read</button>
+            </form>
+            {% endif %}
+    {% endcall %}
+
+    <div class="notifications-list">
+        {% for notification in notifications %}
+        <article class="notification-card notification-card-{{ notification.severity }} {{ 'notification-read' if notification.is_read else 'notification-unread' }}">
+            <div class="notification-card-main">
+                <div class="notification-card-header">
+                    <div>
+                        <h2>{{ notification.title }}</h2>
+                        <p>{{ notification.message }}</p>
+                    </div>
+                    <span class="notification-severity-pill severity-{{ notification.severity }}">
+                        {{ notification.severity|title }}
+                    </span>
+                </div>
+                <div class="notification-card-meta">
+                    <span>{{ notification.created_at.strftime('%d %b %Y, %H:%M') }}</span>
+                    <span class="notification-state {{ 'state-read' if notification.is_read else 'state-unread' }}">
+                        {{ 'Read' if notification.is_read else 'Unread' }}
+                    </span>
+                </div>
+            </div>
+            <div class="notification-card-actions">
+                {% if notification.link %}
+                <a
+                    href="{{ url_for('notifications.open_notification', notification_id=notification.id) }}"
+                    class="btn btn-sm btn-primary"
+                >
+                    Open
+                </a>
+                {% endif %}
+                {% if not notification.is_read %}
+                <form method="POST" action="{{ url_for('notifications.mark_read', notification_id=notification.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="next" value="{{ url_for('notifications.index') }}">
+                    <button type="submit" class="btn btn-sm btn-outline">Mark read</button>
+                </form>
+                {% endif %}
+            </div>
+        </article>
+        {% else %}
+        <div class="notification-empty-state">
+            <h3>No notifications yet</h3>
+            <p>When users are assigned work or their access changes, alerts will appear here.</p>
+        </div>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

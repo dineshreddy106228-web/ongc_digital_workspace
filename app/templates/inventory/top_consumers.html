@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+{% from "components/ui.html" import page_header %}
+{% block title %}Top Consumers – Inventory Intelligence{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}">
+<script nonce="{{ csp_nonce() }}" src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+
+  {% call page_header("Top Consumers", "Highest-value materials consumed — ranked by total usage value.", "Inventory Intelligence") %}
+    <a href="{{ url_for('inventory.index') }}" class="btn btn-secondary">
+      <i class="bi bi-grid-1x2"></i>
+      <span>Dashboard</span>
+    </a>
+  {% endcall %}
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+    <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  {# ── Filters ──────────────────────────────────────────────────── #}
+  <div class="card inv-filter-card">
+    <div class="card-body">
+      <form method="get" action="{{ url_for('inventory.top_consumers') }}" class="inv-filters-row">
+        <div class="inv-filter-group">
+          <label for="f-plant">Plant</label>
+          <select name="plant" id="f-plant" class="inv-filter-select">
+            <option value="">All Plants</option>
+            {% for p in filter_opts.plants %}
+            <option value="{{ p }}" {{ 'selected' if plant_filter == p }}>{{ p }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="inv-filter-group">
+          <label for="f-matgrp">Material Group</label>
+          <select name="material_group" id="f-matgrp" class="inv-filter-select">
+            <option value="">All Groups</option>
+            {% for mg in filter_opts.material_groups %}
+            <option value="{{ mg }}" {{ 'selected' if material_group_filter == mg }}>{{ mg }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="inv-filter-group">
+          <label for="f-year">Year</label>
+          <select name="year" id="f-year" class="inv-filter-select">
+            <option value="">All Years</option>
+            {% for y in filter_opts.years %}
+            <option value="{{ y }}" {{ 'selected' if year_filter == (y|string) }}>{{ y }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="inv-filter-group">
+          <label for="f-topn">Show Top</label>
+          <select name="top_n" id="f-topn" class="inv-filter-select">
+            {% for n in [10, 20, 50, 100] %}
+            <option value="{{ n }}" {{ 'selected' if top_n == n }}>{{ n }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="inv-filter-actions">
+          <button type="submit" class="btn btn-primary btn-sm">
+            <i class="bi bi-funnel"></i> Apply
+          </button>
+          <a href="{{ url_for('inventory.top_consumers') }}" class="btn btn-secondary btn-sm">
+            <i class="bi bi-x"></i> Clear
+          </a>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  {% if consumers %}
+
+  {# ── Horizontal bar chart ─────────────────────────────────────── #}
+  <div class="card inv-chart-card">
+    <div class="card-body">
+      <h2 class="inv-chart-title">Top {{ consumers|length }} Materials by Usage Value</h2>
+      <div class="inv-chart-container inv-chart-tall">
+        <canvas id="consumersChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  {# ── Ranked table ─────────────────────────────────────────────── #}
+  <div class="card">
+    <div class="card-body">
+      <h2 class="inv-section-title">Detailed Breakdown</h2>
+      <div class="table-responsive">
+        <table class="inv-data-table">
+          <thead>
+            <tr>
+              <th class="inv-rank-col">#</th>
+              <th>Material</th>
+              <th>Plant</th>
+              <th>Material Group</th>
+              <th>Material Type</th>
+              <th class="text-right">Total Usage</th>
+              <th class="text-right">Usage Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for c in consumers %}
+            <tr>
+              <td class="inv-rank-col">
+                <span class="inv-rank-badge {% if c.rank <= 3 %}inv-rank-top{% endif %}">{{ c.rank }}</span>
+              </td>
+              <td>
+                <a href="{{ url_for('inventory.material_detail', material_code=c.material) }}{% if plant_filter %}?plant={{ plant_filter }}{% endif %}"
+                   class="inv-material-link">{{ c.material }}</a>
+              </td>
+              <td>{{ c.plant }}</td>
+              <td>{{ c.material_group }}</td>
+              <td>{{ c.material_type }}</td>
+              <td class="text-right inv-num">{{ "{:,.3f}".format(c.total_usage) }} {{ c.uom }}</td>
+              <td class="text-right inv-num inv-val">
+                {% if c.total_value >= 10000000 %}
+                  ₹{{ "%.2f"|format(c.total_value / 10000000) }} Cr
+                {% elif c.total_value >= 100000 %}
+                  ₹{{ "%.2f"|format(c.total_value / 100000) }} L
+                {% else %}
+                  ₹{{ "{:,.0f}".format(c.total_value) }}
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  {% else %}
+  <div class="card">
+    <div class="card-body inv-empty-state">
+      <i class="bi bi-bar-chart-line inv-empty-icon"></i>
+      <p>No consumption data found for the selected filters.</p>
+      <a href="{{ url_for('inventory.upload_form') }}" class="btn btn-primary">Upload SAP Export</a>
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts_extra %}
+{% if consumers %}
+<script nonce="{{ csp_nonce() }}">
+(function () {
+  const data = {{ consumers | tojson }};
+  const labels  = data.map(d => d.material);
+  const values  = data.map(d => d.total_value);
+  const colors  = data.map((_, i) => {
+    const palette = ['#1a56db','#1e7e34','#e8710a','#7c3aed','#dc2626','#0891b2'];
+    return palette[i % palette.length] + (i < 3 ? 'ff' : 'cc');
+  });
+
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)';
+  const textColor = isDark ? '#94a3b8' : '#64748b';
+
+  const ctx = document.getElementById('consumersChart').getContext('2d');
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'Usage Value',
+        data: values,
+        backgroundColor: colors,
+        borderWidth: 0,
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: function(ctx) {
+              const val = ctx.raw;
+              if (val >= 10000000) return '₹' + (val/10000000).toFixed(2) + ' Cr';
+              if (val >= 100000) return '₹' + (val/100000).toFixed(2) + ' L';
+              return '₹' + val.toLocaleString('en-IN', {maximumFractionDigits: 0});
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: {
+            color: textColor,
+            callback: function(val) {
+              if (val >= 10000000) return '₹' + (val/10000000).toFixed(1) + 'Cr';
+              if (val >= 100000) return '₹' + (val/100000).toFixed(1) + 'L';
+              return '₹' + val.toLocaleString('en-IN');
+            }
+          },
+          grid: { color: gridColor },
+        },
+        y: {
+          ticks: { color: textColor },
+          grid: { display: false },
+        }
+      }
+    }
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

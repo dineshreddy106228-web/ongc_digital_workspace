@@ -6,4 +6,12 @@ from app.models.user import User                                    # noqa: F401
 from app.models.user_module_permission import UserModulePermission  # noqa: F401
 from app.models.audit_log import AuditLog                          # noqa: F401
 from app.models.task import Task                                    # noqa: F401
+from app.models.task_collaborator import TaskCollaborator          # noqa: F401
+from app.models.recurring_task_template import RecurringTaskTemplate  # noqa: F401
+from app.models.recurring_task_collaborator import RecurringTaskCollaborator  # noqa: F401
 from app.models.task_update import TaskUpdate                       # noqa: F401
+from app.models.activity_log import ActivityLog                     # noqa: F401
+from app.models.notification import Notification                    # noqa: F401
+from app.models.backup_snapshot import BackupSnapshot              # noqa: F401
+from app.models.inventory_upload import InventoryUpload            # noqa: F401
+from app.models.inventory_record import InventoryRecord            # noqa: F401

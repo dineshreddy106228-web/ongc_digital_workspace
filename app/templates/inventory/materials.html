@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% from "components/ui.html" import page_header %}
+{% block title %}Materials – Inventory Intelligence{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+
+  {% call page_header("Material Usage", "Search and explore all materials with their cumulative usage data.", "Inventory Intelligence") %}
+    <a href="{{ url_for('inventory.top_consumers') }}" class="btn btn-secondary">
+      <i class="bi bi-trophy"></i>
+      <span>Top Consumers</span>
+    </a>
+    <a href="{{ url_for('inventory.index') }}" class="btn btn-secondary">
+      <i class="bi bi-grid-1x2"></i>
+      <span>Dashboard</span>
+    </a>
+  {% endcall %}
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+    <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  {# ── Search + Filters ──────────────────────────────────────────── #}
+  <div class="card inv-filter-card">
+    <div class="card-body">
+      <form method="get" action="{{ url_for('inventory.materials_list') }}" class="inv-filters-row">
+        <div class="inv-filter-group inv-filter-search">
+          <label for="f-q">Search Material</label>
+          <div class="inv-search-wrap">
+            <i class="bi bi-search inv-search-icon"></i>
+            <input type="text" name="q" id="f-q"
+                   value="{{ q or '' }}"
+                   placeholder="Material code or description…"
+                   class="inv-search-input">
+          </div>
+        </div>
+        <div class="inv-filter-group">
+          <label for="f-plant">Plant</label>
+          <select name="plant" id="f-plant" class="inv-filter-select">
+            <option value="">All Plants</option>
+            {% for p in filter_opts.plants %}
+            <option value="{{ p }}" {{ 'selected' if plant_filter == p }}>{{ p }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="inv-filter-group">
+          <label for="f-matgrp">Material Group</label>
+          <select name="material_group" id="f-matgrp" class="inv-filter-select">
+            <option value="">All Groups</option>
+            {% for mg in filter_opts.material_groups %}
+            <option value="{{ mg }}" {{ 'selected' if material_group_filter == mg }}>{{ mg }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="inv-filter-actions">
+          <button type="submit" class="btn btn-primary btn-sm">
+            <i class="bi bi-search"></i> Search
+          </button>
+          <a href="{{ url_for('inventory.materials_list') }}" class="btn btn-secondary btn-sm">
+            <i class="bi bi-x"></i> Clear
+          </a>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  {# ── Results ──────────────────────────────────────────────────── #}
+  <div class="card">
+    <div class="card-body">
+      <div class="inv-results-header">
+        <span class="inv-results-count">
+          {{ "{:,}".format(result.total) }} material(s) found
+          {% if q %}matching "<strong>{{ q }}</strong>"{% endif %}
+        </span>
+        <span class="inv-results-page">
+          Page {{ result.page }} of {{ result.pages }}
+        </span>
+      </div>
+
+      {% if result.items %}
+      <div class="table-responsive">
+        <table class="inv-data-table">
+          <thead>
+            <tr>
+              <th>Material</th>
+              <th>Plant</th>
+              <th>Material Group</th>
+              <th>Material Type</th>
+              <th class="text-right">Total Usage</th>
+              <th class="text-right">Usage Value</th>
+              <th class="text-right">Records</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in result.items %}
+            <tr>
+              <td>
+                <a href="{{ url_for('inventory.material_detail', material_code=item.material) }}{% if plant_filter %}?plant={{ plant_filter }}{% endif %}"
+                   class="inv-material-link">{{ item.material }}</a>
+              </td>
+              <td>{{ item.plant }}</td>
+              <td>{{ item.material_group }}</td>
+              <td>{{ item.material_type }}</td>
+              <td class="text-right inv-num">{{ "{:,.3f}".format(item.total_usage) }} {{ item.uom }}</td>
+              <td class="text-right inv-num inv-val">
+                {% if item.total_value >= 10000000 %}
+                  ₹{{ "%.2f"|format(item.total_value / 10000000) }} Cr
+                {% elif item.total_value >= 100000 %}
+                  ₹{{ "%.2f"|format(item.total_value / 100000) }} L
+                {% else %}
+                  ₹{{ "{:,.0f}".format(item.total_value) }}
+                {% endif %}
+              </td>
+              <td class="text-right inv-num">{{ item.record_count }}</td>
+              <td>
+                <a href="{{ url_for('inventory.material_detail', material_code=item.material) }}{% if plant_filter %}?plant={{ plant_filter }}{% endif %}"
+                   class="btn btn-secondary btn-sm">
+                  <i class="bi bi-graph-up"></i>
+                </a>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {# Pagination #}
+      {% if result.pages > 1 %}
+      <div class="inv-pagination">
+        {% if result.page > 1 %}
+        <a href="{{ url_for('inventory.materials_list', q=q, plant=plant_filter, material_group=material_group_filter, page=result.page-1) }}"
+           class="btn btn-secondary btn-sm">&laquo; Prev</a>
+        {% endif %}
+
+        {% for pg in range(1, result.pages + 1) %}
+          {% if pg == result.page %}
+          <span class="inv-page-active">{{ pg }}</span>
+          {% elif pg <= 2 or pg >= result.pages - 1 or (pg >= result.page - 1 and pg <= result.page + 1) %}
+          <a href="{{ url_for('inventory.materials_list', q=q, plant=plant_filter, material_group=material_group_filter, page=pg) }}"
+             class="btn btn-secondary btn-sm">{{ pg }}</a>
+          {% elif pg == 3 or pg == result.pages - 2 %}
+          <span class="inv-page-ellipsis">…</span>
+          {% endif %}
+        {% endfor %}
+
+        {% if result.page < result.pages %}
+        <a href="{{ url_for('inventory.materials_list', q=q, plant=plant_filter, material_group=material_group_filter, page=result.page+1) }}"
+           class="btn btn-secondary btn-sm">Next &raquo;</a>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      {% else %}
+      <div class="inv-empty-state">
+        <i class="bi bi-search inv-empty-icon"></i>
+        <p>
+          {% if q %}
+            No materials found matching "{{ q }}".
+          {% else %}
+            No material data available yet.
+            <a href="{{ url_for('inventory.upload_form') }}">Upload an SAP export</a> to get started.
+          {% endif %}
+        </p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+{% endblock %}

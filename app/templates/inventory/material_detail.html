@@ -1,0 +1,235 @@
+{% extends "base.html" %}
+{% from "components/ui.html" import page_header %}
+{% block title %}{{ detail.material }} – Material Drilldown{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}">
+<script nonce="{{ csp_nonce() }}" src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+
+  {% call page_header(detail.material, "Usage history and trend analysis for this material.", "Inventory Intelligence") %}
+    <a href="{{ url_for('inventory.materials_list') }}" class="btn btn-secondary">
+      <i class="bi bi-arrow-left"></i>
+      <span>All Materials</span>
+    </a>
+    <a href="{{ url_for('inventory.top_consumers') }}" class="btn btn-secondary">
+      <i class="bi bi-trophy"></i>
+      <span>Top Consumers</span>
+    </a>
+  {% endcall %}
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+    <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  {# ── Plant filter ─────────────────────────────────────────────── #}
+  <div class="inv-filter-bar">
+    <form method="get" action="{{ url_for('inventory.material_detail', material_code=detail.material) }}" class="inv-filter-form">
+      <label for="plant-filter">
+        <i class="bi bi-funnel"></i> Filter by Plant:
+      </label>
+      <select name="plant" id="plant-filter" class="inv-filter-select" onchange="this.form.submit()">
+        <option value="">All Plants</option>
+        {% for p in filter_opts.plants %}
+        <option value="{{ p }}" {{ 'selected' if plant_filter == p }}>{{ p }}</option>
+        {% endfor %}
+      </select>
+      {% if plant_filter %}
+      <a href="{{ url_for('inventory.material_detail', material_code=detail.material) }}" class="btn btn-secondary btn-sm">
+        <i class="bi bi-x"></i> Clear
+      </a>
+      {% endif %}
+    </form>
+  </div>
+
+  {# ── Summary KPI Cards ─────────────────────────────────────────── #}
+  <div class="inv-kpi-row">
+    <div class="inv-kpi-card">
+      <div class="inv-kpi-icon inv-kpi-blue"><i class="bi bi-layers"></i></div>
+      <div class="inv-kpi-body">
+        <div class="inv-kpi-value">{{ detail.material_group }}</div>
+        <div class="inv-kpi-label">Material Group</div>
+        <div class="inv-kpi-hint">Type: {{ detail.material_type }}</div>
+      </div>
+    </div>
+
+    <div class="inv-kpi-card">
+      <div class="inv-kpi-icon inv-kpi-green"><i class="bi bi-building"></i></div>
+      <div class="inv-kpi-body">
+        <div class="inv-kpi-value">{{ detail.business_area }}</div>
+        <div class="inv-kpi-label">Business Area</div>
+        <div class="inv-kpi-hint">Division: {{ detail.division }}</div>
+      </div>
+    </div>
+
+    <div class="inv-kpi-card">
+      <div class="inv-kpi-icon inv-kpi-amber"><i class="bi bi-currency-rupee"></i></div>
+      <div class="inv-kpi-body">
+        <div class="inv-kpi-value">
+          {% if detail.summary.total_value >= 10000000 %}
+            ₹{{ "%.2f"|format(detail.summary.total_value / 10000000) }}Cr
+          {% elif detail.summary.total_value >= 100000 %}
+            ₹{{ "%.2f"|format(detail.summary.total_value / 100000) }}L
+          {% else %}
+            ₹{{ "{:,.0f}".format(detail.summary.total_value) }}
+          {% endif %}
+        </div>
+        <div class="inv-kpi-label">Total Usage Value</div>
+        <div class="inv-kpi-hint">{{ detail.currency }}</div>
+      </div>
+    </div>
+
+    <div class="inv-kpi-card">
+      <div class="inv-kpi-icon inv-kpi-purple"><i class="bi bi-calendar3"></i></div>
+      <div class="inv-kpi-body">
+        <div class="inv-kpi-value">{{ detail.summary.months_active }}</div>
+        <div class="inv-kpi-label">Active Months</div>
+        <div class="inv-kpi-hint">{{ "{:,.3f}".format(detail.summary.total_usage) }} {{ detail.uom }} total</div>
+      </div>
+    </div>
+  </div>
+
+  {# ── Usage Value Line Chart ────────────────────────────────────── #}
+  <div class="card inv-chart-card">
+    <div class="card-body">
+      <h2 class="inv-chart-title">Monthly Usage Value</h2>
+      <p class="inv-chart-subtitle">
+        {{ detail.material }} — {{ detail.plant }}
+        {% if detail.monthly_trend.labels %}
+          ({{ detail.monthly_trend.labels[0] }} to {{ detail.monthly_trend.labels[-1] }})
+        {% endif %}
+      </p>
+      <div class="inv-chart-container">
+        <canvas id="detailChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  {# ── Monthly Usage Quantity Chart ──────────────────────────────── #}
+  <div class="card inv-chart-card">
+    <div class="card-body">
+      <h2 class="inv-chart-title">Monthly Usage Quantity</h2>
+      <p class="inv-chart-subtitle">{{ detail.uom }} consumed per month</p>
+      <div class="inv-chart-container">
+        <canvas id="qtyChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  {# ── Period Table ─────────────────────────────────────────────── #}
+  <div class="card">
+    <div class="card-body">
+      <h2 class="inv-section-title">Monthly Breakdown</h2>
+      <div class="table-responsive">
+        <table class="inv-data-table">
+          <thead>
+            <tr>
+              <th>Period</th>
+              <th class="text-right">Quantity ({{ detail.uom }})</th>
+              <th class="text-right">Value ({{ detail.currency }})</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% set labels = detail.monthly_trend.labels %}
+            {% set values = detail.monthly_trend.values %}
+            {% set quantities = detail.monthly_trend.quantities %}
+            {% for i in range(labels|length) %}
+            <tr>
+              <td>{{ labels[i] }}</td>
+              <td class="text-right inv-num">{{ "{:,.3f}".format(quantities[i]) }}</td>
+              <td class="text-right inv-num {% if values[i] > 0 %}inv-val{% endif %}">
+                ₹{{ "{:,.2f}".format(values[i]) }}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr class="inv-table-total">
+              <td><strong>Total</strong></td>
+              <td class="text-right inv-num"><strong>{{ "{:,.3f}".format(detail.summary.total_usage) }}</strong></td>
+              <td class="text-right inv-num inv-val"><strong>₹{{ "{:,.2f}".format(detail.summary.total_value) }}</strong></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts_extra %}
+<script nonce="{{ csp_nonce() }}">
+(function () {
+  const labels     = {{ detail.monthly_trend.labels | tojson }};
+  const values     = {{ detail.monthly_trend.values | tojson }};
+  const quantities = {{ detail.monthly_trend.quantities | tojson }};
+
+  const isDark    = document.documentElement.getAttribute('data-theme') === 'dark';
+  const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)';
+  const textColor = isDark ? '#94a3b8' : '#64748b';
+  const lineColor = '#1a56db';
+  const qtyColor  = '#0891b2';
+
+  function makeChart(id, data, color, labelFn) {
+    const ctx = document.getElementById(id).getContext('2d');
+    return new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          data: data,
+          borderColor: color,
+          backgroundColor: color + '18',
+          borderWidth: 2,
+          pointRadius: 3,
+          pointHoverRadius: 6,
+          fill: true,
+          tension: 0.35,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: labelFn } }
+        },
+        scales: {
+          x: {
+            ticks: { color: textColor, maxRotation: 45 },
+            grid: { color: gridColor },
+          },
+          y: {
+            ticks: {
+              color: textColor,
+              callback: labelFn,
+            },
+            grid: { color: gridColor },
+            beginAtZero: true,
+          }
+        }
+      }
+    });
+  }
+
+  makeChart('detailChart', values, lineColor, function(val) {
+    const v = typeof val === 'object' ? val.raw : val;
+    if (v >= 10000000) return '₹' + (v/10000000).toFixed(2) + ' Cr';
+    if (v >= 100000)   return '₹' + (v/100000).toFixed(2) + ' L';
+    return '₹' + v.toLocaleString('en-IN', {maximumFractionDigits: 0});
+  });
+
+  makeChart('qtyChart', quantities, qtyColor, function(val) {
+    const v = typeof val === 'object' ? val.raw : val;
+    return v.toLocaleString('en-IN', {maximumFractionDigits: 3});
+  });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% from "components/ui.html" import page_header %}
+{% block title %}Upload History – Inventory Intelligence{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+
+  {% call page_header("Upload History", "All SAP export files imported into the system.", "Inventory Intelligence") %}
+    <a href="{{ url_for('inventory.upload_form') }}" class="btn btn-primary">
+      <i class="bi bi-cloud-upload"></i>
+      <span>Upload New File</span>
+    </a>
+    <a href="{{ url_for('inventory.index') }}" class="btn btn-secondary">
+      <i class="bi bi-grid-1x2"></i>
+      <span>Dashboard</span>
+    </a>
+  {% endcall %}
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+    <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  <div class="card">
+    <div class="card-body">
+
+      {% if uploads %}
+      <div class="table-responsive">
+        <table class="inv-data-table">
+          <thead>
+            <tr>
+              <th>File Name</th>
+              <th>Imported By</th>
+              <th class="text-right">Records</th>
+              <th>Status</th>
+              <th>Date &amp; Time</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for u in uploads %}
+            <tr>
+              <td>
+                <i class="bi bi-file-earmark-spreadsheet" style="margin-right:0.4rem;opacity:0.5;"></i>
+                {{ u.original_filename }}
+              </td>
+              <td>{{ u.uploader.full_name if u.uploader else '—' }}</td>
+              <td class="text-right inv-num">{{ "{:,}".format(u.row_count) }}</td>
+              <td>
+                {% if u.status == 'success' %}
+                <span class="status-pill status-pill-success">Success</span>
+                {% else %}
+                <span class="status-pill status-pill-danger">Error</span>
+                {% endif %}
+              </td>
+              <td>{{ u.created_at.strftime('%d %b %Y, %H:%M') if u.created_at else '—' }}</td>
+              <td>
+                {% if u.error_message %}
+                <span class="inv-error-note" title="{{ u.error_message }}">
+                  <i class="bi bi-exclamation-circle"></i> {{ u.error_message[:60] }}{% if u.error_message|length > 60 %}…{% endif %}
+                </span>
+                {% else %}
+                —
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {# Pagination #}
+      {% if pagination and pagination.pages > 1 %}
+      <div class="inv-pagination">
+        {% if pagination.has_prev %}
+        <a href="{{ url_for('inventory.upload_history', page=pagination.prev_num) }}"
+           class="btn btn-secondary btn-sm">&laquo; Prev</a>
+        {% endif %}
+
+        <span class="inv-page-info">Page {{ pagination.page }} of {{ pagination.pages }}</span>
+
+        {% if pagination.has_next %}
+        <a href="{{ url_for('inventory.upload_history', page=pagination.next_num) }}"
+           class="btn btn-secondary btn-sm">Next &raquo;</a>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      {% else %}
+      <div class="inv-empty-state">
+        <i class="bi bi-inbox inv-empty-icon"></i>
+        <p>No SAP export files have been uploaded yet.</p>
+        <a href="{{ url_for('inventory.upload_form') }}" class="btn btn-primary">Upload SAP Export</a>
+      </div>
+      {% endif %}
+
+    </div>
+  </div>
+
+</div>
+{% endblock %}

@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% from "components/ui.html" import page_header %}
+{% block title %}Director Report – Inventory Intelligence{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+
+  {% call page_header("Director Chemical Report", "Generate a workbook from SAP procurement and consumption exports using the data period found in the files.", "Inventory Intelligence", "Rebuild Step 1", "info") %}
+    <a href="{{ url_for('inventory.index') }}" class="btn btn-secondary">
+      <i class="bi bi-arrow-left"></i>
+      <span>Back to Dashboard</span>
+    </a>
+  {% endcall %}
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+    <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  <div class="inv-upload-layout">
+    <div class="card">
+      <div class="card-body">
+        <h2 class="inv-section-title">Generate Director Report</h2>
+        <p class="inv-section-desc">
+          Upload both SAP exports and download a workbook with
+          <code>Chemical_Summary</code>, monthly detail, procurement detail, methodology, and validation sheets.
+          The app detects the reporting period directly from the uploaded data.
+        </p>
+
+        <form method="POST" action="{{ url_for('inventory.director_report_download') }}" enctype="multipart/form-data">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+          <div class="inv-upload-grid">
+            <div class="inv-upload-panel">
+              <label for="procurement_export" class="inv-section-title">Procurement Export</label>
+              <p class="inv-section-desc">Accepted formats: <code>.csv</code>, <code>.xlsx</code>. Max 20 MB.</p>
+              <input
+                type="file"
+                id="procurement_export"
+                name="procurement_export"
+                accept=".csv,.xlsx"
+                class="inv-search-input"
+                required
+              >
+            </div>
+
+            <div class="inv-upload-panel">
+              <label for="consumption_export" class="inv-section-title">Consumption Export</label>
+              <p class="inv-section-desc">Accepted formats: <code>.csv</code>, <code>.xlsx</code>. Max 20 MB.</p>
+              <input
+                type="file"
+                id="consumption_export"
+                name="consumption_export"
+                accept=".csv,.xlsx"
+                class="inv-search-input"
+                required
+              >
+            </div>
+          </div>
+
+          <div class="inv-upload-actions">
+            <button type="submit" class="btn btn-primary">
+              <i class="bi bi-file-earmark-arrow-down"></i>
+              <span>Generate Director Report</span>
+            </button>
+            <a href="{{ url_for('inventory.upload_form') }}" class="btn btn-secondary">Legacy Usage Upload</a>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <h2 class="inv-section-title">Expected SAP Columns</h2>
+        <p class="inv-section-desc">
+          Header order does not matter. The generator uses the SAP field names below.
+        </p>
+
+        <div class="inv-schema-table-wrap">
+          <table class="inv-schema-table">
+            <thead>
+              <tr>
+                <th>Procurement Data</th>
+                <th>Consumption Data</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>Plant</td><td>Plant</td></tr>
+              <tr><td>Net Price</td><td>Material</td></tr>
+              <tr><td>Purchasing Document</td><td>Storage Location</td></tr>
+              <tr><td>Document Date</td><td>Month</td></tr>
+              <tr><td>Material</td><td>Usage Quantity</td></tr>
+              <tr><td>Item</td><td>Usage UoM</td></tr>
+              <tr><td>Supplier/Supplying Plant</td><td>Usage Value</td></tr>
+              <tr><td>Short Text</td><td>Usage Currency</td></tr>
+              <tr><td>Order Quantity</td><td></td></tr>
+              <tr><td>Order Unit</td><td></td></tr>
+              <tr><td>Currency</td><td></td></tr>
+              <tr><td>Price Unit</td><td></td></tr>
+              <tr><td>Effective value</td><td></td></tr>
+              <tr><td>Release indicator</td><td></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="inv-upload-tip">
+          <i class="bi bi-lightbulb"></i>
+          <strong>Period logic:</strong> the report uses the full date range present in the uploaded files and maps consumption storage prefixes such as <code>11xx</code> to procurement-style plants such as <code>11A1</code>.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

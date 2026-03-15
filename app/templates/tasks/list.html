@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "components/ui.html" import page_header %}
 {% block title %}Task Tracker{% endblock %}
 
 {% block head_extra %}
@@ -9,18 +10,24 @@
 {% set perms = task_permissions.get(task.id, {}) %}
 <tr>
   <td>
-    <div style="display: flex; align-items: center; gap: 0.4rem;">
+    <div class="task-row-title-group">
       {% if task.task_scope == 'GLOBAL' %}
       <span class="scope-tag scope-global" title="Global Task">🌐</span>
-      {% elif task.task_scope == 'TEAM' %}
-      <span class="scope-tag scope-team" title="Team Task">👥</span>
       {% else %}
-      <span class="scope-tag scope-my" title="My Task">👤</span>
+      <span class="scope-tag scope-my" title="Local Task">👤</span>
       {% endif %}
-      <div>
-        <strong>{{ task.task_title }}</strong>
+      <div class="task-row-title-body">
+        <span class="task-row-title">{{ task.task_title }}</span>
         {% if task.task_origin %}
-        <div class="text-muted" style="font-size: 0.78rem; margin-top: 0.1rem;">{{ task.task_origin }}</div>
+        <div class="task-row-origin">{{ task.task_origin }}</div>
+        {% endif %}
+        {% if task.recurring_template %}
+        <div class="task-row-origin">
+          {{ recurrence_summary(task.recurring_template) }}
+          {% if task.occurrence_date %}
+          • {{ task.occurrence_date.strftime('%d %b %Y') }}
+          {% endif %}
+        </div>
         {% endif %}
       </div>
     </div>
@@ -28,6 +35,17 @@
   <td><span class="task-badge status-{{ task.status|lower|replace(' ', '-') }}">{{ task.status }}</span></td>
   <td><span class="task-badge priority-{{ task.priority|lower }}">{{ task.priority }}</span></td>
   <td>{{ task.owner.full_name if task.owner and task.owner.full_name else (task.owner.username if task.owner else '—') }}</td>
+  <td>
+    {% if task.collaborator_links %}
+      <ol style="margin: 0; padding-left: 1.25rem;">
+        {% for link in task.collaborator_links %}
+        <li>{{ link.user.full_name or link.user.username }}</li>
+        {% endfor %}
+      </ol>
+    {% else %}
+      —
+    {% endif %}
+  </td>
   <td>{{ task.due_date.strftime('%d %b %Y') if task.due_date else '—' }}</td>
   <td>{{ task.office.office_name if task.office else '—' }}</td>
   <td>
@@ -43,11 +61,8 @@
       {% if perms.get('can_edit') %}
       <a href="{{ url_for('tasks.edit_task', task_id=task.id) }}" class="btn btn-sm btn-secondary">Edit</a>
       {% endif %}
-      {% if perms.get('can_update_status') %}
-      <a href="{{ url_for('tasks.update_task_status', task_id=task.id) }}" class="btn btn-sm btn-warning">Status</a>
-      {% endif %}
       {% if perms.get('can_add_update') %}
-      <a href="{{ url_for('tasks.add_task_update', task_id=task.id) }}" class="btn btn-sm btn-primary">Update</a>
+      <a href="{{ url_for('tasks.add_task_update', task_id=task.id) }}" class="btn btn-sm btn-primary">Add Update</a>
       {% endif %}
     </div>
   </td>
@@ -63,6 +78,7 @@
         <th>Status</th>
         <th>Priority</th>
         <th>Owner</th>
+        <th>Collaborators</th>
         <th>Due Date</th>
         <th>Office</th>
         <th>Active</th>
@@ -76,7 +92,7 @@
         {% endfor %}
       {% else %}
       <tr>
-        <td colspan="8" style="text-align: center; padding: 1.5rem 1rem; color: var(--color-text-muted);">
+        <td colspan="9" class="table-empty-row">
           {{ empty_msg }}
         </td>
       </tr>
@@ -89,16 +105,16 @@
 {% block content %}
 <div class="page-wrapper">
 
-  <div class="page-header">
-    <div class="page-header-left">
-      <h1 class="page-title">Office Management / Task Tracker</h1>
-      <p class="page-subtitle">Track tasks, ownership, status, and updates across Global, Team, and personal views.</p>
-    </div>
-    <div class="page-header-right" style="display:flex; gap:0.5rem; flex-wrap:wrap;">
-      <a href="{{ url_for('tasks.task_dashboard') }}" class="btn btn-secondary">📊 Dashboard</a>
-      <a href="{{ url_for('tasks.create_task') }}" class="btn btn-primary">+ Create Task</a>
-    </div>
-  </div>
+  {% call page_header("Task Tracker", "Track local and global tasks, owners, status, and updates.", "Office Management", "Pilot v1", "info") %}
+    <a href="{{ url_for('tasks.task_dashboard') }}" class="btn btn-secondary">
+      <i class="bi bi-speedometer2"></i>
+      <span>Dashboard</span>
+    </a>
+    <a href="{{ url_for('tasks.create_task') }}" class="btn btn-primary">
+      <i class="bi bi-plus-lg"></i>
+      <span>Create Task</span>
+    </a>
+  {% endcall %}
 
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% for category, message in messages %}
@@ -110,13 +126,15 @@
   <div class="card" style="margin-bottom: 1rem;">
     <div class="card-body">
       <form method="GET" action="{{ url_for('tasks.list_tasks') }}"
-            class="form-row" style="align-items: flex-end; gap: 0.75rem; margin-bottom: 0; flex-wrap: wrap;">
+            class="task-filter-grid">
         <div class="form-group" style="margin-bottom: 0;">
           <label class="form-label" for="filter_scope">Scope</label>
           <select id="filter_scope" name="scope" class="form-control">
             <option value="">All Scopes</option>
             {% for scope in task_scopes %}
-            <option value="{{ scope }}" {{ 'selected' if filters.scope == scope }}>{{ scope }}</option>
+            <option value="{{ scope }}" {{ 'selected' if filters.scope == scope }}>
+              {{ 'Local Task' if scope == 'MY' else 'Global Task' }}
+            </option>
             {% endfor %}
           </select>
         </div>
@@ -153,7 +171,7 @@
         {% endif %}
         <div class="form-group" style="margin-bottom: 0;">
           <label class="form-label" style="visibility:hidden;">Apply</label>
-          <div style="display: flex; gap: 0.5rem;">
+          <div class="task-filter-submit">
             <button type="submit" class="btn btn-primary btn-sm">Apply</button>
             <a href="{{ url_for('tasks.list_tasks') }}" class="btn btn-secondary btn-sm">Reset</a>
           </div>
@@ -165,8 +183,11 @@
   {% if filters.scope %}
   {# ── Filtered view (single scope) ───────────────────── #}
   <div class="card">
-    <div class="card-header" style="padding: 0.75rem 1rem; border-bottom: 1px solid var(--color-border);">
-      <strong>Filtered: {{ filters.scope }} Tasks ({{ tasks|length }})</strong>
+    <div class="table-card-header">
+      <div>
+        <div class="table-card-title">Filtered: {{ 'Local' if filters.scope == 'MY' else 'Global' }} Tasks</div>
+        <div class="table-card-subtitle">{{ tasks|length }} result{{ '' if tasks|length == 1 else 's' }}</div>
+      </div>
     </div>
     {{ task_table(tasks, task_permissions, 'No tasks found for the selected filters.') }}
   </div>
@@ -182,7 +203,7 @@
       <span class="task-count-badge">{{ global_tasks|length }}</span>
       <span class="task-section-info">Visible to all users with Task Tracker access</span>
       {% if can_create_global %}
-      <a href="{{ url_for('tasks.create_task') }}?scope=GLOBAL" class="btn btn-sm btn-secondary" style="margin-left: auto;">+ Global</a>
+      <a href="{{ url_for('tasks.create_task') }}?scope=GLOBAL" class="btn btn-sm btn-secondary task-section-action">+ Global</a>
       {% endif %}
     </div>
     <div class="card">
@@ -196,29 +217,12 @@
       <span class="scope-icon">👤</span>
       <h2 class="task-section-title">My Tasks</h2>
       <span class="task-count-badge">{{ my_tasks|length }}</span>
-      <span class="task-section-info">Tasks assigned directly to you</span>
+      <span class="task-section-info">Includes your tasks and Local Tasks visible through your controlling-officer role</span>
     </div>
     <div class="card">
-      {{ task_table(my_tasks, task_permissions, 'No tasks are currently assigned to you.') }}
+      {{ task_table(my_tasks, task_permissions, 'No Local Tasks are visible to you at this time.') }}
     </div>
   </div>
-
-  {# TEAM / OTHERS section #}
-  {% if team_tasks or is_privileged %}
-  <div class="task-section" style="margin-bottom: 1.5rem;">
-    <div class="task-section-header">
-      <span class="scope-icon">👥</span>
-      <h2 class="task-section-title">Team &amp; Other Tasks</h2>
-      <span class="task-count-badge">{{ team_tasks|length }}</span>
-      <span class="task-section-info">
-        {% if is_privileged %}All tasks visible to your role{% else %}Tasks visible via your reporting hierarchy{% endif %}
-      </span>
-    </div>
-    <div class="card">
-      {{ task_table(team_tasks, task_permissions, 'No team tasks visible to you at this time.') }}
-    </div>
-  </div>
-  {% endif %}
 
   {% endif %}
 
