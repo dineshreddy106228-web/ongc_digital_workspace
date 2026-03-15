@@ -387,7 +387,7 @@ a:hover { text-decoration: underline; }
     color: #fff;
     background: var(--nav-item-active-bg);
     border-color: var(--nav-item-active-border);
-    box-shadow: 0 12px 28px rgba(0, 0, 0, .16);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, .16), inset 3px 0 0 #e8710a;
 }
 
 .workspace-rail-icon {
@@ -627,13 +627,11 @@ body.workspace-flyout-open .workspace-main {
     justify-content: space-between;
     gap: 1rem;
     flex-wrap: wrap;
-    border-bottom: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
     position: sticky;
     top: 0;
     z-index: 95;
-    background:
-        linear-gradient(180deg, color-mix(in srgb, var(--bg) 96%, rgba(255,255,255,0.84)), color-mix(in srgb, var(--bg) 94%, var(--surface)));
-    backdrop-filter: blur(14px);
+    background: linear-gradient(90deg, #16263f 0%, #1e3452 100%);
 }
 
 .workspace-header-band-copy {
@@ -641,7 +639,7 @@ body.workspace-flyout-open .workspace-main {
 }
 
 .workspace-header-eyebrow {
-    color: var(--muted);
+    color: rgba(180, 200, 230, 0.60);
     font-size: .72rem;
     font-weight: 700;
     text-transform: uppercase;
@@ -650,7 +648,7 @@ body.workspace-flyout-open .workspace-main {
 
 .workspace-header-title {
     margin-top: .18rem;
-    color: var(--text);
+    color: #eef2f8;
     font-size: 1.08rem;
     font-weight: 700;
     line-height: 1.3;
@@ -659,7 +657,7 @@ body.workspace-flyout-open .workspace-main {
 
 .workspace-header-subtitle {
     margin-top: .16rem;
-    color: var(--text);
+    color: #dce5f0;
     font-size: .92rem;
     font-weight: 600;
     line-height: 1.35;
@@ -667,7 +665,7 @@ body.workspace-flyout-open .workspace-main {
 
 .workspace-header-location {
     margin-top: .24rem;
-    color: var(--muted);
+    color: rgba(180, 200, 230, 0.58);
     font-size: .82rem;
     font-weight: 600;
     letter-spacing: .04em;
@@ -686,9 +684,9 @@ body.workspace-flyout-open .workspace-main {
     align-items: center;
     padding: .38rem .68rem;
     border-radius: 999px;
-    border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
-    background: color-mix(in srgb, var(--surface) 88%, var(--surface-alt));
-    color: var(--muted);
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(190, 210, 235, 0.75);
     font-size: .73rem;
     font-weight: 700;
     letter-spacing: .05em;
@@ -699,14 +697,14 @@ body.workspace-flyout-open .workspace-main {
 .workspace-header-chip-version {
     min-width: 3.1rem;
     justify-content: center;
-    color: var(--text);
-    background: color-mix(in srgb, var(--surface) 92%, var(--primary-soft));
-    border-color: color-mix(in srgb, var(--border) 78%, var(--primary));
+    color: #c8deff;
+    background: rgba(91, 140, 255, 0.18);
+    border-color: rgba(91, 140, 255, 0.32);
     letter-spacing: .08em;
 }
 
 .workspace-header-meta-text {
-    color: var(--muted);
+    color: rgba(180, 200, 230, 0.58);
     font-size: .74rem;
     font-weight: 600;
     letter-spacing: .02em;
@@ -1070,13 +1068,13 @@ body.workspace-flyout-open .workspace-backdrop {
 }
 
 .btn-primary {
-    background: var(--primary);
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-strong) 100%);
     color: #fff;
     box-shadow: 0 8px 18px rgba(26, 86, 219, 0.18);
 }
 
 .btn-primary:hover {
-    background: var(--primary-strong);
+    background: linear-gradient(135deg, var(--primary-strong) 0%, #0f2e8a 100%);
     box-shadow: 0 14px 28px rgba(26, 86, 219, 0.22);
 }
 
@@ -1381,12 +1379,12 @@ body.workspace-flyout-open .workspace-backdrop {
 .section-title {
     font-weight: 700;
     margin: 0 0 1rem;
-    padding-bottom: .6rem;
-    border-bottom: 2px solid var(--border);
+    padding-bottom: .5rem;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.07);
     color: var(--muted);
     text-transform: uppercase;
-    letter-spacing: .06em;
-    font-size: .78rem;
+    letter-spacing: .08em;
+    font-size: .75rem;
 }
 .status-pill {
     display: inline-flex;
@@ -2670,6 +2668,13 @@ body.workspace-flyout-open .workspace-backdrop {
 [data-theme="dark"] .activity-table tbody tr:hover {
     background: rgba(255,255,255,0.03);
 }
+[data-theme="dark"] .workspace-header-band {
+    background: linear-gradient(90deg, #0b1420 0%, #0f1e33 100%);
+    border-bottom-color: rgba(255, 255, 255, 0.05);
+}
+[data-theme="dark"] .section-title {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+}
 .activity-table-time {
     font-size: 0.8rem;
     color: var(--muted);
@@ -2723,4 +2728,39 @@ body.workspace-flyout-open .workspace-backdrop {
         flex-direction: column;
         gap: .45rem;
     }
+}
+
+/* ── Flyout signature: Calcutta · Madras ── */
+.flyout-signature {
+    margin-top: auto;
+    padding: 1.1rem 1rem 1.2rem;
+    border-top: 1px solid var(--border);
+    text-align: center;
+    flex-shrink: 0;
+}
+.flyout-sig-cities {
+    font-size: .65rem;
+    font-weight: 700;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color: #e8710a;
+    margin-bottom: .45rem;
+}
+.flyout-sig-time {
+    font-size: 1.45rem;
+    font-variant-numeric: tabular-nums;
+    font-weight: 300;
+    letter-spacing: .05em;
+    color: var(--text);
+    font-family: 'SF Mono', 'Consolas', 'Roboto Mono', monospace;
+    margin-bottom: .3rem;
+    line-height: 1;
+}
+.flyout-sig-tz {
+    font-size: .62rem;
+    color: var(--muted);
+    letter-spacing: .05em;
+}
+[data-theme="dark"] .flyout-sig-time {
+    color: rgba(220, 232, 255, 0.80);
 }

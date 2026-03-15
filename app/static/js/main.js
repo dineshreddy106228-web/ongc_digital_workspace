@@ -103,4 +103,20 @@ document.addEventListener("DOMContentLoaded", function () {
             setTimeout(function () { el.remove(); }, 400);
         }, 6000);
     });
+
+    // Calcutta · Madras live clock (IST = Asia/Kolkata, UTC+5:30)
+    var clockEl = document.querySelector(".js-ist-clock");
+    if (clockEl) {
+        function tickISTClock() {
+            clockEl.textContent = new Date().toLocaleTimeString("en-IN", {
+                timeZone: "Asia/Kolkata",
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+                hour12: false
+            });
+        }
+        tickISTClock();
+        setInterval(tickISTClock, 1000);
+    }
 });
