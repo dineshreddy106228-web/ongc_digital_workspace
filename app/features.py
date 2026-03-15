@@ -17,7 +17,12 @@ from app.core.module_registry import (
 
 
 # Backward-compatible exports used elsewhere in the app.
-MODULE_REGISTRY = MODULES_BY_CODE
+MODULE_REGISTRY = {
+    "dashboard": {"enabled": True},
+    "office_management": {"enabled": True},
+    "inventory_intelligence": {"enabled": False},
+    "csc_workflow": {"enabled": False},
+}
 ASSIGNABLE_MODULE_CODES = tuple(module.code for module in MODULE_DEFINITIONS)
 
 
