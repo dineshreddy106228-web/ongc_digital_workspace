@@ -25,8 +25,8 @@ import click
 from flask.cli import with_appcontext
 from sqlalchemy.exc import SQLAlchemyError
 from app.extensions import db
-from app.models.role import Role
-from app.models.user import User
+from app.models.core.role import Role
+from app.models.core.user import User
 from app.core.roles import (
     ADMIN_ROLE,
     USER_ROLE,

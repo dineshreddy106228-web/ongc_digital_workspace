@@ -7,7 +7,7 @@ import json
 import click
 from flask.cli import with_appcontext
 
-from app.services.inventory_seed_audit import (
+from app.core.services.inventory_seed_audit import (
     LOW_VALUE_THRESHOLD,
     audit_current_seed_files,
     delete_procurement_rows_below_threshold,

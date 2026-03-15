@@ -8,7 +8,7 @@ import click
 from flask.cli import with_appcontext
 
 from app.extensions import db
-from app.services.backups import (
+from app.core.services.backups import (
     BackupError,
     resolve_database_connection_settings,
     restore_database_backup,

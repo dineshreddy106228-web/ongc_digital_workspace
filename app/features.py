@@ -18,7 +18,7 @@ from app.core.module_registry import (
 
 # Backward-compatible exports used elsewhere in the app.
 MODULE_REGISTRY = MODULES_BY_CODE
-ASSIGNABLE_MODULE_CODES = ("dashboard",) + tuple(module.code for module in MODULE_DEFINITIONS)
+ASSIGNABLE_MODULE_CODES = tuple(module.code for module in MODULE_DEFINITIONS)
 
 
 def register_feature_blueprints(app) -> None:

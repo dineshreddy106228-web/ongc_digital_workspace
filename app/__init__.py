@@ -40,18 +40,16 @@ def create_app(config_class=Config):
     import_module("app.models")
 
     # ── Flask-Login user loader ──────────────────────────────────
-    from app.models.user import User
+    from app.models.core.user import User
 
     @login_manager.user_loader
     def load_user(user_id):
         return db.session.get(User, int(user_id))
 
     # ── Register blueprints ──────────────────────────────────────
-    from app.auth import auth_bp
-    from app.main import main_bp
+    from app.core.auth import auth_bp
     from app.notifications import notifications_bp
     app.register_blueprint(auth_bp)
-    app.register_blueprint(main_bp)
     app.register_blueprint(notifications_bp, url_prefix="/notifications")
 
     # Registry-managed modules are registered dynamically so production can expose
@@ -65,7 +63,7 @@ def create_app(config_class=Config):
     # ── Inject common template context ───────────────────────────
     @app.context_processor
     def inject_globals():
-        from app.services.notifications import (
+        from app.core.services.notifications import (
             get_unread_notification_count,
             get_unread_notifications,
         )

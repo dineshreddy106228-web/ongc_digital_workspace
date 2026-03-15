@@ -7,7 +7,7 @@ from flask_login import current_user, login_required
 
 from app.extensions import db
 from app.notifications import notifications_bp
-from app.services.notifications import (
+from app.core.services.notifications import (
     get_notification,
     get_recent_notifications,
     get_unread_notification_count,

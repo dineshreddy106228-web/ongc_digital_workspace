@@ -15,10 +15,10 @@ from flask import current_app
 from flask.cli import with_appcontext
 from sqlalchemy.exc import SQLAlchemyError
 from app.extensions import db
-from app.models.notification import Notification
-from app.models.role import Role
-from app.models.office import Office
-from app.models.user import User
+from app.models.core.notification import Notification
+from app.models.core.role import Role
+from app.models.office.office import Office
+from app.models.core.user import User
 from app.core.roles import (
     ADMIN_ROLE,
     SUPERUSER_ROLE,
@@ -27,7 +27,7 @@ from app.core.roles import (
     ROLE_DESCRIPTIONS,
     ROLE_RENAME_MAP,
 )
-from app.services.notifications import create_notification
+from app.core.services.notifications import create_notification
 
 
 # ── Role definitions ─────────────────────────────────────────────
@@ -107,7 +107,7 @@ def _seed_default_module_permissions():
 
     Safe to run multiple times – skips users who already have permissions.
     """
-    from app.models.user_module_permission import (
+    from app.models.core.user_module_permission import (
         ADMIN_DEFAULT_MODULES,
         UserModulePermission,
         SUPER_USER_MODULES,

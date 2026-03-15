@@ -7,8 +7,8 @@ from flask.cli import with_appcontext
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.extensions import db
-from app.services.recurring_tasks import generate_due_recurring_tasks
-from app.services.dashboard import invalidate_dashboard_summary_metrics
+from app.core.services.recurring_tasks import generate_due_recurring_tasks
+from app.core.services.dashboard import invalidate_dashboard_summary_metrics
 
 
 @click.command("generate-recurring-tasks")

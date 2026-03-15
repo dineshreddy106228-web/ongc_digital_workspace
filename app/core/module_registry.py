@@ -24,7 +24,7 @@ from app.extensions import cache, db
 from app.core.roles import ADMIN_ROLE, SUPERUSER_ROLE, USER_ROLE, canonicalize_role_name
 
 if TYPE_CHECKING:
-    from app.models.user import User
+    from app.models.core.user import User
 
 
 @dataclass(frozen=True)
@@ -59,10 +59,24 @@ class ModuleDefinition:
 
 MODULES = [
     {
+        "key": "dashboard",
+        "name": "Dashboard",
+        "permission_code": "dashboard",
+        "blueprint_import": "app.modules.dashboard:dashboard_bp",
+        "url_prefix": "",
+        "endpoint": "main.dashboard",
+        "feature_flag": None,
+        "nav_visible": False,
+        "dashboard_visible": False,
+        "roles_allowed": [ADMIN_ROLE, SUPERUSER_ROLE, USER_ROLE],
+        "status": "active",
+        "description": "Main platform dashboard",
+    },
+    {
         "key": "office_management",
         "name": "Office Management",
         "permission_code": "tasks",
-        "blueprint_import": "app.tasks:tasks_bp",
+        "blueprint_import": "app.modules.office:office_bp",
         "url_prefix": "/tasks",
         "endpoint": "tasks.task_dashboard",
         "feature_flag": "ENABLE_OFFICE_MANAGEMENT",
@@ -78,7 +92,7 @@ MODULES = [
         "key": "inventory",
         "name": "Inventory Intelligence",
         "permission_code": "inventory",
-        "blueprint_import": "app.inventory:inventory_bp",
+        "blueprint_import": "app.modules.inventory:inventory_bp",
         "url_prefix": "/inventory",
         "endpoint": "inventory.index",
         "feature_flag": "ENABLE_INVENTORY",
@@ -94,7 +108,7 @@ MODULES = [
         "key": "csc_workflow",
         "name": "CSC Workflow",
         "permission_code": "csc",
-        "blueprint_import": "app.csc:csc_bp",
+        "blueprint_import": "app.modules.csc:csc_bp",
         "url_prefix": "/csc",
         "endpoint": "csc.index",
         "feature_flag": "ENABLE_CSC",
@@ -109,7 +123,7 @@ MODULES = [
         "key": "reports",
         "name": "Reports",
         "permission_code": "reports",
-        "blueprint_import": "app.reports:reports_bp",
+        "blueprint_import": "app.modules.reports:reports_bp",
         "url_prefix": "/reports",
         "endpoint": "reports.index",
         "feature_flag": "ENABLE_REPORTS",
@@ -124,7 +138,7 @@ MODULES = [
         "key": "forecasting",
         "name": "Forecasting",
         "permission_code": "forecasting",
-        "blueprint_import": "app.forecasting:forecasting_bp",
+        "blueprint_import": "app.modules.forecasting:forecasting_bp",
         "url_prefix": "/forecasting",
         "endpoint": "forecasting.index",
         "feature_flag": "ENABLE_FORECASTING",
@@ -139,7 +153,7 @@ MODULES = [
         "key": "admin_users",
         "name": "User Management",
         "permission_code": "admin_users",
-        "blueprint_import": "app.admin:admin_bp",
+        "blueprint_import": "app.modules.admin:admin_bp",
         "url_prefix": "/admin",
         "endpoint": "admin.users",
         "feature_flag": None,
@@ -367,7 +381,7 @@ def _build_nav_modules(user, app=None) -> list[dict]:
 
 @cache.memoize(timeout=300)
 def _get_nav_modules_cached(user_id: int, cache_version: str) -> list[dict]:
-    from app.models.user import User
+    from app.models.core.user import User
 
     user = db.session.get(User, user_id)
     if user is None:
@@ -409,7 +423,7 @@ def _build_dashboard_module_cards(user, app=None) -> list[dict]:
 
 @cache.memoize(timeout=300)
 def _get_dashboard_module_cards_cached(user_id: int, cache_version: str) -> list[dict]:
-    from app.models.user import User
+    from app.models.core.user import User
 
     user = db.session.get(User, user_id)
     if user is None:
@@ -427,14 +441,7 @@ def get_dashboard_module_cards(user, app=None) -> list[dict]:
 def get_admin_module_options(app=None) -> list[dict]:
     """Return admin-facing permission choices, preserving existing module codes."""
     target_app = app or current_app._get_current_object()
-    options = [
-        {
-            "code": "dashboard",
-            "label": "Dashboard",
-            "enabled": True,
-            "feature_flag": None,
-        }
-    ]
+    options = []
 
     for definition in MODULE_DEFINITIONS:
         options.append(
