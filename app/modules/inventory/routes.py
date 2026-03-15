@@ -1,11 +1,17 @@
 """Inventory Intelligence Module – Routes.
 
 Endpoints:
-    GET  /inventory/                          → Dashboard (KPI + interactive materials table)
-    GET  /inventory/api/materials              → JSON: all materials for table
-    GET  /inventory/api/consumption/<material> → JSON: monthly consumption detail
-    GET  /inventory/api/procurement/<material> → JSON: procurement history
-    GET  /inventory/api/chart/<material>       → JSON: chart data for material
+    GET  /inventory/                          → Landing dashboard (module overview cards)
+    GET  /inventory/materials                 → Materials Intelligence (KPI + interactive table)
+    GET  /inventory/forecast                  → Demand Forecast (probabilistic 6-month view)
+    GET  /inventory/seed-files                → Data Management (seed file upload & audit)
+    GET  /inventory/api/overview              → JSON: filtered dashboard payload
+    GET  /inventory/api/materials             → JSON: all materials for table
+    GET  /inventory/api/consumption/<material>→ JSON: monthly consumption detail
+    GET  /inventory/api/procurement/<material>→ JSON: procurement history
+    GET  /inventory/api/chart/<material>      → JSON: chart data for material
+    GET  /inventory/api/analytics/<material>  → JSON: material analytics for modal
+    GET  /inventory/export                    → Download Excel workbook
 """
 
 from __future__ import annotations
@@ -74,13 +80,28 @@ def _render_seed_files_page(
     )
 
 
-# ── Dashboard ─────────────────────────────────────────────────────────────────
+# ── Landing Dashboard ─────────────────────────────────────────────────────────
 
 @inventory_bp.route("/")
 @login_required
 @module_access_required("inventory")
-def index():
-    """Inventory Intelligence dashboard — KPIs + interactive materials table."""
+def landing():
+    """Inventory Intelligence landing dashboard — module overview with cards."""
+    store = get_data_store()
+    payload = store.get_dashboard_payload()
+    return render_template(
+        "inventory/landing.html",
+        kpis=payload["kpis"],
+    )
+
+
+# ── Materials Intelligence ────────────────────────────────────────────────────
+
+@inventory_bp.route("/materials")
+@login_required
+@module_access_required("inventory")
+def materials_page():
+    """Materials Intelligence — KPIs + interactive materials table."""
     store = get_data_store()
     payload = store.get_dashboard_payload()
 
@@ -138,7 +159,7 @@ def seed_files():
             return _render_seed_files_page(upload_error="Could not update the seed files. Check the files and try again.")
 
         flash("Seed files updated. Inventory analysis has been reloaded from the uploaded workbooks.", "success")
-        return redirect(url_for("inventory.index"))
+        return redirect(url_for("inventory.landing"))
 
     return _render_seed_files_page()
 
@@ -235,7 +256,7 @@ def staged_seed_apply():
         return _render_seed_files_page(upload_error="Could not apply the staged seed files.", pending_token=token)
 
     flash("Cleaned staged seed files applied. Inventory analysis has been reloaded.", "success")
-    return redirect(url_for("inventory.index"))
+    return redirect(url_for("inventory.landing"))
 
 
 @inventory_bp.route("/seed-files/staged-discard", methods=["POST"])

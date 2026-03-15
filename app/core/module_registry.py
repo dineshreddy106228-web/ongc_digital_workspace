@@ -94,7 +94,7 @@ MODULES = [
         "permission_code": "inventory",
         "blueprint_import": "app.modules.inventory:inventory_bp",
         "url_prefix": "/inventory",
-        "endpoint": "inventory.index",
+        "endpoint": "inventory.landing",
         "feature_flag": "ENABLE_INVENTORY",
         "nav_visible": True,
         "dashboard_visible": True,

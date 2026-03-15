@@ -17,7 +17,7 @@
                 </p>
             </div>
             <div class="inv-header-actions">
-                <a href="{{ url_for('inventory.index') }}" class="btn btn-sm btn-secondary">
+                <a href="{{ url_for('inventory.landing') }}" class="btn btn-sm btn-secondary">
                     <i class="bi bi-arrow-left"></i> Back to Dashboard
                 </a>
             </div>
@@ -25,7 +25,7 @@
 
         {# ── Sub-navigation ─────────────────────────────────────────── #}
         <nav class="inv-subnav" aria-label="Inventory sub-navigation">
-            <a href="{{ url_for('inventory.index') }}" class="inv-subnav-link">
+            <a href="{{ url_for('inventory.materials_page') }}" class="inv-subnav-link">
                 <i class="bi bi-bar-chart-line"></i> Materials Intelligence
             </a>
             <a href="{{ url_for('inventory.forecast_page') }}" class="inv-subnav-link">
@@ -69,7 +69,7 @@
                             <button type="submit" class="btn btn-primary">
                                 <i class="bi bi-shield-check"></i> Run Sanity Check And Upload
                             </button>
-                            <a href="{{ url_for('inventory.index') }}" class="btn btn-secondary">Cancel</a>
+                            <a href="{{ url_for('inventory.materials_page') }}" class="btn btn-secondary">Cancel</a>
                         </div>
                     </form>
                 </div>

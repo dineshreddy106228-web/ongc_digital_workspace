@@ -1023,3 +1023,108 @@
 }
 
 .inv-small { font-size: 0.75em; }
+
+/* ── Landing / Dashboard cards ──────────────────────────────── */
+.inv-landing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1.5rem;
+}
+
+.inv-landing-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 1.5);
+  box-shadow: var(--shadow-sm);
+  text-decoration: none;
+  color: inherit;
+  overflow: hidden;
+  transition: box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+}
+.inv-landing-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-3px);
+  text-decoration: none;
+  color: inherit;
+}
+
+.inv-landing-card-blue:hover  { border-color: color-mix(in srgb, var(--primary) 50%, transparent); }
+.inv-landing-card-green:hover { border-color: color-mix(in srgb, var(--success) 50%, transparent); }
+.inv-landing-card-amber:hover { border-color: color-mix(in srgb, var(--warning) 50%, transparent); }
+
+.inv-landing-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.75rem 1.5rem 0.75rem;
+  font-size: 2.25rem;
+}
+.inv-landing-card-blue  .inv-landing-icon { color: var(--primary); }
+.inv-landing-card-green .inv-landing-icon { color: var(--success); }
+.inv-landing-card-amber .inv-landing-icon { color: var(--warning); }
+
+.inv-landing-card-body {
+  flex: 1;
+  padding: 0 1.5rem 1rem;
+}
+
+.inv-landing-card-title {
+  margin: 0 0 0.5rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.inv-landing-card-desc {
+  margin: 0 0 0.85rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.inv-landing-features {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+.inv-landing-features li {
+  font-size: 0.8rem;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.inv-landing-features li i {
+  font-size: 0.7rem;
+  flex-shrink: 0;
+}
+.inv-landing-card-blue  .inv-landing-features li i { color: var(--primary); }
+.inv-landing-card-green .inv-landing-features li i { color: var(--success); }
+.inv-landing-card-amber .inv-landing-features li i { color: var(--warning); }
+
+.inv-landing-card-footer {
+  padding: 0.85rem 1.5rem;
+  border-top: 1px solid var(--border);
+  background: var(--surface-alt);
+}
+
+.inv-landing-enter {
+  font-size: 0.82rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: gap 0.15s ease;
+}
+.inv-landing-card:hover .inv-landing-enter { gap: 0.65rem; }
+.inv-landing-card-blue  .inv-landing-enter { color: var(--primary); }
+.inv-landing-card-green .inv-landing-enter { color: var(--success); }
+.inv-landing-card-amber .inv-landing-enter { color: var(--warning); }
+
+@media (max-width: 600px) {
+  .inv-landing-grid { grid-template-columns: 1fr; }
+}
