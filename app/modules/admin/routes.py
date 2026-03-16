@@ -674,7 +674,7 @@ def delete_user(user_id):
 # ── Activity History ────────────────────────────────────────────
 @admin_bp.route("/activity")
 @login_required
-@roles_required(SUPERUSER_ROLE)
+@roles_required(ADMIN_ROLE, SUPERUSER_ROLE)
 def activity_history():
     page = request.args.get("page", 1, type=int)
     per_page = 30
