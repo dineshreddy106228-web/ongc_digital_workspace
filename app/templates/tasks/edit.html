@@ -31,6 +31,13 @@
   </div>
   {% endif %}
 
+  {% if restore_required %}
+  <div class="alert alert-warning">
+    This task is currently in the archived / completed section.
+    Saving this form will return it to the active tracker only if you provide a new due date and choose a status other than Completed or Cancelled.
+  </div>
+  {% endif %}
+
   <div class="card form-card">
     <div class="card-body">
       <form method="POST" action="{{ url_for('tasks.edit_task', task_id=task.id) }}">
@@ -89,15 +96,25 @@
 
             {% set due_value = form_data.get('due_date', task.due_date.strftime('%Y-%m-%d') if task.due_date else '') %}
             <div class="form-group">
-              {% if task.recurring_template %}
+              {% if task.recurring_template and not restore_required %}
               <label class="form-label" for="due_date_display">Occurrence Date</label>
               <input type="text" id="due_date_display" class="form-control"
                      value="{{ task.occurrence_date.strftime('%d %b %Y') if task.occurrence_date else (task.due_date.strftime('%d %b %Y') if task.due_date else '—') }}"
                      readonly>
               <input type="hidden" name="due_date" value="{{ due_value }}">
               {% else %}
-              <label class="form-label" for="due_date">Due Date</label>
-              <input type="date" id="due_date" name="due_date" class="form-control" value="{{ due_value }}">
+              <label class="form-label" for="due_date">
+                {{ 'New Due Date' if restore_required else 'Due Date' }}
+                {% if restore_required %}<span class="required">*</span>{% endif %}
+              </label>
+              <input type="date" id="due_date" name="due_date" class="form-control" value="{{ due_value }}" {{ 'required' if restore_required }}>
+              {% if task.recurring_template and restore_required %}
+              <small class="form-hint">
+                Original occurrence date:
+                {{ task.occurrence_date.strftime('%d %b %Y') if task.occurrence_date else '—' }}.
+                Set a fresh due date to return this task to the active tracker.
+              </small>
+              {% endif %}
               {% endif %}
             </div>
 
@@ -158,17 +175,6 @@
               {% endfor %}
             {% endif %}
 
-            <div class="form-group form-group-checkbox">
-              <label class="checkbox-label">
-                {% if form_data %}
-                  {% set active_checked = form_data.get('is_active') == 'on' %}
-                {% else %}
-                  {% set active_checked = task.is_active %}
-                {% endif %}
-                <input type="checkbox" name="is_active" id="is_active" {{ 'checked' if active_checked }}>
-                <span>Task is active</span>
-              </label>
-            </div>
           </div>
         </div>
 

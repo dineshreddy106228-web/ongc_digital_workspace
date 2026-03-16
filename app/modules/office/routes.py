@@ -470,6 +470,10 @@ def _split_tasks_for_dashboard(all_tasks):
     return global_tasks, my_tasks
 
 
+def _is_archived_task(task: Task) -> bool:
+    return (not task.is_active) or task.status in ("Completed", "Cancelled")
+
+
 # ── List Tasks ────────────────────────────────────────────────────
 @office_bp.route("")
 @office_bp.route("/")
@@ -493,7 +497,9 @@ def list_tasks():
         query = query.filter(_scope_filter_condition(scope_filter))
 
     all_tasks = query.order_by(Task.created_at.desc()).all()
-    global_tasks, my_tasks = _split_tasks_for_list(all_tasks)
+    active_tasks = [task for task in all_tasks if not _is_archived_task(task)]
+    archived_tasks = [task for task in all_tasks if _is_archived_task(task)]
+    global_tasks, my_tasks = _split_tasks_for_list(active_tasks)
     is_privileged = _is_privileged()
     owners = _active_owner_options() if is_privileged else []
 
@@ -508,6 +514,7 @@ def list_tasks():
     return render_template(
         "tasks/list.html",
         tasks=all_tasks,
+        active_tasks=active_tasks,
         global_tasks=global_tasks,
         my_tasks=my_tasks,
         owners=owners,
@@ -520,6 +527,7 @@ def list_tasks():
             "owner": owner_filter,
             "scope": scope_filter,
         },
+        archived_tasks=archived_tasks,
         task_permissions=task_permissions,
         can_create_global=_can_create_global_task(),
         is_privileged=is_privileged,
@@ -1077,6 +1085,59 @@ def task_summary(task_id):
     )
 
 
+@office_bp.route("/<int:task_id>/delete", methods=["POST"])
+@login_required
+@module_access_required("tasks")
+def delete_task(task_id):
+    task = Task.query.get_or_404(task_id)
+    if not _can_edit_task(task):
+        abort(403)
+
+    if not task.is_active:
+        flash("Task is already inactive.", "info")
+        return redirect(url_for("tasks.list_tasks"))
+
+    try:
+        task.is_active = False
+        db.session.flush()
+
+        log_action(
+            action="TASK_DEACTIVATED",
+            user_id=current_user.id,
+            entity_type="Task",
+            entity_id=str(task.id),
+            details=(
+                f"Task '{task.task_title}' was removed from the active tracker by "
+                f"'{current_user.username}'."
+            ),
+        )
+        log_activity(
+            current_user.username,
+            "task_deactivated",
+            "task",
+            task.task_title,
+            details="marked inactive",
+        )
+        _notify_task_participants(
+            task,
+            title="Task archived",
+            message=(
+                f"{current_user.full_name or current_user.username} removed "
+                f"'{task.task_title}' from the active tracker."
+            ),
+            severity="warning",
+            skip_user_ids={current_user.id},
+        )
+        invalidate_dashboard_summary_metrics()
+        db.session.commit()
+    except SQLAlchemyError:
+        _db_error("Could not remove task from the active tracker due to a database error.")
+        return redirect(url_for("tasks.task_detail", task_id=task.id))
+
+    flash("Task removed from the active tracker.", "success")
+    return redirect(url_for("tasks.list_tasks"))
+
+
 # ── Edit Task ─────────────────────────────────────────────────────
 @office_bp.route("/<int:task_id>/edit", methods=["GET", "POST"])
 @login_required
@@ -1094,6 +1155,7 @@ def edit_task(task_id):
     ]
 
     def _render_edit(form_data):
+        restore_required = _is_archived_task(task)
         current_scope = _normalize_task_scope(
             form_data.get("task_scope") if hasattr(form_data, "get") else task.task_scope,
             default=_normalize_task_scope(task.task_scope, default="MY"),
@@ -1130,9 +1192,11 @@ def edit_task(task_id):
             can_create_global=_can_create_global_task(),
             form_data=form_data,
             recurrence_summary=recurrence_summary,
+            restore_required=restore_required,
         )
 
     if request.method == "POST":
+        restore_required = _is_archived_task(task)
         task_title = request.form.get("task_title", "").strip()
         task_description = request.form.get("task_description", "").strip()
         task_origin = request.form.get("task_origin", "").strip()
@@ -1140,7 +1204,6 @@ def edit_task(task_id):
         priority = request.form.get("priority", "").strip()
         due_date_raw = request.form.get("due_date", "").strip()
         owner_id_raw = request.form.get("owner_id", "").strip()
-        is_active = request.form.get("is_active") == "on"
         task_scope = _normalize_task_scope(
             request.form.get("task_scope", task.task_scope),
             default=_normalize_task_scope(task.task_scope, default="MY"),
@@ -1165,6 +1228,10 @@ def edit_task(task_id):
         due_date = _parse_due_date(due_date_raw)
         if due_date_raw and due_date is None:
             errors.append("Due date must be in YYYY-MM-DD format.")
+        if restore_required and due_date is None:
+            errors.append("A new due date is required to restore an archived task.")
+        if restore_required and status in ("Completed", "Cancelled"):
+            errors.append("Choose an active task status to restore this task.")
 
         owner = None
         if task_scope == "GLOBAL":
@@ -1261,9 +1328,6 @@ def edit_task(task_id):
         if task.owner_id != new_owner_id:
             changed_fields.append(f"owner_id '{task.owner_id or '-'}' -> '{new_owner_id or '-'}'")
             task.owner_id = new_owner_id
-        if task.is_active != is_active:
-            changed_fields.append(f"is_active '{task.is_active}' -> '{is_active}'")
-            task.is_active = is_active
         if task.task_scope != task_scope:
             changed_fields.append(f"scope '{task.task_scope}' -> '{task_scope}'")
             task.task_scope = task_scope
@@ -1271,6 +1335,9 @@ def edit_task(task_id):
             changed_fields.append(
                 f"collaborators '{sorted(previous_collaborator_ids)}' -> '{sorted(new_collaborator_ids)}'"
             )
+        if restore_required:
+            task.is_active = True
+            changed_fields.append("restored to active tracker")
 
         try:
             TaskCollaborator.query.filter_by(task_id=task.id).delete(synchronize_session=False)
@@ -1295,12 +1362,20 @@ def edit_task(task_id):
                 title = "Task assignment updated" if (
                     new_owner_id and previous_owner_id != new_owner_id
                 ) or previous_collaborator_ids != new_collaborator_ids else "Task updated"
+                if restore_required:
+                    title = "Task restored"
                 _notify_task_participants(
                     task,
                     title=title,
                     message=(
-                        f"{current_user.full_name or current_user.username} updated "
-                        f"'{task.task_title}'."
+                        (
+                            f"{current_user.full_name or current_user.username} restored "
+                            f"'{task.task_title}' to the active tracker."
+                        )
+                        if restore_required else (
+                            f"{current_user.full_name or current_user.username} updated "
+                            f"'{task.task_title}'."
+                        )
                     ),
                     severity="warning" if title == "Task updated" else "info",
                     skip_user_ids={current_user.id},

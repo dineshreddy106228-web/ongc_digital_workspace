@@ -56,13 +56,6 @@
   <td>{{ task.due_date.strftime('%d %b %Y') if task.due_date else '—' }}</td>
   <td>{{ task.office.office_name if task.office else '—' }}</td>
   <td>
-    {% if task.is_active %}
-    <span class="badge badge-active">Yes</span>
-    {% else %}
-    <span class="badge badge-inactive">No</span>
-    {% endif %}
-  </td>
-  <td>
     <div class="actions-cell">
       <a
         href="{{ url_for('tasks.task_detail', task_id=task.id) }}"
@@ -95,7 +88,6 @@
         <th>Collaborators</th>
         <th>Due Date</th>
         <th>Office</th>
-        <th>Active</th>
         <th>Actions</th>
       </tr>
     </thead>
@@ -106,7 +98,7 @@
         {% endfor %}
       {% else %}
       <tr>
-        <td colspan="9" class="table-empty-row">
+        <td colspan="8" class="table-empty-row">
           {{ empty_msg }}
         </td>
       </tr>
@@ -203,8 +195,20 @@
         <div class="table-card-subtitle">{{ tasks|length }} result{{ '' if tasks|length == 1 else 's' }}</div>
       </div>
     </div>
-    {{ task_table(tasks, task_permissions, 'No tasks found for the selected filters.') }}
+    {{ task_table(active_tasks, task_permissions, 'No active tasks found for the selected filters.') }}
   </div>
+
+  {% if archived_tasks %}
+  <details class="task-archive-panel" style="margin-top: 1rem;">
+    <summary class="task-archive-summary">
+      Archived / Completed Tasks
+      <span class="task-count-badge">{{ archived_tasks|length }}</span>
+    </summary>
+    <div class="card" style="margin-top: 0.85rem;">
+      {{ task_table(archived_tasks, task_permissions, 'No archived tasks found for the selected filters.') }}
+    </div>
+  </details>
+  {% endif %}
 
   {% else %}
   {# ── Sectioned view (all scopes) ─────────────────────── #}
@@ -229,14 +233,29 @@
   <div class="task-section" style="margin-bottom: 1.5rem;">
     <div class="task-section-header">
       <span class="scope-icon">👤</span>
-      <h2 class="task-section-title">My Tasks</h2>
+      <h2 class="task-section-title">Self and Local Tasks</h2>
       <span class="task-count-badge">{{ my_tasks|length }}</span>
-      <span class="task-section-info">Includes your tasks and Local Tasks visible through your controlling-officer role</span>
+      <span class="task-section-info">Includes your own tasks and local tasks shared across officer workflows</span>
     </div>
     <div class="card">
-      {{ task_table(my_tasks, task_permissions, 'No Local Tasks are visible to you at this time.') }}
+      {{ task_table(my_tasks, task_permissions, 'No self or local tasks are visible to you at this time.') }}
     </div>
   </div>
+
+  {% if archived_tasks %}
+  <details class="task-archive-panel">
+    <summary class="task-archive-summary">
+      Archived / Completed Tasks
+      <span class="task-count-badge">{{ archived_tasks|length }}</span>
+    </summary>
+    <div class="task-archive-note">
+      Completed, cancelled, and removed-from-active tasks are kept here for reference.
+    </div>
+    <div class="card" style="margin-top: 0.85rem;">
+      {{ task_table(archived_tasks, task_permissions, 'No archived tasks are available.') }}
+    </div>
+  </details>
+  {% endif %}
 
   {% endif %}
 

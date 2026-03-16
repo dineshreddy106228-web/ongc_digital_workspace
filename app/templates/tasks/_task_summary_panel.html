@@ -14,11 +14,6 @@
     <div class="task-summary-hero-meta">
       <span class="task-badge status-{{ task.status|lower|replace(' ', '-') }}">{{ task.status }}</span>
       <span class="task-badge priority-{{ task.priority|lower }}">{{ task.priority }}</span>
-      {% if task.is_active %}
-      <span class="badge badge-active">Active</span>
-      {% else %}
-      <span class="badge badge-inactive">Inactive</span>
-      {% endif %}
     </div>
   </div>
 
@@ -137,6 +132,16 @@
     {% endif %}
     {% if can_add_update %}
     <a href="{{ url_for('tasks.add_task_update', task_id=task.id) }}" class="btn btn-primary">Add Update</a>
+    {% endif %}
+    {% if can_edit and task.is_active %}
+    <form
+      method="POST"
+      action="{{ url_for('tasks.delete_task', task_id=task.id) }}"
+      onsubmit="return confirm('Remove this task from the active tracker? It will remain available in archived tasks.');"
+    >
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-danger">Delete Task</button>
+    </form>
     {% endif %}
   </div>
 </div>

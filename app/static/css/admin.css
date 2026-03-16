@@ -682,6 +682,45 @@ select.form-control {
   flex-wrap: wrap;
 }
 
+.task-archive-panel {
+  margin-top: 1.5rem;
+  border: 1px solid color-mix(in srgb, var(--color-border, #dbe2ea) 86%, transparent);
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--color-surface, #fff) 88%, var(--color-surface-alt, #f8fafc));
+  padding: 1rem;
+}
+
+.task-archive-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+  list-style: none;
+  font-weight: 700;
+  color: var(--color-text, #1a1a2e);
+}
+
+.task-archive-summary::-webkit-details-marker {
+  display: none;
+}
+
+.task-archive-summary::before {
+  content: "▸";
+  font-size: 0.9rem;
+  color: var(--color-text-muted, #64748b);
+  transition: transform 0.16s ease;
+}
+
+.task-archive-panel[open] .task-archive-summary::before {
+  transform: rotate(90deg);
+}
+
+.task-archive-note {
+  margin-top: 0.55rem;
+  font-size: 0.84rem;
+  color: var(--color-text-muted, #64748b);
+}
+
 .task-section-action {
   margin-left: auto;
 }
@@ -1493,6 +1532,10 @@ body.modal-open {
   flex-wrap: wrap;
   gap: 0.6rem;
   padding-top: 0.2rem;
+}
+
+.task-summary-footer form {
+  margin: 0;
 }
 
 @media (max-width: 980px) {

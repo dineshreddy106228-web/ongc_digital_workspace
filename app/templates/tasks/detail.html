@@ -26,6 +26,20 @@
         <span>Add Update</span>
       </a>
       {% endif %}
+      {% if can_edit and task.is_active %}
+      <form
+        method="POST"
+        action="{{ url_for('tasks.delete_task', task_id=task.id) }}"
+        style="display:inline-block;"
+        onsubmit="return confirm('Remove this task from the active tracker? It will remain available in archived tasks.');"
+      >
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-danger btn-sm">
+          <i class="bi bi-trash"></i>
+          <span>Delete Task</span>
+        </button>
+      </form>
+      {% endif %}
   {% endcall %}
 
   {% with messages = get_flashed_messages(with_categories=true) %}
@@ -119,15 +133,6 @@
         <div class="detail-field">
           <div class="form-label">Last Updated</div>
           <div class="detail-value">{{ task.updated_at|datetime_ist('%d %b %Y') if task.updated_at else '—' }}</div>
-        </div>
-
-        <div class="detail-field">
-          <div class="form-label">Active</div>
-          {% if task.is_active %}
-          <span class="badge badge-active">Yes</span>
-          {% else %}
-          <span class="badge badge-inactive">No</span>
-          {% endif %}
         </div>
 
       </div>
