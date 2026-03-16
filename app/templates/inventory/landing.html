@@ -99,13 +99,13 @@
             <div class="inv-landing-card-body">
                 <h2 class="inv-landing-card-title">Demand Forecast</h2>
                 <p class="inv-landing-card-desc">
-                    Probabilistic 6-month demand forecasting with confidence bands, historical overlays and buffer estimation.
+                    Adaptive 6-month demand forecasting with a backtested percentile interval, median forecast, and monthly buffer estimation.
                 </p>
                 <ul class="inv-landing-features">
-                    <li><i class="bi bi-check2"></i> P5 / P10 / P50 / P90 / P95 bands</li>
+                    <li><i class="bi bi-check2"></i> Backtested interval selection: P10/P90 or P5/P95</li>
                     <li><i class="bi bi-check2"></i> Adaptive algorithm selection</li>
                     <li><i class="bi bi-check2"></i> Demand classification</li>
-                    <li><i class="bi bi-check2"></i> Procurement timeline overlay</li>
+                    <li><i class="bi bi-check2"></i> Monthly buffer planning</li>
                 </ul>
             </div>
             <div class="inv-landing-card-footer">
@@ -134,6 +134,37 @@
                 <span class="inv-landing-enter">Open Data Management <i class="bi bi-arrow-right"></i></span>
             </div>
         </a>
+
+        {# Master Data — superusers only #}
+        {% if current_user.is_super_user() %}
+        <a href="{{ url_for('inventory.master_data_page') }}" class="inv-landing-card inv-landing-card-purple">
+            <div class="inv-landing-icon">
+                <i class="bi bi-table"></i>
+            </div>
+            <div class="inv-landing-card-body">
+                <h2 class="inv-landing-card-title">
+                    Master Data
+                    <span style="font-size:0.7rem; font-weight:600; padding:0.2rem 0.5rem; border-radius:10px;
+                                 background:color-mix(in srgb,#7c3aed 12%,transparent); color:#7c3aed;
+                                 vertical-align:middle; margin-left:0.4rem;">
+                        <i class="bi bi-shield-lock"></i> Superuser
+                    </span>
+                </h2>
+                <p class="inv-landing-card-desc">
+                    View and edit material master parameters — the central reference table for all analytics, reporting, and forecasting in this module.
+                </p>
+                <ul class="inv-landing-features">
+                    <li><i class="bi bi-check2"></i> Import Master_data.xlsx</li>
+                    <li><i class="bi bi-check2"></i> Inline row editing</li>
+                    <li><i class="bi bi-check2"></i> Dynamic extra columns support</li>
+                    <li><i class="bi bi-check2"></i> Full audit trail (who, when)</li>
+                </ul>
+            </div>
+            <div class="inv-landing-card-footer">
+                <span class="inv-landing-enter">Open Master Data <i class="bi bi-arrow-right"></i></span>
+            </div>
+        </a>
+        {% endif %}
 
     </div>
 

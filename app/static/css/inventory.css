@@ -224,6 +224,11 @@
   gap: 1.25rem;
 }
 
+.inv-upload-grid > .card,
+.inv-audit-findings > .inv-audit-card {
+  min-width: 0;
+}
+
 .inv-seed-form {
   margin-top: 1.25rem;
 }
@@ -348,9 +353,34 @@
 
 .inv-audit-table-wrap {
   margin-top: 0.9rem;
-  overflow: auto;
-  max-height: 420px;
-  border-top: 1px solid var(--border);
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 440px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+  display: block;
+}
+
+/* Let the table be as wide as content needs — min fills container */
+.inv-audit-table-wrap .inv-expand-table {
+  width: max-content;
+  min-width: 100%;
+  table-layout: auto;
+}
+
+/*
+ * CRITICAL: position:sticky on <th> inside overflow-x:scroll breaks horizontal
+ * scrolling in Chrome and Firefox — the table refuses to scroll left/right.
+ * Override to static here; the wrapper already handles vertical scroll.
+ */
+.inv-audit-table-wrap .inv-expand-table th {
+  position: static !important;
+  top: auto !important;
 }
 
 .inv-audit-table th,
@@ -1050,9 +1080,10 @@
   color: inherit;
 }
 
-.inv-landing-card-blue:hover  { border-color: color-mix(in srgb, var(--primary) 50%, transparent); }
-.inv-landing-card-green:hover { border-color: color-mix(in srgb, var(--success) 50%, transparent); }
-.inv-landing-card-amber:hover { border-color: color-mix(in srgb, var(--warning) 50%, transparent); }
+.inv-landing-card-blue:hover   { border-color: color-mix(in srgb, var(--primary) 50%, transparent); }
+.inv-landing-card-green:hover  { border-color: color-mix(in srgb, var(--success) 50%, transparent); }
+.inv-landing-card-amber:hover  { border-color: color-mix(in srgb, var(--warning) 50%, transparent); }
+.inv-landing-card-purple:hover { border-color: color-mix(in srgb, #7c3aed 50%, transparent); }
 
 .inv-landing-icon {
   display: flex;
@@ -1061,9 +1092,10 @@
   padding: 1.75rem 1.5rem 0.75rem;
   font-size: 2.25rem;
 }
-.inv-landing-card-blue  .inv-landing-icon { color: var(--primary); }
-.inv-landing-card-green .inv-landing-icon { color: var(--success); }
-.inv-landing-card-amber .inv-landing-icon { color: var(--warning); }
+.inv-landing-card-blue   .inv-landing-icon { color: var(--primary); }
+.inv-landing-card-green  .inv-landing-icon { color: var(--success); }
+.inv-landing-card-amber  .inv-landing-icon { color: var(--warning); }
+.inv-landing-card-purple .inv-landing-icon { color: #7c3aed; }
 
 .inv-landing-card-body {
   flex: 1;
@@ -1102,9 +1134,10 @@
   font-size: 0.7rem;
   flex-shrink: 0;
 }
-.inv-landing-card-blue  .inv-landing-features li i { color: var(--primary); }
-.inv-landing-card-green .inv-landing-features li i { color: var(--success); }
-.inv-landing-card-amber .inv-landing-features li i { color: var(--warning); }
+.inv-landing-card-blue   .inv-landing-features li i { color: var(--primary); }
+.inv-landing-card-green  .inv-landing-features li i { color: var(--success); }
+.inv-landing-card-amber  .inv-landing-features li i { color: var(--warning); }
+.inv-landing-card-purple .inv-landing-features li i { color: #7c3aed; }
 
 .inv-landing-card-footer {
   padding: 0.85rem 1.5rem;
@@ -1121,10 +1154,275 @@
   transition: gap 0.15s ease;
 }
 .inv-landing-card:hover .inv-landing-enter { gap: 0.65rem; }
-.inv-landing-card-blue  .inv-landing-enter { color: var(--primary); }
-.inv-landing-card-green .inv-landing-enter { color: var(--success); }
-.inv-landing-card-amber .inv-landing-enter { color: var(--warning); }
+.inv-landing-card-blue   .inv-landing-enter { color: var(--primary); }
+.inv-landing-card-green  .inv-landing-enter { color: var(--success); }
+.inv-landing-card-amber  .inv-landing-enter { color: var(--warning); }
+.inv-landing-card-purple .inv-landing-enter { color: #7c3aed; }
 
 @media (max-width: 600px) {
   .inv-landing-grid { grid-template-columns: 1fr; }
 }
+
+/* ============================================================
+   Bulk Sanity-Check Cleanup — unified form UI
+   ============================================================ */
+
+/* ── Bulk action bars (top & bottom of the unified form) ────── */
+.inv-bulk-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.85rem 0;
+}
+.inv-bulk-action-bar--top  { border-bottom: 1px solid var(--border); margin-bottom: 1.25rem; }
+.inv-bulk-action-bar--bottom { border-top: 1px solid var(--border); margin-top: 1.25rem; }
+
+.inv-bulk-action-hint {
+  font-size: 0.8rem;
+  color: var(--muted);
+  flex: 1;
+}
+
+/* ── Per-group hint text and bar ─────────────────────────────── */
+.inv-bulk-group-hint {
+  font-size: 0.8rem;
+  color: var(--muted);
+  align-self: center;
+}
+
+/* The Delete All / Keep All bar for each finding */
+.inv-bulk-group-bar {
+  display: flex !important;           /* override anything that could hide it   */
+  align-items: center !important;
+  justify-content: space-between !important;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  background: var(--surface-alt, #f3f4f6);
+  border-top: 1px solid var(--border);
+  border-bottom: 2px solid var(--border);
+  padding: 0.65rem 1rem !important;   /* override .inv-audit-actions 0-bottom  */
+  min-height: 48px;                   /* always visible even with no text       */
+}
+
+.inv-bulk-group-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.79rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+/* ── Per-row radio pair (Delete / Keep) ─────────────────────── */
+.inv-radio-pair {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.inv-radio-label {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.28rem 0.65rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  white-space: nowrap;
+}
+.inv-radio-label input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+/* Delete option — highlights red when selected */
+.inv-radio-label.inv-radio-delete {
+  color: var(--muted);
+}
+.inv-radio-label.inv-radio-delete:has(input:checked),
+.inv-radio-label.inv-radio-delete.is-selected {
+  background: #fef2f2;
+  border-color: #ef4444;
+  color: #b91c1c;
+}
+.inv-radio-label.inv-radio-delete:hover {
+  border-color: #ef4444;
+  background: #fff1f1;
+  color: #b91c1c;
+}
+
+/* Keep option — highlights green when selected */
+.inv-radio-label.inv-radio-keep {
+  color: var(--muted);
+}
+.inv-radio-label.inv-radio-keep:has(input:checked),
+.inv-radio-label.inv-radio-keep.is-selected {
+  background: #f0fdf4;
+  border-color: #22c55e;
+  color: #15803d;
+}
+.inv-radio-label.inv-radio-keep:hover {
+  border-color: #22c55e;
+  background: #f0fdf4;
+  color: #15803d;
+}
+
+/* ── Confirmation modal backdrop ────────────────────────────── */
+#bulkConfirmModal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 1rem;
+  animation: invModalFadeIn 0.15s ease;
+}
+@keyframes invModalFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+#bulkConfirmModal .inv-modal {
+  background: var(--surface, #fff);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.18);
+  padding: 2rem 2rem 1.5rem;
+  max-width: 440px;
+  width: 100%;
+  animation: invModalSlideIn 0.18s ease;
+}
+@keyframes invModalSlideIn {
+  from { transform: translateY(-16px); opacity: 0; }
+  to   { transform: translateY(0);     opacity: 1; }
+}
+
+#bulkConfirmModal .inv-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+#bulkConfirmModal .inv-modal-icon {
+  font-size: 1.6rem;
+  color: var(--primary);
+}
+#bulkConfirmModal .inv-modal-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0;
+}
+
+#bulkConfirmModal .inv-modal-body {
+  font-size: 0.9rem;
+  color: var(--text);
+  margin: 0 0 0.65rem;
+  line-height: 1.55;
+}
+
+#bulkConfirmModal .inv-modal-actions {
+  display: flex;
+  gap: 0.65rem;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  margin-top: 1.25rem;
+}
+
+/* ── Responsive tweaks ──────────────────────────────────────── */
+@media (max-width: 600px) {
+  .inv-radio-pair { flex-direction: column; gap: 0.25rem; }
+  #bulkConfirmModal .inv-modal { padding: 1.5rem 1.25rem 1.25rem; }
+  .inv-bulk-action-bar { flex-direction: column; align-items: flex-start; }
+  #bulkConfirmModal .inv-modal-actions { justify-content: stretch; }
+  #bulkConfirmModal .inv-modal-actions .btn { flex: 1; justify-content: center; }
+}
+
+/* ── Plant Grouping Modal ──────────────────────────────────────────── */
+.inv-kpi-card-clickable { cursor: pointer; }
+.inv-kpi-card-clickable:focus { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+.pgm-modal { max-width: 860px; max-height: 85vh; overflow-y: auto; }
+
+.pgm-legend {
+  display: flex; gap: 1.2rem; flex-wrap: wrap;
+  margin-bottom: 1.25rem; padding: 0.65rem 1rem;
+  background: var(--surface-alt); border-radius: var(--radius);
+  font-size: 0.8rem; color: var(--muted);
+}
+.pgm-legend-item { display: flex; align-items: center; gap: 0.4rem; }
+
+.pgm-groups-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.pgm-group {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.pgm-group-header {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.55rem 0.8rem;
+  background: color-mix(in srgb, var(--primary) 6%, transparent);
+  border-bottom: 1px solid var(--border);
+  border-radius: var(--radius) var(--radius) 0 0;
+  font-size: 0.82rem; font-weight: 600;
+}
+.pgm-group-header-ungrouped { background: color-mix(in srgb, #6b7280 8%, transparent); }
+.pgm-group-label { flex: 1; color: var(--muted); font-weight: 400; font-size: 0.78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pgm-group-count {
+  margin-left: auto; background: var(--primary);
+  color: #fff; font-size: 0.7rem; font-weight: 700;
+  padding: 0.1rem 0.45rem; border-radius: 20px; min-width: 1.4rem; text-align: center;
+}
+
+.pgm-dropzone {
+  min-height: 3.5rem; padding: 0.5rem;
+  display: flex; flex-wrap: wrap; gap: 0.35rem;
+  transition: background 0.15s;
+}
+.pgm-dropzone-hover { background: color-mix(in srgb, var(--primary) 8%, transparent); }
+
+.pgm-chip {
+  display: inline-flex; align-items: center;
+  padding: 0.22rem 0.55rem;
+  border-radius: 20px; font-size: 0.75rem; font-weight: 600;
+  user-select: none;
+}
+.pgm-chip-grouped   { background: #1a4a6b; color: #fff; }
+.pgm-chip-child     { background: color-mix(in srgb, #185fa5 15%, transparent); color: #185fa5; border: 1px solid #185fa5; }
+.pgm-chip-ungrouped { background: color-mix(in srgb, #6b7280 14%, transparent); color: #374151; border: 1px solid #d1d5db; }
+.pgm-draggable { cursor: grab; }
+.pgm-draggable:active { cursor: grabbing; }
+.pgm-dragging { opacity: 0.4; }
+
+.pgm-ungrouped-section {
+  border: 1px dashed var(--border); border-radius: var(--radius);
+  background: var(--surface-alt);
+}
+
+.inv-modal-footer {
+  display: flex; align-items: center; gap: 0.75rem;
+  padding: 0.85rem 1.25rem;
+  border-top: 1px solid var(--border);
+  justify-content: flex-end;
+}
+.pgm-save-note { flex: 1; font-size: 0.82rem; }
+.pgm-save-ok    { color: var(--success); font-weight: 600; }
+.pgm-save-error { color: var(--danger);  font-weight: 600; }

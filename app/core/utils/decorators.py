@@ -75,6 +75,39 @@ def module_access_required(module_code: str):
     return decorator
 
 
+def superuser_required(fn):
+    """Restrict a view to users with the 'superuser' role.
+
+    Intended to gate pages that only superusers should access (e.g. the
+    Master Data editor in Inventory Intelligence).  Combines authentication
+    + active-account checks with the superuser role check.
+
+    Usage::
+
+        @inventory_bp.route("/master-data")
+        @login_required
+        @superuser_required
+        def master_data():
+            ...
+    """
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if not current_user.is_authenticated:
+            flash("Please log in to access this page.", "warning")
+            return redirect(url_for("auth.login"))
+        if not current_user.is_active:
+            flash("Your account has been deactivated.", "danger")
+            return redirect(url_for("auth.login"))
+        if not current_user.is_super_user():
+            flash(
+                "This page is restricted to superusers.",
+                "danger",
+            )
+            abort(403)
+        return fn(*args, **kwargs)
+    return wrapper
+
+
 def require_permission(permission_name: str):
     """Restrict a view to users whose role grants *permission_name*.
 

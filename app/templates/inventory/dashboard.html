@@ -46,11 +46,11 @@
                 <div class="inv-kpi-hint">Unique SAP materials tracked</div>
             </div>
         </div>
-        <div class="inv-kpi-card">
+        <div class="inv-kpi-card inv-kpi-card-clickable" id="kpiPlantCard" title="Click to view &amp; edit plant groupings" role="button" tabindex="0">
             <div class="inv-kpi-icon inv-kpi-green"><i class="bi bi-building"></i></div>
             <div>
                 <div class="inv-kpi-value" id="kpiPlants">{{ kpis.unique_plants }}</div>
-                <div class="inv-kpi-label">Plants</div>
+                <div class="inv-kpi-label">Plants <i class="bi bi-pencil-square" style="font-size:0.65rem;margin-left:4px;opacity:0.6;"></i></div>
                 <div class="inv-kpi-hint" id="kpiPlantHint">Across all storage locations</div>
             </div>
         </div>
@@ -174,6 +174,44 @@
             </div>
             <div class="inv-chart-summary" id="analyticsSummary"></div>
             <div class="inv-analytics-panel" id="analyticsPanel"></div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Plant Grouping Modal ──────────────────────────────────────────── -->
+<div class="inv-modal-backdrop" id="plantGroupingModal" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="pgmTitle">
+    <div class="inv-modal inv-modal-wide pgm-modal">
+        <div class="inv-modal-header">
+            <div>
+                <h3 class="inv-modal-title" id="pgmTitle"><i class="bi bi-diagram-3"></i> Plant Grouping Map</h3>
+                <div class="inv-modal-meta">Drag plants between groups to reassign. Changes take effect on Save.</div>
+            </div>
+            <button type="button" class="inv-modal-close" id="pgmClose" aria-label="Close">&times;</button>
+        </div>
+        <div class="inv-modal-body">
+            <div id="pgmLoadingState" class="inv-loading" style="padding:2rem 0;">
+                <i class="bi bi-arrow-repeat inv-spin"></i> Loading plant groupings…
+            </div>
+            <div id="pgmContent" style="display:none;">
+                <div class="pgm-legend">
+                    <span class="pgm-legend-item"><span class="pgm-chip pgm-chip-grouped">11A1</span> Parent (forecast unit)</span>
+                    <span class="pgm-legend-item"><span class="pgm-chip pgm-chip-child">11F1</span> Sub-plant</span>
+                    <span class="pgm-legend-item"><span class="pgm-chip pgm-chip-ungrouped">ZZZ1</span> Ungrouped</span>
+                </div>
+                <div id="pgmGroupsContainer" class="pgm-groups-container"></div>
+                <div class="pgm-ungrouped-section">
+                    <div class="pgm-group-header pgm-group-header-ungrouped">
+                        <i class="bi bi-question-circle"></i> Ungrouped Plants
+                        <span class="pgm-group-count" id="pgmUngroupedCount">0</span>
+                    </div>
+                    <div class="pgm-dropzone" id="pgmUngrouped" data-group="__ungrouped__"></div>
+                </div>
+            </div>
+        </div>
+        <div class="inv-modal-footer" id="pgmFooter" style="display:none;">
+            <span class="pgm-save-note" id="pgmSaveNote"></span>
+            <button type="button" class="btn btn-secondary btn-sm" id="pgmCancel">Cancel</button>
+            <button type="button" class="btn btn-primary btn-sm" id="pgmSave"><i class="bi bi-floppy"></i> Save Groupings</button>
         </div>
     </div>
 </div>
@@ -613,6 +651,28 @@
                 ['Vendors', fmtNum(analyticsData.summary.vendor_count, 0)],
                 ['Last Unit Price', fmtCurrency(analyticsData.summary.last_unit_price)]
             ]);
+
+        var fyRecords = (analyticsData.financial_years && analyticsData.financial_years.records) || [];
+        if (!fyRecords.length) {
+            document.getElementById('analyticsPanel').innerHTML = '<div class="inv-muted">No financial-year summary available.</div>';
+            return;
+        }
+
+        var panelHtml = '<div class="inv-analytics-section">';
+        panelHtml += '<h4 class="inv-section-heading">Financial Year Summary</h4>';
+        panelHtml += '<div class="inv-expand-table-wrap"><table class="inv-expand-table">';
+        panelHtml += '<thead><tr><th>Financial Year</th><th class="text-right">Months Observed</th><th class="text-right">Active Months</th><th class="text-right">Total Quantity</th><th class="text-right">Consumption Value</th><th class="text-right">Procurement Value</th><th class="text-right">Avg Monthly Qty</th></tr></thead><tbody>';
+        fyRecords.forEach(function(record) {
+            panelHtml += '<tr><td><strong>' + esc(record.financial_year) + '</strong></td>';
+            panelHtml += '<td class="text-right inv-num">' + fmtNum(record.months_observed, 0) + '</td>';
+            panelHtml += '<td class="text-right inv-num">' + fmtNum(record.active_months, 0) + '</td>';
+            panelHtml += '<td class="text-right inv-num">' + fmtNum(record.total_qty, 2) + '</td>';
+            panelHtml += '<td class="text-right inv-num inv-val">' + fmtCurrency(record.total_consumption_value) + '</td>';
+            panelHtml += '<td class="text-right inv-num inv-val">' + fmtCurrency(record.total_procurement_value) + '</td>';
+            panelHtml += '<td class="text-right inv-num">' + fmtNum(record.avg_monthly_qty, 2) + '</td></tr>';
+        });
+        panelHtml += '</tbody></table></div></div>';
+        document.getElementById('analyticsPanel').innerHTML = panelHtml;
     }
 
     function renderForecastTab() {
@@ -850,11 +910,11 @@
             return;
         }
 
-        var html = '<div class="inv-analytics-section"><h4 class="inv-section-heading">Year-over-Year Comparison</h4>';
+        var html = '<div class="inv-analytics-section"><h4 class="inv-section-heading">Financial Year Comparison</h4>';
         html += '<div class="inv-expand-table-wrap"><table class="inv-expand-table">';
-        html += '<thead><tr><th>Year</th><th class="text-right">Months Observed</th><th class="text-right">Active Months</th><th class="text-right">Total Quantity</th><th class="text-right">Total Procurement Value</th><th class="text-right">Avg Monthly Qty</th><th class="text-right">Qty YoY</th><th class="text-right">Procurement Value YoY</th></tr></thead><tbody>';
+        html += '<thead><tr><th>Financial Year</th><th class="text-right">Months Observed</th><th class="text-right">Active Months</th><th class="text-right">Total Quantity</th><th class="text-right">Total Procurement Value</th><th class="text-right">Avg Monthly Qty</th><th class="text-right">Qty YoY</th><th class="text-right">Procurement Value YoY</th></tr></thead><tbody>';
         records.forEach(function(record) {
-            html += '<tr><td>' + esc(record.year) + '</td><td class="text-right inv-num">' + fmtNum(record.months_observed, 0) + '</td><td class="text-right inv-num">' +
+            html += '<tr><td>' + esc(record.financial_year) + '</td><td class="text-right inv-num">' + fmtNum(record.months_observed, 0) + '</td><td class="text-right inv-num">' +
                 fmtNum(record.active_months, 0) + '</td><td class="text-right inv-num">' + fmtNum(record.total_qty, 2) + '</td><td class="text-right inv-num inv-val">' +
                 fmtCurrency(record.total_value) + '</td><td class="text-right inv-num">' + fmtNum(record.avg_monthly_qty, 2) + '</td><td class="text-right inv-num ' +
                 trendClass(record.yoy_qty_pct) + '">' + fmtPct(record.yoy_qty_pct) + '</td><td class="text-right inv-num ' + trendClass(record.yoy_value_pct) + '">' +
@@ -974,6 +1034,182 @@
     renderTopConsumers(TOP_CONSUMERS);
     applyFilters();
     updateExportLink();
+
+    // ── Plant Grouping Modal ──────────────────────────────────────────────
+    var pgmOpen = false;
+    var pgmCurrentConfig = null;  // {prefix_groups, explicit_groups, group_members, allPlants}
+    var pgmDragEl = null;
+
+    function openPlantGroupingModal() {
+        document.getElementById('plantGroupingModal').style.display = '';
+        document.getElementById('pgmLoadingState').style.display = '';
+        document.getElementById('pgmContent').style.display = 'none';
+        document.getElementById('pgmFooter').style.display = 'none';
+        pgmOpen = true;
+
+        fetch('/inventory/api/plant-grouping')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                pgmCurrentConfig = data;
+                renderPlantGrouping(data);
+                document.getElementById('pgmLoadingState').style.display = 'none';
+                document.getElementById('pgmContent').style.display = '';
+                document.getElementById('pgmFooter').style.display = '';
+            })
+            .catch(function() {
+                document.getElementById('pgmLoadingState').innerHTML =
+                    '<span class="inv-status-chip inv-status-alert">Failed to load plant groupings.</span>';
+            });
+    }
+
+    function closePlantGroupingModal() {
+        document.getElementById('plantGroupingModal').style.display = 'none';
+        pgmOpen = false;
+    }
+
+    function renderPlantGrouping(data) {
+        var members = data.group_members || {};
+        var allPlants = data.all_plants || [];
+        var container = document.getElementById('pgmGroupsContainer');
+        container.innerHTML = '';
+
+        Object.keys(members).sort().forEach(function(parent) {
+            var children = members[parent] || [];
+            var div = document.createElement('div');
+            div.className = 'pgm-group';
+            div.dataset.group = parent;
+            div.innerHTML =
+                '<div class="pgm-group-header">' +
+                '<span class="pgm-chip pgm-chip-grouped">' + esc(parent) + '</span>' +
+                ' <span class="pgm-group-label">' + esc(data.plant_descriptions && data.plant_descriptions[parent] ? data.plant_descriptions[parent] : parent) + '</span>' +
+                '<span class="pgm-group-count">' + children.length + '</span>' +
+                '</div>' +
+                '<div class="pgm-dropzone" data-group="' + esc(parent) + '">' +
+                children.filter(function(c) { return c !== parent; }).map(function(c) {
+                    return '<span class="pgm-chip pgm-chip-child pgm-draggable" draggable="true" data-plant="' + esc(c) + '">' + esc(c) + '</span>';
+                }).join('') +
+                '</div>';
+            container.appendChild(div);
+        });
+
+        // Ungrouped plants
+        var grouped = new Set();
+        Object.keys(members).forEach(function(p) {
+            grouped.add(p);
+            (members[p] || []).forEach(function(c) { grouped.add(c); });
+        });
+        var ungrouped = allPlants.filter(function(p) { return !grouped.has(p); });
+        var ugEl = document.getElementById('pgmUngrouped');
+        ugEl.innerHTML = ungrouped.map(function(p) {
+            return '<span class="pgm-chip pgm-chip-ungrouped pgm-draggable" draggable="true" data-plant="' + esc(p) + '">' + esc(p) + '</span>';
+        }).join('');
+        document.getElementById('pgmUngroupedCount').textContent = ungrouped.length;
+
+        setupDragDrop();
+    }
+
+    function setupDragDrop() {
+        document.querySelectorAll('.pgm-draggable').forEach(function(chip) {
+            chip.addEventListener('dragstart', function(e) {
+                pgmDragEl = chip;
+                e.dataTransfer.effectAllowed = 'move';
+                chip.classList.add('pgm-dragging');
+            });
+            chip.addEventListener('dragend', function() {
+                chip.classList.remove('pgm-dragging');
+                pgmDragEl = null;
+            });
+        });
+        document.querySelectorAll('.pgm-dropzone').forEach(function(zone) {
+            zone.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                zone.classList.add('pgm-dropzone-hover');
+            });
+            zone.addEventListener('dragleave', function() {
+                zone.classList.remove('pgm-dropzone-hover');
+            });
+            zone.addEventListener('drop', function(e) {
+                e.preventDefault();
+                zone.classList.remove('pgm-dropzone-hover');
+                if (!pgmDragEl) return;
+                var plant = pgmDragEl.dataset.plant;
+                var targetGroup = zone.dataset.group;
+                var srcZone = pgmDragEl.closest('.pgm-dropzone');
+                if (srcZone === zone) return;
+
+                // Reclassify chip
+                pgmDragEl.remove();
+                var isUngrouped = targetGroup === '__ungrouped__';
+                pgmDragEl.className = 'pgm-chip pgm-draggable ' + (isUngrouped ? 'pgm-chip-ungrouped' : 'pgm-chip-child');
+                zone.appendChild(pgmDragEl);
+                setupDragDrop();
+
+                // Update counts
+                document.querySelectorAll('.pgm-group').forEach(function(g) {
+                    var cnt = g.querySelector('.pgm-dropzone').querySelectorAll('.pgm-chip').length;
+                    g.querySelector('.pgm-group-count').textContent = cnt;
+                });
+                var ugCount = document.getElementById('pgmUngrouped').querySelectorAll('.pgm-chip').length;
+                document.getElementById('pgmUngroupedCount').textContent = ugCount;
+            });
+        });
+    }
+
+    function collectGroupingFromDOM() {
+        var newMembers = {};
+        document.querySelectorAll('.pgm-group').forEach(function(g) {
+            var parent = g.dataset.group;
+            var children = [parent];  // parent always includes itself
+            g.querySelectorAll('.pgm-chip[data-plant]').forEach(function(chip) {
+                children.push(chip.dataset.plant);
+            });
+            newMembers[parent] = children;
+        });
+        return newMembers;
+    }
+
+    document.getElementById('kpiPlantCard').addEventListener('click', openPlantGroupingModal);
+    document.getElementById('kpiPlantCard').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openPlantGroupingModal(); }
+    });
+    document.getElementById('pgmClose').addEventListener('click', closePlantGroupingModal);
+    document.getElementById('pgmCancel').addEventListener('click', closePlantGroupingModal);
+    document.getElementById('plantGroupingModal').addEventListener('click', function(e) {
+        if (e.target === this) closePlantGroupingModal();
+    });
+
+    document.getElementById('pgmSave').addEventListener('click', function() {
+        var btn = document.getElementById('pgmSave');
+        var note = document.getElementById('pgmSaveNote');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="bi bi-arrow-repeat inv-spin"></i> Saving…';
+        note.textContent = '';
+
+        var newMembers = collectGroupingFromDOM();
+        fetch('/inventory/api/plant-grouping', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ group_members: newMembers })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            if (res.ok) {
+                note.textContent = '✓ Saved. Reload the page to apply the new groupings.';
+                note.className = 'pgm-save-note pgm-save-ok';
+            } else {
+                note.textContent = res.error || 'Save failed.';
+                note.className = 'pgm-save-note pgm-save-error';
+            }
+        })
+        .catch(function() {
+            note.textContent = 'Network error. Could not save.';
+            note.className = 'pgm-save-note pgm-save-error';
+        })
+        .finally(function() {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-floppy"></i> Save Groupings';
+        });
+    });
 })();
 </script>
 {% endblock %}

@@ -2,7 +2,7 @@
 
 import secrets
 from importlib import import_module
-from flask import Flask, g
+from flask import Flask, g, render_template_string, request
 from flask_login import current_user
 from config import Config
 from app.extensions import cache, csrf, db, login_manager, migrate
@@ -150,7 +150,6 @@ def create_app(config_class=Config):
 
     @app.errorhandler(404)
     def not_found(e):
-        from flask import render_template_string
         return render_template_string("""
         {% extends "base.html" %}
         {% block title %}404 Not Found{% endblock %}
@@ -164,5 +163,25 @@ def create_app(config_class=Config):
         </div>
         {% endblock %}
         """), 404
+
+    @app.errorhandler(413)
+    def request_entity_too_large(e):
+        limit_bytes = int(app.config.get("MAX_CONTENT_LENGTH") or 0)
+        limit_mb = max(limit_bytes / (1024 * 1024), 0)
+        back_url = request.referrer or "/"
+        return render_template_string("""
+        {% extends "base.html" %}
+        {% block title %}Upload Too Large{% endblock %}
+        {% block content %}
+        <div class="auth-wrapper">
+            <div class="auth-card" style="max-width: 720px;">
+                <h1 style="font-size:2rem;color:var(--color-danger)">Upload Too Large</h1>
+                <p>The selected files exceed the current request limit of {{ limit_mb|round(0)|int }} MB.</p>
+                <p>Reduce the upload size or raise <code>MAX_CONTENT_LENGTH</code> in the app configuration if larger files are expected.</p>
+                <a href="{{ back_url }}" class="btn btn-primary" style="margin-top:1rem">Go Back</a>
+            </div>
+        </div>
+        {% endblock %}
+        """, limit_mb=limit_mb, back_url=back_url), 413
 
     return app
