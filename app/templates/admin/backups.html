@@ -87,7 +87,7 @@
             <tr>
               <td><strong>{{ snapshot.filename }}</strong></td>
               <td>{{ snapshot.created_by_username }}</td>
-              <td>{{ snapshot.created_at.strftime('%d %b %Y %H:%M') }}</td>
+              <td>{{ snapshot.created_at|datetime_ist('%d %b %Y %H:%M') }}</td>
               <td>{{ snapshot.environment or '—' }}</td>
               <td>{{ snapshot.notes or '—' }}</td>
             </tr>

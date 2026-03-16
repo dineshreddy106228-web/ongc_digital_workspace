@@ -152,7 +152,7 @@
                             {% if entry.details %}
                             <div class="activity-details">{{ entry.details }}</div>
                             {% endif %}
-                            <div class="activity-time">{{ entry.created_at.strftime('%d %b %Y, %H:%M') }}</div>
+                            <div class="activity-time">{{ entry.created_at|datetime_ist }}</div>
                         </div>
                     </div>
                     {% endfor %}
@@ -255,7 +255,7 @@
                     >
                         <div class="notification-widget-topline">
                             <span class="notification-widget-title">{{ notification.title }}</span>
-                            <span class="notification-widget-time">{{ notification.created_at.strftime('%d %b %Y, %H:%M') }}</span>
+                            <span class="notification-widget-time">{{ notification.created_at|datetime_ist }}</span>
                         </div>
                         <p>{{ notification.message }}</p>
                     </a>

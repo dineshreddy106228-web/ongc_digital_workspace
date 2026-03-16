@@ -9,6 +9,7 @@ Any column in an uploaded workbook that is not mapped here lands in the
 """
 
 from datetime import datetime, timezone
+from app.core.utils.datetime import format_datetime_ist
 from app.extensions import db
 
 
@@ -132,7 +133,7 @@ class MaterialMaster(db.Model):
             "primary_storage_classification": self.primary_storage_classification or "",
             "extra_data":                     self.extra_data or {},
             "updated_at": (
-                self.updated_at.strftime("%d %b %Y, %H:%M")
+                format_datetime_ist(self.updated_at)
                 if self.updated_at else ""
             ),
             "updated_by": editor_name,

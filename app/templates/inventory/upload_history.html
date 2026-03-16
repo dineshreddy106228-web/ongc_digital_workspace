@@ -59,7 +59,7 @@
                 <span class="status-pill status-pill-danger">Error</span>
                 {% endif %}
               </td>
-              <td>{{ u.created_at.strftime('%d %b %Y, %H:%M') if u.created_at else '—' }}</td>
+              <td>{{ u.created_at|datetime_ist if u.created_at else '—' }}</td>
               <td>
                 {% if u.error_message %}
                 <span class="inv-error-note" title="{{ u.error_message }}">

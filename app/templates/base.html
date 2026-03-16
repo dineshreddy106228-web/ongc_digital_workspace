@@ -74,7 +74,7 @@
                                 <div class="notification-preview-header">
                                     <span>{{ notification.title }}</span>
                                     <span class="notification-preview-time">
-                                        {{ notification.created_at.strftime('%d %b, %H:%M') }}
+                                        {{ notification.created_at|datetime_ist('%d %b, %H:%M') }}
                                     </span>
                                 </div>
                                 <p>{{ notification.message }}</p>
@@ -226,7 +226,7 @@
         <div class="workspace-header-band-meta">
             <span class="workspace-header-chip workspace-header-chip-version">v1</span>
             {% if last_refreshed %}
-            <div class="workspace-header-meta-text">Updated {{ last_refreshed.strftime('%d %b %Y, %H:%M') }} Calcutta / Madras</div>
+            <div class="workspace-header-meta-text">Updated {{ last_refreshed|datetime_ist }} IST</div>
             {% endif %}
         </div>
     </div>

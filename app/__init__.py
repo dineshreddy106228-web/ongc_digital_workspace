@@ -5,6 +5,7 @@ from importlib import import_module
 from flask import Flask, g, render_template_string, request
 from flask_login import current_user
 from config import Config
+from app.core.utils.datetime import format_datetime_ist
 from app.extensions import cache, csrf, db, login_manager, migrate
 from app.features import (
     get_nav_modules,
@@ -59,6 +60,8 @@ def create_app(config_class=Config):
     # ── Register CLI commands ────────────────────────────────────
     from app.cli import register_cli
     register_cli(app)
+
+    app.jinja_env.filters["datetime_ist"] = format_datetime_ist
 
     # ── Inject common template context ───────────────────────────
     @app.context_processor
