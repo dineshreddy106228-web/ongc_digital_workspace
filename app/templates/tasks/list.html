@@ -17,7 +17,14 @@
       <span class="scope-tag scope-my" title="Local Task">👤</span>
       {% endif %}
       <div class="task-row-title-body">
-        <span class="task-row-title">{{ task.task_title }}</span>
+        <a
+          href="{{ url_for('tasks.task_detail', task_id=task.id) }}"
+          class="task-row-title"
+          data-task-summary-url="{{ url_for('tasks.task_summary', task_id=task.id) }}"
+          data-task-summary-title="{{ task.task_title }}"
+        >
+          {{ task.task_title }}
+        </a>
         {% if task.task_origin %}
         <div class="task-row-origin">{{ task.task_origin }}</div>
         {% endif %}
@@ -57,7 +64,14 @@
   </td>
   <td>
     <div class="actions-cell">
-      <a href="{{ url_for('tasks.task_detail', task_id=task.id) }}" class="btn btn-sm btn-secondary">View</a>
+      <a
+        href="{{ url_for('tasks.task_detail', task_id=task.id) }}"
+        class="btn btn-sm btn-secondary"
+        data-task-summary-url="{{ url_for('tasks.task_summary', task_id=task.id) }}"
+        data-task-summary-title="{{ task.task_title }}"
+      >
+        View
+      </a>
       {% if perms.get('can_edit') %}
       <a href="{{ url_for('tasks.edit_task', task_id=task.id) }}" class="btn btn-sm btn-secondary">Edit</a>
       {% endif %}
@@ -227,4 +241,6 @@
   {% endif %}
 
 </div>
+
+{% include "tasks/_task_summary_modal.html" %}
 {% endblock %}

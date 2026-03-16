@@ -1,0 +1,124 @@
+<div
+  id="task-summary-modal"
+  class="task-summary-modal hidden"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="task-summary-modal-heading"
+>
+  <div class="task-summary-modal-shell">
+    <div class="task-summary-modal-bar">
+      <div>
+        <div class="task-summary-modal-eyebrow">Task Summary</div>
+        <h2 id="task-summary-modal-heading" class="task-summary-modal-heading">Task brief</h2>
+      </div>
+      <button
+        type="button"
+        class="task-summary-modal-close"
+        data-task-summary-close
+        aria-label="Close task summary"
+      >
+        <i class="bi bi-x-lg"></i>
+      </button>
+    </div>
+    <div class="task-summary-modal-body" id="task-summary-modal-body">
+      <div class="task-summary-loading">
+        <div class="task-summary-loading-spinner"></div>
+        <div>Loading task summary…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script nonce="{{ csp_nonce() }}">
+(function () {
+  if (window.__taskSummaryModalReady) return;
+  window.__taskSummaryModalReady = true;
+
+  const modal = document.getElementById('task-summary-modal');
+  const modalBody = document.getElementById('task-summary-modal-body');
+  const modalHeading = document.getElementById('task-summary-modal-heading');
+  let activeRequest = null;
+
+  function setLoading(titleText) {
+    modalHeading.textContent = titleText || 'Task brief';
+    modalBody.innerHTML = `
+      <div class="task-summary-loading">
+        <div class="task-summary-loading-spinner"></div>
+        <div>Loading task summary…</div>
+      </div>
+    `;
+  }
+
+  function setError(message) {
+    modalBody.innerHTML = `
+      <div class="task-summary-empty">
+        ${message || 'Task summary could not be loaded.'}
+      </div>
+    `;
+  }
+
+  async function openTaskSummary(url, titleText) {
+    if (!url || !modal) return;
+
+    if (activeRequest) activeRequest.abort();
+    activeRequest = new AbortController();
+
+    modal.classList.remove('hidden');
+    document.body.classList.add('modal-open');
+    setLoading(titleText);
+
+    try {
+      const response = await fetch(url, {
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        signal: activeRequest.signal,
+      });
+      if (!response.ok) {
+        throw new Error(`Request failed (${response.status})`);
+      }
+      modalBody.innerHTML = await response.text();
+      const title = modalBody.querySelector('.task-summary-title');
+      modalHeading.textContent = title ? title.textContent.trim() : (titleText || 'Task brief');
+    } catch (error) {
+      if (error.name === 'AbortError') return;
+      console.error('Task summary modal failed:', error);
+      setError('Unable to load the task summary right now.');
+    }
+  }
+
+  function closeTaskSummary() {
+    if (!modal) return;
+    if (activeRequest) activeRequest.abort();
+    modal.classList.add('hidden');
+    document.body.classList.remove('modal-open');
+  }
+
+  document.addEventListener('click', function (event) {
+    const trigger = event.target.closest('[data-task-summary-url]');
+    if (trigger) {
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      openTaskSummary(
+        trigger.dataset.taskSummaryUrl,
+        trigger.dataset.taskSummaryTitle || trigger.textContent.trim()
+      );
+      return;
+    }
+
+    if (event.target.closest('[data-task-summary-close]')) {
+      event.preventDefault();
+      closeTaskSummary();
+      return;
+    }
+
+    if (event.target === modal) {
+      closeTaskSummary();
+    }
+  });
+
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && modal && !modal.classList.contains('hidden')) {
+      closeTaskSummary();
+    }
+  });
+})();
+</script>

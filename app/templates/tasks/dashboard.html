@@ -113,10 +113,15 @@
             <li class="db-activity-item">
               <div class="db-activity-meta">
                 <span class="db-activity-user">{{ upd.updater.full_name or upd.updater.username if upd.updater else '—' }}</span>
-                <span class="db-activity-time">{{ upd.created_at|datetime_ist('%d %b, %H:%M') }}</span>
+                <span class="db-activity-time">{{ upd.created_at|datetime_ist('%d %b %Y') }}</span>
               </div>
               <div class="db-activity-text">
-                <a href="{{ url_for('tasks.task_detail', task_id=upd.task_id) }}" class="db-activity-link">
+                <a
+                  href="{{ url_for('tasks.task_detail', task_id=upd.task_id) }}"
+                  class="db-activity-link"
+                  data-task-summary-url="{{ url_for('tasks.task_summary', task_id=upd.task_id) }}"
+                  data-task-summary-title="{{ upd.task.task_title if upd.task else 'Task #' ~ upd.task_id }}"
+                >
                   {{ upd.task.task_title if upd.task else 'Task #' ~ upd.task_id }}
                 </a>
                 {% if upd.old_status and upd.new_status %}
@@ -150,7 +155,12 @@
                   </span>
                 </div>
                 <div style="display:flex; align-items:center; gap:0.4rem; flex:1; min-width:0;">
-                  <a href="{{ url_for('tasks.task_detail', task_id=t.id) }}" class="db-activity-link">
+                  <a
+                    href="{{ url_for('tasks.task_detail', task_id=t.id) }}"
+                    class="db-activity-link"
+                    data-task-summary-url="{{ url_for('tasks.task_summary', task_id=t.id) }}"
+                    data-task-summary-title="{{ t.title }}"
+                  >
                     {{ t.title }}
                   </a>
                   <span class="task-badge status-{{ t.status|lower|replace(' ','-') }}"
@@ -233,11 +243,14 @@
   </div>
 </div>
 
+{% include "tasks/_task_summary_modal.html" %}
+
 
 {# ── Calendar + Charts JS ─────────────────────────────────── #}
 <script nonce="{{ csp_nonce() }}">
 /* ── Calendar data endpoint (month-wise lazy loading) ────────── */
 const CALENDAR_API_URL = "{{ url_for('tasks.calendar_data') }}";
+const TASK_SUMMARY_URL_TEMPLATE = "{{ url_for('tasks.task_summary', task_id=999999) }}";
 
 const SCOPE_LABELS = {
   GLOBAL: 'Global',
@@ -429,6 +442,9 @@ function openModalByDate(dateStr) {
       const link = document.createElement('a');
       link.className = 'cal-modal-task-link';
       link.href = `/tasks/${Number(task.id) || 0}`;
+      link.dataset.taskSummaryUrl = TASK_SUMMARY_URL_TEMPLATE.replace('999999', String(Number(task.id) || 0));
+      link.dataset.taskSummaryTitle = String(task.title || '');
+      link.addEventListener('click', closeModal);
       link.textContent = String(task.title || '');
 
       const status = document.createElement('span');

@@ -112,22 +112,22 @@
         </div>
 
         <div class="detail-field">
+          <div class="form-label">Created At</div>
+          <div class="detail-value">{{ task.created_at|datetime_ist('%d %b %Y') if task.created_at else '—' }}</div>
+        </div>
+
+        <div class="detail-field">
+          <div class="form-label">Last Updated</div>
+          <div class="detail-value">{{ task.updated_at|datetime_ist('%d %b %Y') if task.updated_at else '—' }}</div>
+        </div>
+
+        <div class="detail-field">
           <div class="form-label">Active</div>
           {% if task.is_active %}
           <span class="badge badge-active">Yes</span>
           {% else %}
           <span class="badge badge-inactive">No</span>
           {% endif %}
-        </div>
-
-        <div class="detail-field">
-          <div class="form-label">Created At</div>
-          <div class="detail-value">{{ task.created_at|datetime_ist('%d %b %Y %H:%M') if task.created_at else '—' }}</div>
-        </div>
-
-        <div class="detail-field">
-          <div class="form-label">Last Updated</div>
-          <div class="detail-value">{{ task.updated_at|datetime_ist('%d %b %Y %H:%M') if task.updated_at else '—' }}</div>
         </div>
 
       </div>
@@ -145,7 +145,7 @@
       <table class="data-table">
         <thead>
           <tr>
-            <th>Date &amp; Time</th>
+            <th>Date</th>
             <th>Updated By</th>
             <th>Old Status</th>
             <th>New Status</th>
@@ -156,7 +156,7 @@
           {% if updates %}
             {% for update in updates %}
             <tr>
-              <td>{{ update.created_at|datetime_ist('%d %b %Y %H:%M') if update.created_at else '—' }}</td>
+              <td>{{ update.created_at|datetime_ist('%d %b %Y') if update.created_at else '—' }}</td>
               <td>{{ update.updater.full_name if update.updater and update.updater.full_name else (update.updater.username if update.updater else '—') }}</td>
               <td>{{ update.old_status or '—' }}</td>
               <td>{{ update.new_status or '—' }}</td>

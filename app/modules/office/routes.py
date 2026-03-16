@@ -1052,6 +1052,31 @@ def task_detail(task_id):
     )
 
 
+@office_bp.route("/<int:task_id>/summary")
+@login_required
+@module_access_required("tasks")
+def task_summary(task_id):
+    task = Task.query.get_or_404(task_id)
+    if not _can_view_task(task):
+        abort(403)
+
+    updates = (
+        TaskUpdate.query.filter_by(task_id=task.id)
+        .order_by(TaskUpdate.created_at.desc())
+        .all()
+    )
+
+    return render_template(
+        "tasks/_task_summary_panel.html",
+        task=task,
+        updates=updates,
+        can_edit=_can_edit_task(task),
+        can_add_update=_can_add_update(task),
+        recurrence_summary=recurrence_summary,
+        is_privileged=_is_privileged(),
+    )
+
+
 # ── Edit Task ─────────────────────────────────────────────────────
 @office_bp.route("/<int:task_id>/edit", methods=["GET", "POST"])
 @login_required

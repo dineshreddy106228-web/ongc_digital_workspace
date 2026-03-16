@@ -100,36 +100,40 @@ class User(UserMixin, db.Model):
     controlling_officer = db.relationship(
         "User",
         foreign_keys=[controlling_officer_id],
-        primaryjoin="User.controlling_officer_id == User.id",
+        remote_side=[id],
+        back_populates="controlled_users",
         uselist=False,
         lazy="select",
+        overlaps="reviewing_officer,reviewed_users",
     )
     # Users for whom this user IS the controlling officer (one-to-many)
     controlled_users = db.relationship(
         "User",
-        foreign_keys="User.controlling_officer_id",
-        primaryjoin="User.controlling_officer_id == User.id",
+        foreign_keys=[controlling_officer_id],
+        back_populates="controlling_officer",
         uselist=True,
         lazy="dynamic",
-        overlaps="controlling_officer",
+        overlaps="reviewing_officer,reviewed_users",
     )
 
     # The user who is this user's reviewing officer (many-to-one)
     reviewing_officer = db.relationship(
         "User",
         foreign_keys=[reviewing_officer_id],
-        primaryjoin="User.reviewing_officer_id == User.id",
+        remote_side=[id],
+        back_populates="reviewed_users",
         uselist=False,
         lazy="select",
+        overlaps="controlling_officer,controlled_users",
     )
     # Users for whom this user IS the reviewing officer (one-to-many)
     reviewed_users = db.relationship(
         "User",
-        foreign_keys="User.reviewing_officer_id",
-        primaryjoin="User.reviewing_officer_id == User.id",
+        foreign_keys=[reviewing_officer_id],
+        back_populates="reviewing_officer",
         uselist=True,
         lazy="dynamic",
-        overlaps="reviewing_officer",
+        overlaps="controlling_officer,controlled_users",
     )
 
     # Module access grants

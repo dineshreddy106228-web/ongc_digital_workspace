@@ -133,7 +133,7 @@ class MaterialMaster(db.Model):
             "primary_storage_classification": self.primary_storage_classification or "",
             "extra_data":                     self.extra_data or {},
             "updated_at": (
-                format_datetime_ist(self.updated_at)
+                format_datetime_ist(self.updated_at, "%d %b %Y")
                 if self.updated_at else ""
             ),
             "updated_by": editor_name,

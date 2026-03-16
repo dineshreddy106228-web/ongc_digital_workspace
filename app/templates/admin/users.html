@@ -42,7 +42,7 @@
               <th>Role</th>
               <th>Office</th>
               <th>Status</th>
-              <th>Last Login</th>
+              <th>Login Record</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -76,7 +76,7 @@
               </td>
               <td>
                 {% if u.last_login_at %}
-                  {{ u.last_login_at|datetime_ist('%d %b %Y %H:%M') }}
+                  {{ u.last_login_at|datetime_ist('%d %b %Y') }}
                 {% else %}
                   <span class="text-muted">Never</span>
                 {% endif %}

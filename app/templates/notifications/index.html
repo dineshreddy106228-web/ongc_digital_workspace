@@ -27,7 +27,7 @@
                     </span>
                 </div>
                 <div class="notification-card-meta">
-                    <span>{{ notification.created_at|datetime_ist }}</span>
+                    <span>{{ notification.created_at|datetime_ist('%d %b %Y') }}</span>
                     <span class="notification-state {{ 'state-read' if notification.is_read else 'state-unread' }}">
                         {{ 'Read' if notification.is_read else 'Unread' }}
                     </span>

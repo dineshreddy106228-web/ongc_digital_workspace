@@ -240,7 +240,7 @@ tr.is-saving td { opacity: 0.6; }
               <th class="md-col-med">{{ key }}</th>
               {% endfor %}
               <th class="md-col-sm">Updated By</th>
-              <th class="md-col-sm">Updated At</th>
+              <th class="md-col-sm">Updated Date</th>
               <th class="md-col-actions">Actions</th>
             </tr>
           </thead>
@@ -568,10 +568,7 @@ tr.is-saving td { opacity: 0.6; }
           });
           // Update audit cells (last two before actions)
           const rec = data.record;
-          const auditCells = tr.querySelectorAll('td[data-audit]');
-          // Refresh audit spans in the view-mode cells
           const allCells = tr.querySelectorAll('td');
-          // second-to-last and third-to-last contain updated_by / updated_at
           const actionOffset = 1;
           const atCell = allCells[allCells.length - 1 - actionOffset - 1];
           const byCell = allCells[allCells.length - 1 - actionOffset - 2];
