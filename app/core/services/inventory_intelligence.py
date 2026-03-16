@@ -6,6 +6,7 @@ import calendar
 import json
 import logging
 import os
+import pickle
 import re
 import tempfile
 from datetime import date
@@ -20,7 +21,9 @@ except ImportError:  # pragma: no cover – present only when ENABLE_INVENTORY=F
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
+from sqlalchemy import func, inspect
 
+from app.extensions import db
 from app.core.services.inventory_forecast import (
     fit_holt_winters,
     forecast_hw,
@@ -49,6 +52,8 @@ _BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.p
 CONS_FILE = os.path.join(_BASE_DIR, "Consumption_data.xlsx")
 PROC_FILE = os.path.join(_BASE_DIR, "Procurement_data.xlsx")
 PLANT_GROUPING_FILE = os.path.join(_BASE_DIR, "inventory_plant_grouping.json")
+_CACHE_DIR = os.path.join(_BASE_DIR, ".cache", "inventory")
+_FORECAST_CACHE_FILE = os.path.join(_CACHE_DIR, "forecast_precomputed.pkl")
 
 _PERIOD_RE = re.compile(r"^\s*(\d{1,2})\.(\d{4})\s*$")
 _PRICE_SWING_THRESHOLD_PCT = 15.0
@@ -184,6 +189,7 @@ _PLANT_GROUPING_CACHE = {
     "mtime": None,
     "config": None,
 }
+_DB_SEED_TABLES_READY: bool | None = None
 
 # ---------------------------------------------------------------------------
 # Adaptive multi-strategy forecasting engine
@@ -1161,8 +1167,11 @@ def _normalize_consumption_frame(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _load_consumption() -> pd.DataFrame:
-    df = pd.read_excel(CONS_FILE, sheet_name=0)
-    return _normalize_consumption_frame(df)
+    return _load_normalized_cache(
+        source_path=CONS_FILE,
+        cache_name="consumption_normalized.pkl",
+        normalizer=_normalize_consumption_frame,
+    )
 
 
 def _normalize_legacy_procurement_frame(df: pd.DataFrame) -> pd.DataFrame:
@@ -1214,8 +1223,172 @@ def _normalize_procurement_frame(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _load_procurement() -> pd.DataFrame:
-    df = pd.read_excel(PROC_FILE, sheet_name=0)
-    return _normalize_procurement_frame(df)
+    return _load_normalized_cache(
+        source_path=PROC_FILE,
+        cache_name="procurement_normalized.pkl",
+        normalizer=_normalize_procurement_frame,
+    )
+
+
+def _source_signature(path: str) -> tuple[int, int] | None:
+    if not os.path.exists(path):
+        return None
+    stat = os.stat(path)
+    return (stat.st_mtime_ns, stat.st_size)
+
+
+def _cache_path(cache_name: str) -> str:
+    os.makedirs(_CACHE_DIR, exist_ok=True)
+    return os.path.join(_CACHE_DIR, cache_name)
+
+
+def _load_normalized_cache(
+    source_path: str,
+    cache_name: str,
+    normalizer,
+) -> pd.DataFrame:
+    signature = _source_signature(source_path)
+    cache_path = _cache_path(cache_name)
+
+    if signature and os.path.exists(cache_path):
+        try:
+            with open(cache_path, "rb") as fh:
+                payload = pickle.load(fh)
+            if (
+                isinstance(payload, dict)
+                and payload.get("signature") == signature
+                and isinstance(payload.get("frame"), pd.DataFrame)
+            ):
+                logger.info("Loaded normalized inventory cache from %s", cache_path)
+                return payload["frame"]
+        except Exception:
+            logger.warning("Failed to read inventory cache %s; rebuilding", cache_path, exc_info=True)
+
+    df = pd.read_excel(source_path, sheet_name=0)
+    frame = normalizer(df)
+
+    if signature:
+        try:
+            with open(cache_path, "wb") as fh:
+                pickle.dump({"signature": signature, "frame": frame}, fh, protocol=pickle.HIGHEST_PROTOCOL)
+        except Exception:
+            logger.warning("Failed to write inventory cache %s", cache_path, exc_info=True)
+
+    return frame
+
+
+def _forecast_cache_payload_signature() -> dict[str, tuple[int, int] | None]:
+    return {
+        "consumption": _source_signature(CONS_FILE),
+        "procurement": _source_signature(PROC_FILE),
+        "plant_grouping": _source_signature(PLANT_GROUPING_FILE),
+    }
+
+
+def _forecast_cache_entry_key(material: str, plant: str | None) -> str:
+    return f"{_normalize_plant(plant) or '__all__'}::{material.upper()}"
+
+
+def _load_precomputed_forecast_cache() -> dict[str, dict]:
+    signature = _forecast_cache_payload_signature()
+    if os.path.exists(_FORECAST_CACHE_FILE):
+        try:
+            with open(_FORECAST_CACHE_FILE, "rb") as handle:
+                payload = pickle.load(handle)
+            if (
+                isinstance(payload, dict)
+                and payload.get("signature") == signature
+                and isinstance(payload.get("forecasts"), dict)
+            ):
+                logger.info("Loaded precomputed forecast cache from %s", _FORECAST_CACHE_FILE)
+                return payload["forecasts"]
+        except Exception:
+            logger.warning("Failed to read forecast cache %s; rebuilding lazily", _FORECAST_CACHE_FILE, exc_info=True)
+    return {}
+
+
+def _write_precomputed_forecast_cache(forecasts: dict[str, dict]) -> None:
+    os.makedirs(_CACHE_DIR, exist_ok=True)
+    payload = {
+        "signature": _forecast_cache_payload_signature(),
+        "forecasts": forecasts,
+    }
+    with tempfile.NamedTemporaryFile(dir=_CACHE_DIR, suffix=".tmp", delete=False) as handle:
+        temp_path = handle.name
+    try:
+        with open(temp_path, "wb") as handle:
+            pickle.dump(payload, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(temp_path, _FORECAST_CACHE_FILE)
+    except Exception:
+        try:
+            os.remove(temp_path)
+        except OSError:
+            pass
+        raise
+
+
+def precompute_forecast_cache(
+    consumption_frame: pd.DataFrame | None = None,
+    procurement_frame: pd.DataFrame | None = None,
+    top_n: int = 3,
+) -> dict[str, int | float]:
+    cons = consumption_frame if consumption_frame is not None else _load_consumption()
+    if cons.empty:
+        _write_precomputed_forecast_cache({})
+        return {"materials": 0, "seconds": 0.0}
+
+    started = pd.Timestamp.utcnow()
+    proc = procurement_frame if procurement_frame is not None else _load_procurement()
+    material_groups = {material: frame for material, frame in cons.groupby("material_desc") if material}
+    if not material_groups:
+        _write_precomputed_forecast_cache({})
+        return {"materials": 0, "seconds": 0.0}
+
+    ranked_materials: list[str]
+    if not proc.empty and "material_desc" in proc and "effective_value" in proc:
+        ranked_materials = [
+            material
+            for material in (
+                proc.groupby("material_desc")["effective_value"]
+                .sum()
+                .sort_values(ascending=False)
+                .head(top_n)
+                .index
+                .tolist()
+            )
+            if material in material_groups
+        ]
+    else:
+        ranked_materials = []
+
+    if not ranked_materials:
+        ranked_materials = [
+            material
+            for material in (
+                cons.groupby("material_desc")["usage_qty"]
+                .sum()
+                .sort_values(ascending=False)
+                .head(top_n)
+                .index
+                .tolist()
+            )
+            if material in material_groups
+        ]
+
+    forecasts: dict[str, dict] = {}
+    for material_name in ranked_materials:
+        frame = material_groups[material_name]
+        monthly = _monthly_series(frame)
+        forecasts[_forecast_cache_entry_key(material_name, None)] = _build_forecast(monthly)
+
+    _write_precomputed_forecast_cache(forecasts)
+    elapsed = (pd.Timestamp.utcnow() - started).total_seconds()
+    logger.info(
+        "Precomputed %d all-plant material forecasts in %.2fs",
+        len(forecasts),
+        elapsed,
+    )
+    return {"materials": len(forecasts), "seconds": round(elapsed, 2)}
 
 
 def _read_uploaded_seed_dataframe(file_bytes: bytes, filename: str) -> pd.DataFrame:
@@ -1520,6 +1693,8 @@ def _write_temp_seed_workbook(df: pd.DataFrame, target: str, sheet_name: str) ->
 
 
 def save_seed_workbook(file_bytes: bytes, filename: str, seed_type: str) -> str:
+    from app.core.services.inventory_seed_db import sync_inventory_seed_tables
+
     df = _read_uploaded_seed_dataframe(file_bytes, filename)
     _validate_seed_frame(df, seed_type)
 
@@ -1529,6 +1704,26 @@ def save_seed_workbook(file_bytes: bytes, filename: str, seed_type: str) -> str:
     merged_df = _merge_seed_collection_frame(existing_df, df, seed_type)
     temp_path = _write_temp_seed_workbook(merged_df, target, sheet_name)
     os.replace(temp_path, target)
+    cons_df = (
+        _normalize_consumption_frame(merged_df)
+        if seed_type == "consumption"
+        else (_load_consumption() if os.path.exists(CONS_FILE) else pd.DataFrame())
+    )
+    proc_df = (
+        _normalize_procurement_frame(merged_df)
+        if seed_type == "procurement"
+        else (_load_procurement() if os.path.exists(PROC_FILE) else pd.DataFrame())
+    )
+    sync_inventory_seed_tables(
+        consumption_frame=cons_df,
+        procurement_frame=proc_df,
+        consumption_filename=os.path.basename(CONS_FILE),
+        procurement_filename=os.path.basename(PROC_FILE),
+    )
+    try:
+        precompute_forecast_cache(consumption_frame=cons_df, procurement_frame=proc_df)
+    except Exception:
+        logger.warning("Failed to precompute forecast cache after %s seed update", seed_type, exc_info=True)
     return target
 
 
@@ -1538,6 +1733,8 @@ def save_seed_workbooks(
     procurement_bytes: bytes,
     procurement_filename: str,
 ) -> dict:
+    from app.core.services.inventory_seed_db import sync_inventory_seed_tables
+
     cons_df = _read_uploaded_seed_dataframe(consumption_bytes, consumption_filename)
     proc_df = _read_uploaded_seed_dataframe(procurement_bytes, procurement_filename)
     _validate_seed_frame(cons_df, "consumption")
@@ -1547,6 +1744,8 @@ def save_seed_workbooks(
     existing_proc = pd.read_excel(PROC_FILE, sheet_name=0) if os.path.exists(PROC_FILE) else pd.DataFrame()
     merged_cons = _merge_seed_collection_frame(existing_cons, cons_df, "consumption")
     merged_proc = _merge_seed_collection_frame(existing_proc, proc_df, "procurement")
+    normalized_cons = _normalize_consumption_frame(merged_cons)
+    normalized_proc = _normalize_procurement_frame(merged_proc)
 
     targets = {
         "consumption": CONS_FILE,
@@ -1559,6 +1758,19 @@ def save_seed_workbooks(
 
     os.replace(temp_files["consumption"], targets["consumption"])
     os.replace(temp_files["procurement"], targets["procurement"])
+    sync_inventory_seed_tables(
+        consumption_frame=normalized_cons,
+        procurement_frame=normalized_proc,
+        consumption_filename=consumption_filename,
+        procurement_filename=procurement_filename,
+    )
+    try:
+        precompute_forecast_cache(
+            consumption_frame=normalized_cons,
+            procurement_frame=normalized_proc,
+        )
+    except Exception:
+        logger.warning("Failed to precompute forecast cache after staged seed apply", exc_info=True)
     return targets
 
 
@@ -2474,7 +2686,15 @@ class _DataStore:
     def __init__(self):
         self._cons: pd.DataFrame | None = None
         self._proc: pd.DataFrame | None = None
+        self._overview_cache: dict[str, dict] = {}
+        self._materials_cache: dict[str, list[dict]] = {}
         self._dashboard_cache: dict[str, dict] = {}
+        self._material_context_cache: dict[tuple[str, str], dict] = {}
+        self._analytics_overview_cache: dict[tuple[str, str], dict] = {}
+        self._analytics_section_cache: dict[tuple[str, str, str], dict] = {}
+        self._consumption_detail_cache: dict[tuple[str, str], list[dict]] = {}
+        self._procurement_history_cache: dict[tuple[str, str], list[dict]] = {}
+        self._persistent_forecast_cache: dict[str, dict] | None = None
 
     def _ensure_loaded(self):
         if self._cons is None:
@@ -2499,12 +2719,501 @@ class _DataStore:
     def reload(self):
         self._cons = None
         self._proc = None
+        self._overview_cache = {}
+        self._materials_cache = {}
         self._dashboard_cache = {}
+        self._material_context_cache = {}
+        self._analytics_overview_cache = {}
+        self._analytics_section_cache = {}
+        self._consumption_detail_cache = {}
+        self._procurement_history_cache = {}
+        self._persistent_forecast_cache = None
 
     def _cache_key(self, plant: str | None) -> str:
         return plant or "__all__"
 
+    def _material_cache_key(self, material: str, plant: str | None) -> tuple[str, str]:
+        return self._cache_key(_normalize_plant(plant)), material.upper()
+
+    def _get_material_context(self, material: str, plant: str | None = None) -> dict:
+        normalized_material = material.upper()
+        normalized_plant = _normalize_plant(plant)
+        cache_key = self._material_cache_key(normalized_material, normalized_plant)
+        if cache_key in self._material_context_cache:
+            return self._material_context_cache[cache_key]
+
+        cons = self._filtered_consumption(normalized_plant)
+        proc = self._filtered_procurement(normalized_plant)
+        cons_df = cons[cons["material_desc"] == normalized_material].copy()
+        proc_df = proc[proc["material_desc"] == normalized_material].copy()
+        monthly = _monthly_series(cons_df)
+        proc_monthly = _monthly_procurement_series(proc_df)
+
+        if not monthly.empty:
+            total_qty = round(_safe_float(monthly["qty"].sum()), 2)
+            active_months = int((monthly["qty"] != 0).sum())
+        else:
+            total_qty = 0.0
+            active_months = 0
+
+        context = {
+            "material": normalized_material,
+            "plant": normalized_plant or "",
+            "cons_df": cons_df,
+            "proc_df": proc_df,
+            "monthly": monthly,
+            "proc_monthly": proc_monthly,
+            "summary": {
+                "total_qty": total_qty,
+                "total_value": round(_safe_float(proc_df["effective_value"].sum()), 2),
+                "active_months": active_months,
+                "storage_location_count": int(cons_df["storage_location"].nunique()) if not cons_df.empty else 0,
+                "vendor_count": int(proc_df["vendor"].nunique()) if not proc_df.empty else 0,
+                "last_unit_price": round(
+                    _safe_float(proc_df.sort_values("doc_date")["unit_price"].iloc[-1]),
+                    2,
+                ) if not proc_df.empty else 0.0,
+            },
+            "consumption": {
+                "labels": monthly.get("label", pd.Series(dtype=str)).tolist(),
+                "quantities": [
+                    round(_safe_float(value), 2)
+                    for value in monthly.get("qty", pd.Series(dtype=float)).tolist()
+                ],
+                "values": [
+                    round(_safe_float(value), 2)
+                    for value in monthly.get("value", pd.Series(dtype=float)).tolist()
+                ],
+            },
+        }
+        self._material_context_cache[cache_key] = context
+        return context
+
+    def _get_persistent_forecast_cache(self) -> dict[str, dict]:
+        if self._persistent_forecast_cache is None:
+            self._persistent_forecast_cache = _load_precomputed_forecast_cache()
+        return self._persistent_forecast_cache
+
+    def _store_persistent_forecast(self, material: str, plant: str | None, forecast: dict) -> None:
+        forecasts = self._get_persistent_forecast_cache()
+        forecasts[_forecast_cache_entry_key(material, plant)] = forecast
+        _write_precomputed_forecast_cache(forecasts)
+
+    def _db_seed_tables_available(self) -> bool:
+        global _DB_SEED_TABLES_READY
+        try:
+            if _DB_SEED_TABLES_READY is True:
+                return True
+            inspector = inspect(db.engine)
+            ready = (
+                inspector.has_table("inventory_consumption_seed_rows")
+                and inspector.has_table("inventory_procurement_seed_rows")
+            )
+            if ready:
+                _DB_SEED_TABLES_READY = True
+            return ready
+        except Exception:
+            logger.warning("Failed to inspect inventory seed tables; falling back to Excel reads", exc_info=True)
+            return False
+
+    def _db_seed_rows_available(self) -> bool:
+        if not self._db_seed_tables_available():
+            return False
+        try:
+            from app.models.inventory.inventory_consumption_seed import InventoryConsumptionSeed
+
+            row_count = db.session.query(func.count(InventoryConsumptionSeed.id)).scalar() or 0
+            if row_count:
+                return True
+            return self._bootstrap_db_seed_tables_if_empty()
+        except Exception:
+            logger.warning("Failed to query inventory seed tables; falling back to Excel reads", exc_info=True)
+            return False
+
+    def _bootstrap_db_seed_tables_if_empty(self) -> bool:
+        from app.core.services.inventory_seed_db import sync_inventory_seed_tables
+
+        if not (os.path.exists(CONS_FILE) and os.path.exists(PROC_FILE)):
+            return False
+        logger.info("Bootstrapping normalized inventory seed tables from seed workbooks")
+        sync_inventory_seed_tables(
+            consumption_frame=_load_consumption(),
+            procurement_frame=_load_procurement(),
+            consumption_filename=os.path.basename(CONS_FILE),
+            procurement_filename=os.path.basename(PROC_FILE),
+        )
+        from app.models.inventory.inventory_consumption_seed import InventoryConsumptionSeed
+
+        return bool(db.session.query(func.count(InventoryConsumptionSeed.id)).scalar())
+
+    def _db_consumption_filter(self, query, model, plant: str | None):
+        if plant:
+            query = query.filter(model.reporting_plant == plant)
+        return query
+
+    def _db_procurement_filter(self, query, model, plant: str | None):
+        if plant:
+            query = query.filter(model.reporting_plant == plant)
+        return query
+
+    def _get_db_filter_options(self) -> dict:
+        from app.models.inventory.inventory_consumption_seed import InventoryConsumptionSeed
+
+        query = (
+            db.session.query(InventoryConsumptionSeed.reporting_plant)
+            .filter(InventoryConsumptionSeed.reporting_plant.isnot(None))
+            .distinct()
+            .order_by(InventoryConsumptionSeed.reporting_plant.asc())
+        )
+        return {"plants": [row[0] for row in query.all() if row[0]]}
+
+    def _build_db_top_consumers(self, plant: str | None, limit: int = 10) -> list[dict]:
+        from app.models.inventory.inventory_consumption_seed import InventoryConsumptionSeed
+        from app.models.inventory.inventory_procurement_seed import InventoryProcurementSeed
+
+        cons_query = self._db_consumption_filter(
+            db.session.query(
+                InventoryConsumptionSeed.material_desc.label("material"),
+                func.min(InventoryConsumptionSeed.material_code).label("material_code"),
+                func.sum(InventoryConsumptionSeed.usage_qty).label("total_qty"),
+                func.min(InventoryConsumptionSeed.uom).label("uom"),
+            )
+            .filter(InventoryConsumptionSeed.material_desc.isnot(None))
+            .group_by(InventoryConsumptionSeed.material_desc),
+            InventoryConsumptionSeed,
+            plant,
+        )
+        cons_map = {
+            row.material: {
+                "material": row.material,
+                "material_code": _normalize_text(row.material_code),
+                "total_qty": round(_safe_float(row.total_qty), 2),
+                "uom": _normalize_text(row.uom),
+            }
+            for row in cons_query.all()
+            if row.material
+        }
+
+        proc_query = self._db_procurement_filter(
+            db.session.query(
+                InventoryProcurementSeed.material_desc.label("material"),
+                func.sum(InventoryProcurementSeed.effective_value).label("total_value"),
+            )
+            .filter(InventoryProcurementSeed.material_desc.isnot(None))
+            .group_by(InventoryProcurementSeed.material_desc),
+            InventoryProcurementSeed,
+            plant,
+        )
+        for row in proc_query.all():
+            if row.material not in cons_map:
+                cons_map[row.material] = {
+                    "material": row.material,
+                    "material_code": "",
+                    "total_qty": 0.0,
+                    "uom": "",
+                }
+            cons_map[row.material]["total_value"] = round(_safe_float(row.total_value), 2)
+
+        top_rows = sorted(
+            cons_map.values(),
+            key=lambda item: item.get("total_value", 0.0),
+            reverse=True,
+        )[:limit]
+        for item in top_rows:
+            item.setdefault("total_value", 0.0)
+        return top_rows
+
+    def _build_db_kpis(self, plant: str | None) -> dict:
+        from app.models.inventory.inventory_consumption_seed import InventoryConsumptionSeed
+        from app.models.inventory.inventory_procurement_seed import InventoryProcurementSeed
+
+        cons_base = self._db_consumption_filter(
+            db.session.query(InventoryConsumptionSeed),
+            InventoryConsumptionSeed,
+            plant,
+        )
+        proc_base = self._db_procurement_filter(
+            db.session.query(InventoryProcurementSeed),
+            InventoryProcurementSeed,
+            plant,
+        )
+
+        total_materials = (
+            self._db_consumption_filter(
+                db.session.query(func.count(func.distinct(InventoryConsumptionSeed.material_desc))),
+                InventoryConsumptionSeed,
+                plant,
+            ).scalar()
+            or 0
+        )
+        total_vendors = (
+            self._db_procurement_filter(
+                db.session.query(func.count(func.distinct(InventoryProcurementSeed.vendor))),
+                InventoryProcurementSeed,
+                plant,
+            )
+            .filter(InventoryProcurementSeed.vendor.isnot(None))
+            .scalar()
+            or 0
+        )
+        total_procurement_value = (
+            self._db_procurement_filter(
+                db.session.query(func.sum(InventoryProcurementSeed.effective_value)),
+                InventoryProcurementSeed,
+                plant,
+            ).scalar()
+            or 0
+        )
+        unique_plants = (
+            self._db_consumption_filter(
+                db.session.query(func.count(func.distinct(InventoryConsumptionSeed.reporting_plant))),
+                InventoryConsumptionSeed,
+                plant,
+            ).scalar()
+            or 0
+        )
+        data_points = cons_base.count()
+        period_subq = (
+            self._db_consumption_filter(
+                db.session.query(
+                    InventoryConsumptionSeed.year.label("year"),
+                    InventoryConsumptionSeed.month.label("month"),
+                ),
+                InventoryConsumptionSeed,
+                plant,
+            )
+            .filter(
+                InventoryConsumptionSeed.year.isnot(None),
+                InventoryConsumptionSeed.month.isnot(None),
+            )
+            .distinct()
+            .subquery()
+        )
+        total_months = db.session.query(func.count()).select_from(period_subq).scalar() or 0
+
+        min_period = (
+            self._db_consumption_filter(
+                db.session.query(InventoryConsumptionSeed.year, InventoryConsumptionSeed.month),
+                InventoryConsumptionSeed,
+                plant,
+            )
+            .filter(
+                InventoryConsumptionSeed.year.isnot(None),
+                InventoryConsumptionSeed.month.isnot(None),
+            )
+            .order_by(InventoryConsumptionSeed.year.asc(), InventoryConsumptionSeed.month.asc())
+            .first()
+        )
+        max_period = (
+            self._db_consumption_filter(
+                db.session.query(InventoryConsumptionSeed.year, InventoryConsumptionSeed.month),
+                InventoryConsumptionSeed,
+                plant,
+            )
+            .filter(
+                InventoryConsumptionSeed.year.isnot(None),
+                InventoryConsumptionSeed.month.isnot(None),
+            )
+            .order_by(InventoryConsumptionSeed.year.desc(), InventoryConsumptionSeed.month.desc())
+            .first()
+        )
+
+        period_from = _format_period_label(int(min_period.year), int(min_period.month)) if min_period else ""
+        period_to = _format_period_label(int(max_period.year), int(max_period.month)) if max_period else ""
+
+        return {
+            "total_materials": int(total_materials),
+            "total_vendors": int(total_vendors),
+            "total_procurement_value": round(_safe_float(total_procurement_value), 2),
+            "period_from": period_from,
+            "period_to": period_to,
+            "unique_plants": int(unique_plants),
+            "data_points": int(data_points),
+            "total_months": int(total_months),
+            "selected_plant": plant or "",
+        }
+
+    def _build_db_materials_table(self, plant: str | None) -> list[dict]:
+        from app.models.inventory.inventory_consumption_seed import InventoryConsumptionSeed
+        from app.models.inventory.inventory_procurement_seed import InventoryProcurementSeed
+
+        total_months_subq = (
+            self._db_consumption_filter(
+                db.session.query(
+                    InventoryConsumptionSeed.year.label("year"),
+                    InventoryConsumptionSeed.month.label("month"),
+                ),
+                InventoryConsumptionSeed,
+                plant,
+            )
+            .filter(
+                InventoryConsumptionSeed.year.isnot(None),
+                InventoryConsumptionSeed.month.isnot(None),
+            )
+            .distinct()
+            .subquery()
+        )
+        total_distinct_months = db.session.query(func.count()).select_from(total_months_subq).scalar() or 1
+
+        cons_rows = self._db_consumption_filter(
+            db.session.query(
+                InventoryConsumptionSeed.material_desc.label("material"),
+                func.min(InventoryConsumptionSeed.material_code).label("material_code"),
+                func.min(InventoryConsumptionSeed.uom).label("uom"),
+                func.sum(InventoryConsumptionSeed.usage_qty).label("total_qty"),
+                func.count(func.distinct(InventoryConsumptionSeed.month_raw)).label("n_months"),
+                func.count(func.distinct(InventoryConsumptionSeed.reporting_plant)).label("plant_count"),
+                func.count(func.distinct(InventoryConsumptionSeed.storage_location)).label("storage_location_count"),
+                func.min(InventoryConsumptionSeed.currency).label("currency"),
+            )
+            .filter(InventoryConsumptionSeed.material_desc.isnot(None))
+            .group_by(InventoryConsumptionSeed.material_desc),
+            InventoryConsumptionSeed,
+            plant,
+        ).all()
+
+        materials: dict[str, dict] = {}
+        for row in cons_rows:
+            avg_monthly = _safe_float(row.total_qty) / max(total_distinct_months, 1)
+            materials[row.material] = {
+                "material": row.material,
+                "material_code": _normalize_text(row.material_code),
+                "uom": _normalize_text(row.uom),
+                "avg_monthly_consumption": round(avg_monthly, 2),
+                "avg_annual_consumption": round(avg_monthly * 12, 2),
+                "total_qty": round(_safe_float(row.total_qty), 2),
+                "total_value": 0.0,
+                "n_months": int(row.n_months or 0),
+                "currency": _clean_currency(row.currency),
+                "last_proc_qty": 0.0,
+                "last_proc_value": 0.0,
+                "last_po_number": "",
+                "last_proc_date": "",
+                "last_vendor": "",
+                "last_proc_unit": "",
+                "last_unit_price": 0.0,
+                "vendors": [],
+                "vendor_count": 0,
+                "plants": [],
+                "plant_count": int(row.plant_count or 0),
+                "storage_location_count": int(row.storage_location_count or 0),
+            }
+
+        proc_totals = self._db_procurement_filter(
+            db.session.query(
+                InventoryProcurementSeed.material_desc.label("material"),
+                func.sum(InventoryProcurementSeed.effective_value).label("total_value"),
+                func.min(InventoryProcurementSeed.currency).label("currency"),
+            )
+            .filter(InventoryProcurementSeed.material_desc.isnot(None))
+            .group_by(InventoryProcurementSeed.material_desc),
+            InventoryProcurementSeed,
+            plant,
+        ).all()
+        for row in proc_totals:
+            if row.material not in materials:
+                materials[row.material] = {
+                    "material": row.material,
+                    "material_code": "",
+                    "uom": "",
+                    "avg_monthly_consumption": 0.0,
+                    "avg_annual_consumption": 0.0,
+                    "total_qty": 0.0,
+                    "total_value": 0.0,
+                    "n_months": 0,
+                    "currency": _clean_currency(row.currency),
+                    "last_proc_qty": 0.0,
+                    "last_proc_value": 0.0,
+                    "last_po_number": "",
+                    "last_proc_date": "",
+                    "last_vendor": "",
+                    "last_proc_unit": "",
+                    "last_unit_price": 0.0,
+                    "vendors": [],
+                    "vendor_count": 0,
+                    "plants": [],
+                    "plant_count": 0,
+                    "storage_location_count": 0,
+                }
+            materials[row.material]["total_value"] = round(_safe_float(row.total_value), 2)
+            if not materials[row.material]["currency"]:
+                materials[row.material]["currency"] = _clean_currency(row.currency)
+
+        vendor_rows = self._db_procurement_filter(
+            db.session.query(
+                InventoryProcurementSeed.material_desc,
+                InventoryProcurementSeed.vendor,
+            )
+            .filter(
+                InventoryProcurementSeed.material_desc.isnot(None),
+                InventoryProcurementSeed.vendor.isnot(None),
+            )
+            .distinct(),
+            InventoryProcurementSeed,
+            plant,
+        ).all()
+        for material_name, vendor in vendor_rows:
+            record = materials.get(material_name)
+            if not record or not vendor:
+                continue
+            record["vendors"].append(_normalize_text(vendor))
+        for record in materials.values():
+            record["vendors"] = sorted(v for v in set(record["vendors"]) if v)
+            record["vendor_count"] = len(record["vendors"])
+
+        last_proc_rows = self._db_procurement_filter(
+            db.session.query(InventoryProcurementSeed)
+            .filter(InventoryProcurementSeed.material_desc.isnot(None))
+            .order_by(
+                InventoryProcurementSeed.material_desc.asc(),
+                InventoryProcurementSeed.doc_date.desc(),
+                InventoryProcurementSeed.id.desc(),
+            ),
+            InventoryProcurementSeed,
+            plant,
+        ).all()
+        seen = set()
+        for row in last_proc_rows:
+            material_name = row.material_desc
+            if not material_name or material_name in seen:
+                continue
+            seen.add(material_name)
+            record = materials.setdefault(material_name, {
+                "material": material_name,
+                "material_code": _normalize_text(row.material_code),
+                "uom": "",
+                "avg_monthly_consumption": 0.0,
+                "avg_annual_consumption": 0.0,
+                "total_qty": 0.0,
+                "total_value": 0.0,
+                "n_months": 0,
+                "currency": _clean_currency(row.currency),
+                "last_proc_qty": 0.0,
+                "last_proc_value": 0.0,
+                "last_po_number": "",
+                "last_proc_date": "",
+                "last_vendor": "",
+                "last_proc_unit": "",
+                "last_unit_price": 0.0,
+                "vendors": [],
+                "vendor_count": 0,
+                "plants": [],
+                "plant_count": 0,
+                "storage_location_count": 0,
+            })
+            record["last_proc_qty"] = round(_safe_float(row.order_qty), 2)
+            record["last_proc_value"] = round(_safe_float(row.effective_value), 2)
+            record["last_po_number"] = _normalize_text(row.po_number)
+            record["last_proc_date"] = row.doc_date.strftime("%d %b %Y") if row.doc_date else ""
+            record["last_vendor"] = _normalize_text(row.vendor)
+            record["last_proc_unit"] = _normalize_text(row.order_unit)
+            record["last_unit_price"] = round(_safe_float(row.unit_price), 2)
+
+        return sorted(materials.values(), key=lambda item: item["total_value"], reverse=True)
+
     def get_filter_options(self) -> dict:
+        if self._db_seed_rows_available():
+            return self._get_db_filter_options()
         self._ensure_loaded()
         plants = sorted(self._cons["reporting_plant"].dropna().astype(str).unique().tolist())
         return {"plants": plants}
@@ -2522,6 +3231,194 @@ class _DataStore:
         if not normalized_plant:
             return proc
         return proc[proc["reporting_plant"] == normalized_plant].copy()
+
+    def _build_kpis(
+        self,
+        cons: pd.DataFrame,
+        proc: pd.DataFrame,
+        normalized_plant: str | None,
+    ) -> dict:
+        min_year = cons["year"].min() if not cons.empty else None
+        min_month = cons.loc[cons["year"] == min_year, "month"].min() if pd.notna(min_year) else None
+        max_year = cons["year"].max() if not cons.empty else None
+        max_month = cons.loc[cons["year"] == max_year, "month"].max() if pd.notna(max_year) else None
+        period_from = _format_period_label(int(min_year), int(min_month)) if pd.notna(min_year) and pd.notna(min_month) else ""
+        period_to = _format_period_label(int(max_year), int(max_month)) if pd.notna(max_year) and pd.notna(max_month) else ""
+        vendor_count = 0
+        if not proc.empty and "vendor" in proc:
+            vendor_count = int(
+                proc["vendor"]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                .replace("", np.nan)
+                .dropna()
+                .nunique()
+            )
+
+        return {
+            "total_materials": int(cons["material_desc"].nunique()) if not cons.empty else 0,
+            "total_vendors": vendor_count,
+            "total_procurement_value": round(_safe_float(proc["effective_value"].sum()), 2) if not proc.empty else 0.0,
+            "period_from": period_from,
+            "period_to": period_to,
+            "unique_plants": int(cons["reporting_plant"].nunique()) if not cons.empty else 0,
+            "data_points": int(len(cons)),
+            "total_months": int(cons[["year", "month"]].drop_duplicates().shape[0]) if not cons.empty else 0,
+            "selected_plant": normalized_plant or "",
+        }
+
+    def _build_top_consumers(
+        self,
+        cons: pd.DataFrame,
+        proc: pd.DataFrame,
+        limit: int = 10,
+    ) -> list[dict]:
+        if cons.empty:
+            return []
+
+        cons_totals = (
+            cons.groupby("material_desc", as_index=False)
+            .agg(
+                material_code=("material_code", "first"),
+                total_qty=("usage_qty", "sum"),
+                uom=("uom", "first"),
+            )
+            .rename(columns={"material_desc": "material"})
+        )
+        proc_totals = (
+            proc.groupby("material_desc", as_index=False)
+            .agg(total_value=("effective_value", "sum"))
+            .rename(columns={"material_desc": "material"})
+        ) if not proc.empty else pd.DataFrame(columns=["material", "total_value"])
+
+        merged = cons_totals.merge(proc_totals, on="material", how="left")
+        merged["total_value"] = merged["total_value"].fillna(0.0)
+        merged = merged.sort_values("total_value", ascending=False).head(limit)
+
+        return [
+            {
+                "material": row["material"],
+                "material_code": _normalize_text(row.get("material_code")),
+                "total_value": round(_safe_float(row.get("total_value")), 2),
+                "total_qty": round(_safe_float(row.get("total_qty")), 2),
+                "uom": _normalize_text(row.get("uom")),
+            }
+            for _, row in merged.iterrows()
+        ]
+
+    def _build_materials_summary_table(self, cons: pd.DataFrame, proc: pd.DataFrame) -> list[dict]:
+        if cons.empty:
+            return []
+
+        total_distinct_months = cons[["year", "month"]].drop_duplicates().shape[0] or 1
+        proc_sorted = proc.sort_values("doc_date", ascending=False, na_position="last")
+
+        mat_agg = (
+            cons.groupby("material_desc", as_index=False)
+            .agg(
+                material_code=("material_code", "first"),
+                uom=("uom", "first"),
+                total_qty=("usage_qty", "sum"),
+                n_months=("month_raw", "nunique"),
+                plant_count=("reporting_plant", "nunique"),
+                plants=("reporting_plant", lambda values: sorted(values.dropna().unique().tolist())),
+                storage_location_count=("storage_location", "nunique"),
+                currency=("currency", "first"),
+            )
+            .rename(columns={"material_desc": "material"})
+        )
+        mat_agg["avg_monthly_consumption"] = mat_agg["total_qty"] / total_distinct_months
+        mat_agg["avg_annual_consumption"] = mat_agg["avg_monthly_consumption"] * 12
+
+        last_proc = (
+            proc_sorted.groupby("material_desc", as_index=False)
+            .first()[
+                [
+                    "material_desc",
+                    "order_qty",
+                    "effective_value",
+                    "po_number",
+                    "doc_date",
+                    "vendor",
+                    "order_unit",
+                    "unit_price",
+                ]
+            ]
+            .rename(
+                columns={
+                    "material_desc": "material",
+                    "order_qty": "last_proc_qty",
+                    "effective_value": "last_proc_value",
+                    "po_number": "last_po_number",
+                    "doc_date": "last_proc_date",
+                    "vendor": "last_vendor",
+                    "order_unit": "last_proc_unit",
+                    "unit_price": "last_unit_price",
+                }
+            )
+        ) if not proc.empty else pd.DataFrame(
+            columns=[
+                "material",
+                "last_proc_qty",
+                "last_proc_value",
+                "last_po_number",
+                "last_proc_date",
+                "last_vendor",
+                "last_proc_unit",
+                "last_unit_price",
+            ]
+        )
+        vendor_list = (
+            proc.groupby("material_desc")["vendor"]
+            .apply(lambda values: sorted([value for value in values.dropna().unique().tolist() if value]))
+            .reset_index()
+            .rename(columns={"material_desc": "material", "vendor": "vendors"})
+        ) if not proc.empty else pd.DataFrame(columns=["material", "vendors"])
+        proc_totals = (
+            proc.groupby("material_desc", as_index=False)
+            .agg(
+                total_value=("effective_value", "sum"),
+                currency_proc=("currency", "first"),
+            )
+            .rename(columns={"material_desc": "material"})
+        ) if not proc.empty else pd.DataFrame(columns=["material", "total_value", "currency_proc"])
+
+        merged = mat_agg.merge(last_proc, on="material", how="left")
+        merged = merged.merge(vendor_list, on="material", how="left")
+        merged = merged.merge(proc_totals, on="material", how="left")
+        merged["total_value"] = merged["total_value"].fillna(0.0)
+        merged["currency"] = merged["currency_proc"].fillna(merged["currency"])
+        merged = merged.sort_values("total_value", ascending=False)
+
+        materials: list[dict] = []
+        for _, row in merged.iterrows():
+            materials.append(
+                {
+                    "material": row["material"],
+                    "material_code": _normalize_text(row.get("material_code")),
+                    "uom": _normalize_text(row.get("uom")),
+                    "avg_monthly_consumption": round(_safe_float(row.get("avg_monthly_consumption")), 2),
+                    "avg_annual_consumption": round(_safe_float(row.get("avg_annual_consumption")), 2),
+                    "total_qty": round(_safe_float(row.get("total_qty")), 2),
+                    "total_value": round(_safe_float(row.get("total_value")), 2),
+                    "n_months": int(row.get("n_months", 0)),
+                    "currency": _clean_currency(row.get("currency")),
+                    "last_proc_qty": round(_safe_float(row.get("last_proc_qty")), 2),
+                    "last_proc_value": round(_safe_float(row.get("last_proc_value")), 2),
+                    "last_po_number": _normalize_text(row.get("last_po_number")),
+                    "last_proc_date": row["last_proc_date"].strftime("%d %b %Y") if pd.notna(row.get("last_proc_date")) else "",
+                    "last_vendor": _normalize_text(row.get("last_vendor")),
+                    "last_proc_unit": _normalize_text(row.get("last_proc_unit")),
+                    "last_unit_price": round(_safe_float(row.get("last_unit_price")), 2),
+                    "vendors": row.get("vendors", []) if isinstance(row.get("vendors"), list) else [],
+                    "vendor_count": len(row.get("vendors", []) if isinstance(row.get("vendors"), list) else []),
+                    "plants": row.get("plants", []) if isinstance(row.get("plants"), list) else [],
+                    "plant_count": int(row.get("plant_count", 0)),
+                    "storage_location_count": int(row.get("storage_location_count", 0)),
+                }
+            )
+        return materials
 
     def _build_materials_table(self, cons: pd.DataFrame, proc: pd.DataFrame) -> list[dict]:
         if cons.empty:
@@ -2653,24 +3550,61 @@ class _DataStore:
         return materials
 
     def get_materials_table(self, plant: str | None = None) -> list[dict]:
-        payload = self.get_dashboard_payload(plant=plant)
-        return payload["materials"]
+        if self._db_seed_rows_available():
+            normalized_plant = _normalize_plant(plant)
+            cache_key = self._cache_key(normalized_plant)
+            if cache_key not in self._materials_cache:
+                self._materials_cache[cache_key] = self._build_db_materials_table(normalized_plant)
+            return self._materials_cache[cache_key]
+        self._ensure_loaded()
+        normalized_plant = _normalize_plant(plant)
+        cache_key = self._cache_key(normalized_plant)
+        if cache_key in self._materials_cache:
+            return self._materials_cache[cache_key]
+
+        cons = self._filtered_consumption(normalized_plant)
+        proc = self._filtered_procurement(normalized_plant)
+        materials = self._build_materials_summary_table(cons, proc)
+        self._materials_cache[cache_key] = materials
+        return materials
 
     def get_top_consumers(self, plant: str | None = None, limit: int = 10) -> list[dict]:
-        materials = self.get_materials_table(plant=plant)
-        return [
-            {
-                "material": material["material"],
-                "material_code": material["material_code"],
-                "total_value": material["total_value"],
-                "total_qty": material["total_qty"],
-                "uom": material["uom"],
-            }
-            for material in materials[:limit]
-        ]
+        overview = self.get_overview_payload(plant=plant)
+        return overview["top_consumers"][:limit]
 
     def get_kpi_summary(self, plant: str | None = None) -> dict:
-        return self.get_dashboard_payload(plant=plant)["kpis"]
+        if self._db_seed_rows_available():
+            return self.get_overview_payload(plant=plant)["kpis"]
+        return self.get_overview_payload(plant=plant)["kpis"]
+
+    def get_overview_payload(self, plant: str | None = None) -> dict:
+        if self._db_seed_rows_available():
+            normalized_plant = _normalize_plant(plant)
+            cache_key = self._cache_key(normalized_plant)
+            if cache_key in self._overview_cache:
+                return self._overview_cache[cache_key]
+            payload = {
+                "kpis": self._build_db_kpis(normalized_plant),
+                "top_consumers": self._build_db_top_consumers(normalized_plant),
+                "filters": self._get_db_filter_options(),
+            }
+            self._overview_cache[cache_key] = payload
+            return payload
+        self._ensure_loaded()
+        normalized_plant = _normalize_plant(plant)
+        cache_key = self._cache_key(normalized_plant)
+        if cache_key in self._overview_cache:
+            return self._overview_cache[cache_key]
+
+        cons = self._filtered_consumption(normalized_plant)
+        proc = self._filtered_procurement(normalized_plant)
+        payload = {
+            "kpis": self._build_kpis(cons, proc, normalized_plant),
+            "top_consumers": self._build_top_consumers(cons, proc),
+            "filters": self.get_filter_options(),
+        }
+        self._overview_cache[cache_key] = payload
+        return payload
 
     def get_dashboard_payload(self, plant: str | None = None) -> dict:
         self._ensure_loaded()
@@ -2683,33 +3617,12 @@ class _DataStore:
         proc = self._filtered_procurement(normalized_plant)
         materials = self._build_materials_table(cons, proc)
 
-        min_year = cons["year"].min() if not cons.empty else None
-        min_month = cons.loc[cons["year"] == min_year, "month"].min() if pd.notna(min_year) else None
-        max_year = cons["year"].max() if not cons.empty else None
-        max_month = cons.loc[cons["year"] == max_year, "month"].max() if pd.notna(max_year) else None
-        period_from = _format_period_label(int(min_year), int(min_month)) if pd.notna(min_year) and pd.notna(min_month) else ""
-        period_to = _format_period_label(int(max_year), int(max_month)) if pd.notna(max_year) and pd.notna(max_month) else ""
-
-        all_vendors = set()
-        for material in materials:
-            all_vendors.update(material.get("vendors", []))
-
-        kpis = {
-            "total_materials": len(materials),
-            "total_vendors": len(all_vendors),
-            "total_procurement_value": round(sum(material["total_value"] for material in materials), 2),
-            "period_from": period_from,
-            "period_to": period_to,
-            "unique_plants": int(cons["reporting_plant"].nunique()) if not cons.empty else 0,
-            "data_points": int(len(cons)),
-            "total_months": int(cons[["year", "month"]].drop_duplicates().shape[0]) if not cons.empty else 0,
-            "selected_plant": normalized_plant or "",
-        }
+        kpis = self._build_kpis(cons, proc, normalized_plant)
 
         payload = {
             "kpis": kpis,
             "materials": materials,
-            "top_consumers": self.get_top_consumers_from_materials(materials),
+            "top_consumers": self._build_top_consumers(cons, proc),
             "filters": self.get_filter_options(),
         }
         self._dashboard_cache[cache_key] = payload
@@ -2728,22 +3641,17 @@ class _DataStore:
         ]
 
     def get_monthly_consumption(self, material: str, plant: str | None = None) -> dict:
-        cons = self._filtered_consumption(plant)
-        df = cons[cons["material_desc"] == material.upper()].copy()
-        monthly = _monthly_series(df)
-        return {
-            "labels": monthly.get("label", pd.Series(dtype=str)).tolist(),
-            "quantities": [round(_safe_float(value), 2) for value in monthly.get("qty", pd.Series(dtype=float)).tolist()],
-            "values": [round(_safe_float(value), 2) for value in monthly.get("value", pd.Series(dtype=float)).tolist()],
-        }
+        return dict(self._get_material_context(material, plant)["consumption"])
 
     def get_monthly_consumption_detail(self, material: str, plant: str | None = None) -> list[dict]:
-        cons = self._filtered_consumption(plant)
-        proc = self._filtered_procurement(plant)
-        df = cons[cons["material_desc"] == material.upper()].copy()
-        proc_df = proc[proc["material_desc"] == material.upper()].copy()
+        cache_key = self._material_cache_key(material, plant)
+        if cache_key in self._consumption_detail_cache:
+            return self._consumption_detail_cache[cache_key]
+
+        context = self._get_material_context(material, plant)
+        df = context["cons_df"]
         qty_rows = _actual_monthly_rows(df).rename(columns={"value": "consumption_value"})
-        proc_monthly = _monthly_procurement_series(proc_df).rename(columns={"value": "procurement_value"})
+        proc_monthly = context["proc_monthly"].rename(columns={"value": "procurement_value"})
         monthly = qty_rows.merge(
             proc_monthly[["year", "month", "procurement_value"]],
             on=["year", "month"],
@@ -2752,7 +3660,7 @@ class _DataStore:
         monthly["qty"] = monthly["qty"].fillna(0.0)
         monthly["procurement_value"] = monthly["procurement_value"].fillna(0.0)
         monthly["uom"] = monthly["uom"].fillna(df["uom"].iloc[0] if not df.empty else "")
-        return [
+        detail = [
             {
                 "period": _format_period_label(int(row["year"]), int(row["month"])),
                 "year": int(row["year"]),
@@ -2763,14 +3671,19 @@ class _DataStore:
             }
             for _, row in monthly.iterrows()
         ]
+        self._consumption_detail_cache[cache_key] = detail
+        return detail
 
     def get_procurement_history(self, material: str, plant: str | None = None) -> list[dict]:
-        proc = self._filtered_procurement(plant)
-        df = proc[proc["material_desc"] == material.upper()].copy()
+        cache_key = self._material_cache_key(material, plant)
+        if cache_key in self._procurement_history_cache:
+            return self._procurement_history_cache[cache_key]
+
+        df = self._get_material_context(material, plant)["proc_df"]
         if df.empty:
             return []
         df = df.sort_values("doc_date", ascending=False, na_position="last")
-        return [
+        history = [
             {
                 "po_number": _normalize_text(row.get("po_number")),
                 "doc_date": row["doc_date"].strftime("%d %b %Y") if pd.notna(row.get("doc_date")) else "",
@@ -2786,64 +3699,74 @@ class _DataStore:
             }
             for _, row in df.iterrows()
         ]
+        self._procurement_history_cache[cache_key] = history
+        return history
+
+    def get_material_analytics_overview(self, material: str, plant: str | None = None) -> dict:
+        cache_key = self._material_cache_key(material, plant)
+        if cache_key in self._analytics_overview_cache:
+            return self._analytics_overview_cache[cache_key]
+
+        context = self._get_material_context(material, plant)
+        payload = {
+            "material": context["material"],
+            "plant": context["plant"],
+            "summary": dict(context["summary"]),
+            "consumption": dict(context["consumption"]),
+            "financial_years": _build_financial_year_summary(
+                context["monthly"],
+                context["proc_monthly"],
+            ),
+        }
+        self._analytics_overview_cache[cache_key] = payload
+        return payload
+
+    def get_material_analytics_section(
+        self,
+        material: str,
+        section: str,
+        plant: str | None = None,
+    ) -> dict:
+        normalized_section = (section or "").strip().lower()
+        cache_key = (*self._material_cache_key(material, plant), normalized_section)
+        if cache_key in self._analytics_section_cache:
+            return self._analytics_section_cache[cache_key]
+
+        context = self._get_material_context(material, plant)
+        if normalized_section == "forecast":
+            forecast_key = _forecast_cache_entry_key(material, plant)
+            forecast = self._get_persistent_forecast_cache().get(forecast_key)
+            if forecast is None:
+                forecast = _build_forecast(context["monthly"])
+                try:
+                    self._store_persistent_forecast(material, plant, forecast)
+                except Exception:
+                    logger.warning(
+                        "Failed to persist forecast cache for material=%s plant=%s",
+                        material,
+                        plant,
+                        exc_info=True,
+                    )
+            payload = {"forecast": forecast}
+        elif normalized_section == "yoy":
+            payload = {"yoy": _build_yoy(context["monthly"], context["proc_monthly"])}
+        elif normalized_section == "vendors":
+            payload = {"vendor_scores": _build_vendor_scores(context["proc_df"])}
+        elif normalized_section == "storage":
+            payload = {"storage_breakdown": _build_storage_breakdown(context["cons_df"], context["plant"] or None)}
+        elif normalized_section == "variance":
+            payload = {"cost_variance": _build_cost_variance(context["proc_df"])}
+        else:
+            raise ValueError(f"Unsupported analytics section: {section}")
+
+        self._analytics_section_cache[cache_key] = payload
+        return payload
 
     def get_material_analytics(self, material: str, plant: str | None = None) -> dict:
-        normalized_material = material.upper()
-        cons = self._filtered_consumption(plant)
-        proc = self._filtered_procurement(plant)
-        cons_df = cons[cons["material_desc"] == normalized_material].copy()
-        proc_df = proc[proc["material_desc"] == normalized_material].copy()
-
-        # ── Aggregate to monthly totals first ─────────────────────────────────
-        # Whether data comes from legacy monthly-summary format (MB52) or from
-        # MB51 transaction-level format (multiple rows per day/month), always
-        # derive the chart and all summary statistics from the netted monthly
-        # series.  This correctly cancels reversals against consumption within
-        # each month and ignores rows whose posting date could not be parsed.
-        monthly = _monthly_series(cons_df)
-        proc_monthly = _monthly_procurement_series(proc_df)
-
-        # Derive totals from the aggregated monthly series so they are always
-        # consistent with the trend chart even for MB51 transaction data.
-        if not monthly.empty:
-            total_qty = round(_safe_float(monthly["qty"].sum()), 2)
-            # Count months where net consumption is non-zero (ignores months
-            # that were completely reversed back to zero).
-            active_months = int((monthly["qty"] != 0).sum())
-        else:
-            total_qty = 0.0
-            active_months = 0
-
-        forecast = _build_forecast(monthly)
-        yoy = _build_yoy(monthly, proc_monthly)
-        financial_years = _build_financial_year_summary(monthly, proc_monthly)
-        vendor_scores = _build_vendor_scores(proc_df)
-        cost_variance = _build_cost_variance(proc_df)
-        storage_breakdown = _build_storage_breakdown(cons_df, _normalize_plant(plant))
-
-        return {
-            "material": normalized_material,
-            "plant": _normalize_plant(plant) or "",
-            "summary": {
-                "total_qty": total_qty,
-                "total_value": round(_safe_float(proc_df["effective_value"].sum()), 2),
-                "active_months": active_months,
-                "storage_location_count": int(cons_df["storage_location"].nunique()) if not cons_df.empty else 0,
-                "vendor_count": int(proc_df["vendor"].nunique()) if not proc_df.empty else 0,
-                "last_unit_price": round(_safe_float(proc_df.sort_values("doc_date")["unit_price"].iloc[-1]), 2) if not proc_df.empty else 0.0,
-            },
-            "consumption": {
-                "labels": monthly.get("label", pd.Series(dtype=str)).tolist(),
-                "quantities": [round(_safe_float(value), 2) for value in monthly.get("qty", pd.Series(dtype=float)).tolist()],
-                "values": [round(_safe_float(value), 2) for value in monthly.get("value", pd.Series(dtype=float)).tolist()],
-            },
-            "forecast": forecast,
-            "yoy": yoy,
-            "financial_years": financial_years,
-            "vendor_scores": vendor_scores,
-            "storage_breakdown": storage_breakdown,
-            "cost_variance": cost_variance,
-        }
+        payload = dict(self.get_material_analytics_overview(material, plant=plant))
+        for section in ("forecast", "yoy", "vendors", "storage", "variance"):
+            payload.update(self.get_material_analytics_section(material, section, plant=plant))
+        return payload
 
     def build_export_workbook(self, plant: str | None = None, query: str = "") -> tuple[BytesIO, str]:
         """Build and return the professional MI report workbook as a BytesIO stream.

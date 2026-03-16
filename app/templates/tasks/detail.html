@@ -122,12 +122,12 @@
 
         <div class="detail-field">
           <div class="form-label">Created At</div>
-          <div class="detail-value">{{ task.created_at.strftime('%d %b %Y %H:%M') if task.created_at else '—' }}</div>
+          <div class="detail-value">{{ task.created_at|datetime_ist('%d %b %Y %H:%M') if task.created_at else '—' }}</div>
         </div>
 
         <div class="detail-field">
           <div class="form-label">Last Updated</div>
-          <div class="detail-value">{{ task.updated_at.strftime('%d %b %Y %H:%M') if task.updated_at else '—' }}</div>
+          <div class="detail-value">{{ task.updated_at|datetime_ist('%d %b %Y %H:%M') if task.updated_at else '—' }}</div>
         </div>
 
       </div>
@@ -156,7 +156,7 @@
           {% if updates %}
             {% for update in updates %}
             <tr>
-              <td>{{ update.created_at.strftime('%d %b %Y %H:%M') if update.created_at else '—' }}</td>
+              <td>{{ update.created_at|datetime_ist('%d %b %Y %H:%M') if update.created_at else '—' }}</td>
               <td>{{ update.updater.full_name if update.updater and update.updater.full_name else (update.updater.username if update.updater else '—') }}</td>
               <td>{{ update.old_status or '—' }}</td>
               <td>{{ update.new_status or '—' }}</td>

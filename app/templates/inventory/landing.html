@@ -17,8 +17,8 @@
             </p>
         </div>
         <div class="inv-header-actions">
-            <span class="inv-badge inv-badge-info">{{ '{:,}'.format(kpis.data_points | default(0)) }} records</span>
-            <span class="inv-badge inv-badge-muted">{{ kpis.total_months | default(0) }} months</span>
+            <span class="inv-badge inv-badge-info" id="landingRecordBadge">Loading…</span>
+            <span class="inv-badge inv-badge-muted" id="landingMonthBadge">Loading…</span>
         </div>
     </div>
 
@@ -27,7 +27,7 @@
         <div class="inv-kpi-card">
             <div class="inv-kpi-icon inv-kpi-blue"><i class="bi bi-boxes"></i></div>
             <div>
-                <div class="inv-kpi-value">{{ kpis.total_materials }}</div>
+                <div class="inv-kpi-value" id="landingKpiMaterials">—</div>
                 <div class="inv-kpi-label">Total Materials</div>
                 <div class="inv-kpi-hint">Unique SAP materials tracked</div>
             </div>
@@ -35,7 +35,7 @@
         <div class="inv-kpi-card">
             <div class="inv-kpi-icon inv-kpi-green"><i class="bi bi-building"></i></div>
             <div>
-                <div class="inv-kpi-value">{{ kpis.unique_plants }}</div>
+                <div class="inv-kpi-value" id="landingKpiPlants">—</div>
                 <div class="inv-kpi-label">Plants</div>
                 <div class="inv-kpi-hint">Across all storage locations</div>
             </div>
@@ -43,7 +43,7 @@
         <div class="inv-kpi-card">
             <div class="inv-kpi-icon inv-kpi-amber"><i class="bi bi-truck"></i></div>
             <div>
-                <div class="inv-kpi-value">{{ kpis.total_vendors }}</div>
+                <div class="inv-kpi-value" id="landingKpiVendors">—</div>
                 <div class="inv-kpi-label">Vendors</div>
                 <div class="inv-kpi-hint">Procurement records in scope</div>
             </div>
@@ -51,17 +51,9 @@
         <div class="inv-kpi-card">
             <div class="inv-kpi-icon inv-kpi-purple"><i class="bi bi-currency-rupee"></i></div>
             <div>
-                <div class="inv-kpi-value inv-kpi-value-sm">
-                    {% if kpis.total_procurement_value >= 10000000 %}
-                        ₹ {{ '{:,.1f}'.format(kpis.total_procurement_value / 10000000) }} Cr
-                    {% elif kpis.total_procurement_value >= 100000 %}
-                        ₹ {{ '{:,.1f}'.format(kpis.total_procurement_value / 100000) }} L
-                    {% else %}
-                        ₹ {{ '{:,.0f}'.format(kpis.total_procurement_value) }}
-                    {% endif %}
-                </div>
+                <div class="inv-kpi-value inv-kpi-value-sm" id="landingKpiValue">—</div>
                 <div class="inv-kpi-label">Total Procurement Value</div>
-                <div class="inv-kpi-hint">{{ kpis.period_from }} — {{ kpis.period_to }}</div>
+                <div class="inv-kpi-hint" id="landingKpiPeriod">Loading period…</div>
             </div>
         </div>
     </div>
@@ -169,4 +161,48 @@
     </div>
 
 </div>
+{% endblock %}
+
+{% block scripts_extra %}
+<script nonce="{{ csp_nonce() }}">
+(function() {
+    'use strict';
+
+    function fmtNum(value, digits) {
+        if (value == null || isNaN(value)) return '\u2014';
+        return Number(value).toLocaleString('en-IN', {
+            minimumFractionDigits: digits == null ? 2 : digits,
+            maximumFractionDigits: digits == null ? 2 : digits
+        });
+    }
+
+    function fmtCurrency(value) {
+        if (value == null || isNaN(value) || Number(value) === 0) return '\u2014';
+        if (value >= 1e7) return '\u20B9 ' + fmtNum(value / 1e7, 2) + ' Cr';
+        if (value >= 1e5) return '\u20B9 ' + fmtNum(value / 1e5, 2) + ' L';
+        return '\u20B9 ' + fmtNum(value, 0);
+    }
+
+    function updateLanding(kpis) {
+        kpis = kpis || {};
+        document.getElementById('landingRecordBadge').textContent = fmtNum(kpis.data_points || 0, 0) + ' records';
+        document.getElementById('landingMonthBadge').textContent = fmtNum(kpis.total_months || 0, 0) + ' months';
+        document.getElementById('landingKpiMaterials').textContent = fmtNum(kpis.total_materials || 0, 0);
+        document.getElementById('landingKpiPlants').textContent = fmtNum(kpis.unique_plants || 0, 0);
+        document.getElementById('landingKpiVendors').textContent = fmtNum(kpis.total_vendors || 0, 0);
+        document.getElementById('landingKpiValue').textContent = fmtCurrency(kpis.total_procurement_value || 0);
+        document.getElementById('landingKpiPeriod').textContent = (kpis.period_from || '') + ' — ' + (kpis.period_to || '');
+    }
+
+    fetch('/inventory/api/overview')
+        .then(function(response) { return response.json(); })
+        .then(function(payload) {
+            updateLanding(payload.kpis || {});
+        })
+        .catch(function() {
+            document.getElementById('landingRecordBadge').textContent = 'Load failed';
+            document.getElementById('landingMonthBadge').textContent = 'Load failed';
+        });
+})();
+</script>
 {% endblock %}

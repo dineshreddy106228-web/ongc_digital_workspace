@@ -113,7 +113,7 @@
             <li class="db-activity-item">
               <div class="db-activity-meta">
                 <span class="db-activity-user">{{ upd.updater.full_name or upd.updater.username if upd.updater else '—' }}</span>
-                <span class="db-activity-time">{{ upd.created_at.strftime('%d %b, %H:%M') }}</span>
+                <span class="db-activity-time">{{ upd.created_at|datetime_ist('%d %b, %H:%M') }}</span>
               </div>
               <div class="db-activity-text">
                 <a href="{{ url_for('tasks.task_detail', task_id=upd.task_id) }}" class="db-activity-link">

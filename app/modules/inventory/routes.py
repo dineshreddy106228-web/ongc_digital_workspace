@@ -27,32 +27,15 @@ from flask import flash, jsonify, redirect, render_template, request, send_file,
 from flask_login import login_required
 
 from app.modules.inventory import inventory_bp
-from app.core.services.inventory_intelligence import (
-    get_data_store,
-    get_seed_upload_schema,
-    get_seed_upload_status,
-)
-from app.core.services.inventory_seed_audit import (
-    LOW_VALUE_THRESHOLD,
-    apply_staged_seed_upload,
-    bulk_cleanup_staged_seed_upload,
-    create_staged_seed_upload,
-    delete_rows_from_staged_seed_upload,
-    delete_procurement_rows_below_threshold,
-    get_procurement_rows_below_threshold,
-    get_staged_seed_report,
-    ignore_rows_from_staged_seed_upload,
-    discard_staged_seed_upload,
-)
 from app.core.utils.decorators import module_access_required, superuser_required
-from app.core.services.master_data import (
-    import_master_data_xlsx,
-    get_all_master_data,
-    get_master_record,
-    get_extra_column_keys,
-)
 
 logger = logging.getLogger(__name__)
+
+
+def _get_inventory_store():
+    from app.core.services.inventory_intelligence import get_data_store
+
+    return get_data_store()
 
 
 def _get_pending_token() -> str | None:
@@ -71,6 +54,16 @@ def _render_seed_files_page(
     upload_error: str | None = None,
     pending_token: str | None = None,
 ):
+    from app.core.services.inventory_intelligence import (
+        get_seed_upload_schema,
+        get_seed_upload_status,
+    )
+    from app.core.services.inventory_seed_audit import (
+        LOW_VALUE_THRESHOLD,
+        get_procurement_rows_below_threshold,
+        get_staged_seed_report,
+    )
+
     token = pending_token if pending_token is not None else _get_pending_token()
     if pending_token is not None:
         _set_pending_token(pending_token)
@@ -100,12 +93,7 @@ def _render_seed_files_page(
 @module_access_required("inventory")
 def landing():
     """Inventory Intelligence landing dashboard — module overview with cards."""
-    store = get_data_store()
-    payload = store.get_dashboard_payload()
-    return render_template(
-        "inventory/landing.html",
-        kpis=payload["kpis"],
-    )
+    return render_template("inventory/landing.html")
 
 
 # ── Materials Intelligence ────────────────────────────────────────────────────
@@ -115,15 +103,9 @@ def landing():
 @module_access_required("inventory")
 def materials_page():
     """Materials Intelligence — KPIs + interactive materials table."""
-    store = get_data_store()
-    payload = store.get_dashboard_payload()
-
     return render_template(
         "inventory/dashboard.html",
-        kpis=payload["kpis"],
-        materials_count=len(payload["materials"]),
-        dashboard_json=json.dumps(payload, default=str),
-        filter_options=payload["filters"],
+        initial_plant=(request.args.get("plant") or "").strip(),
     )
 
 
@@ -132,6 +114,11 @@ def materials_page():
 @module_access_required("inventory")
 def seed_files():
     """Upload the paired seed workbooks used by inventory intelligence."""
+    from app.core.services.inventory_seed_audit import (
+        create_staged_seed_upload,
+        discard_staged_seed_upload,
+    )
+
     if request.method == "POST":
         previous_token = _get_pending_token()
         consumption_file = request.files.get("consumption_seed")
@@ -178,6 +165,8 @@ def seed_files():
 @login_required
 @module_access_required("inventory")
 def staged_seed_delete_rows():
+    from app.core.services.inventory_seed_audit import delete_rows_from_staged_seed_upload
+
     token = request.form.get("pending_token") or _get_pending_token()
     seed_type = request.form.get("seed_type", "").strip().lower()
     finding_check = request.form.get("finding_check", "").strip()
@@ -201,6 +190,8 @@ def staged_seed_delete_rows():
 @login_required
 @module_access_required("inventory")
 def staged_seed_keep_rows():
+    from app.core.services.inventory_seed_audit import ignore_rows_from_staged_seed_upload
+
     token = request.form.get("pending_token") or _get_pending_token()
     seed_type = request.form.get("seed_type", "").strip().lower()
     finding_check = request.form.get("finding_check", "").strip()
@@ -224,6 +215,11 @@ def staged_seed_keep_rows():
 @login_required
 @module_access_required("inventory")
 def staged_seed_apply():
+    from app.core.services.inventory_seed_audit import (
+        apply_staged_seed_upload,
+        get_staged_seed_report,
+    )
+
     token = request.form.get("pending_token") or _get_pending_token()
     if not token:
         return _render_seed_files_page(upload_error="The staged upload is no longer available. Upload the files again.")
@@ -252,6 +248,8 @@ def staged_seed_apply():
 @login_required
 @module_access_required("inventory")
 def staged_seed_discard():
+    from app.core.services.inventory_seed_audit import discard_staged_seed_upload
+
     token = request.form.get("pending_token") or _get_pending_token()
     if token:
         discard_staged_seed_upload(token)
@@ -269,6 +267,11 @@ def staged_seed_bulk_apply():
     Form fields (for each selectable row in every finding):
         dec__{scope}__{check}__{excel_row}  → "delete" | "keep"
     """
+    from app.core.services.inventory_seed_audit import (
+        apply_staged_seed_upload,
+        bulk_cleanup_staged_seed_upload,
+    )
+
     token = request.form.get("pending_token") or _get_pending_token()
     if not token:
         return _render_seed_files_page(
@@ -348,6 +351,11 @@ def staged_seed_bulk_apply():
 @module_access_required("inventory")
 def procurement_low_value_delete():
     """Delete procurement rows below the configured value threshold."""
+    from app.core.services.inventory_seed_audit import (
+        LOW_VALUE_THRESHOLD,
+        delete_procurement_rows_below_threshold,
+    )
+
     token = request.form.get("pending_token") or _get_pending_token()
     try:
         preview = delete_procurement_rows_below_threshold(LOW_VALUE_THRESHOLD, token=token)
@@ -388,7 +396,7 @@ def forecast_export():
     """Download a multi-sheet forecast workbook for all materials."""
     from app.core.services.inventory_forecast_export import build_forecast_workbook
 
-    store = get_data_store()
+    store = _get_inventory_store()
     plant = request.args.get("plant")
     payload = store.get_dashboard_payload(plant=plant)
     materials = payload.get("materials", [])
@@ -424,9 +432,9 @@ def forecast_export():
 @module_access_required("inventory")
 def api_overview():
     """Return the filtered dashboard payload."""
-    store = get_data_store()
+    store = _get_inventory_store()
     plant = request.args.get("plant")
-    return jsonify(store.get_dashboard_payload(plant=plant))
+    return jsonify(store.get_overview_payload(plant=plant))
 
 
 # ── API: Materials list ───────────────────────────────────────────────────────
@@ -436,7 +444,7 @@ def api_overview():
 @module_access_required("inventory")
 def api_materials():
     """Return all materials as JSON for client-side table rendering."""
-    store = get_data_store()
+    store = _get_inventory_store()
     plant = request.args.get("plant")
     return jsonify(store.get_materials_table(plant=plant))
 
@@ -448,7 +456,7 @@ def api_materials():
 @module_access_required("inventory")
 def api_consumption(material: str):
     """Return monthly consumption breakdown for a specific material."""
-    store = get_data_store()
+    store = _get_inventory_store()
     plant = request.args.get("plant")
     detail = store.get_monthly_consumption_detail(material, plant=plant)
     return jsonify(detail)
@@ -461,7 +469,7 @@ def api_consumption(material: str):
 @module_access_required("inventory")
 def api_procurement(material: str):
     """Return procurement history for a specific material."""
-    store = get_data_store()
+    store = _get_inventory_store()
     plant = request.args.get("plant")
     history = store.get_procurement_history(material, plant=plant)
     return jsonify(history)
@@ -474,7 +482,7 @@ def api_procurement(material: str):
 @module_access_required("inventory")
 def api_chart(material: str):
     """Return chart-ready consumption data for a specific material."""
-    store = get_data_store()
+    store = _get_inventory_store()
     plant = request.args.get("plant")
     chart = store.get_monthly_consumption(material, plant=plant)
 
@@ -501,9 +509,16 @@ def api_chart(material: str):
 @module_access_required("inventory")
 def api_analytics(material: str):
     """Return the material analytics payload for the dashboard modal."""
-    store = get_data_store()
+    store = _get_inventory_store()
     plant = request.args.get("plant")
-    return jsonify(store.get_material_analytics(material, plant=plant))
+    section = (request.args.get("section") or "").strip().lower()
+    if section:
+        try:
+            payload = store.get_material_analytics_section(material, section, plant=plant)
+        except ValueError:
+            return jsonify({"error": "Unsupported analytics section."}), 400
+        return jsonify(payload)
+    return jsonify(store.get_material_analytics_overview(material, plant=plant))
 
 
 @inventory_bp.route("/export")
@@ -511,7 +526,7 @@ def api_analytics(material: str):
 @module_access_required("inventory")
 def export_excel():
     """Download the filtered dashboard data as an Excel workbook."""
-    store = get_data_store()
+    store = _get_inventory_store()
     plant = request.args.get("plant")
     query = request.args.get("q", "")
     stream, filename = store.build_export_workbook(plant=plant, query=query)
@@ -530,6 +545,8 @@ def export_excel():
 @superuser_required
 def master_data_page():
     """Master Data viewer/editor – superusers only."""
+    from app.core.services.master_data import get_all_master_data, get_extra_column_keys
+
     rows = get_all_master_data()
     extra_keys = get_extra_column_keys()
     return render_template(
@@ -546,6 +563,7 @@ def master_data_page():
 def master_data_import():
     """Upload a Master_data.xlsx workbook and upsert all rows."""
     from flask_login import current_user
+    from app.core.services.master_data import import_master_data_xlsx
 
     file = request.files.get("master_data_file")
     if not file or not file.filename:
@@ -618,6 +636,8 @@ def api_master_data_delete(material: str):
 @module_access_required("inventory")
 def api_master_data():
     """Return the full master data list as JSON."""
+    from app.core.services.master_data import get_all_master_data, get_extra_column_keys
+
     rows = get_all_master_data()
     extra_keys = get_extra_column_keys()
     return jsonify({"rows": rows, "extra_keys": extra_keys})
@@ -684,7 +704,7 @@ def api_plant_grouping_get():
         cfg = {"prefix_groups": {}, "explicit_groups": {}, "group_members": {}}
 
     # Collect all plants that appear in the consumption data
-    store = get_data_store()
+    store = _get_inventory_store()
     try:
         payload = store.get_dashboard_payload()
         all_plants_set = set()
@@ -751,7 +771,7 @@ def api_plant_grouping_post():
 
     # Invalidate the data store cache so the new grouping takes effect
     try:
-        store = get_data_store()
+        store = _get_inventory_store()
         store._dashboard_cache.clear()
         store._loaded = False
     except Exception:

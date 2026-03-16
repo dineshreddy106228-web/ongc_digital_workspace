@@ -19,10 +19,7 @@
             <p class="welcome-meta">
                 Role: <strong>{{ user.role.name if user.role else '—' }}</strong>
                 &nbsp;·&nbsp;
-                Office: <strong>{{ user.office.office_name if user.office else '—' }}</strong>
-                {% if user.office and user.office.location %}
-                    ({{ user.office.location }})
-                {% endif %}
+                Office: <strong>Corproate Chemistry</strong>
                 {% if user.controlling_officer %}
                 &nbsp;·&nbsp;
                 Controlling Officer: <strong>{{ user.controlling_officer.full_name or user.controlling_officer.username }}</strong>
@@ -152,7 +149,7 @@
                             {% if entry.details %}
                             <div class="activity-details">{{ entry.details }}</div>
                             {% endif %}
-                            <div class="activity-time">{{ entry.created_at.strftime('%d %b %Y, %H:%M') }}</div>
+                            <div class="activity-time">{{ entry.created_at|datetime_ist }}</div>
                         </div>
                     </div>
                     {% endfor %}
@@ -255,7 +252,7 @@
                     >
                         <div class="notification-widget-topline">
                             <span class="notification-widget-title">{{ notification.title }}</span>
-                            <span class="notification-widget-time">{{ notification.created_at.strftime('%d %b %Y, %H:%M') }}</span>
+                            <span class="notification-widget-time">{{ notification.created_at|datetime_ist }}</span>
                         </div>
                         <p>{{ notification.message }}</p>
                     </a>

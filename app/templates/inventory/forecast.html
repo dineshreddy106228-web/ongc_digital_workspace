@@ -256,7 +256,7 @@
         destroyChart();
 
         var url = API_ANALYTICS.replace('__MAT__', encodeURIComponent(material)) +
-            (plant ? '?plant=' + encodeURIComponent(plant) : '');
+            '?section=forecast' + (plant ? '&plant=' + encodeURIComponent(plant) : '');
 
         fetch(url)
             .then(function (r) { return r.json(); })
