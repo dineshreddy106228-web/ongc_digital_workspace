@@ -1,0 +1,600 @@
+{% extends "base.html" %}
+{% block title %}Master Data — Inventory Intelligence — {{ app_name }}{% endblock %}
+
+{% block head_extra %}
+<meta name="csrf-token" content="{{ csrf_token() }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}">
+<style nonce="{{ csp_nonce() }}">
+/* ── Master Data page extras ─────────────────────────────────────── */
+.md-import-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1.5rem;
+}
+.md-import-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+}
+.md-import-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0;
+}
+.md-import-subtitle {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin: 0 0 0.9rem;
+}
+.md-import-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.md-file-input-wrap {
+  flex: 1;
+  min-width: 260px;
+}
+.md-file-input {
+  display: block;
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.md-file-input:focus { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* column: fixed width for actions */
+.md-col-actions { min-width: 130px; text-align: right; white-space: nowrap; }
+.md-col-code    { min-width: 130px; font-family: var(--font-mono, monospace); font-size: 0.83rem; }
+.md-col-text    { min-width: 220px; }
+.md-col-med     { min-width: 140px; }
+.md-col-sm      { min-width: 110px; }
+
+/* Inline editing */
+.md-cell-view  { display: block; }
+.md-cell-edit  { display: none;  }
+tr.is-editing .md-cell-view { display: none  !important; }
+tr.is-editing .md-cell-edit { display: block !important; }
+
+.md-edit-input {
+  width: 100%;
+  padding: 0.28rem 0.45rem;
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-sm, 5px);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.83rem;
+  box-sizing: border-box;
+}
+.md-edit-input:focus { outline: 2px solid var(--primary); outline-offset: 1px; }
+
+/* Action buttons */
+.btn-edit-row   { color: var(--primary); background: none; border: none; cursor: pointer;
+                  font-size: 0.82rem; padding: 0.2rem 0.5rem; border-radius: var(--radius-sm,5px); }
+.btn-edit-row:hover { background: color-mix(in srgb,var(--primary) 10%,transparent); }
+.btn-save-row   { display:none; color:#fff; background:var(--success,#198754);
+                  border:none; cursor:pointer; font-size:0.82rem;
+                  padding:0.25rem 0.65rem; border-radius:var(--radius-sm,5px); }
+.btn-cancel-row { display:none; color: var(--muted); background: none; border: none;
+                  cursor: pointer; font-size: 0.82rem;
+                  padding: 0.25rem 0.4rem; border-radius: var(--radius-sm,5px); }
+.btn-cancel-row:hover { color: var(--danger,#dc3545); }
+.btn-delete-row { color: var(--danger,#dc3545); background: none; border: none; cursor: pointer;
+                  font-size: 0.82rem; padding: 0.2rem 0.4rem; border-radius: var(--radius-sm,5px);
+                  opacity: 0.55; }
+.btn-delete-row:hover { opacity: 1; background: color-mix(in srgb,var(--danger,#dc3545) 10%,transparent); }
+tr.is-editing .btn-edit-row   { display: none; }
+tr.is-editing .btn-save-row   { display: inline-block; }
+tr.is-editing .btn-cancel-row { display: inline-block; }
+tr.is-editing .btn-delete-row { display: none; }
+
+/* Saving state */
+tr.is-saving td { opacity: 0.6; }
+
+/* Extra data pill */
+.md-extra-pill {
+  display: inline-block;
+  font-size: 0.72rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  color: var(--primary);
+  font-weight: 600;
+  margin: 0.1rem 0.2rem 0.1rem 0;
+}
+
+/* Superuser badge */
+.md-superuser-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: 20px;
+  background: color-mix(in srgb, #f59e0b 15%, transparent);
+  color: #b45309;
+  font-weight: 600;
+}
+
+.md-no-data {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: var(--muted);
+}
+.md-no-data i { font-size: 2.5rem; display: block; margin-bottom: 0.75rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="inv-page">
+
+  {# ── Page header ─────────────────────────────────────────────────── #}
+  <div class="inv-module-header">
+    <div>
+      <h1 class="inv-module-title"><i class="bi bi-box-seam"></i> Inventory Intelligence</h1>
+      <p class="inv-module-subtitle">Material Master Data — parameter reference for analytics</p>
+    </div>
+    <div class="inv-header-actions">
+      <span class="md-superuser-badge"><i class="bi bi-shield-lock"></i> Superuser only</span>
+      <span class="inv-badge inv-badge-info">{{ total }} materials</span>
+      {% if extra_keys %}
+      <span class="inv-badge inv-badge-muted">{{ extra_keys | length }} extra column(s)</span>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ── Sub-navigation ──────────────────────────────────────────────── #}
+  <nav class="inv-subnav" aria-label="Inventory sub-navigation">
+    <a href="{{ url_for('inventory.materials_page') }}" class="inv-subnav-link">
+      <i class="bi bi-bar-chart-line"></i> Materials Intelligence
+    </a>
+    <a href="{{ url_for('inventory.forecast_page') }}" class="inv-subnav-link">
+      <i class="bi bi-graph-up-arrow"></i> Demand Forecast
+    </a>
+    <a href="{{ url_for('inventory.seed_files') }}" class="inv-subnav-link">
+      <i class="bi bi-database-gear"></i> Data Management
+    </a>
+    <a href="{{ url_for('inventory.master_data_page') }}" class="inv-subnav-link active">
+      <i class="bi bi-table"></i> Master Data
+    </a>
+  </nav>
+
+  {# ── Import card ─────────────────────────────────────────────────── #}
+  <div class="md-import-card">
+    <div class="md-import-header">
+      <i class="bi bi-cloud-upload" style="color: var(--primary); font-size: 1.1rem;"></i>
+      <h2 class="md-import-title">Import / Update Master Data</h2>
+    </div>
+    <p class="md-import-subtitle">
+      Upload a <strong>Master_data.xlsx</strong> workbook to add new materials or update existing ones.
+      The <em>Material</em> column is used as the unique key — existing records are updated, new ones are inserted.
+      Any columns beyond the defined schema are automatically stored as extra attributes (no schema changes needed).
+    </p>
+    <form method="post" action="{{ url_for('inventory.master_data_import') }}" enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="md-import-row">
+        <div class="md-file-input-wrap">
+          <input class="md-file-input" type="file" name="master_data_file"
+                 accept=".xlsx,.xls" id="masterDataFile">
+        </div>
+        <button type="submit" class="btn btn-sm btn-primary">
+          <i class="bi bi-upload"></i> Upload &amp; Import
+        </button>
+      </div>
+    </form>
+  </div>
+
+  {# ── Master Data table card ──────────────────────────────────────── #}
+  <div class="inv-card">
+    <div class="inv-card-header">
+      <div>
+        <h2 class="inv-card-title">Material Master Records</h2>
+        <p class="inv-card-subtitle">Click <strong>Edit</strong> on any row to update its parameters inline. Changes are saved to the database immediately.</p>
+      </div>
+      <div style="display:flex; gap:0.6rem; align-items:center; flex-shrink:0;">
+        <div class="inv-search-wrap">
+          <i class="bi bi-search inv-search-icon"></i>
+          <input type="text" id="mdSearch" class="inv-search-input" placeholder="Search materials…" autocomplete="off">
+        </div>
+      </div>
+    </div>
+
+    <div class="inv-card-body">
+      {% if rows %}
+      <div class="inv-table-wrap">
+        <table class="inv-data-table" id="mdTable">
+          <thead>
+            <tr>
+              <th class="md-col-code">Material</th>
+              <th class="md-col-text">Short Text</th>
+              <th class="md-col-med">Group</th>
+              <th class="md-col-med">Type</th>
+              <th class="md-col-sm">Centralization</th>
+              <th class="md-col-sm">Physical State</th>
+              <th class="md-col-sm">Volatility</th>
+              <th class="md-col-sm">Sunlight Sensitivity</th>
+              <th class="md-col-sm">Moisture Sensitivity</th>
+              <th class="md-col-sm">Temp. Sensitivity</th>
+              <th class="md-col-sm">Reactivity</th>
+              <th class="md-col-sm">Flammable</th>
+              <th class="md-col-sm">Toxic</th>
+              <th class="md-col-sm">Corrosive</th>
+              <th class="md-col-med">Storage – General</th>
+              <th class="md-col-med">Storage – Special</th>
+              <th class="md-col-sm">Container Type</th>
+              <th class="md-col-sm">Container Capacity</th>
+              <th class="md-col-med">Container Description</th>
+              <th class="md-col-med">Primary Storage Class.</th>
+              {% for key in extra_keys %}
+              <th class="md-col-med">{{ key }}</th>
+              {% endfor %}
+              <th class="md-col-sm">Updated By</th>
+              <th class="md-col-sm">Updated At</th>
+              <th class="md-col-actions">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+            <tr class="inv-row-main" data-code="{{ row.material }}">
+
+              {# Material – always read-only (PK) #}
+              <td class="md-col-code">
+                <span class="md-cell-view">{{ row.material }}</span>
+                <span class="md-cell-edit" style="display:none;">{{ row.material }}</span>
+              </td>
+
+              {# Short Text #}
+              <td class="md-col-text">
+                <span class="md-cell-view">{{ row.short_text }}</span>
+                <input class="md-edit-input md-cell-edit" type="text"
+                       data-field="short_text" value="{{ row.short_text }}"
+                       style="display:none;">
+              </td>
+
+              {# Group #}
+              <td class="md-col-med">
+                <span class="md-cell-view">{{ row.group }}</span>
+                <input class="md-edit-input md-cell-edit" type="text"
+                       data-field="group" value="{{ row.group }}"
+                       style="display:none;">
+              </td>
+
+              {# Type #}
+              <td class="md-col-med">
+                <span class="md-cell-view">{{ row.material_type }}</span>
+                <input class="md-edit-input md-cell-edit" type="text"
+                       data-field="material_type" value="{{ row.material_type }}"
+                       style="display:none;">
+              </td>
+
+              {# Centralization #}
+              <td class="md-col-sm">
+                <span class="md-cell-view">{{ row.centralization }}</span>
+                <input class="md-edit-input md-cell-edit" type="text"
+                       data-field="centralization" value="{{ row.centralization }}"
+                       style="display:none;">
+              </td>
+
+              {# Physical State #}
+              <td class="md-col-sm">
+                <span class="md-cell-view">{{ row.physical_state }}</span>
+                <input class="md-edit-input md-cell-edit" type="text"
+                       data-field="physical_state" value="{{ row.physical_state }}"
+                       style="display:none;">
+              </td>
+
+              {# Physical / chemical properties #}
+              <td class="md-col-sm">
+                <span class="md-cell-view">{{ row.volatility }}</span>
+                <input class="md-edit-input md-cell-edit" type="text"
+                       data-field="volatility" value="{{ row.volatility }}" style="display:none;">
+              </td>
+              <td class="md-col-sm">
+                <span class="md-cell-view">{{ row.sunlight_sensitivity }}</span>
+                <input class="md-edit-input md-cell-edit" type="text"
+                       data-field="sunlight_sensitivity" value="{{ row.sunlight_sensitivity }}" style="display:none;">
+              </td>
+              <td class="md-col-sm">
+                <span class="md-cell-view">{{ row.moisture_sensitivity }}</span>
+                <input class="md-edit-input md-cell-edit" type="text"
+                       data-field="moisture_sensitivity" value="{{ row.moisture_sensitivity }}" style="display:none;">
+              </td>
+              <td class="md-col-sm">
+                <span class="md-cell-view">{{ row.temperature_sensitivity }}</span>
+                <input class="md-edit-input md-cell-edit" type="text"
+                       data-field="temperature_sensitivity" value="{{ row.temperature_sensitivity }}" style="display:none;">
+              </td>
+              <td class="md-col-sm">
+                <span class="md-cell-view">{{ row.reactivity }}</span>
+                <input class="md-edit-input md-cell-edit" type="text"
+                       data-field="reactivity" value="{{ row.reactivity }}" style="display:none;">
+              </td>
+              <td class="md-col-sm">
+                <span class="md-cell-view">{{ row.flammable }}</span>
+                <input class="md-edit-input md-cell-edit" type="text"
+                       data-field="flammable" value="{{ row.flammable }}" style="display:none;">
+              </td>
+              <td class="md-col-sm">
+                <span class="md-cell-view">{{ row.toxic }}</span>
+                <input class="md-edit-input md-cell-edit" type="text"
+                       data-field="toxic" value="{{ row.toxic }}" style="display:none;">
+              </td>
+              <td class="md-col-sm">
+                <span class="md-cell-view">{{ row.corrosive }}</span>
+                <input class="md-edit-input md-cell-edit" type="text"
+                       data-field="corrosive" value="{{ row.corrosive }}" style="display:none;">
+              </td>
+
+              {# Storage #}
+              <td class="md-col-med">
+                <span class="md-cell-view">{{ row.storage_conditions_general }}</span>
+                <input class="md-edit-input md-cell-edit" type="text"
+                       data-field="storage_conditions_general" value="{{ row.storage_conditions_general }}" style="display:none;">
+              </td>
+              <td class="md-col-med">
+                <span class="md-cell-view">{{ row.storage_conditions_special }}</span>
+                <input class="md-edit-input md-cell-edit" type="text"
+                       data-field="storage_conditions_special" value="{{ row.storage_conditions_special }}" style="display:none;">
+              </td>
+              <td class="md-col-sm">
+                <span class="md-cell-view">{{ row.container_type }}</span>
+                <input class="md-edit-input md-cell-edit" type="text"
+                       data-field="container_type" value="{{ row.container_type }}" style="display:none;">
+              </td>
+              <td class="md-col-sm">
+                <span class="md-cell-view">{{ row.container_capacity }}</span>
+                <input class="md-edit-input md-cell-edit" type="text"
+                       data-field="container_capacity" value="{{ row.container_capacity }}" style="display:none;">
+              </td>
+              <td class="md-col-med">
+                <span class="md-cell-view">{{ row.container_description }}</span>
+                <input class="md-edit-input md-cell-edit" type="text"
+                       data-field="container_description" value="{{ row.container_description }}" style="display:none;">
+              </td>
+              <td class="md-col-med">
+                <span class="md-cell-view">{{ row.primary_storage_classification }}</span>
+                <input class="md-edit-input md-cell-edit" type="text"
+                       data-field="primary_storage_classification" value="{{ row.primary_storage_classification }}" style="display:none;">
+              </td>
+
+              {# Extra columns (JSON bucket) #}
+              {% for key in extra_keys %}
+              {% set extra_val = row.extra_data.get(key, '') if row.extra_data else '' %}
+              <td class="md-col-med">
+                <span class="md-cell-view">{{ extra_val }}</span>
+                <input class="md-edit-input md-cell-edit" type="text"
+                       data-field="extra__{{ key }}" value="{{ extra_val }}"
+                       style="display:none;">
+              </td>
+              {% endfor %}
+
+              {# Audit #}
+              <td class="md-col-sm" style="color:var(--muted); font-size:0.8rem;">
+                <span class="md-cell-view">{{ row.updated_by }}</span>
+                <span class="md-cell-edit" style="display:none;">—</span>
+              </td>
+              <td class="md-col-sm" style="color:var(--muted); font-size:0.8rem;">
+                <span class="md-cell-view">{{ row.updated_at }}</span>
+                <span class="md-cell-edit" style="display:none;">—</span>
+              </td>
+
+              {# Actions #}
+              <td class="md-col-actions">
+                <button class="btn-edit-row js-edit-row" title="Edit this row">
+                  <i class="bi bi-pencil"></i> Edit
+                </button>
+                <button class="btn-save-row js-save-row" title="Save changes">
+                  <i class="bi bi-check-lg"></i> Save
+                </button>
+                <button class="btn-cancel-row js-cancel-row" title="Cancel editing">
+                  <i class="bi bi-x"></i>
+                </button>
+                <button class="btn-delete-row js-delete-row" title="Delete this row">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {# Visible row counter #}
+      <div style="margin-top:0.75rem; font-size:0.8rem; color:var(--muted);">
+        Showing <span id="mdVisibleCount">{{ rows | length }}</span> of {{ total }} materials
+      </div>
+
+      {% else %}
+      <div class="md-no-data">
+        <i class="bi bi-inbox"></i>
+        <p>No master data loaded yet.</p>
+        <p style="font-size:0.85rem;">Upload a <strong>Master_data.xlsx</strong> file above to get started.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if extra_keys %}
+  {# ── Extra columns legend ────────────────────────────────────────── #}
+  <div class="inv-card" style="margin-top:1rem;">
+    <div class="inv-card-body" style="padding: 0.85rem 1.25rem;">
+      <span style="font-size:0.82rem; color:var(--muted); margin-right:0.5rem;">
+        <i class="bi bi-info-circle"></i> Extra columns stored in this dataset:
+      </span>
+      {% for key in extra_keys %}
+      <span class="md-extra-pill">{{ key }}</span>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts_extra %}
+<script nonce="{{ csp_nonce() }}">
+(function () {
+  'use strict';
+
+  // ── CSRF token (required for all POST requests) ──────────────────
+  const csrfToken = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
+
+  // ── Search / filter ─────────────────────────────────────────────
+  const searchInput   = document.getElementById('mdSearch');
+  const table         = document.getElementById('mdTable');
+  const visibleCount  = document.getElementById('mdVisibleCount');
+
+  if (searchInput && table) {
+    searchInput.addEventListener('input', function () {
+      const q = this.value.trim().toLowerCase();
+      let visible = 0;
+      table.querySelectorAll('tbody tr').forEach(function (tr) {
+        const text = tr.textContent.toLowerCase();
+        const show = !q || text.includes(q);
+        tr.style.display = show ? '' : 'none';
+        if (show) visible++;
+      });
+      if (visibleCount) visibleCount.textContent = visible;
+    });
+  }
+
+  // ── Inline editing ───────────────────────────────────────────────
+  // Store original values so cancel can restore them
+  const originals = new Map();
+
+  document.querySelectorAll('.js-edit-row').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      const tr = btn.closest('tr');
+      // Save original values for cancel
+      const snapshot = {};
+      tr.querySelectorAll('.md-edit-input').forEach(function (inp) {
+        snapshot[inp.dataset.field] = inp.value;
+      });
+      originals.set(tr, snapshot);
+      tr.classList.add('is-editing');
+    });
+  });
+
+  document.querySelectorAll('.js-cancel-row').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      const tr = btn.closest('tr');
+      const snapshot = originals.get(tr) || {};
+      // Restore input values
+      tr.querySelectorAll('.md-edit-input').forEach(function (inp) {
+        if (snapshot[inp.dataset.field] !== undefined) {
+          inp.value = snapshot[inp.dataset.field];
+        }
+      });
+      tr.classList.remove('is-editing');
+      originals.delete(tr);
+    });
+  });
+
+  // ── Delete row ──────────────────────────────────────────────────
+  document.querySelectorAll('.js-delete-row').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      const tr = btn.closest('tr');
+      const code = tr.dataset.code;
+      if (!code) return;
+      if (!confirm('Permanently delete material "' + code + '"? This cannot be undone.')) return;
+
+      fetch('/inventory/api/master-data/' + encodeURIComponent(code) + '/delete', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': csrfToken },
+      })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (data.ok) {
+          tr.remove();
+          const countEl = document.getElementById('mdVisibleCount');
+          if (countEl) countEl.textContent = parseInt(countEl.textContent || '0', 10) - 1;
+        } else {
+          alert('Delete failed: ' + (data.error || 'Unknown error'));
+        }
+      })
+      .catch(function (err) { alert('Network error: ' + err.message); });
+    });
+  });
+
+  document.querySelectorAll('.js-save-row').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      const tr = btn.closest('tr');
+      const code = tr.dataset.code;
+      if (!code) return;
+
+      // Collect field values
+      const payload = { extra_data: {} };
+      tr.querySelectorAll('.md-edit-input').forEach(function (inp) {
+        const field = inp.dataset.field;
+        if (field.startsWith('extra__')) {
+          const extraKey = field.slice('extra__'.length);
+          payload.extra_data[extraKey] = inp.value;
+        } else {
+          payload[field] = inp.value;
+        }
+      });
+
+      // Visual saving state
+      tr.classList.add('is-saving');
+
+      fetch('/inventory/api/master-data/' + encodeURIComponent(code), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': csrfToken,
+        },
+        body: JSON.stringify(payload),
+      })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        tr.classList.remove('is-saving');
+        if (data.ok) {
+          // Update view spans
+          tr.querySelectorAll('.md-edit-input').forEach(function (inp) {
+            const field = inp.dataset.field;
+            const viewSpan = inp.closest('td').querySelector('.md-cell-view');
+            if (viewSpan) viewSpan.textContent = inp.value;
+          });
+          // Update audit cells (last two before actions)
+          const rec = data.record;
+          const auditCells = tr.querySelectorAll('td[data-audit]');
+          // Refresh audit spans in the view-mode cells
+          const allCells = tr.querySelectorAll('td');
+          // second-to-last and third-to-last contain updated_by / updated_at
+          const actionOffset = 1;
+          const atCell = allCells[allCells.length - 1 - actionOffset - 1];
+          const byCell = allCells[allCells.length - 1 - actionOffset - 2];
+          if (byCell) byCell.querySelector('.md-cell-view').textContent = rec.updated_by || '';
+          if (atCell) atCell.querySelector('.md-cell-view').textContent = rec.updated_at || '';
+
+          tr.classList.remove('is-editing');
+          originals.delete(tr);
+
+          // Brief success flash on the row
+          tr.style.background = 'color-mix(in srgb, var(--success, #198754) 10%, transparent)';
+          setTimeout(function () { tr.style.background = ''; }, 1400);
+        } else {
+          alert('Save failed: ' + (data.error || 'Unknown error'));
+        }
+      })
+      .catch(function (err) {
+        tr.classList.remove('is-saving');
+        alert('Network error: ' + err.message);
+      });
+    });
+  });
+
+})();
+</script>
+{% endblock %}

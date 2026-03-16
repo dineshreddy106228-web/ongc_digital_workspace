@@ -232,6 +232,41 @@
     </div>
     {% endif %}
 
+    {% if current_user.is_authenticated and session.get('show_login_welcome') and request.endpoint != 'auth.change_password' %}
+    <div class="workspace-welcome-overlay" id="loginWelcomeModal" role="dialog" aria-modal="true" aria-labelledby="loginWelcomeTitle">
+        <div class="workspace-welcome-modal">
+            <div class="workspace-welcome-eyebrow">ONGC Digital Workspace</div>
+            <h2 class="workspace-welcome-title" id="loginWelcomeTitle">Welcome to the ONGC Digital Workspace</h2>
+            <p class="workspace-welcome-copy">
+                This internal platform is designed to bring a structured, transparent, and collaborative approach to office coordination, task tracking, and workflow monitoring.
+            </p>
+            <div class="workspace-welcome-grid">
+                <div class="workspace-welcome-card">
+                    <div class="workspace-welcome-card-title">Now Live</div>
+                    <p>The Office Management Module is available for daily task tracking, coordination, and monitoring.</p>
+                </div>
+                <div class="workspace-welcome-card">
+                    <div class="workspace-welcome-card-title">Next Rollout</div>
+                    <p>Inventory Monitoring and CSC Workflow modules are being prepared for ONGC Intranet deployment.</p>
+                </div>
+                <div class="workspace-welcome-card">
+                    <div class="workspace-welcome-card-title">Operating Model</div>
+                    <p>Users are onboarded as per the present controlling officer structure of the office.</p>
+                </div>
+            </div>
+            <p class="workspace-welcome-note">
+                Your feedback will help strengthen the Digital Workspace and support more efficient office functioning.
+            </p>
+            <form id="loginWelcomeForm" method="POST" action="{{ url_for('auth.welcome_acknowledge') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="workspace-welcome-actions">
+                    <button type="submit" class="btn btn-primary">OK, Proceed to Workspace</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
     <div class="container">
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
@@ -259,6 +294,36 @@
     {% endif %}
 
     <script nonce="{{ csp_nonce() }}" src="{{ url_for('static', filename='js/main.js') }}"></script>
+    {% if current_user.is_authenticated and session.get('show_login_welcome') and request.endpoint != 'auth.change_password' %}
+    <script nonce="{{ csp_nonce() }}">
+        (function () {
+            var overlay = document.getElementById('loginWelcomeModal');
+            var form = document.getElementById('loginWelcomeForm');
+            if (!overlay || !form) return;
+
+            document.body.classList.add('welcome-modal-open');
+
+            form.addEventListener('submit', function (event) {
+                event.preventDefault();
+                var formData = new FormData(form);
+
+                fetch(form.action, {
+                    method: 'POST',
+                    body: new URLSearchParams(formData),
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest'
+                    }
+                }).then(function (response) {
+                    if (!response.ok) throw new Error('Welcome acknowledgement failed');
+                    overlay.remove();
+                    document.body.classList.remove('welcome-modal-open');
+                }).catch(function () {
+                    form.submit();
+                });
+            });
+        })();
+    </script>
+    {% endif %}
     {% block scripts_extra %}{% endblock %}
 </body>
 </html>

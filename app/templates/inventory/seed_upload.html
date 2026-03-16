@@ -13,11 +13,11 @@
             <div>
                 <h1 class="inv-module-title"><i class="bi bi-database-gear"></i> Data Management</h1>
                 <p class="inv-module-subtitle">
-                    Upload both inventory seed workbooks together. The files are sanity-checked before any data is ingested into Inventory Intelligence.
+                    Upload the `MB51` consumption file and `ME2M` procurement file together. Each upload is merged into the FY-tagged seed collection after the sanity checks pass.
                 </p>
             </div>
             <div class="inv-header-actions">
-                <a href="{{ url_for('inventory.index') }}" class="btn btn-sm btn-secondary">
+                <a href="{{ url_for('inventory.landing') }}" class="btn btn-sm btn-secondary">
                     <i class="bi bi-arrow-left"></i> Back to Dashboard
                 </a>
             </div>
@@ -25,7 +25,7 @@
 
         {# ── Sub-navigation ─────────────────────────────────────────── #}
         <nav class="inv-subnav" aria-label="Inventory sub-navigation">
-            <a href="{{ url_for('inventory.index') }}" class="inv-subnav-link">
+            <a href="{{ url_for('inventory.materials_page') }}" class="inv-subnav-link">
                 <i class="bi bi-bar-chart-line"></i> Materials Intelligence
             </a>
             <a href="{{ url_for('inventory.forecast_page') }}" class="inv-subnav-link">
@@ -45,21 +45,103 @@
         <div class="inv-upload-grid">
             <section class="card">
                 <div class="card-body">
-                    <h2 class="inv-card-title">Upload Seed Files</h2>
-                    <p class="inv-card-subtitle">Accepted formats: `.xlsx`, `.xls`, `.csv`. Both files must pass sanity checks before the analysis is updated.</p>
+                    <div class="inv-card-head-inline">
+                        <div>
+                            <h2 class="inv-card-title">FY Upload Status</h2>
+                            <p class="inv-card-subtitle">Five-year view of the seed collection. Re-uploading a year replaces only that FY in the seed store.</p>
+                        </div>
+                    </div>
+                    <div class="inv-note">
+                        {% set complete_years = fy_status | selectattr('status_label', 'equalto', 'Complete') | list %}
+                        {% set partial_years = fy_status | selectattr('status_label', 'equalto', 'Partial') | list %}
+                        {% set missing_years = fy_status | selectattr('status_label', 'equalto', 'Missing') | list %}
+                        {% if complete_years %}
+                        Complete: {{ complete_years | map(attribute='short_label') | join(', ') }}.
+                        {% else %}
+                        Complete: none.
+                        {% endif %}
+                        {% if partial_years %}
+                        Partial: {{ partial_years | map(attribute='short_label') | join(', ') }}.
+                        {% else %}
+                        Partial: none.
+                        {% endif %}
+                        {% if missing_years %}
+                        Missing: {{ missing_years | map(attribute='short_label') | join(', ') }}.
+                        {% else %}
+                        Missing: none.
+                        {% endif %}
+                    </div>
 
-                    <form method="POST" action="{{ url_for('inventory.seed_files') }}" enctype="multipart/form-data" class="inv-seed-form">
+                    <div class="inv-audit-table-wrap">
+                        <table class="inv-expand-table inv-audit-table">
+                            <thead>
+                                <tr>
+                                    <th>Financial Year</th>
+                                    <th>Consumption</th>
+                                    <th>Procurement</th>
+                                    <th>Status</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for fy in fy_status %}
+                                <tr>
+                                    <td><strong>{{ fy.short_label }}</strong></td>
+                                    <td>
+                                        {% if fy.consumption %}
+                                        {{ fy.consumption.rows }} rows · {{ fy.consumption.materials }} materials · {{ fy.consumption.plants }} plants
+                                        {% else %}
+                                        Missing MB51
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if fy.procurement %}
+                                        {{ fy.procurement.rows }} rows · {{ fy.procurement.materials }} materials · {{ fy.procurement.plants }} plants
+                                        {% else %}
+                                        Missing ME2M
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <span class="status-pill {{ 'status-pill-neutral' if fy.status_tone == 'neutral' else 'status-pill-warning' if fy.status_tone == 'warning' else 'status-pill-danger' }}">
+                                            {{ fy.status_label }}
+                                        </span>
+                                        <div class="inv-seed-input-meta" style="margin-top: 0.35rem;">{{ fy.status_detail }}</div>
+                                    </td>
+                                    <td>
+                                        <a href="{{ url_for('inventory.seed_files', target_fy=fy.label) }}#seed-upload-form" class="btn btn-sm btn-secondary">
+                                            {% if fy.consumption or fy.procurement %}Re-upload{% else %}Upload{% endif %}
+                                        </a>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <section class="card">
+                <div class="card-body">
+                    <h2 class="inv-card-title">Upload Seed Files</h2>
+                    <p class="inv-card-subtitle">Accepted formats: `.xlsx`, `.xls`, `.csv`. The uploader keeps historical FYs and replaces only the FYs present in the new files.</p>
+                    {% if target_fy %}
+                    <div class="inv-note">Selected FY: <strong>{{ target_fy }}</strong>. Upload the MB51 and ME2M files for this year. Applying the staged upload will replace only this FY in the seed store.</div>
+                    {% else %}
+                    <div class="inv-note">Uploads are staged first. Nothing is ingested until you review the sanity check results and click <strong>Apply Cleaned Staged Files</strong>.</div>
+                    {% endif %}
+
+                    <form id="seed-upload-form" method="POST" action="{{ url_for('inventory.seed_files') }}" enctype="multipart/form-data" class="inv-seed-form">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
                         <div class="inv-seed-input-grid">
                             <div class="inv-seed-input-group">
-                                <label for="consumptionSeed" class="inv-filter-label">Consumption Seed File</label>
+                                <label for="consumptionSeed" class="inv-filter-label">Consumption MB51 File</label>
                                 <div class="inv-seed-input-meta">Target file: {{ schema["consumption"]["filename"] }}</div>
                                 <input id="consumptionSeed" name="consumption_seed" type="file" class="form-control" accept=".xlsx,.xls,.csv" required>
                             </div>
 
                             <div class="inv-seed-input-group">
-                                <label for="procurementSeed" class="inv-filter-label">Procurement Seed File</label>
+                                <label for="procurementSeed" class="inv-filter-label">Procurement ME2M File</label>
                                 <div class="inv-seed-input-meta">Target file: {{ schema["procurement"]["filename"] }}</div>
                                 <input id="procurementSeed" name="procurement_seed" type="file" class="form-control" accept=".xlsx,.xls,.csv" required>
                             </div>
@@ -69,7 +151,7 @@
                             <button type="submit" class="btn btn-primary">
                                 <i class="bi bi-shield-check"></i> Run Sanity Check And Upload
                             </button>
-                            <a href="{{ url_for('inventory.index') }}" class="btn btn-secondary">Cancel</a>
+                            <a href="{{ url_for('inventory.materials_page') }}" class="btn btn-secondary">Cancel</a>
                         </div>
                     </form>
                 </div>
@@ -78,7 +160,8 @@
             <section class="card">
                 <div class="card-body">
                     <h2 class="inv-card-title">Expected Columns</h2>
-                    <p class="inv-card-subtitle">Header names can vary in case, but the semantic columns below must be present.</p>
+                    <p class="inv-card-subtitle">Header names can vary in case and punctuation, but the SAP columns below must be present.</p>
+                    <div class="inv-note">Plant rollups for reporting are read from <code>inventory_plant_grouping.json</code> in the workspace root. Update that file when new plant variants need to map into a reporting plant.</div>
 
                     <div class="inv-schema-grid">
                         {% for seed_key, seed in schema.items() %}
@@ -131,6 +214,9 @@
                         {% if cleanup_preview["count"] %}
                         <form method="POST" action="{{ url_for('inventory.procurement_low_value_delete') }}">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            {% if pending_token %}
+                            <input type="hidden" name="pending_token" value="{{ pending_token }}">
+                            {% endif %}
                             <button type="submit" class="btn btn-sm btn-danger">
                                 <i class="bi bi-trash"></i> Confirm Delete {{ cleanup_preview["count"] }} Rows
                             </button>
@@ -139,7 +225,7 @@
                     </div>
 
                     {% if cleanup_preview["count"] %}
-                    <div class="inv-note">These rows are from the currently ingested procurement seed file. They will be deleted only if you confirm.</div>
+                    <div class="inv-note">These rows are from the {{ cleanup_preview["source_label"] }}. They will be deleted only if you confirm.</div>
                     <div class="inv-audit-table-wrap">
                         <table class="inv-expand-table inv-audit-table">
                             <thead>
@@ -168,52 +254,51 @@
         </div>
 
         {% if audit_report %}
+        {# ── Bulk-cleanup confirmation modal ──────────────────────────────── #}
+        <div id="bulkConfirmModal" class="inv-modal-backdrop" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="bulkConfirmTitle">
+            <div class="inv-modal">
+                <div class="inv-modal-header">
+                    <i class="bi bi-cloud-upload inv-modal-icon"></i>
+                    <h2 class="inv-modal-title" id="bulkConfirmTitle">Confirm Upload</h2>
+                </div>
+                <p class="inv-modal-body">
+                    Your keep / delete decisions will be applied to the staged files and the cleaned data will be uploaded to the seed store. This will reload the inventory analysis.
+                </p>
+                <p class="inv-modal-body"><strong>Do you confirm to upload?</strong></p>
+                <div class="inv-modal-actions">
+                    <button type="button" class="btn btn-primary" id="bulkConfirmYes">
+                        <i class="bi bi-check2-circle"></i> Yes, Clean Up &amp; Upload
+                    </button>
+                    <button type="button" class="btn btn-secondary" id="bulkConfirmNo">
+                        <i class="bi bi-x-circle"></i> No, Go Back
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <section class="card" style="margin-top: 1.25rem;">
             <div class="card-body">
+
+                {# ── Card header ──────────────────────────────────────────────── #}
                 <div class="inv-card-head-inline">
                     <div>
                         <h2 class="inv-card-title">Sanity Check Results</h2>
                         <p class="inv-card-subtitle">
                             {% if audit_report.has_failures %}
-                            Sanity Check Failed. Please scroll down to review and clean the flagged rows. Uploaded files are staged until you apply the cleaned version.
+                            <span style="color:var(--color-danger,#c0392b)"><i class="bi bi-exclamation-triangle-fill"></i> Sanity Check Failed.</span>
+                            Review every finding below, declare <strong>Keep</strong> or <strong>Delete</strong> for each flagged row, then click <strong>Clean Up &amp; Upload</strong>.
                             {% else %}
-                            Only advisory findings remain. You can apply the staged files now.
+                            <span style="color:var(--color-success,#27ae60)"><i class="bi bi-check-circle-fill"></i> All checks passed.</span>
+                            Review advisory findings below, then click <strong>Clean Up &amp; Upload</strong> to ingest the staged files.
                             {% endif %}
                         </p>
                     </div>
                     <div class="inv-audit-meta">
                         <span class="inv-badge inv-badge-muted">{{ audit_report.findings | length }} finding(s)</span>
-                        {% if pending_token %}
-                        <form method="POST" action="{{ url_for('inventory.staged_seed_apply') }}">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                            <input type="hidden" name="pending_token" value="{{ pending_token }}">
-                            <button type="submit" class="btn btn-sm btn-primary" {% if audit_report.has_failures %}disabled{% endif %}>
-                                <i class="bi bi-check2-circle"></i> Apply Cleaned Staged Files
-                            </button>
-                        </form>
-                        <form method="POST" action="{{ url_for('inventory.staged_seed_discard') }}">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                            <input type="hidden" name="pending_token" value="{{ pending_token }}">
-                            <button type="submit" class="btn btn-sm btn-secondary">
-                                <i class="bi bi-x-circle"></i> Discard Staged Upload
-                            </button>
-                        </form>
-                        {% endif %}
-                        {% if cleanup_preview["count"] %}
-                        <form method="POST" action="{{ url_for('inventory.procurement_low_value_delete') }}">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                            <button type="submit" class="btn btn-sm btn-danger">
-                                <i class="bi bi-trash"></i> Confirm Delete {{ cleanup_preview["count"] }} Low-Value Procurement Rows
-                            </button>
-                        </form>
-                        {% endif %}
                     </div>
                 </div>
 
-                {% if cleanup_preview["count"] %}
-                <div class="inv-note">Low-value procurement cleanup is available here as well. The current ingested procurement file has {{ cleanup_preview["count"] }} row(s) below ₹ {{ '{:,.2f}'.format(cleanup_threshold) }}.</div>
-                {% endif %}
-
+                {# ── Summary stats ────────────────────────────────────────────── #}
                 <div class="inv-seed-summary-grid">
                     <div class="inv-summary-item">
                         <div class="inv-summary-val">{{ audit_report.summary.consumption.rows }}</div>
@@ -233,108 +318,186 @@
                     </div>
                 </div>
 
-                <div class="inv-audit-findings">
-                    {% for finding in audit_report.findings %}
-                    {% set group_id = 'group-' ~ loop.index %}
-                    <article class="inv-audit-card">
-                        <div class="inv-audit-card-head">
-                            <div>
-                                <h3 class="inv-section-heading">{{ finding.scope | replace('_', ' ') | title }} · {{ finding.check | replace('_', ' ') | title }}</h3>
-                                <p class="inv-card-subtitle">{{ finding.message }}</p>
-                            </div>
-                            <div class="inv-audit-meta">
-                                <span class="status-pill {{ 'status-pill-danger' if finding.severity == 'error' else 'status-pill-warning' if finding.severity == 'warning' else 'status-pill-neutral' }}">
-                                    {{ finding.severity | upper }}
-                                </span>
-                                <span class="inv-badge inv-badge-muted">{{ finding.count }}</span>
-                            </div>
-                        </div>
+                {% if cleanup_preview["count"] %}
+                <div class="inv-note" style="margin-bottom:0.75rem;">
+                    Low-value procurement cleanup is also available. The {{ cleanup_preview["source_label"] }} has
+                    {{ cleanup_preview["count"] }} row(s) below ₹ {{ '{:,.2f}'.format(cleanup_threshold) }}.
+                </div>
+                {% endif %}
 
-                                {% if finding.rows %}
-                        <form method="POST" action="{{ url_for('inventory.staged_seed_delete_rows') }}" class="inv-audit-form">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                            <input type="hidden" name="pending_token" value="{{ pending_token }}">
-                            <input type="hidden" name="seed_type" value="{{ 'consumption' if finding.scope == 'consumption' else 'procurement' }}">
-                            <input type="hidden" name="finding_check" value="{{ finding.check }}">
-                            <div class="inv-audit-actions">
-                                <label class="inv-check-inline">
-                                    <input
-                                        type="checkbox"
-                                        class="inv-check-all"
-                                        data-target="{{ group_id }}"
-                                        {% if not finding.selectable_rows %}disabled{% endif %}
-                                    >
-                                    <span>Select All Rows</span>
-                                </label>
+                {# ═══════════════════════════════════════════════════════════════
+                   Single unified form — wraps ALL findings.
+                   Hidden radio inputs carry keep/delete decisions for every row.
+                   ═══════════════════════════════════════════════════════════════ #}
+                {% if pending_token %}
+                <form id="bulk-cleanup-form"
+                      method="POST"
+                      action="{{ url_for('inventory.staged_seed_bulk_apply') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="pending_token" value="{{ pending_token }}">
+
+                    {# ── Top action bar ──────────────────────────────────────── #}
+                    <div class="inv-bulk-action-bar inv-bulk-action-bar--top">
+                        <button type="button" class="btn btn-primary" id="bulkCleanupTriggerTop">
+                            <i class="bi bi-cloud-upload"></i> Clean Up &amp; Upload
+                        </button>
+                        <span class="inv-bulk-action-hint">Review all findings below, then click the button above (or at the bottom) to apply your decisions in one go.</span>
+                    </div>
+
+                    {# ── Findings list ───────────────────────────────────────── #}
+                    <div class="inv-audit-findings">
+                        {% for finding in audit_report.findings %}
+                        {% set group_id = 'bulk-group-' ~ loop.index %}
+                        {% set has_selectable = finding.selectable_rows | length > 0 %}
+                        <article class="inv-audit-card">
+                            <div class="inv-audit-card-head">
+                                <div>
+                                    <h3 class="inv-section-heading">
+                                        {{ finding.scope | replace('_', ' ') | title }}
+                                        &nbsp;·&nbsp;
+                                        {{ finding.check | replace('_', ' ') | title }}
+                                    </h3>
+                                    <p class="inv-card-subtitle">{{ finding.message }}</p>
+                                </div>
+                                <div class="inv-audit-meta">
+                                    <span class="status-pill {{ 'status-pill-danger' if finding.severity == 'error' else 'status-pill-warning' if finding.severity == 'warning' else 'status-pill-neutral' }}">
+                                        {{ finding.severity | upper }}
+                                    </span>
+                                    <span class="inv-badge inv-badge-muted">{{ finding.count }}</span>
+                                </div>
+                            </div>
+
+                            {% if finding.rows %}
+                            {# ── Group-level quick-select buttons ──────────────── #}
+                            <div class="inv-bulk-group-bar">
+                                <span class="inv-bulk-group-label">
+                                    <i class="bi bi-ui-checks"></i>
+                                    Bulk decision for all {{ finding.selectable_rows | length }} selectable row(s):
+                                </span>
                                 <div class="inv-audit-action-buttons">
-                                    {% if finding.primary_action == 'normalize' %}
-                                    <button
-                                        type="submit"
-                                        class="btn btn-sm btn-primary"
-                                        formaction="{{ url_for('inventory.staged_seed_normalize_price_unit') }}"
-                                    >
-                                        <i class="bi bi-arrow-repeat"></i> Normalize Selected Rows
+                                    <button type="button"
+                                            class="btn btn-sm btn-danger inv-bulk-select-all-delete"
+                                            data-group="{{ group_id }}"
+                                            {% if not has_selectable %}disabled{% endif %}>
+                                        <i class="bi bi-trash-fill"></i> Delete All
                                     </button>
-                                    {% else %}
-                                    <button type="submit" class="btn btn-sm btn-danger">
-                                        <i class="bi bi-trash"></i> Delete Selected Rows
-                                    </button>
-                                    {% endif %}
-                                    <button
-                                        type="submit"
-                                        class="btn btn-sm btn-secondary"
-                                        formaction="{{ url_for('inventory.staged_seed_keep_rows') }}"
-                                    >
-                                        <i class="bi bi-shield-check"></i> Keep Selected Rows
+                                    <button type="button"
+                                            class="btn btn-sm btn-success inv-bulk-select-all-keep"
+                                            data-group="{{ group_id }}"
+                                            {% if not has_selectable %}disabled{% endif %}>
+                                        <i class="bi bi-shield-check"></i> Keep All
                                     </button>
                                 </div>
                             </div>
-                        <div class="inv-audit-table-wrap">
-                            <table class="inv-expand-table inv-audit-table">
-                                <thead>
-                                    <tr>
-                                        <th>Select</th>
-                                        {% for column in finding.columns %}
-                                        <th>{{ column }}</th>
-                                        {% endfor %}
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for row in finding.rows %}
-                                    <tr>
-                                        <td>
-                                            <input
-                                                type="checkbox"
-                                                name="excel_rows"
-                                                value="{{ row['Excel Row'] }}"
-                                                class="inv-row-check"
-                                                data-group="{{ group_id }}"
-                                                {% if row['Excel Row'] not in finding.selectable_rows %}disabled{% endif %}
-                                            >
-                                        </td>
-                                        {% for column in finding.columns %}
-                                        <td>
-                                            {% if column == 'Selection Status' and row[column] == 'Keep (Frozen)' %}
-                                            <span class="status-pill status-pill-neutral">Keep</span>
-                                            {% elif column == 'Selection Status' and row[column] == 'Delete Candidate' %}
-                                            <span class="status-pill status-pill-warning">Delete</span>
-                                            {% else %}
-                                            {{ row[column] if row[column] != '' else '—' }}
+
+                            {# ── Row table with per-row Keep / Delete radios ────── #}
+                            <div class="inv-audit-table-wrap">
+                                <table class="inv-expand-table inv-audit-table">
+                                    <thead>
+                                        <tr>
+                                            <th style="min-width:140px;">Decision</th>
+                                            {% for column in finding.columns %}
+                                            {% if column != 'Selection Status' %}
+                                            <th>{{ column }}</th>
                                             {% endif %}
-                                        </td>
+                                            {% endfor %}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for row in finding.rows %}
+                                        {% set is_selectable = row['Excel Row'] in finding.selectable_rows %}
+                                        {% set radio_name = 'dec__' ~ finding.scope ~ '__' ~ finding.check ~ '__' ~ row['Excel Row'] %}
+                                        <tr>
+                                            <td>
+                                                {% if is_selectable %}
+                                                <span class="inv-radio-pair" data-group="{{ group_id }}">
+                                                    <label class="inv-radio-label inv-radio-delete">
+                                                        <input
+                                                            type="radio"
+                                                            name="{{ radio_name }}"
+                                                            value="delete"
+                                                            class="inv-row-radio"
+                                                            data-group="{{ group_id }}"
+                                                            data-action="delete"
+                                                            {% if finding.severity == 'error' %}checked{% endif %}
+                                                        >
+                                                        <i class="bi bi-trash"></i> Delete
+                                                    </label>
+                                                    <label class="inv-radio-label inv-radio-keep">
+                                                        <input
+                                                            type="radio"
+                                                            name="{{ radio_name }}"
+                                                            value="keep"
+                                                            class="inv-row-radio"
+                                                            data-group="{{ group_id }}"
+                                                            data-action="keep"
+                                                            {% if finding.severity != 'error' %}checked{% endif %}
+                                                        >
+                                                        <i class="bi bi-shield-check"></i> Keep
+                                                    </label>
+                                                </span>
+                                                {% else %}
+                                                {# Frozen / non-selectable row — forced Keep #}
+                                                <span class="status-pill status-pill-neutral">
+                                                    <i class="bi bi-lock-fill"></i> Keep (Locked)
+                                                </span>
+                                                {% endif %}
+                                            </td>
+                                            {% for column in finding.columns %}
+                                            {% if column != 'Selection Status' %}
+                                            <td>{{ row[column] if row[column] != '' else '—' }}</td>
+                                            {% endif %}
+                                            {% endfor %}
+                                        </tr>
                                         {% endfor %}
-                                    </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                        </form>
-                        {% else %}
-                        <div class="inv-note">Affected keys: {{ finding.examples | join(', ') }}</div>
-                        {% endif %}
-                    </article>
-                    {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {% else %}
+                            {# No actionable rows — advisory / examples only #}
+                            <div class="inv-note">
+                                <i class="bi bi-info-circle"></i>
+                                Affected keys: {{ finding.examples | join(' · ') }}
+                            </div>
+                            {% endif %}
+                        </article>
+                        {% endfor %}
+                    </div>
+
+                    {# ── Bottom action bar ───────────────────────────────────── #}
+                    <div class="inv-bulk-action-bar inv-bulk-action-bar--bottom">
+                        <button type="button" class="btn btn-primary" id="bulkCleanupTriggerBottom">
+                            <i class="bi bi-cloud-upload"></i> Clean Up &amp; Upload
+                        </button>
+                        <span class="inv-bulk-action-hint">All keep / delete decisions above will be applied together and the cleaned files will be uploaded.</span>
+                    </div>
+
+                </form>
+                {% endif %}
+
+                {# ── Discard is always a standalone form ─────────────────────── #}
+                {% if pending_token %}
+                <div style="margin-top:0.75rem;">
+                    <form method="POST" action="{{ url_for('inventory.staged_seed_discard') }}" style="display:inline;">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="pending_token" value="{{ pending_token }}">
+                        <button type="submit" class="btn btn-sm btn-secondary">
+                            <i class="bi bi-x-circle"></i> Discard Staged Upload
+                        </button>
+                    </form>
+                    {% if cleanup_preview["count"] %}
+                    <form method="POST" action="{{ url_for('inventory.procurement_low_value_delete') }}" style="display:inline; margin-left:0.5rem;">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="pending_token" value="{{ pending_token }}">
+                        <button type="submit" class="btn btn-sm btn-danger">
+                            <i class="bi bi-trash"></i> Delete {{ cleanup_preview["count"] }} Low-Value Procurement Rows
+                        </button>
+                    </form>
+                    {% endif %}
                 </div>
+                {% endif %}
+
             </div>
         </section>
         {% endif %}
@@ -345,15 +508,94 @@
 {% block scripts_extra %}
 <script nonce="{{ csp_nonce() }}">
 (function () {
-    document.querySelectorAll('.inv-check-all').forEach(function (toggle) {
-        toggle.addEventListener('change', function () {
-            var group = toggle.dataset.target;
-            document.querySelectorAll('.inv-row-check[data-group="' + group + '"]').forEach(function (box) {
-                if (box.disabled) return;
-                box.checked = toggle.checked;
-            });
+    'use strict';
+
+    /* ─── Radio state helpers ─────────────────────────────────────────── */
+    function syncRadioStyles(groupId) {
+        var selector = groupId
+            ? '.inv-radio-pair[data-group="' + groupId + '"] .inv-radio-label'
+            : '.inv-radio-pair .inv-radio-label';
+
+        document.querySelectorAll(selector).forEach(function (label) {
+            var radio = label.querySelector('input[type="radio"]');
+            label.classList.toggle('is-selected', !!(radio && radio.checked));
+        });
+    }
+
+    /* ─── Bulk-group: Mark-All-Delete / Mark-All-Keep ─────────────────── */
+    function setGroupAction(groupId, action) {
+        document.querySelectorAll(
+            '.inv-row-radio[data-group="' + groupId + '"][data-action="' + action + '"]'
+        ).forEach(function (radio) {
+            if (!radio.disabled) {
+                radio.checked = true;
+            }
+        });
+        syncRadioStyles(groupId);
+    }
+
+    document.querySelectorAll('.inv-bulk-select-all-delete').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            setGroupAction(btn.dataset.group, 'delete');
         });
     });
+
+    document.querySelectorAll('.inv-bulk-select-all-keep').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            setGroupAction(btn.dataset.group, 'keep');
+        });
+    });
+
+    document.querySelectorAll('.inv-row-radio').forEach(function (radio) {
+        radio.addEventListener('change', function () {
+            syncRadioStyles(radio.dataset.group);
+        });
+    });
+
+    syncRadioStyles();
+
+    /* ─── Confirmation modal ──────────────────────────────────────────── */
+    var modal    = document.getElementById('bulkConfirmModal');
+    var form     = document.getElementById('bulk-cleanup-form');
+    var btnYes   = document.getElementById('bulkConfirmYes');
+    var btnNo    = document.getElementById('bulkConfirmNo');
+    var trigTop  = document.getElementById('bulkCleanupTriggerTop');
+    var trigBot  = document.getElementById('bulkCleanupTriggerBottom');
+
+    function openModal() {
+        if (modal) {
+            modal.style.display = 'flex';
+            if (btnNo) btnNo.focus();
+        }
+    }
+
+    function closeModal() {
+        if (modal) modal.style.display = 'none';
+    }
+
+    if (trigTop)  trigTop.addEventListener('click', openModal);
+    if (trigBot)  trigBot.addEventListener('click', openModal);
+    if (btnNo)    btnNo.addEventListener('click', closeModal);
+
+    /* Close on backdrop click */
+    if (modal) {
+        modal.addEventListener('click', function (e) {
+            if (e.target === modal) closeModal();
+        });
+    }
+
+    /* Close on Escape key */
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && modal && modal.style.display !== 'none') closeModal();
+    });
+
+    /* Yes — submit the unified form */
+    if (btnYes && form) {
+        btnYes.addEventListener('click', function () {
+            closeModal();
+            form.submit();
+        });
+    }
 })();
 </script>
 {% endblock %}

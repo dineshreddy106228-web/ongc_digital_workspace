@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import calendar
+import json
 import logging
 import os
 import re
 import tempfile
+from datetime import date
 from io import BytesIO
 
 try:
@@ -19,11 +21,34 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
+from app.core.services.inventory_forecast import (
+    fit_holt_winters,
+    forecast_hw,
+    fit_seasonal_naive,
+    forecast_seasonal_naive,
+    fit_wma as fit_wma_exp,
+    forecast_wma as forecast_wma_exp,
+    hw_forecast_list,
+    hw_one_step,
+    seasonal_naive_forecast_list,
+    seasonal_naive_one_step,
+    wma_exp_forecast_list,
+    wma_exp_one_step,
+    bootstrap_ci,
+    select_best_model,
+    compute_bootstrap_bands,
+    walk_forward_validate,
+    MIN_NZ_HW,
+    MIN_NZ_SEAS,
+    SEAS_PERIOD as _FC_SEAS_PERIOD,
+)
+
 logger = logging.getLogger(__name__)
 
 _BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 CONS_FILE = os.path.join(_BASE_DIR, "Consumption_data.xlsx")
 PROC_FILE = os.path.join(_BASE_DIR, "Procurement_data.xlsx")
+PLANT_GROUPING_FILE = os.path.join(_BASE_DIR, "inventory_plant_grouping.json")
 
 _PERIOD_RE = re.compile(r"^\s*(\d{1,2})\.(\d{4})\s*$")
 _PRICE_SWING_THRESHOLD_PCT = 15.0
@@ -34,6 +59,131 @@ _FORECAST_WEIGHT_PATTERNS = [
     (0.20, 0.20, 0.18, 0.16, 0.14, 0.12),
     (1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6),
 ]
+_CONSUMPTION_MOVEMENT_SIGNS = {
+    "201": 1.0,
+    "221": 1.0,
+    "261": 1.0,
+    "202": -1.0,
+    "222": -1.0,
+    "262": -1.0,
+}
+_REPORTING_PLANT_GROUPS = {
+    "11A1": {"11A1", "11F1", "11F2", "11F3", "11F4", "11F5", "11F9", "11FA"},
+    "12A1": {"12A1", "12F1", "12F5"},
+    "13A1": {"13A1", "13F1", "13F2", "13F3", "13F9", "13FB", "13FC", "13U9"},
+    "22A1": {"22A1", "22W1"},
+    "25A1": {"25A1", "25W1"},
+    "50A1": {"50A1", "50W1"},
+    "51A1": {"51A1", "51W1"},
+}
+_REPORTING_PLANT_LOOKUP = {
+    child: parent
+    for parent, children in _REPORTING_PLANT_GROUPS.items()
+    for child in children
+}
+_LEGACY_CONSUMPTION_ALIASES = {
+    "plant": "plant",
+    "material": "material",
+    "storage location": "storage_location",
+    "month": "month_raw",
+    "usage quantity": "usage_qty",
+    "usage uom": "uom",
+    "usage value": "usage_value",
+    "usage currency": "currency",
+    "currency": "currency",
+}
+_MB51_CONSUMPTION_ALIASES = {
+    "material": "material_code",
+    "plant": "plant",
+    "storage location": "storage_location",
+    "movement type": "movement_type",
+    "material document": "material_document",
+    "base unit of measure": "base_uom",
+    "material doc item": "material_document_item",
+    "material doc item": "material_document_item",
+    "material description": "material_desc",
+    "posting date": "posting_date",
+    "qty in unit of entry": "entry_qty",
+    "unit of entry": "uom",
+    "amt in loc cur": "usage_value",
+    "receiving plant": "receiving_plant",
+    "purchase order": "po_number",
+}
+_LEGACY_PROCUREMENT_ALIASES = {
+    "plant": "plant",
+    "net price": "net_price",
+    "purchasing document": "po_number",
+    "document date": "doc_date",
+    "material": "material_code",
+    "item": "item",
+    "supplier supplying plant": "vendor",
+    "short text": "material_desc",
+    "order quantity": "order_qty",
+    "order unit": "order_unit",
+    "currency": "currency",
+    "price unit": "price_unit",
+    "effective value": "effective_value",
+    "release indicator": "release_indicator",
+}
+_ME2M_PROCUREMENT_ALIASES = dict(_LEGACY_PROCUREMENT_ALIASES)
+_CANONICAL_CONSUMPTION_COLUMNS = [
+    "Material",
+    "Plant",
+    "Storage Location",
+    "Movement Type",
+    "Material Document",
+    "Base Unit of Measure",
+    "Material Doc.Item",
+    "Material Description",
+    "Posting Date",
+    "Qty in unit of entry",
+    "Unit of Entry",
+    "Amt.in Loc.Cur.",
+    "Receiving plant",
+    "Purchase order",
+]
+_CANONICAL_PROCUREMENT_COLUMNS = [
+    "Plant",
+    "Net Price",
+    "Purchasing Document",
+    "Document Date",
+    "Material",
+    "Item",
+    "Supplier/Supplying Plant",
+    "Short Text",
+    "Order Quantity",
+    "Order Unit",
+    "Currency",
+    "Price Unit",
+    "Effective value",
+    "Release indicator",
+]
+_DEFAULT_PLANT_GROUPING_CONFIG = {
+    "prefix_groups": {
+        "11": "11A1",
+        "12": "12A1",
+        "13": "13A1",
+    },
+    "explicit_groups": {
+        "22W1": "22A1",
+        "25W1": "25A1",
+        "50W1": "50A1",
+        "51W1": "51A1",
+    },
+    "group_members": {
+        "11A1": ["11A1", "11F1", "11F2", "11F3", "11F4", "11F5", "11F9", "11FA"],
+        "12A1": ["12A1", "12F1", "12F5"],
+        "13A1": ["13A1", "13F1", "13F2", "13F3", "13F9", "13FB", "13FC", "13U9"],
+        "22A1": ["22A1", "22W1"],
+        "25A1": ["25A1", "25W1"],
+        "50A1": ["50A1", "50W1"],
+        "51A1": ["51A1", "51W1"],
+    },
+}
+_PLANT_GROUPING_CACHE = {
+    "mtime": None,
+    "config": None,
+}
 
 # ---------------------------------------------------------------------------
 # Adaptive multi-strategy forecasting engine
@@ -282,10 +432,33 @@ def _ensemble_forecast(
         holt_forecasts = [max(float(level[-1] + (h + 1) * trend[-1]), 0.0) for h in range(horizon)]
         candidates["holt"] = holt_forecasts
 
-    # Candidate 4: Holt-Winters (seasonal) if enough data
-    if n >= _SEASONAL_CYCLE + 2:
+    # Candidate 4: Optimised Holt-Winters (L-BFGS-B / coordinate-descent)
+    nz_count = int((quantities > 0).sum())
+    if nz_count >= MIN_NZ_HW and n >= _SEASONAL_CYCLE + 2:
+        try:
+            candidates["holt_winters"] = hw_forecast_list(quantities, horizon)
+        except Exception:
+            # fall back to the simple additive HW if optimisation fails
+            if n >= _SEASONAL_CYCLE + 2:
+                candidates["holt_winters"] = _holt_winters_additive(quantities, cycle=_SEASONAL_CYCLE, horizon=horizon)
+    elif n >= _SEASONAL_CYCLE + 2:
+        # Not enough non-zero months for optimised HW, use simple additive
         hw_forecasts = _holt_winters_additive(quantities, cycle=_SEASONAL_CYCLE, horizon=horizon)
         candidates["holt_winters"] = hw_forecasts
+
+    # Candidate 4b: Seasonal Naive with trend correction (robust for sparse series)
+    if nz_count >= MIN_NZ_SEAS:
+        try:
+            candidates["seasonal_naive_trend"] = seasonal_naive_forecast_list(quantities, horizon)
+        except Exception:
+            pass
+
+    # Candidate 4c: Exponential-decay WMA with seasonal index
+    if n >= 6:
+        try:
+            candidates["wma_exp"] = wma_exp_forecast_list(quantities, horizon)
+        except Exception:
+            pass
 
     # Candidate 5: Croston's (intermittent)
     if demand_type in ("sporadic", "lumpy"):
@@ -330,9 +503,32 @@ def _ensemble_forecast(
             elif method_name == "holt" and len(train) >= 6:
                 lv, tr = _double_exponential_smoothing(train)
                 pred = max(float(lv[-1] + tr[-1]), 0.0)
-            elif method_name == "holt_winters" and len(train) >= _SEASONAL_CYCLE + 2:
-                hw = _holt_winters_additive(train, cycle=_SEASONAL_CYCLE, horizon=1)
-                pred = hw[0]
+            elif method_name == "holt_winters":
+                if (train > 0).sum() >= MIN_NZ_HW and len(train) >= _SEASONAL_CYCLE + 2:
+                    try:
+                        pred = hw_one_step(train)
+                    except Exception:
+                        if len(train) >= _SEASONAL_CYCLE + 2:
+                            pred = _holt_winters_additive(train, cycle=_SEASONAL_CYCLE, horizon=1)[0]
+                        else:
+                            continue
+                elif len(train) >= _SEASONAL_CYCLE + 2:
+                    pred = _holt_winters_additive(train, cycle=_SEASONAL_CYCLE, horizon=1)[0]
+                else:
+                    continue
+            elif method_name == "seasonal_naive_trend":
+                if (train > 0).sum() >= MIN_NZ_SEAS:
+                    try:
+                        pred = seasonal_naive_one_step(train)
+                    except Exception:
+                        continue
+                else:
+                    continue
+            elif method_name == "wma_exp" and len(train) >= 6:
+                try:
+                    pred = wma_exp_one_step(train)
+                except Exception:
+                    continue
             elif method_name == "croston":
                 pred = _croston_forecast(train, alpha=best_alpha_cr if 'best_alpha_cr' in dir() else 0.15, horizon=1)[0]
             elif method_name == "sba":
@@ -550,24 +746,29 @@ def _compute_adaptive_confidence(
 
 SEED_UPLOAD_SCHEMA = {
     "consumption": {
-        "title": "Consumption Seed File",
+        "title": "Consumption MB51 File",
         "filename": os.path.basename(CONS_FILE),
         "required": [
             ("Plant", "SAP plant code"),
-            ("Material", "Material code and description"),
-            ("Month", "Reporting period in MM.YYYY style"),
-            ("Usage Quantity", "Quantity consumed"),
-            ("Usage UoM", "Consumption unit of measure"),
-            ("Usage Value", "Consumption value"),
-            ("Usage Currency", "Currency code, typically INR"),
+            ("Material", "SAP material code"),
+            ("Material Description", "Material description from MB51"),
+            ("Movement Type", "Consumption movement type such as 201/221/261 or reversal 202/222/262"),
+            ("Posting Date", "Transaction posting date used to derive financial year"),
+            ("Qty in unit of entry", "Movement quantity"),
+            ("Unit of Entry", "Entry UoM"),
+            ("Amt.in Loc.Cur.", "Movement value in local currency"),
         ],
         "optional": [
             ("Storage Location", "Storage location within the plant"),
+            ("Material Document", "Material document number"),
+            ("Material Doc.Item", "Material document item"),
+            ("Receiving plant", "Receiving plant for transfer-style movements"),
+            ("Purchase order", "Linked purchase order if present"),
         ],
         "allowed_exts": {".xlsx", ".xls", ".csv"},
     },
     "procurement": {
-        "title": "Procurement Seed File",
+        "title": "Procurement ME2M File",
         "filename": os.path.basename(PROC_FILE),
         "required": [
             ("Plant", "SAP plant code"),
@@ -608,10 +809,132 @@ def _normalize_plant(plant: str | None) -> str | None:
     return value or None
 
 
+def _normalize_grouping_config(raw_config: dict | None) -> dict:
+    config = raw_config if isinstance(raw_config, dict) else {}
+    prefix_groups = {
+        _normalize_code(prefix): _normalize_code(parent)
+        for prefix, parent in (config.get("prefix_groups") or {}).items()
+        if _normalize_code(prefix) and _normalize_code(parent)
+    }
+    explicit_groups = {
+        _normalize_code(child): _normalize_code(parent)
+        for child, parent in (config.get("explicit_groups") or {}).items()
+        if _normalize_code(child) and _normalize_code(parent)
+    }
+    group_members: dict[str, list[str]] = {}
+    for parent, members in (config.get("group_members") or {}).items():
+        normalized_parent = _normalize_code(parent)
+        normalized_members = [
+            _normalize_code(member)
+            for member in (members or [])
+            if _normalize_code(member)
+        ]
+        if normalized_parent:
+            group_members[normalized_parent] = normalized_members
+    return {
+        "prefix_groups": prefix_groups,
+        "explicit_groups": explicit_groups,
+        "group_members": group_members,
+    }
+
+
+def _load_plant_grouping_config() -> dict:
+    try:
+        mtime = os.path.getmtime(PLANT_GROUPING_FILE)
+    except OSError:
+        mtime = None
+
+    cache_hit = (
+        _PLANT_GROUPING_CACHE["config"] is not None
+        and _PLANT_GROUPING_CACHE["mtime"] == mtime
+    )
+    if cache_hit:
+        return _PLANT_GROUPING_CACHE["config"]
+
+    config = _normalize_grouping_config(_DEFAULT_PLANT_GROUPING_CONFIG)
+    if mtime is not None:
+        try:
+            with open(PLANT_GROUPING_FILE, "r", encoding="utf-8") as handle:
+                loaded = json.load(handle)
+            config = _normalize_grouping_config(loaded)
+        except Exception:
+            logger.exception("Failed to load plant grouping config from %s", PLANT_GROUPING_FILE)
+
+    _PLANT_GROUPING_CACHE["mtime"] = mtime
+    _PLANT_GROUPING_CACHE["config"] = config
+    return config
+
+
+def _reporting_plant(plant: str | None) -> str | None:
+    normalized = _normalize_plant(plant)
+    if not normalized:
+        return None
+    config = _load_plant_grouping_config()
+
+    member_lookup = {}
+    for parent, members in config.get("group_members", {}).items():
+        member_lookup[parent] = parent
+        for member in members:
+            member_lookup[member] = parent
+    if normalized in member_lookup:
+        return member_lookup[normalized]
+
+    explicit_groups = config.get("explicit_groups", {})
+    if normalized in explicit_groups:
+        return explicit_groups[normalized]
+
+    prefix_groups = sorted(
+        config.get("prefix_groups", {}).items(),
+        key=lambda item: len(item[0]),
+        reverse=True,
+    )
+    for prefix, parent in prefix_groups:
+        if normalized.startswith(prefix):
+            return parent
+
+    return normalized
+
+
 def _normalize_text(value) -> str:
     if pd.isna(value):
         return ""
     return str(value).strip()
+
+
+def _normalize_code(value) -> str:
+    text = _normalize_text(value)
+    if not text:
+        return ""
+    if text.endswith(".0"):
+        text = text[:-2]
+    return text.strip().upper()
+
+
+def _header_key(value) -> str:
+    text = _normalize_text(value).lower()
+    return re.sub(r"[^a-z0-9]+", " ", text).strip()
+
+
+def _apply_header_aliases(df: pd.DataFrame, aliases: dict[str, str]) -> pd.DataFrame:
+    frame = df.copy()
+    frame.columns = [str(column).strip() for column in frame.columns]
+    col_map = {}
+    for column in frame.columns:
+        alias = aliases.get(_header_key(column))
+        if alias:
+            col_map[column] = alias
+    return frame.rename(columns=col_map)
+
+
+def _detect_frame_variant(columns: list[str], seed_type: str) -> str:
+    keys = {_header_key(column) for column in columns}
+    if seed_type == "consumption":
+        if "movement type" in keys and "posting date" in keys:
+            return "mb51"
+        return "legacy"
+    if "purchasing document" in keys and "document date" in keys:
+        return "me2m"
+    return "legacy"
 
 
 def _format_period_label(year: int, month: int) -> str:
@@ -634,6 +957,69 @@ def _clean_currency(value, fallback: str = "INR") -> str:
     if re.fullmatch(r"[A-Z]{3,5}", text):
         return text
     return fallback
+
+
+def _financial_year_label(year: int, month: int) -> str:
+    start_year = int(year) if int(month) >= 4 else int(year) - 1
+    end_year = start_year + 1
+    return f"FY{str(start_year)[-2:]}-{str(end_year)[-2:]}"
+
+
+def _apply_financial_year_columns(df: pd.DataFrame, date_column: str) -> pd.DataFrame:
+    frame = df.copy()
+    frame["financial_year"] = ""
+    frame["financial_year_start"] = pd.Series(dtype="Int64")
+    frame["financial_year_end"] = pd.Series(dtype="Int64")
+    frame["fiscal_month_index"] = pd.Series(dtype="Int64")
+
+    valid = frame[date_column].notna()
+    if not valid.any():
+        return frame
+
+    year = frame.loc[valid, date_column].dt.year
+    month = frame.loc[valid, date_column].dt.month
+    fy_start = year.where(month >= 4, year - 1).astype("Int64")
+    frame.loc[valid, "financial_year_start"] = fy_start
+    frame.loc[valid, "financial_year_end"] = fy_start + 1
+    frame.loc[valid, "financial_year"] = [
+        f"FY{str(int(start))[-2:]}-{str(int(start + 1))[-2:]}"
+        for start in fy_start
+    ]
+    frame.loc[valid, "fiscal_month_index"] = ((month - 4) % 12 + 1).astype("Int64")
+    return frame
+
+
+def _build_seed_row_financial_years(df: pd.DataFrame, seed_type: str) -> pd.Series:
+    frame = df.copy()
+    if frame.empty:
+        return pd.Series(dtype="object")
+
+    variant = _detect_frame_variant([str(column) for column in frame.columns], seed_type)
+    if seed_type == "consumption":
+        if variant == "mb51":
+            frame = _apply_header_aliases(frame, _MB51_CONSUMPTION_ALIASES)
+            posting_dates = pd.to_datetime(frame.get("posting_date"), errors="coerce")
+            return posting_dates.map(
+                lambda value: _financial_year_label(value.year, value.month) if pd.notna(value) else ""
+            )
+
+        frame = _apply_header_aliases(frame, _LEGACY_CONSUMPTION_ALIASES)
+        month_raw = frame.get("month_raw", pd.Series(index=frame.index, dtype="object")).fillna("").astype(str)
+        month, year = _parse_period(month_raw)
+        result = pd.Series("", index=frame.index, dtype="object")
+        valid = month.notna() & year.notna()
+        result.loc[valid] = [
+            _financial_year_label(int(y), int(m))
+            for y, m in zip(year.loc[valid], month.loc[valid])
+        ]
+        return result
+
+    aliases = _ME2M_PROCUREMENT_ALIASES if variant == "me2m" else _LEGACY_PROCUREMENT_ALIASES
+    frame = _apply_header_aliases(frame, aliases)
+    doc_dates = pd.to_datetime(frame.get("doc_date"), errors="coerce")
+    return doc_dates.map(
+        lambda value: _financial_year_label(value.year, value.month) if pd.notna(value) else ""
+    )
 
 
 def _build_period_index(df: pd.DataFrame) -> pd.PeriodIndex:
@@ -666,52 +1052,34 @@ def _repair_shifted_consumption_rows(df: pd.DataFrame) -> pd.DataFrame:
     return repaired
 
 
-def _normalize_consumption_frame(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    df.columns = df.columns.str.strip()
+def _normalize_legacy_consumption_frame(df: pd.DataFrame) -> pd.DataFrame:
+    frame = _apply_header_aliases(df, _LEGACY_CONSUMPTION_ALIASES)
+    frame["source_excel_row"] = frame.index + 2
+    for column in ["plant", "material", "storage_location", "month_raw", "usage_qty", "uom", "usage_value", "currency"]:
+        if column not in frame.columns:
+            frame[column] = pd.NA
 
-    col_map = {}
-    for col in df.columns:
-        key = col.lower().strip()
-        if key == "plant":
-            col_map[col] = "plant"
-        elif key == "material":
-            col_map[col] = "material"
-        elif "storage" in key:
-            col_map[col] = "storage_location"
-        elif key == "month":
-            col_map[col] = "month_raw"
-        elif "usage quantity" in key:
-            col_map[col] = "usage_qty"
-        elif "usage uom" in key:
-            col_map[col] = "uom"
-        elif "usage value" in key:
-            col_map[col] = "usage_value"
-        elif "usage currency" in key or key == "currency":
-            col_map[col] = "currency"
-    df = df.rename(columns=col_map)
+    frame = _repair_shifted_consumption_rows(frame)
+    frame["plant"] = frame["plant"].map(_normalize_code)
+    frame["material"] = frame["material"].map(_normalize_text).str.upper()
+    frame["storage_location"] = frame["storage_location"].map(_normalize_text)
+    frame["month_raw"] = frame["month_raw"].map(_normalize_text)
+    frame["uom"] = frame["uom"].map(_normalize_code)
+    frame["currency"] = frame["currency"].map(_clean_currency)
+    frame["usage_qty"] = pd.to_numeric(frame["usage_qty"], errors="coerce")
+    frame["usage_value"] = pd.to_numeric(frame["usage_value"], errors="coerce")
 
-    for col in ["plant", "material", "storage_location", "month_raw", "usage_qty", "uom", "usage_value", "currency"]:
-        if col not in df.columns:
-            df[col] = pd.NA
-
-    df = _repair_shifted_consumption_rows(df)
-
-    df["plant"] = df["plant"].map(_normalize_text).str.upper()
-    df["material"] = df["material"].map(_normalize_text).str.upper()
-    df["storage_location"] = df["storage_location"].map(_normalize_text)
-    df["month_raw"] = df["month_raw"].map(_normalize_text)
-    df["uom"] = df["uom"].map(_normalize_text).str.upper()
-    df["currency"] = df["currency"].map(_clean_currency)
-
-    month, year = _parse_period(df["month_raw"])
-    df["month"] = month
-    df["year"] = year
-
-    for col in ["usage_qty", "usage_value"]:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-
-    df = df[df["material"] != ""].copy()
+    month, year = _parse_period(frame["month_raw"])
+    frame["month"] = month
+    frame["year"] = year
+    frame["posting_date"] = pd.to_datetime(
+        dict(
+            year=pd.to_numeric(frame["year"], errors="coerce"),
+            month=pd.to_numeric(frame["month"], errors="coerce"),
+            day=1,
+        ),
+        errors="coerce",
+    )
 
     def _split_material(value: str) -> tuple[str, str]:
         match = re.match(r"^(\d{6,12})\s+(.+)$", value.strip())
@@ -719,10 +1087,77 @@ def _normalize_consumption_frame(df: pd.DataFrame) -> pd.DataFrame:
             return "", value.strip()
         return match.group(1), match.group(2).strip()
 
-    split_values = df["material"].apply(_split_material)
-    df["material_code"] = split_values.apply(lambda item: item[0])
-    df["material_desc"] = split_values.apply(lambda item: item[1])
-    return df
+    split_values = frame["material"].apply(_split_material)
+    frame["material_code"] = split_values.apply(lambda item: item[0])
+    frame["material_desc"] = split_values.apply(lambda item: item[1])
+    frame["movement_type"] = ""
+    frame["movement_sign"] = np.nan
+    frame["material_document"] = ""
+    frame["material_document_item"] = ""
+    frame["receiving_plant"] = ""
+    frame["po_number"] = ""
+    frame["reporting_plant"] = frame["plant"].map(_reporting_plant)
+    frame = _apply_financial_year_columns(frame, "posting_date")
+    return frame[frame["material_desc"] != ""].copy()
+
+
+def _normalize_mb51_consumption_frame(df: pd.DataFrame) -> pd.DataFrame:
+    frame = _apply_header_aliases(df, _MB51_CONSUMPTION_ALIASES)
+    frame["source_excel_row"] = frame.index + 2
+    for column in [
+        "material_code",
+        "plant",
+        "storage_location",
+        "movement_type",
+        "material_document",
+        "base_uom",
+        "material_document_item",
+        "material_desc",
+        "posting_date",
+        "entry_qty",
+        "uom",
+        "usage_value",
+        "receiving_plant",
+        "po_number",
+    ]:
+        if column not in frame.columns:
+            frame[column] = pd.NA
+
+    frame["plant"] = frame["plant"].map(_normalize_code)
+    frame["storage_location"] = frame["storage_location"].map(_normalize_text)
+    frame["movement_type"] = frame["movement_type"].map(_normalize_code)
+    frame["material_code"] = frame["material_code"].map(_normalize_code)
+    frame["material_desc"] = frame["material_desc"].map(_normalize_text).str.upper()
+    frame["material_document"] = frame["material_document"].map(_normalize_code)
+    frame["material_document_item"] = frame["material_document_item"].map(_normalize_code)
+    frame["uom"] = frame["uom"].map(_normalize_code)
+    frame["base_uom"] = frame["base_uom"].map(_normalize_code)
+    frame["receiving_plant"] = frame["receiving_plant"].map(_normalize_code)
+    frame["po_number"] = frame["po_number"].map(_normalize_code)
+    frame["posting_date"] = pd.to_datetime(frame["posting_date"], errors="coerce")
+    frame["entry_qty"] = pd.to_numeric(frame["entry_qty"], errors="coerce")
+    frame["usage_value"] = pd.to_numeric(frame["usage_value"], errors="coerce")
+    frame["movement_sign"] = frame["movement_type"].map(_CONSUMPTION_MOVEMENT_SIGNS)
+    frame["usage_qty_raw"] = frame["entry_qty"]
+    frame["usage_value_raw"] = frame["usage_value"]
+    frame["usage_qty"] = frame["entry_qty"].abs() * frame["movement_sign"]
+    frame["usage_value"] = frame["usage_value"].abs() * frame["movement_sign"]
+    frame["month"] = frame["posting_date"].dt.month.astype("Int64")
+    frame["year"] = frame["posting_date"].dt.year.astype("Int64")
+    frame["month_raw"] = frame["posting_date"].dt.strftime("%m.%Y").fillna("")
+    frame["currency"] = "INR"
+    frame["reporting_plant"] = frame["plant"].map(_reporting_plant)
+    frame = _apply_financial_year_columns(frame, "posting_date")
+    frame = frame[frame["material_desc"] != ""].copy()
+    frame = frame[frame["movement_sign"].notna()].copy()
+    return frame
+
+
+def _normalize_consumption_frame(df: pd.DataFrame) -> pd.DataFrame:
+    variant = _detect_frame_variant([str(column) for column in df.columns], "consumption")
+    if variant == "mb51":
+        return _normalize_mb51_consumption_frame(df)
+    return _normalize_legacy_consumption_frame(df)
 
 
 def _load_consumption() -> pd.DataFrame:
@@ -730,44 +1165,10 @@ def _load_consumption() -> pd.DataFrame:
     return _normalize_consumption_frame(df)
 
 
-def _normalize_procurement_frame(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    df.columns = df.columns.str.strip()
-
-    col_map = {}
-    for col in df.columns:
-        key = col.lower().strip()
-        if key == "plant":
-            col_map[col] = "plant"
-        elif key == "net price":
-            col_map[col] = "net_price"
-        elif "purchasing document" in key:
-            col_map[col] = "po_number"
-        elif "document date" in key:
-            col_map[col] = "doc_date"
-        elif key == "material":
-            col_map[col] = "material_code"
-        elif key == "item":
-            col_map[col] = "item"
-        elif "supplier" in key or "supplying" in key:
-            col_map[col] = "vendor"
-        elif "short text" in key:
-            col_map[col] = "material_desc"
-        elif "order quantity" in key:
-            col_map[col] = "order_qty"
-        elif "order unit" in key:
-            col_map[col] = "order_unit"
-        elif key == "currency":
-            col_map[col] = "currency"
-        elif "price unit" in key:
-            col_map[col] = "price_unit"
-        elif "effective value" in key:
-            col_map[col] = "effective_value"
-        elif "release" in key:
-            col_map[col] = "release_indicator"
-    df = df.rename(columns=col_map)
-
-    for col in [
+def _normalize_legacy_procurement_frame(df: pd.DataFrame) -> pd.DataFrame:
+    frame = _apply_header_aliases(df, _LEGACY_PROCUREMENT_ALIASES)
+    frame["source_excel_row"] = frame.index + 2
+    for column in [
         "plant",
         "net_price",
         "po_number",
@@ -783,28 +1184,33 @@ def _normalize_procurement_frame(df: pd.DataFrame) -> pd.DataFrame:
         "effective_value",
         "release_indicator",
     ]:
-        if col not in df.columns:
-            df[col] = pd.NA
+        if column not in frame.columns:
+            frame[column] = pd.NA
 
-    df["plant"] = df["plant"].map(_normalize_text).str.upper()
-    df["po_number"] = df["po_number"].map(_normalize_text)
-    df["material_code"] = df["material_code"].map(_normalize_text)
-    df["item"] = df["item"].map(_normalize_text)
-    df["vendor"] = df["vendor"].map(_normalize_text)
-    df["material_desc"] = df["material_desc"].map(_normalize_text).str.upper()
-    df["order_unit"] = df["order_unit"].map(_normalize_text).str.upper()
-    df["currency"] = df["currency"].map(_clean_currency)
-    df["release_indicator"] = df["release_indicator"].map(_normalize_text)
-    df["doc_date"] = pd.to_datetime(df["doc_date"], errors="coerce")
+    frame["plant"] = frame["plant"].map(_normalize_code)
+    frame["po_number"] = frame["po_number"].map(_normalize_code)
+    frame["material_code"] = frame["material_code"].map(_normalize_code)
+    frame["item"] = frame["item"].map(_normalize_code)
+    frame["vendor"] = frame["vendor"].map(_normalize_text)
+    frame["material_desc"] = frame["material_desc"].map(_normalize_text).str.upper()
+    frame["order_unit"] = frame["order_unit"].map(_normalize_code)
+    frame["currency"] = frame["currency"].map(_clean_currency)
+    frame["release_indicator"] = frame["release_indicator"].map(_normalize_text)
+    frame["doc_date"] = pd.to_datetime(frame["doc_date"], errors="coerce")
+    for column in ["net_price", "order_qty", "price_unit", "effective_value"]:
+        frame[column] = pd.to_numeric(frame[column], errors="coerce")
 
-    for col in ["net_price", "order_qty", "price_unit", "effective_value"]:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
+    positive_qty = frame["order_qty"].where(frame["order_qty"].fillna(0) > 0)
+    derived_unit_price = frame["effective_value"] / positive_qty
+    frame["unit_price"] = derived_unit_price.replace([np.inf, -np.inf], np.nan)
+    frame["net_price"] = frame["unit_price"]
+    frame["reporting_plant"] = frame["plant"].map(_reporting_plant)
+    frame = _apply_financial_year_columns(frame, "doc_date")
+    return frame[frame["material_desc"] != ""].copy()
 
-    valid_price_unit = df["price_unit"].where(df["price_unit"].fillna(0) > 0, 1.0)
-    df["unit_price"] = df["net_price"] / valid_price_unit
-    df["unit_price"] = df["unit_price"].replace([np.inf, -np.inf], np.nan)
-    df = df[df["material_desc"] != ""].copy()
-    return df
+
+def _normalize_procurement_frame(df: pd.DataFrame) -> pd.DataFrame:
+    return _normalize_legacy_procurement_frame(df)
 
 
 def _load_procurement() -> pd.DataFrame:
@@ -822,77 +1228,50 @@ def _read_uploaded_seed_dataframe(file_bytes: bytes, filename: str) -> pd.DataFr
 
 
 def _detect_consumption_fields(columns: list[str]) -> set[str]:
-    detected = set()
-    for column in columns:
-        key = column.lower().strip()
-        if key == "plant":
-            detected.add("plant")
-        elif key == "material":
-            detected.add("material")
-        elif "storage" in key:
-            detected.add("storage_location")
-        elif key == "month":
-            detected.add("month_raw")
-        elif "usage quantity" in key:
-            detected.add("usage_qty")
-        elif "usage uom" in key:
-            detected.add("uom")
-        elif "usage value" in key:
-            detected.add("usage_value")
-        elif "usage currency" in key or key == "currency":
-            detected.add("currency")
-    return detected
+    aliases = _MB51_CONSUMPTION_ALIASES if _detect_frame_variant(columns, "consumption") == "mb51" else _LEGACY_CONSUMPTION_ALIASES
+    return {
+        aliases[key]
+        for key in (_header_key(column) for column in columns)
+        if key in aliases
+    }
 
 
 def _detect_procurement_fields(columns: list[str]) -> set[str]:
-    detected = set()
-    for column in columns:
-        key = column.lower().strip()
-        if key == "plant":
-            detected.add("plant")
-        elif key == "net price":
-            detected.add("net_price")
-        elif "purchasing document" in key:
-            detected.add("po_number")
-        elif "document date" in key:
-            detected.add("doc_date")
-        elif key == "material":
-            detected.add("material_code")
-        elif key == "item":
-            detected.add("item")
-        elif "supplier" in key or "supplying" in key:
-            detected.add("vendor")
-        elif "short text" in key:
-            detected.add("material_desc")
-        elif "order quantity" in key:
-            detected.add("order_qty")
-        elif "order unit" in key:
-            detected.add("order_unit")
-        elif key == "currency":
-            detected.add("currency")
-        elif "price unit" in key:
-            detected.add("price_unit")
-        elif "effective value" in key:
-            detected.add("effective_value")
-        elif "release" in key:
-            detected.add("release_indicator")
-    return detected
+    aliases = _ME2M_PROCUREMENT_ALIASES if _detect_frame_variant(columns, "procurement") == "me2m" else _LEGACY_PROCUREMENT_ALIASES
+    return {
+        aliases[key]
+        for key in (_header_key(column) for column in columns)
+        if key in aliases
+    }
 
 
 def _validate_seed_frame(df: pd.DataFrame, seed_type: str) -> None:
     columns = [str(column).strip() for column in df.columns]
     if seed_type == "consumption":
         detected = _detect_consumption_fields(columns)
-        required_fields = {"plant", "material", "month_raw", "usage_qty", "uom", "usage_value", "currency"}
-        display_names = {
-            "plant": "Plant",
-            "material": "Material",
-            "month_raw": "Month",
-            "usage_qty": "Usage Quantity",
-            "uom": "Usage UoM",
-            "usage_value": "Usage Value",
-            "currency": "Usage Currency",
-        }
+        if _detect_frame_variant(columns, seed_type) == "mb51":
+            required_fields = {"plant", "material_code", "material_desc", "movement_type", "posting_date", "entry_qty", "uom", "usage_value"}
+            display_names = {
+                "plant": "Plant",
+                "material_code": "Material",
+                "material_desc": "Material Description",
+                "movement_type": "Movement Type",
+                "posting_date": "Posting Date",
+                "entry_qty": "Qty in unit of entry",
+                "uom": "Unit of Entry",
+                "usage_value": "Amt.in Loc.Cur.",
+            }
+        else:
+            required_fields = {"plant", "material", "month_raw", "usage_qty", "uom", "usage_value", "currency"}
+            display_names = {
+                "plant": "Plant",
+                "material": "Material",
+                "month_raw": "Month",
+                "usage_qty": "Usage Quantity",
+                "uom": "Usage UoM",
+                "usage_value": "Usage Value",
+                "currency": "Usage Currency",
+            }
     else:
         detected = _detect_procurement_fields(columns)
         required_fields = {
@@ -936,6 +1315,191 @@ def get_seed_upload_schema() -> dict:
     return SEED_UPLOAD_SCHEMA
 
 
+def _current_financial_year_start(today: date | None = None) -> int:
+    today = today or date.today()
+    return today.year if today.month >= 4 else today.year - 1
+
+
+def _format_financial_year_from_start(start_year: int) -> str:
+    return f"FY{str(start_year)[-2:]}-{str(start_year + 1)[-2:]}"
+
+
+def get_seed_upload_status(years: int = 5) -> list[dict]:
+    expected_starts = [
+        _current_financial_year_start() - offset
+        for offset in range(years)
+    ]
+    expected_labels = [_format_financial_year_from_start(start) for start in expected_starts]
+
+    cons_status: dict[str, dict] = {}
+    proc_status: dict[str, dict] = {}
+
+    if os.path.exists(CONS_FILE):
+        cons = _load_consumption()
+        if "financial_year" in cons.columns:
+            grouped = cons.groupby("financial_year", as_index=False).agg(
+                rows=("material_desc", "size"),
+                materials=("material_code", "nunique"),
+                plants=("reporting_plant", "nunique"),
+            )
+            cons_status = {
+                row["financial_year"]: {
+                    "rows": int(row["rows"]),
+                    "materials": int(row["materials"]),
+                    "plants": int(row["plants"]),
+                }
+                for _, row in grouped.iterrows()
+            }
+
+    if os.path.exists(PROC_FILE):
+        proc = _load_procurement()
+        if "financial_year" in proc.columns:
+            grouped = proc.groupby("financial_year", as_index=False).agg(
+                rows=("material_desc", "size"),
+                materials=("material_code", "nunique"),
+                plants=("reporting_plant", "nunique"),
+            )
+            proc_status = {
+                row["financial_year"]: {
+                    "rows": int(row["rows"]),
+                    "materials": int(row["materials"]),
+                    "plants": int(row["plants"]),
+                }
+                for _, row in grouped.iterrows()
+            }
+
+    results: list[dict] = []
+    for label in expected_labels:
+        consumption = cons_status.get(label)
+        procurement = proc_status.get(label)
+        if consumption and procurement:
+            status_label = "Complete"
+            status_tone = "neutral"
+            status_detail = "MB51 and ME2M uploaded"
+        elif consumption and not procurement:
+            status_label = "Partial"
+            status_tone = "warning"
+            status_detail = "MB51 uploaded, ME2M missing"
+        elif procurement and not consumption:
+            status_label = "Partial"
+            status_tone = "warning"
+            status_detail = "ME2M uploaded, MB51 missing"
+        else:
+            status_label = "Missing"
+            status_tone = "danger"
+            status_detail = "MB51 and ME2M missing"
+
+        results.append(
+            {
+                "label": label,
+                "short_label": label.replace("FY", ""),
+                "consumption": consumption,
+                "procurement": procurement,
+                "is_complete": bool(consumption) and bool(procurement),
+                "status_label": status_label,
+                "status_tone": status_tone,
+                "status_detail": status_detail,
+            }
+        )
+    return results
+
+
+def _canonicalize_seed_dataframe(df: pd.DataFrame, seed_type: str) -> pd.DataFrame:
+    variant = _detect_frame_variant([str(column) for column in df.columns], seed_type)
+    frame = df.copy()
+
+    if seed_type == "consumption":
+        if variant == "mb51":
+            frame = _apply_header_aliases(frame, _MB51_CONSUMPTION_ALIASES)
+            rename_map = {
+                "material_code": "Material",
+                "plant": "Plant",
+                "storage_location": "Storage Location",
+                "movement_type": "Movement Type",
+                "material_document": "Material Document",
+                "base_uom": "Base Unit of Measure",
+                "material_document_item": "Material Doc.Item",
+                "material_desc": "Material Description",
+                "posting_date": "Posting Date",
+                "entry_qty": "Qty in unit of entry",
+                "uom": "Unit of Entry",
+                "usage_value": "Amt.in Loc.Cur.",
+                "receiving_plant": "Receiving plant",
+                "po_number": "Purchase order",
+            }
+            frame = frame.rename(columns=rename_map)
+            frame = frame.loc[:, ~frame.columns.duplicated()]
+            for column in _CANONICAL_CONSUMPTION_COLUMNS:
+                if column not in frame.columns:
+                    frame[column] = pd.NA
+            frame = frame.reindex(columns=_CANONICAL_CONSUMPTION_COLUMNS)
+            return frame
+
+        return frame
+
+    frame = _apply_header_aliases(frame, _ME2M_PROCUREMENT_ALIASES)
+    rename_map = {
+        "plant": "Plant",
+        "net_price": "Net Price",
+        "po_number": "Purchasing Document",
+        "doc_date": "Document Date",
+        "material_code": "Material",
+        "item": "Item",
+        "vendor": "Supplier/Supplying Plant",
+        "material_desc": "Short Text",
+        "order_qty": "Order Quantity",
+        "order_unit": "Order Unit",
+        "currency": "Currency",
+        "price_unit": "Price Unit",
+        "effective_value": "Effective value",
+        "release_indicator": "Release indicator",
+    }
+    frame = frame.rename(columns=rename_map)
+    frame = frame.loc[:, ~frame.columns.duplicated()]
+    for column in _CANONICAL_PROCUREMENT_COLUMNS:
+        if column not in frame.columns:
+            frame[column] = pd.NA
+    return frame.reindex(columns=_CANONICAL_PROCUREMENT_COLUMNS)
+
+
+def _merge_seed_collection_frame(existing_df: pd.DataFrame, uploaded_df: pd.DataFrame, seed_type: str) -> pd.DataFrame:
+    uploaded_variant = _detect_frame_variant([str(column) for column in uploaded_df.columns], seed_type)
+    uploaded_canonical = _canonicalize_seed_dataframe(uploaded_df, seed_type)
+    uploaded_fys = {
+        fy
+        for fy in _build_seed_row_financial_years(uploaded_canonical, seed_type).tolist()
+        if fy
+    }
+    if not uploaded_fys:
+        raise ValueError(
+            "The uploaded seed file did not contain any usable financial-year rows after parsing."
+        )
+
+    if existing_df is None or existing_df.empty:
+        return uploaded_canonical.reset_index(drop=True)
+
+    existing_variant = _detect_frame_variant([str(column) for column in existing_df.columns], seed_type)
+    if existing_variant != uploaded_variant and uploaded_variant in {"mb51", "me2m"}:
+        logger.info(
+            "Replacing legacy %s seed history with canonical %s upload.",
+            seed_type,
+            uploaded_variant,
+        )
+        return uploaded_canonical.reset_index(drop=True)
+
+    existing_canonical = _canonicalize_seed_dataframe(existing_df, seed_type)
+    existing_fys = _build_seed_row_financial_years(existing_canonical, seed_type)
+    keep_mask = ~existing_fys.isin(uploaded_fys)
+    merged = pd.concat(
+        [
+            existing_canonical.loc[keep_mask].copy(),
+            uploaded_canonical.copy(),
+        ],
+        ignore_index=True,
+    )
+    return merged.reset_index(drop=True)
+
+
 def _write_temp_seed_workbook(df: pd.DataFrame, target: str, sheet_name: str) -> str:
     suffix = os.path.splitext(target)[1] or ".xlsx"
     directory = os.path.dirname(target) or None
@@ -961,7 +1525,9 @@ def save_seed_workbook(file_bytes: bytes, filename: str, seed_type: str) -> str:
 
     target = CONS_FILE if seed_type == "consumption" else PROC_FILE
     sheet_name = "Sheet1" if seed_type == "consumption" else "Data"
-    temp_path = _write_temp_seed_workbook(df, target, sheet_name)
+    existing_df = pd.read_excel(target, sheet_name=0) if os.path.exists(target) else pd.DataFrame()
+    merged_df = _merge_seed_collection_frame(existing_df, df, seed_type)
+    temp_path = _write_temp_seed_workbook(merged_df, target, sheet_name)
     os.replace(temp_path, target)
     return target
 
@@ -977,13 +1543,18 @@ def save_seed_workbooks(
     _validate_seed_frame(cons_df, "consumption")
     _validate_seed_frame(proc_df, "procurement")
 
+    existing_cons = pd.read_excel(CONS_FILE, sheet_name=0) if os.path.exists(CONS_FILE) else pd.DataFrame()
+    existing_proc = pd.read_excel(PROC_FILE, sheet_name=0) if os.path.exists(PROC_FILE) else pd.DataFrame()
+    merged_cons = _merge_seed_collection_frame(existing_cons, cons_df, "consumption")
+    merged_proc = _merge_seed_collection_frame(existing_proc, proc_df, "procurement")
+
     targets = {
         "consumption": CONS_FILE,
         "procurement": PROC_FILE,
     }
     temp_files = {
-        "consumption": _write_temp_seed_workbook(cons_df, CONS_FILE, "Sheet1"),
-        "procurement": _write_temp_seed_workbook(proc_df, PROC_FILE, "Data"),
+        "consumption": _write_temp_seed_workbook(merged_cons, CONS_FILE, "Sheet1"),
+        "procurement": _write_temp_seed_workbook(merged_proc, PROC_FILE, "Data"),
     }
 
     os.replace(temp_files["consumption"], targets["consumption"])
@@ -1379,6 +1950,16 @@ def _build_forecast(monthly: pd.DataFrame) -> dict:
 
     forecast_values, ensemble_meta = _ensemble_forecast(quantities, history_labels, horizon=6)
 
+    # Also run the new engine's model selector for bootstrap-based bands
+    try:
+        bootstrap_result = compute_bootstrap_bands(quantities, forecast_values, horizon=6)
+        new_engine_validation = bootstrap_result.get("validation", {})
+        new_engine_model = bootstrap_result.get("model_type", "")
+    except Exception:
+        bootstrap_result = None
+        new_engine_validation = {}
+        new_engine_model = ""
+
     forecast_array = np.asarray(forecast_values, dtype=float)
     last_period = monthly["period"].iloc[-1]
     forecast_periods = pd.period_range(last_period + 1, periods=6, freq="M")
@@ -1386,6 +1967,16 @@ def _build_forecast(monthly: pd.DataFrame) -> dict:
         quantities, history_labels, _ensemble_func,
         forecast_values, horizon=6,
     )
+
+    # Merge bootstrap bands into prediction_bands when they provide tighter coverage
+    if bootstrap_result is not None:
+        for key in ("p5_quantities", "p10_quantities", "p50_quantities", "p90_quantities", "p95_quantities"):
+            bs_vals = bootstrap_result.get(key)
+            if bs_vals and len(bs_vals) == 6:
+                existing = prediction_bands.get(key, [])
+                # Use bootstrap values if existing percentile bands fell back to fixed multipliers
+                if not existing or prediction_bands.get("selected_band_coverage_pct") is None:
+                    prediction_bands[key] = bs_vals
     lower_quantities = prediction_bands["selected_lower_quantities"]
     p50_quantities   = prediction_bands["p50_quantities"]
     upper_quantities = prediction_bands["selected_upper_quantities"]
@@ -1416,8 +2007,21 @@ def _build_forecast(monthly: pd.DataFrame) -> dict:
         )
 
     method_label = f"Adaptive ensemble ({ensemble_meta.get('selected_method', 'blend')})"
+    if new_engine_model:
+        method_label += f" + {new_engine_model}"
     if demand_type in ("sporadic", "lumpy"):
         method_label += f" [intermittent: {demand_type}]"
+
+    # Attach walk-forward validation from new engine if available
+    validation_info = {}
+    if new_engine_validation:
+        validation_info = {
+            "wf_mape": new_engine_validation.get("mape"),
+            "wf_bias_pct": new_engine_validation.get("bias_pct"),
+            "wf_coverage": new_engine_validation.get("coverage"),
+            "wf_conf_score": new_engine_validation.get("conf_score"),
+            "wf_model": new_engine_validation.get("model_used"),
+        }
 
     return {
         "method": method_label,
@@ -1453,6 +2057,7 @@ def _build_forecast(monthly: pd.DataFrame) -> dict:
         "forecast_rows": forecast_rows,
         "demand_type": demand_type,
         "ensemble_meta": ensemble_meta,
+        **validation_info,
     }
 
 
@@ -1460,20 +2065,43 @@ def _build_yoy(cons_monthly: pd.DataFrame, proc_monthly: pd.DataFrame) -> dict:
     if cons_monthly.empty and proc_monthly.empty:
         return {"records": []}
 
-    qty_yearly = (
-        cons_monthly.groupby("year", as_index=False)
-        .agg(
-            total_qty=("qty", "sum"),
-            months_observed=("month", "nunique"),
-            active_months=("qty", lambda values: int((values > 0).sum())),
+    qty_fy = cons_monthly.copy()
+    if not qty_fy.empty:
+        qty_fy["financial_year"] = qty_fy.apply(
+            lambda row: _financial_year_label(int(row["year"]), int(row["month"])),
+            axis=1,
         )
-        .sort_values("year")
-    )
-    proc_yearly = (
-        proc_monthly.groupby("year", as_index=False)
-        .agg(total_procurement_value=("value", "sum"))
-        .sort_values("year")
-    )
+        qty_fy["financial_year_start"] = qty_fy["year"].where(qty_fy["month"] >= 4, qty_fy["year"] - 1).astype(int)
+        qty_yearly = (
+            qty_fy.groupby(["financial_year", "financial_year_start"], as_index=False)
+            .agg(
+                total_qty=("qty", "sum"),
+                months_observed=("month", "nunique"),
+                active_months=("qty", lambda values: int((values > 0).sum())),
+            )
+            .sort_values("financial_year_start")
+        )
+    else:
+        qty_yearly = pd.DataFrame(
+            columns=["financial_year", "financial_year_start", "total_qty", "months_observed", "active_months"]
+        )
+
+    proc_fy = proc_monthly.copy()
+    if not proc_fy.empty:
+        proc_fy["financial_year"] = proc_fy.apply(
+            lambda row: _financial_year_label(int(row["year"]), int(row["month"])),
+            axis=1,
+        )
+        proc_fy["financial_year_start"] = proc_fy["year"].where(proc_fy["month"] >= 4, proc_fy["year"] - 1).astype(int)
+        proc_yearly = (
+            proc_fy.groupby(["financial_year", "financial_year_start"], as_index=False)
+            .agg(total_procurement_value=("value", "sum"))
+            .sort_values("financial_year_start")
+        )
+    else:
+        proc_yearly = pd.DataFrame(
+            columns=["financial_year", "financial_year_start", "total_procurement_value"]
+        )
 
     if qty_yearly.empty:
         yearly = proc_yearly.copy()
@@ -1483,14 +2111,18 @@ def _build_yoy(cons_monthly: pd.DataFrame, proc_monthly: pd.DataFrame) -> dict:
     else:
         yearly = qty_yearly.copy()
 
-    yearly = yearly.merge(proc_yearly, on="year", how="outer").fillna(
+    yearly = yearly.merge(
+        proc_yearly,
+        on=["financial_year", "financial_year_start"],
+        how="outer",
+    ).fillna(
         {
             "months_observed": 0,
             "active_months": 0,
             "total_qty": 0.0,
             "total_procurement_value": 0.0,
         }
-    ).sort_values("year")
+    ).sort_values("financial_year_start")
     yearly["avg_monthly_qty"] = yearly["total_qty"] / yearly["months_observed"].replace(0, pd.NA)
     yearly["avg_monthly_qty"] = yearly["avg_monthly_qty"].fillna(0.0)
 
@@ -1509,7 +2141,7 @@ def _build_yoy(cons_monthly: pd.DataFrame, proc_monthly: pd.DataFrame) -> dict:
             ) * 100
         records.append(
             {
-                "year": int(row["year"]),
+                "financial_year": str(row["financial_year"]),
                 "months_observed": int(row["months_observed"]),
                 "active_months": int(row["active_months"]),
                 "total_qty": round(_safe_float(row["total_qty"]), 2),
@@ -1522,6 +2154,118 @@ def _build_yoy(cons_monthly: pd.DataFrame, proc_monthly: pd.DataFrame) -> dict:
         previous = row
 
     return {"records": records}
+
+
+def _build_financial_year_summary(cons_monthly: pd.DataFrame, proc_monthly: pd.DataFrame) -> dict:
+    if cons_monthly.empty and proc_monthly.empty:
+        return {"records": []}
+
+    qty_fy = cons_monthly.copy()
+    if not qty_fy.empty:
+        qty_fy["financial_year"] = qty_fy.apply(
+            lambda row: _financial_year_label(int(row["year"]), int(row["month"])),
+            axis=1,
+        )
+        qty_fy["financial_year_start"] = qty_fy["year"].where(qty_fy["month"] >= 4, qty_fy["year"] - 1).astype(int)
+        qty_yearly = (
+            qty_fy.groupby(["financial_year", "financial_year_start"], as_index=False)
+            .agg(
+                months_observed=("month", "nunique"),
+                active_months=("qty", lambda values: int((values > 0).sum())),
+                total_qty=("qty", "sum"),
+                total_consumption_value=("value", "sum"),
+            )
+            .sort_values("financial_year_start")
+        )
+    else:
+        qty_yearly = pd.DataFrame(
+            columns=[
+                "financial_year",
+                "financial_year_start",
+                "months_observed",
+                "active_months",
+                "total_qty",
+                "total_consumption_value",
+            ]
+        )
+
+    proc_fy = proc_monthly.copy()
+    if not proc_fy.empty:
+        proc_fy["financial_year"] = proc_fy.apply(
+            lambda row: _financial_year_label(int(row["year"]), int(row["month"])),
+            axis=1,
+        )
+        proc_fy["financial_year_start"] = proc_fy["year"].where(proc_fy["month"] >= 4, proc_fy["year"] - 1).astype(int)
+        proc_yearly = (
+            proc_fy.groupby(["financial_year", "financial_year_start"], as_index=False)
+            .agg(total_procurement_value=("value", "sum"))
+            .sort_values("financial_year_start")
+        )
+    else:
+        proc_yearly = pd.DataFrame(
+            columns=["financial_year", "financial_year_start", "total_procurement_value"]
+        )
+
+    if qty_yearly.empty:
+        yearly = proc_yearly.copy()
+        yearly["months_observed"] = 0
+        yearly["active_months"] = 0
+        yearly["total_qty"] = 0.0
+        yearly["total_consumption_value"] = 0.0
+    else:
+        yearly = qty_yearly.copy()
+
+    yearly = yearly.merge(
+        proc_yearly,
+        on=["financial_year", "financial_year_start"],
+        how="outer",
+    ).fillna(
+        {
+            "months_observed": 0,
+            "active_months": 0,
+            "total_qty": 0.0,
+            "total_consumption_value": 0.0,
+            "total_procurement_value": 0.0,
+        }
+    ).sort_values("financial_year_start")
+
+    yearly["avg_monthly_qty"] = yearly["total_qty"] / yearly["months_observed"].replace(0, pd.NA)
+    yearly["avg_monthly_qty"] = yearly["avg_monthly_qty"].fillna(0.0)
+
+    records: list[dict] = []
+    for _, row in yearly.iterrows():
+        records.append(
+            {
+                "financial_year": str(row["financial_year"]),
+                "months_observed": int(row["months_observed"]),
+                "active_months": int(row["active_months"]),
+                "total_qty": round(_safe_float(row["total_qty"]), 2),
+                "total_consumption_value": round(_safe_float(row["total_consumption_value"]), 2),
+                "total_procurement_value": round(_safe_float(row["total_procurement_value"]), 2),
+                "avg_monthly_qty": round(_safe_float(row["avg_monthly_qty"]), 2),
+            }
+        )
+
+    return {"records": records}
+
+
+def _quick_forecast_total(monthly: pd.DataFrame, horizon: int = 6) -> float:
+    if monthly.empty:
+        return 0.0
+
+    last_period = monthly["period"].iloc[-1]
+    forecast_periods = pd.period_range(last_period + 1, periods=horizon, freq="M")
+    history_by_month = {
+        int(month_number): group["qty"].to_numpy(dtype=float)
+        for month_number, group in monthly.groupby("month")
+    }
+    all_history = monthly["qty"].to_numpy(dtype=float)
+    total = 0.0
+    for period in forecast_periods:
+        sample = history_by_month.get(int(period.month))
+        values = sample if sample is not None and len(sample) else all_history
+        total += max(_safe_float(np.median(values)), 0.0)
+    return round(total, 2)
 
 
 def _build_vendor_scores(proc_df: pd.DataFrame) -> list[dict]:
@@ -1654,21 +2398,46 @@ def _build_storage_breakdown(cons_df: pd.DataFrame, plant: str | None) -> list[d
     if cons_df.empty:
         return []
 
-    group_fields = ["storage_location"] if plant else ["plant", "storage_location"]
-    grouped = (
-        cons_df.groupby(group_fields, as_index=False)
-        .agg(
-            total_qty=("usage_qty", "sum"),
-            active_months=("month_raw", "nunique"),
+    group_fields = ["storage_location"] if plant else ["reporting_plant", "storage_location"]
+
+    # ── Step 1: aggregate to monthly net-consumption per group ─────────────
+    # For MB51 data each group can have many transaction rows per month.
+    # First net them to monthly totals (cancelling reversals), then aggregate
+    # the monthly totals to a single row per storage location so that
+    # active_months counts months with non-zero net consumption.
+    month_group_fields = group_fields + ["year", "month"]
+    valid = cons_df.dropna(subset=["year", "month"])
+    if valid.empty:
+        # Fall back to raw row counts if date columns are missing
+        monthly_net = cons_df.copy()
+        monthly_net["_net_qty"] = monthly_net["usage_qty"]
+        location_monthly = (
+            monthly_net.groupby(group_fields, as_index=False)
+            .agg(total_qty=("_net_qty", "sum"), active_months=("month_raw", "nunique"))
         )
-        .sort_values("total_qty", ascending=False)
-    )
+    else:
+        # Net each (location × month) to a single signed quantity
+        per_month = (
+            valid.groupby(month_group_fields, as_index=False)
+            .agg(net_qty=("usage_qty", "sum"))
+        )
+        # Now roll up to storage-location level
+        location_monthly = (
+            per_month.groupby(group_fields, as_index=False)
+            .agg(
+                total_qty=("net_qty", "sum"),
+                # active months = months where net consumption is non-zero
+                active_months=("net_qty", lambda s: int((s != 0).sum())),
+            )
+        )
+
+    grouped = location_monthly.sort_values("total_qty", ascending=False)
     total_qty = grouped["total_qty"].sum() or 1.0
 
     records: list[dict] = []
     for _, row in grouped.head(12).iterrows():
         storage_location = _normalize_text(row.get("storage_location"))
-        plant_code = _normalize_text(row.get("plant")) if not plant else plant
+        plant_code = _normalize_text(row.get("reporting_plant")) if not plant else plant
         label = storage_location if plant else f"{plant_code} / {storage_location}"
         records.append(
             {
@@ -1737,7 +2506,7 @@ class _DataStore:
 
     def get_filter_options(self) -> dict:
         self._ensure_loaded()
-        plants = sorted(self._cons["plant"].dropna().astype(str).unique().tolist())
+        plants = sorted(self._cons["reporting_plant"].dropna().astype(str).unique().tolist())
         return {"plants": plants}
 
     def _filtered_consumption(self, plant: str | None = None) -> pd.DataFrame:
@@ -1745,14 +2514,14 @@ class _DataStore:
         normalized_plant = _normalize_plant(plant)
         if not normalized_plant:
             return cons
-        return cons[cons["plant"] == normalized_plant].copy()
+        return cons[cons["reporting_plant"] == normalized_plant].copy()
 
     def _filtered_procurement(self, plant: str | None = None) -> pd.DataFrame:
         proc = self.proc
         normalized_plant = _normalize_plant(plant)
         if not normalized_plant:
             return proc
-        return proc[proc["plant"] == normalized_plant].copy()
+        return proc[proc["reporting_plant"] == normalized_plant].copy()
 
     def _build_materials_table(self, cons: pd.DataFrame, proc: pd.DataFrame) -> list[dict]:
         if cons.empty:
@@ -1768,8 +2537,8 @@ class _DataStore:
                 uom=("uom", "first"),
                 total_qty=("usage_qty", "sum"),
                 n_months=("month_raw", "nunique"),
-                plant_count=("plant", "nunique"),
-                plants=("plant", lambda values: sorted(values.dropna().unique().tolist())),
+                plant_count=("reporting_plant", "nunique"),
+                plants=("reporting_plant", lambda values: sorted(values.dropna().unique().tolist())),
                 storage_location_count=("storage_location", "nunique"),
                 currency=("currency", "first"),
             )
@@ -1826,19 +2595,17 @@ class _DataStore:
         merged["total_value"] = merged["total_value"].fillna(0.0)
         merged["currency"] = merged["currency_proc"].fillna(merged["currency"])
         merged = merged.sort_values("total_value", ascending=False)
+        cons_groups = {material: frame for material, frame in cons.groupby("material_desc")}
+        proc_groups = {material: frame for material, frame in proc.groupby("material_desc")}
 
         materials: list[dict] = []
         for _, row in merged.iterrows():
             material_name = row["material"]
-            cons_mat = cons[cons["material_desc"] == material_name]
-            proc_mat = proc[proc["material_desc"] == material_name]
-            forecast = _build_forecast(_monthly_series(cons_mat))
-            vendor_scores = _build_vendor_scores(proc_mat)
+            cons_mat = cons_groups.get(material_name, cons.iloc[0:0])
+            proc_mat = proc_groups.get(material_name, proc.iloc[0:0])
+            monthly_preview = _monthly_series(cons_mat)
+            forecast_total = _quick_forecast_total(monthly_preview)
             cost_variance = _build_cost_variance(proc_mat)
-            avg_vendor_score = round(
-                _safe_float(np.mean([score["score"] for score in vendor_scores])) if vendor_scores else 0.0,
-                1,
-            )
             dominant_swing = max(
                 cost_variance["significant_events"],
                 key=lambda event: abs(event["pct_change"]),
@@ -1875,9 +2642,9 @@ class _DataStore:
                     "plants": row.get("plants", []) if isinstance(row.get("plants"), list) else [],
                     "plant_count": int(row.get("plant_count", 0)),
                     "storage_location_count": int(row.get("storage_location_count", 0)),
-                    "forecast_6m_qty": round(_safe_float(forecast["projected_total_qty"]), 2),
-                    "forecast_method": forecast["method"],
-                    "avg_vendor_score": avg_vendor_score,
+                    "forecast_6m_qty": round(_safe_float(forecast_total), 2),
+                    "forecast_method": "Seasonal median preview",
+                    "avg_vendor_score": 0.0,
                     "max_price_swing_pct": round(price_swing_pct, 2),
                     "max_price_swing_direction": price_swing_direction,
                     "significant_price_swings": int(cost_variance["significant_event_count"]),
@@ -1933,7 +2700,7 @@ class _DataStore:
             "total_procurement_value": round(sum(material["total_value"] for material in materials), 2),
             "period_from": period_from,
             "period_to": period_to,
-            "unique_plants": int(cons["plant"].nunique()) if not cons.empty else 0,
+            "unique_plants": int(cons["reporting_plant"].nunique()) if not cons.empty else 0,
             "data_points": int(len(cons)),
             "total_months": int(cons[["year", "month"]].drop_duplicates().shape[0]) if not cons.empty else 0,
             "selected_plant": normalized_plant or "",
@@ -2014,7 +2781,7 @@ class _DataStore:
                 "unit_price": round(_safe_float(row.get("unit_price")), 2),
                 "price_unit": round(_safe_float(row.get("price_unit"), 1.0), 2),
                 "effective_value": round(_safe_float(row.get("effective_value")), 2),
-                "plant": _normalize_text(row.get("plant")),
+                "plant": _normalize_text(row.get("reporting_plant") or row.get("plant")),
                 "currency": _clean_currency(row.get("currency")),
             }
             for _, row in df.iterrows()
@@ -2026,10 +2793,30 @@ class _DataStore:
         proc = self._filtered_procurement(plant)
         cons_df = cons[cons["material_desc"] == normalized_material].copy()
         proc_df = proc[proc["material_desc"] == normalized_material].copy()
+
+        # ── Aggregate to monthly totals first ─────────────────────────────────
+        # Whether data comes from legacy monthly-summary format (MB52) or from
+        # MB51 transaction-level format (multiple rows per day/month), always
+        # derive the chart and all summary statistics from the netted monthly
+        # series.  This correctly cancels reversals against consumption within
+        # each month and ignores rows whose posting date could not be parsed.
         monthly = _monthly_series(cons_df)
         proc_monthly = _monthly_procurement_series(proc_df)
+
+        # Derive totals from the aggregated monthly series so they are always
+        # consistent with the trend chart even for MB51 transaction data.
+        if not monthly.empty:
+            total_qty = round(_safe_float(monthly["qty"].sum()), 2)
+            # Count months where net consumption is non-zero (ignores months
+            # that were completely reversed back to zero).
+            active_months = int((monthly["qty"] != 0).sum())
+        else:
+            total_qty = 0.0
+            active_months = 0
+
         forecast = _build_forecast(monthly)
         yoy = _build_yoy(monthly, proc_monthly)
+        financial_years = _build_financial_year_summary(monthly, proc_monthly)
         vendor_scores = _build_vendor_scores(proc_df)
         cost_variance = _build_cost_variance(proc_df)
         storage_breakdown = _build_storage_breakdown(cons_df, _normalize_plant(plant))
@@ -2038,9 +2825,9 @@ class _DataStore:
             "material": normalized_material,
             "plant": _normalize_plant(plant) or "",
             "summary": {
-                "total_qty": round(_safe_float(cons_df["usage_qty"].sum()), 2),
+                "total_qty": total_qty,
                 "total_value": round(_safe_float(proc_df["effective_value"].sum()), 2),
-                "active_months": int(cons_df["month_raw"].nunique()) if not cons_df.empty else 0,
+                "active_months": active_months,
                 "storage_location_count": int(cons_df["storage_location"].nunique()) if not cons_df.empty else 0,
                 "vendor_count": int(proc_df["vendor"].nunique()) if not proc_df.empty else 0,
                 "last_unit_price": round(_safe_float(proc_df.sort_values("doc_date")["unit_price"].iloc[-1]), 2) if not proc_df.empty else 0.0,
@@ -2052,12 +2839,100 @@ class _DataStore:
             },
             "forecast": forecast,
             "yoy": yoy,
+            "financial_years": financial_years,
             "vendor_scores": vendor_scores,
             "storage_breakdown": storage_breakdown,
             "cost_variance": cost_variance,
         }
 
     def build_export_workbook(self, plant: str | None = None, query: str = "") -> tuple[BytesIO, str]:
+        """Build and return the professional MI report workbook as a BytesIO stream.
+
+        Delegates to ``generate_mi_report.generate_workbook_from_dataframes()``
+        which produces the same multi-sheet, chart-rich workbook as the
+        standalone ``generate_mi_report.py`` CLI script.
+        """
+        import sys as _sys
+
+        # ── Dynamically import the standalone report-generator module ─────────
+        # _BASE_DIR already points to the workspace root where the script lives.
+        _report_dir = _BASE_DIR
+        if _report_dir not in _sys.path:
+            _sys.path.insert(0, _report_dir)
+        try:
+            import generate_mi_report as _rpt  # type: ignore
+            _gen = _rpt.generate_workbook_from_dataframes
+        except Exception as _exc:
+            logger.warning("Could not import generate_mi_report (%s); falling back to basic export", _exc)
+            return self._build_basic_export_workbook(plant=plant, query=query)
+
+        # ── Get filtered consumption and procurement DataFrames ───────────────
+        cons = self._filtered_consumption(plant)
+        proc = self._filtered_procurement(plant)
+
+        # Optionally narrow to the search-query subset
+        if query:
+            payload = self.get_dashboard_payload(plant=plant)
+            materials = _filter_material_rows(payload["materials"], query)
+            material_names = {m["material"] for m in materials}
+            if material_names:
+                cons = cons[cons["material_desc"].isin(material_names)].copy()
+                proc = proc[proc["material_desc"].isin(material_names)].copy()
+            else:
+                cons = cons.iloc[0:0].copy()
+                proc = proc.iloc[0:0].copy()
+
+        # ── Load master data (density / physical state) from DB ───────────────
+        master_df = None
+        try:
+            from app.models.inventory.material_master import MaterialMaster
+            from app.extensions import db as _db
+            import json as _json
+
+            rows_db = _db.session.query(
+                MaterialMaster.material,
+                MaterialMaster.short_text,
+                MaterialMaster.physical_state,
+                MaterialMaster.extra_data,
+            ).all()
+
+            records = []
+            for mat, stext, phys, extra_raw in rows_db:
+                ed: dict = {}
+                if extra_raw:
+                    try:
+                        ed = _json.loads(extra_raw) if isinstance(extra_raw, str) else (extra_raw or {})
+                    except Exception:
+                        pass
+                density_raw = ed.get("Density") or ed.get("density")
+                try:
+                    density = float(density_raw) if density_raw not in (None, "", "nan", "NaN") else None
+                except Exception:
+                    density = None
+                records.append({
+                    "material_code":  str(mat).strip(),
+                    "short_text":     str(stext or "").strip(),
+                    "physical_state": str(phys or "").strip() or None,
+                    "density":        density,
+                })
+            master_df = pd.DataFrame(records)
+            logger.info("Loaded %d master records for MI report export", len(master_df))
+        except Exception as _exc:
+            logger.warning("Could not load master data for export (%s); skipping density conversion", _exc)
+
+        # ── Generate the professional workbook ────────────────────────────────
+        try:
+            stream = _gen(cons, proc, master_df=master_df, plant_filter=plant)
+        except Exception as _exc:
+            logger.error("generate_workbook_from_dataframes failed (%s); falling back to basic export", _exc, exc_info=True)
+            return self._build_basic_export_workbook(plant=plant, query=query)
+
+        plant_suffix = (_normalize_plant(plant) or "all-plants").lower()
+        filename = f"mi-report-{plant_suffix}.xlsx"
+        return stream, filename
+
+    def _build_basic_export_workbook(self, plant: str | None = None, query: str = "") -> tuple[BytesIO, str]:
+        """Fallback: the original simple 3-sheet export workbook."""
         payload = self.get_dashboard_payload(plant=plant)
         materials = _filter_material_rows(payload["materials"], query)
         material_names = {material["material"] for material in materials}
@@ -2088,109 +2963,67 @@ class _DataStore:
             summary_sheet.append(row)
 
         material_headers = [
-            "Material",
-            "Material Code",
-            "UoM",
-            "Avg Monthly Consumption",
-            "Avg Annual Consumption",
-            "Total Quantity",
-            "Total Procurement Value",
-            "Last Procurement Qty",
-            "Last Procurement Value",
-            "Last Vendor",
-            "Last PO Number",
-            "Last Procurement Date",
-            "Vendor Score",
-            "Forecast 6M Qty",
-            "Max Price Swing %",
-            "Price Swing Direction",
-            "Plants",
+            "Material", "Material Code", "UoM",
+            "Avg Monthly Consumption", "Avg Annual Consumption",
+            "Total Quantity", "Total Procurement Value",
+            "Last Procurement Qty", "Last Procurement Value",
+            "Last Vendor", "Last PO Number", "Last Procurement Date",
+            "Vendor Score", "Forecast 6M Qty",
+            "Max Price Swing %", "Price Swing Direction", "Plants",
         ]
         summary_sheet.append(material_headers)
         for material in materials:
-            summary_sheet.append(
-                [
-                    material["material"],
-                    material["material_code"],
-                    material["uom"],
-                    material["avg_monthly_consumption"],
-                    material["avg_annual_consumption"],
-                    material["total_qty"],
-                    material["total_value"],
-                    material["last_proc_qty"],
-                    material["last_proc_value"],
-                    material["last_vendor"],
-                    material["last_po_number"],
-                    material["last_proc_date"],
-                    material["avg_vendor_score"],
-                    material["forecast_6m_qty"],
-                    material["max_price_swing_pct"],
-                    material.get("max_price_swing_direction", ""),
-                    ", ".join(material.get("plants", [])),
-                ]
-            )
+            summary_sheet.append([
+                material["material"], material["material_code"], material["uom"],
+                material["avg_monthly_consumption"], material["avg_annual_consumption"],
+                material["total_qty"], material["total_value"],
+                material["last_proc_qty"], material["last_proc_value"],
+                material["last_vendor"], material["last_po_number"], material["last_proc_date"],
+                material["avg_vendor_score"], material["forecast_6m_qty"],
+                material["max_price_swing_pct"], material.get("max_price_swing_direction", ""),
+                ", ".join(material.get("plants", [])),
+            ])
 
         cons_sheet = workbook.create_sheet("Consumption Detail")
-        cons_sheet.append(
-            [
-                "Plant",
-                "Material Code",
-                "Material",
-                "Storage Location",
-                "Month",
-                "Usage Quantity",
-                "UoM",
-            ]
-        )
-        for _, row in cons.sort_values(["plant", "material_desc", "year", "month"]).iterrows():
-            cons_sheet.append(
-                [
-                    _normalize_text(row.get("plant")),
-                    _normalize_text(row.get("material_code")),
-                    _normalize_text(row.get("material_desc")),
-                    _normalize_text(row.get("storage_location")),
-                    _normalize_text(row.get("month_raw")),
-                    round(_safe_float(row.get("usage_qty")), 2),
-                    _normalize_text(row.get("uom")),
-                ]
-            )
+        cons_sheet.append(["Plant", "Source Plant", "Material Code", "Material",
+                            "Storage Location", "Financial Year", "Month", "Usage Quantity", "UoM"])
+        for _, row in cons.sort_values(["reporting_plant", "plant", "material_desc", "year", "month"]).iterrows():
+            cons_sheet.append([
+                _normalize_text(row.get("reporting_plant")),
+                _normalize_text(row.get("plant")),
+                _normalize_text(row.get("material_code")),
+                _normalize_text(row.get("material_desc")),
+                _normalize_text(row.get("storage_location")),
+                _normalize_text(row.get("financial_year")),
+                _normalize_text(row.get("month_raw")),
+                round(_safe_float(row.get("usage_qty")), 2),
+                _normalize_text(row.get("uom")),
+            ])
 
         proc_sheet = workbook.create_sheet("Procurement Detail")
-        proc_sheet.append(
-            [
-                "Plant",
-                "Material Code",
-                "Material",
-                "PO Number",
-                "Document Date",
-                "Vendor",
-                "Order Quantity",
-                "Order Unit",
-                "Net Price",
-                "Price Unit",
-                "Unit Price",
-                "Effective Value",
-                "Currency",
-            ]
-        )
-        for _, row in proc.sort_values(["plant", "material_desc", "doc_date"], ascending=[True, True, False]).iterrows():
-            proc_sheet.append(
-                [
-                    _normalize_text(row.get("plant")),
-                    _normalize_text(row.get("material_code")),
-                    _normalize_text(row.get("material_desc")),
-                    _normalize_text(row.get("po_number")),
-                    row["doc_date"].strftime("%d %b %Y") if pd.notna(row.get("doc_date")) else "",
-                    _normalize_text(row.get("vendor")),
-                    round(_safe_float(row.get("order_qty")), 2),
-                    _normalize_text(row.get("order_unit")),
-                    round(_safe_float(row.get("net_price")), 2),
-                    round(_safe_float(row.get("price_unit"), 1.0), 2),
-                    round(_safe_float(row.get("unit_price")), 2),
-                    round(_safe_float(row.get("effective_value")), 2),
-                    _clean_currency(row.get("currency")),
-                ]
-            )
+        proc_sheet.append(["Plant", "Source Plant", "Material Code", "Material",
+                            "PO Number", "Document Date", "Financial Year", "Vendor",
+                            "Order Quantity", "Order Unit", "Net Price", "Price Unit",
+                            "Unit Price", "Effective Value", "Currency"])
+        for _, row in proc.sort_values(["reporting_plant", "plant", "material_desc", "doc_date"],
+                                        ascending=[True, True, True, False]).iterrows():
+            proc_sheet.append([
+                _normalize_text(row.get("reporting_plant")),
+                _normalize_text(row.get("plant")),
+                _normalize_text(row.get("material_code")),
+                _normalize_text(row.get("material_desc")),
+                _normalize_text(row.get("po_number")),
+                row["doc_date"].strftime("%d %b %Y") if pd.notna(row.get("doc_date")) else "",
+                _normalize_text(row.get("financial_year")),
+                _normalize_text(row.get("vendor")),
+                round(_safe_float(row.get("order_qty")), 2),
+                _normalize_text(row.get("order_unit")),
+                round(_safe_float(row.get("net_price")), 2),
+                round(_safe_float(row.get("price_unit"), 1.0), 2),
+                round(_safe_float(row.get("unit_price")), 2),
+                round(_safe_float(row.get("effective_value")), 2),
+                _clean_currency(row.get("currency")),
+            ])
 
         self._format_export_sheet(summary_sheet, header_row=8)
         self._format_export_sheet(cons_sheet, header_row=1)
@@ -2227,3 +3060,40 @@ _store = _DataStore()
 
 def get_data_store() -> _DataStore:
     return _store
+
+
+# ── Master Data helpers ────────────────────────────────────────────────────────
+# Convenience accessors so any analysis module can import from here and enrich
+# its output with material master attributes without a direct DB dependency.
+
+def get_master_record(material: str) -> dict | None:
+    """Return the MaterialMaster dict for *material*, or None.
+
+    The *material* key matches the SAP ``material`` field used in
+    inventory_records and procurement data.
+
+    Usage in analysis code::
+
+        from app.core.services.inventory_intelligence import get_master_record
+
+        record = get_master_record("90001025")
+        if record:
+            group = record["group"]
+            centralization = record["centralization"]
+    """
+    from app.core.services.master_data import get_master_record as _get
+    return _get(material)
+
+
+def get_all_master_data() -> list[dict]:
+    """Return all MaterialMaster rows as a list of dicts, sorted by material.
+
+    Usage::
+
+        from app.core.services.inventory_intelligence import get_all_master_data
+
+        master_map = {r["material"]: r for r in get_all_master_data()}
+        # Then join: row["group"] = master_map.get(row["material"], {}).get("group", "")
+    """
+    from app.core.services.master_data import get_all_master_data as _get_all
+    return _get_all()

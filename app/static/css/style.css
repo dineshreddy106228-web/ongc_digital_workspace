@@ -272,6 +272,10 @@ body.app-authenticated {
     display: block;
 }
 
+body.welcome-modal-open {
+    overflow: hidden;
+}
+
 .sr-only {
     position: absolute;
     width: 1px;
@@ -721,6 +725,89 @@ body.workspace-flyout-open .workspace-main {
 
 .workspace-main .site-footer {
     margin-top: 0;
+}
+
+.workspace-welcome-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 4000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    background: linear-gradient(180deg, rgba(11, 20, 32, 0.76), rgba(15, 23, 42, 0.64));
+    backdrop-filter: blur(10px);
+}
+
+.workspace-welcome-modal {
+    width: min(760px, 100%);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.985), rgba(248, 250, 252, 0.985));
+    border: 1px solid color-mix(in srgb, var(--primary) 14%, var(--border));
+    border-radius: 22px;
+    box-shadow: var(--modal-shadow);
+    padding: 2rem 2rem 1.6rem;
+}
+
+.workspace-welcome-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    padding: .36rem .78rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--primary) 10%, white);
+    color: var(--primary-strong);
+    font-size: .74rem;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}
+
+.workspace-welcome-title {
+    margin-top: .95rem;
+    font-size: clamp(1.5rem, 2vw, 2rem);
+    line-height: 1.15;
+    color: var(--text);
+}
+
+.workspace-welcome-copy,
+.workspace-welcome-note {
+    margin-top: .9rem;
+    color: var(--muted);
+    font-size: .98rem;
+    line-height: 1.65;
+}
+
+.workspace-welcome-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .9rem;
+    margin-top: 1.25rem;
+}
+
+.workspace-welcome-card {
+    padding: 1rem .95rem;
+    border-radius: 16px;
+    background: linear-gradient(180deg, var(--surface), var(--surface-alt));
+    border: 1px solid color-mix(in srgb, var(--primary) 8%, var(--border));
+    box-shadow: var(--shadow-sm);
+}
+
+.workspace-welcome-card-title {
+    margin-bottom: .45rem;
+    color: var(--text);
+    font-size: .9rem;
+    font-weight: 700;
+}
+
+.workspace-welcome-card p {
+    color: var(--muted);
+    font-size: .88rem;
+    line-height: 1.55;
+}
+
+.workspace-welcome-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 1.4rem;
 }
 
 .workspace-backdrop {
@@ -1963,6 +2050,20 @@ body.workspace-flyout-open .workspace-backdrop {
     }
     .analytics-grid {
         grid-template-columns: 1fr;
+    }
+    .workspace-welcome-overlay {
+        padding: 1rem;
+    }
+    .workspace-welcome-modal {
+        padding: 1.35rem 1.15rem 1.15rem;
+        border-radius: 18px;
+    }
+    .workspace-welcome-grid {
+        grid-template-columns: 1fr;
+    }
+    .workspace-welcome-actions .btn {
+        width: 100%;
+        justify-content: center;
     }
 }
 

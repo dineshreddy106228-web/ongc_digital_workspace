@@ -61,7 +61,7 @@ class Config:
         default=FLASK_ENV != "development",
     )
     REMEMBER_COOKIE_SECURE = SESSION_COOKIE_SECURE
-    MAX_CONTENT_LENGTH = int(os.environ.get("MAX_CONTENT_LENGTH", str(2 * 1024 * 1024)))
+    MAX_CONTENT_LENGTH = int(os.environ.get("MAX_CONTENT_LENGTH", str(256 * 1024 * 1024)))
     DB_COMMAND_TIMEOUT_SECONDS = int(os.environ.get("DB_COMMAND_TIMEOUT_SECONDS", "600"))
     MYSQL_BIN = os.environ.get("MYSQL_BIN", "mysql")
     MYSQLDUMP_BIN = os.environ.get("MYSQLDUMP_BIN", "mysqldump")

@@ -14,8 +14,8 @@
         <div>
             <h1 class="inv-module-title"><i class="bi bi-graph-up-arrow"></i> Demand Forecast</h1>
             <p class="inv-module-subtitle">
-                6-month probabilistic demand forecast with P5 / P10 / P50 / P90 / P95 bands.
-                Buffer = P95 &minus; P5 per month.
+                6-month demand forecast with a backtested percentile interval and monthly buffer plan.
+                Buffer = selected upper band &minus; selected lower band per month.
             </p>
         </div>
         <div class="inv-header-actions">
@@ -25,7 +25,7 @@
 
     {# ── Sub-navigation ─────────────────────────────────────────────── #}
     <nav class="inv-subnav" aria-label="Inventory sub-navigation">
-        <a href="{{ url_for('inventory.index') }}" class="inv-subnav-link">
+        <a href="{{ url_for('inventory.materials_page') }}" class="inv-subnav-link">
             <i class="bi bi-bar-chart-line"></i> Materials Intelligence
         </a>
         <a href="{{ url_for('inventory.forecast_page') }}" class="inv-subnav-link active">
@@ -104,11 +104,7 @@
                                 </div>
                                 <div class="inv-forecast-band-legend-item">
                                     <div class="inv-forecast-band-swatch" style="background:rgba(180,83,9,0.35);"></div>
-                                    <span>P10–P90 Band</span>
-                                </div>
-                                <div class="inv-forecast-band-legend-item">
-                                    <div class="inv-forecast-band-swatch" style="background:rgba(217,119,6,0.15);"></div>
-                                    <span>P5–P95 Band</span>
+                                    <span>Selected Interval Band</span>
                                 </div>
                             </div>
                         </div>
@@ -123,26 +119,20 @@
                     <div class="card-body">
                         <h3 class="inv-section-heading" style="margin-bottom:0.25rem;">6-Month Demand Forecast</h3>
                         <p class="inv-card-subtitle" style="margin-bottom:0.75rem;">
-                            Procure at minimum the <strong>P50</strong> quantity each month. Hold buffer stock equal to the <strong>Buffer (P95 &minus; P5)</strong> column to cover demand uncertainty.
+                            Use the <strong>P50</strong> quantity as the expected demand plan. The <strong>Buffer</strong> column is the gap between the selected lower and upper percentile forecasts.
                         </p>
                         <div class="inv-expand-table-wrap">
                             <table class="inv-expand-table" id="forecastTable">
                                 <thead>
                                     <tr>
                                         <th>Month</th>
-                                        <th class="text-right" title="5th percentile — demand very unlikely to fall below this">
-                                            P5 <span class="inv-muted inv-small">(Low)</span>
-                                        </th>
-                                        <th class="text-right" title="10th percentile">P10</th>
+                                        <th class="text-right" id="forecastLowerHeader">Lower Band</th>
                                         <th class="text-right" title="50th percentile median" style="background:rgba(217,119,6,0.06);">
                                             P50 <span class="inv-muted inv-small">(Expected)</span>
                                         </th>
-                                        <th class="text-right" title="90th percentile">P90</th>
-                                        <th class="text-right" title="95th percentile — demand very unlikely to exceed this">
-                                            P95 <span class="inv-muted inv-small">(High)</span>
-                                        </th>
-                                        <th class="text-right" title="Buffer stock = P95 minus P5">
-                                            Buffer <span class="inv-muted inv-small">(P95&minus;P5)</span>
+                                        <th class="text-right" id="forecastUpperHeader">Upper Band</th>
+                                        <th class="text-right" id="forecastBufferHeader">
+                                            Buffer
                                         </th>
                                     </tr>
                                 </thead>
@@ -299,30 +289,34 @@
             (f.demand_type ? ' · ' + f.demand_type.charAt(0).toUpperCase() + f.demand_type.slice(1) + ' demand' : '') +
             (f.consistency_message ? ' · ' + f.consistency_message : '');
 
+        var selectedBandLabel = f.selected_band_label || '';
+        var lowerLabel = f.selected_lower_label || 'Lower';
+        var upperLabel = f.selected_upper_label || 'Upper';
+        document.getElementById('forecastLowerHeader').innerHTML = esc(lowerLabel) + ' <span class="inv-muted inv-small">(Lower)</span>';
+        document.getElementById('forecastUpperHeader').innerHTML = esc(upperLabel) + ' <span class="inv-muted inv-small">(Upper)</span>';
+        document.getElementById('forecastBufferHeader').innerHTML = 'Buffer <span class="inv-muted inv-small">(' + esc(upperLabel) + '&minus;' + esc(lowerLabel) + ')</span>';
+
         document.getElementById('forecastKpiRow').innerHTML =
-            kpiItem('P5 Total',  fmtNum(f.p5_total_qty,  2)) +
+            kpiItem('Selected Band', selectedBandLabel || '—') +
+            kpiItem(lowerLabel + ' Total', fmtNum(f.lower_total_qty, 2)) +
             kpiItem('P50 Total', fmtNum(f.p50_total_qty, 2)) +
-            kpiItem('P95 Total', fmtNum(f.p95_total_qty, 2)) +
+            kpiItem(upperLabel + ' Total', fmtNum(f.upper_total_qty, 2)) +
             kpiItem('6M Buffer', fmtNum(f.buffer_total_qty, 2));
 
         // ── Chart ────────────────────────────────────────────────────────
         var histLabels  = f.history_labels    || [];
         var histValues  = f.history_quantities || [];
         var foreLabels  = f.forecast_labels   || [];
-        var p5Vals  = f.p5_quantities  || [];
-        var p10Vals = f.p10_quantities || [];
+        var lowerVals = f.selected_lower_quantities || [];
         var p50Vals = f.p50_quantities || [];
-        var p90Vals = f.p90_quantities || [];
-        var p95Vals = f.p95_quantities || [];
+        var upperVals = f.selected_upper_quantities || [];
 
         var nH = histLabels.length, nF = foreLabels.length;
         var labels      = histLabels.concat(foreLabels);
         var histSeries  = histValues.concat(new Array(nF).fill(null));
-        var p5Series    = new Array(nH).fill(null).concat(p5Vals);
-        var p10Series   = new Array(nH).fill(null).concat(p10Vals);
+        var lowerSeries = new Array(nH).fill(null).concat(lowerVals);
         var p50Series   = new Array(nH).fill(null).concat(p50Vals);
-        var p90Series   = new Array(nH).fill(null).concat(p90Vals);
-        var p95Series   = new Array(nH).fill(null).concat(p95Vals);
+        var upperSeries = new Array(nH).fill(null).concat(upperVals);
 
         destroyChart();
         var ctx = document.getElementById('forecastChart').getContext('2d');
@@ -342,34 +336,9 @@
                         fill: true,
                         order: 1
                     },
-                    // Outer band: P5 (floor)
                     {
-                        label: 'P5',
-                        data: p5Series,
-                        borderColor: 'rgba(234,88,12,0.30)',
-                        borderWidth: 1,
-                        borderDash: [3, 4],
-                        pointRadius: 0,
-                        backgroundColor: 'transparent',
-                        fill: false,
-                        order: 6
-                    },
-                    // Outer band: P95 fills back to P5
-                    {
-                        label: 'P95',
-                        data: p95Series,
-                        borderColor: 'rgba(234,88,12,0.30)',
-                        borderWidth: 1,
-                        borderDash: [3, 4],
-                        pointRadius: 0,
-                        backgroundColor: 'rgba(217,119,6,0.08)',
-                        fill: '-1',
-                        order: 5
-                    },
-                    // Inner band: P10 (floor)
-                    {
-                        label: 'P10',
-                        data: p10Series,
+                        label: lowerLabel,
+                        data: lowerSeries,
                         borderColor: 'rgba(180,83,9,0.45)',
                         borderWidth: 1,
                         borderDash: [5, 3],
@@ -378,10 +347,9 @@
                         fill: false,
                         order: 4
                     },
-                    // Inner band: P90 fills back to P10
                     {
-                        label: 'P90',
-                        data: p90Series,
+                        label: upperLabel,
+                        data: upperSeries,
                         borderColor: 'rgba(180,83,9,0.45)',
                         borderWidth: 1,
                         borderDash: [5, 3],
@@ -390,7 +358,6 @@
                         fill: '-1',
                         order: 3
                     },
-                    // P50 median line
                     {
                         label: 'P50',
                         data: p50Series,
@@ -411,7 +378,7 @@
                     legend: {
                         labels: {
                             filter: function (item) {
-                                return item.text === 'Historical' || item.text === 'P50';
+                                return item.text === 'Historical' || item.text === 'P50' || item.text === lowerLabel || item.text === upperLabel;
                             }
                         }
                     },
@@ -434,35 +401,28 @@
         var rows = f.forecast_rows || [];
         var tbody = document.getElementById('forecastTableBody');
         if (!rows.length) {
-            tbody.innerHTML = '<tr><td colspan="7" class="inv-muted" style="text-align:center;padding:0.75rem;">No forecast rows.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5" class="inv-muted" style="text-align:center;padding:0.75rem;">No forecast rows.</td></tr>';
         } else {
-            var p5T = 0, p10T = 0, p50T = 0, p90T = 0, p95T = 0, bufT = 0;
+            var lowerT = 0, p50T = 0, upperT = 0, bufT = 0;
             var html = rows.map(function (row) {
-                var p5  = row.p5_qty  || 0;
-                var p10 = row.p10_qty || 0;
+                var lower = row.lower_qty || 0;
                 var p50 = row.p50_qty || 0;
-                var p90 = row.p90_qty || 0;
-                var p95 = row.p95_qty || 0;
+                var upper = row.upper_qty || 0;
                 var buf = row.buffer_qty || 0;
-                p5T += p5; p10T += p10; p50T += p50; p90T += p90; p95T += p95; bufT += buf;
+                lowerT += lower; p50T += p50; upperT += upper; bufT += buf;
                 return '<tr>' +
                     '<td><strong>' + esc(row.period) + '</strong></td>' +
-                    '<td class="text-right inv-num">' + fmtNum(p5, 2) + '</td>' +
-                    '<td class="text-right inv-num">' + fmtNum(p10, 2) + '</td>' +
+                    '<td class="text-right inv-num">' + fmtNum(lower, 2) + '</td>' +
                     '<td class="text-right inv-num" style="background:rgba(217,119,6,0.06);font-weight:600;">' + fmtNum(p50, 2) + '</td>' +
-                    '<td class="text-right inv-num">' + fmtNum(p90, 2) + '</td>' +
-                    '<td class="text-right inv-num">' + fmtNum(p95, 2) + '</td>' +
+                    '<td class="text-right inv-num">' + fmtNum(upper, 2) + '</td>' +
                     '<td class="text-right inv-num" style="font-weight:600;color:#b45309;">' + fmtNum(buf, 2) + '</td>' +
                     '</tr>';
             }).join('');
-            // Totals row
             html += '<tr style="border-top:2px solid rgba(15,23,42,0.15);font-weight:700;">' +
                 '<td>6M Total</td>' +
-                '<td class="text-right inv-num">' + fmtNum(p5T, 2) + '</td>' +
-                '<td class="text-right inv-num">' + fmtNum(p10T, 2) + '</td>' +
+                '<td class="text-right inv-num">' + fmtNum(lowerT, 2) + '</td>' +
                 '<td class="text-right inv-num" style="background:rgba(217,119,6,0.06);">' + fmtNum(p50T, 2) + '</td>' +
-                '<td class="text-right inv-num">' + fmtNum(p90T, 2) + '</td>' +
-                '<td class="text-right inv-num">' + fmtNum(p95T, 2) + '</td>' +
+                '<td class="text-right inv-num">' + fmtNum(upperT, 2) + '</td>' +
                 '<td class="text-right inv-num" style="color:#b45309;">' + fmtNum(bufT, 2) + '</td>' +
                 '</tr>';
             tbody.innerHTML = html;

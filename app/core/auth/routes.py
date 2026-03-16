@@ -3,7 +3,7 @@
 from collections import defaultdict, deque
 from datetime import datetime, timezone
 from flask import (
-    render_template, redirect, url_for, flash, request, current_app,
+    render_template, redirect, url_for, flash, request, current_app, session, jsonify,
 )
 from flask_login import login_user, logout_user, login_required, current_user
 from app.core.auth import auth_bp
@@ -136,6 +136,7 @@ def login():
 
         # Success
         login_user(user, remember=False)
+        session["show_login_welcome"] = True
         _clear_login_failures(username)
         user.last_login_at = datetime.now(timezone.utc)
         db.session.commit()
@@ -166,6 +167,7 @@ def login():
 def logout():
     uid = current_user.id
     uname = current_user.username
+    session.pop("show_login_welcome", None)
     logout_user()
     AuditLog.log(
         action="logout",
@@ -177,6 +179,15 @@ def logout():
     db.session.commit()
     flash("You have been logged out.", "info")
     return redirect(url_for("auth.login"))
+
+
+@auth_bp.route("/welcome-acknowledge", methods=["POST"])
+@login_required
+def welcome_acknowledge():
+    session.pop("show_login_welcome", None)
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": True})
+    return redirect(request.referrer or url_for("main.dashboard"))
 
 
 # ── CHANGE PASSWORD ──────────────────────────────────────────────
