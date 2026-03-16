@@ -15,4 +15,6 @@ from app.models.core.notification import Notification                    # noqa:
 from app.models.core.backup_snapshot import BackupSnapshot              # noqa: F401
 from app.models.inventory.inventory_upload import InventoryUpload            # noqa: F401
 from app.models.inventory.inventory_record import InventoryRecord            # noqa: F401
+from app.models.inventory.inventory_consumption_seed import InventoryConsumptionSeed  # noqa: F401
+from app.models.inventory.inventory_procurement_seed import InventoryProcurementSeed  # noqa: F401
 from app.models.inventory.material_master import MaterialMaster              # noqa: F401

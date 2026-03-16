@@ -12,12 +12,12 @@
         <div>
             <h1 class="inv-module-title"><i class="bi bi-box-seam"></i> Inventory Intelligence</h1>
             <p class="inv-module-subtitle" id="pageSubtitle">
-                SAP Material Consumption &amp; Procurement Analytics — Value basis: procurement effective value — Seed data: {{ kpis.period_from }} to {{ kpis.period_to }}
+                SAP Material Consumption &amp; Procurement Analytics — loading current seed coverage…
             </p>
         </div>
         <div class="inv-header-actions">
-            <span class="inv-badge inv-badge-info" id="recordBadge">{{ '{:,}'.format(kpis.data_points | default(0)) }} records</span>
-            <span class="inv-badge inv-badge-muted" id="monthBadge">{{ kpis.total_months | default(0) }} months</span>
+            <span class="inv-badge inv-badge-info" id="recordBadge">Loading…</span>
+            <span class="inv-badge inv-badge-muted" id="monthBadge">Loading…</span>
             <a href="{{ url_for('inventory.seed_files') }}" class="btn btn-sm btn-secondary">
                 <i class="bi bi-upload"></i> Update Seed Files
             </a>
@@ -41,7 +41,7 @@
         <div class="inv-kpi-card">
             <div class="inv-kpi-icon inv-kpi-blue"><i class="bi bi-boxes"></i></div>
             <div>
-                <div class="inv-kpi-value" id="kpiMaterials">{{ kpis.total_materials }}</div>
+                <div class="inv-kpi-value" id="kpiMaterials">—</div>
                 <div class="inv-kpi-label">Total Materials</div>
                 <div class="inv-kpi-hint">Unique SAP materials tracked</div>
             </div>
@@ -49,7 +49,7 @@
         <div class="inv-kpi-card inv-kpi-card-clickable" id="kpiPlantCard" title="Click to view &amp; edit plant groupings" role="button" tabindex="0">
             <div class="inv-kpi-icon inv-kpi-green"><i class="bi bi-building"></i></div>
             <div>
-                <div class="inv-kpi-value" id="kpiPlants">{{ kpis.unique_plants }}</div>
+                <div class="inv-kpi-value" id="kpiPlants">—</div>
                 <div class="inv-kpi-label">Plants <i class="bi bi-pencil-square" style="font-size:0.65rem;margin-left:4px;opacity:0.6;"></i></div>
                 <div class="inv-kpi-hint" id="kpiPlantHint">Across all storage locations</div>
             </div>
@@ -57,7 +57,7 @@
         <div class="inv-kpi-card">
             <div class="inv-kpi-icon inv-kpi-amber"><i class="bi bi-truck"></i></div>
             <div>
-                <div class="inv-kpi-value" id="kpiVendors">{{ kpis.total_vendors }}</div>
+                <div class="inv-kpi-value" id="kpiVendors">—</div>
                 <div class="inv-kpi-label">Vendors</div>
                 <div class="inv-kpi-hint">Procurement records in scope</div>
             </div>
@@ -65,17 +65,9 @@
         <div class="inv-kpi-card">
             <div class="inv-kpi-icon inv-kpi-purple"><i class="bi bi-currency-rupee"></i></div>
             <div>
-                <div class="inv-kpi-value inv-kpi-value-sm" id="kpiValue">
-                    {% if kpis.total_procurement_value >= 10000000 %}
-                        ₹ {{ '{:,.1f}'.format(kpis.total_procurement_value / 10000000) }} Cr
-                    {% elif kpis.total_procurement_value >= 100000 %}
-                        ₹ {{ '{:,.1f}'.format(kpis.total_procurement_value / 100000) }} L
-                    {% else %}
-                        ₹ {{ '{:,.0f}'.format(kpis.total_procurement_value) }}
-                    {% endif %}
-                </div>
+                <div class="inv-kpi-value inv-kpi-value-sm" id="kpiValue">—</div>
                 <div class="inv-kpi-label">Total Procurement Value</div>
-                <div class="inv-kpi-hint" id="kpiPeriod">{{ kpis.period_from }} — {{ kpis.period_to }}</div>
+                <div class="inv-kpi-hint" id="kpiPeriod">Loading period…</div>
             </div>
         </div>
     </div>
@@ -107,15 +99,12 @@
         </div>
         <div class="inv-filter-group-inline">
             <label for="plantFilter" class="inv-filter-label">Plant</label>
-            <select id="plantFilter" class="inv-filter-select">
-                <option value="">All Plants</option>
-                {% for plant in filter_options.plants %}
-                <option value="{{ plant }}">{{ plant }}</option>
-                {% endfor %}
+            <select id="plantFilter" class="inv-filter-select" disabled>
+                <option value="">Loading plants…</option>
             </select>
         </div>
         <div class="inv-toolbar-meta">
-            <span id="materialCount" class="inv-count-badge">{{ materials_count }} materials</span>
+            <span id="materialCount" class="inv-count-badge">Loading materials…</span>
             <a id="btnExport" href="{{ url_for('inventory.export_excel') }}" class="btn btn-sm btn-primary">
                 <i class="bi bi-file-earmark-excel"></i> Export Excel
             </a>
@@ -134,14 +123,21 @@
                     <th data-sort="material_code">Material Code <i class="bi bi-arrow-down-up inv-sort-icon"></i></th>
                     <th>UoM</th>
                     <th class="text-right" data-sort="avg_monthly_consumption">Avg Monthly <i class="bi bi-arrow-down-up inv-sort-icon"></i></th>
-                    <th class="text-right" data-sort="forecast_6m_qty">Forecast 6M Qty <i class="bi bi-arrow-down-up inv-sort-icon"></i></th>
+                    <th class="text-right" data-sort="total_qty">Total Qty <i class="bi bi-arrow-down-up inv-sort-icon"></i></th>
+                    <th class="text-right" data-sort="total_value">Total Value <i class="bi bi-arrow-down-up inv-sort-icon"></i></th>
                     <th class="text-right" data-sort="last_unit_price">Last Unit Price <i class="bi bi-arrow-down-up inv-sort-icon"></i></th>
                     <th class="text-right" data-sort="last_proc_value">Last Procurement Value <i class="bi bi-arrow-down-up inv-sort-icon"></i></th>
-                    <th class="text-right" data-sort="max_price_swing_pct">Max Price Swing <i class="bi bi-arrow-down-up inv-sort-icon"></i></th>
+                    <th class="text-right" data-sort="plant_count">Plants <i class="bi bi-arrow-down-up inv-sort-icon"></i></th>
                     <th>Vendor(s)</th>
                 </tr>
             </thead>
-            <tbody id="materialsBody"></tbody>
+            <tbody id="materialsBody">
+                <tr>
+                    <td colspan="10">
+                        <div class="inv-loading"><i class="bi bi-arrow-repeat inv-spin"></i> Loading materials…</div>
+                    </td>
+                </tr>
+            </tbody>
         </table>
     </div>
 
@@ -222,10 +218,9 @@
 (function() {
     'use strict';
 
-    var dashboardData = {{ dashboard_json | safe }};
-    var MATERIALS = dashboardData.materials || [];
-    var TOP_CONSUMERS = dashboardData.top_consumers || [];
-    var currentPlant = dashboardData.kpis ? (dashboardData.kpis.selected_plant || '') : '';
+    var MATERIALS = [];
+    var TOP_CONSUMERS = [];
+    var currentPlant = {{ initial_plant | tojson }};
     var filteredMaterials = MATERIALS.slice();
     var sortCol = 'total_value';
     var sortAsc = false;
@@ -234,6 +229,8 @@
     var analyticsChart = null;
     var analyticsData = null;
     var activeAnalyticsTab = 'trend';
+    var analyticsRequestId = 0;
+    var analyticsSectionRequests = {};
 
     function fmtNum(value, digits) {
         if (value == null || isNaN(value)) return '\u2014';
@@ -279,6 +276,7 @@
 
     function showLoadingModal(material) {
         analyticsData = null;
+        analyticsSectionRequests = {};
         document.getElementById('analyticsTitle').textContent = material;
         document.getElementById('analyticsMeta').innerHTML = '';
         document.getElementById('analyticsSummary').innerHTML =
@@ -289,6 +287,9 @@
     }
 
     function closeModal() {
+        analyticsRequestId += 1;
+        analyticsData = null;
+        analyticsSectionRequests = {};
         document.getElementById('analyticsModal').style.display = 'none';
         if (analyticsChart) {
             analyticsChart.destroy();
@@ -296,13 +297,84 @@
         }
     }
 
+    function analyticsTabLabel(tab) {
+        if (tab === 'forecast') return 'forecast';
+        if (tab === 'yoy') return 'year-over-year analysis';
+        if (tab === 'vendors') return 'vendor scoring';
+        if (tab === 'storage') return 'storage breakdown';
+        if (tab === 'variance') return 'cost variance';
+        return 'analytics';
+    }
+
+    function renderAnalyticsSectionLoading(tab) {
+        destroyAnalyticsChart();
+        document.getElementById('analyticsCanvasWrap').style.display = 'none';
+        document.getElementById('analyticsSummary').innerHTML =
+            '<div class="inv-loading"><i class="bi bi-arrow-repeat inv-spin"></i> Loading ' + esc(analyticsTabLabel(tab)) + '\u2026</div>';
+        document.getElementById('analyticsPanel').innerHTML = '';
+    }
+
+    function ensureAnalyticsSection(tab) {
+        var sectionMap = {
+            forecast: 'forecast',
+            yoy: 'yoy',
+            vendors: 'vendors',
+            storage: 'storage',
+            variance: 'variance'
+        };
+        var section = sectionMap[tab];
+        if (!section || !analyticsData) {
+            return Promise.resolve();
+        }
+        analyticsData.loadedSections = analyticsData.loadedSections || { trend: true };
+        if (analyticsData.loadedSections[tab]) {
+            return Promise.resolve();
+        }
+        if (analyticsSectionRequests[tab]) {
+            return analyticsSectionRequests[tab];
+        }
+
+        var requestId = analyticsRequestId;
+        var material = analyticsData.material;
+        var request = fetch('/inventory/api/analytics/' + encodeURIComponent(material) + buildQuery({
+            plant: currentPlant,
+            section: section
+        }))
+            .then(function(response) { return response.json(); })
+            .then(function(payload) {
+                if (requestId !== analyticsRequestId || !analyticsData || analyticsData.material !== material) {
+                    return;
+                }
+                Object.keys(payload || {}).forEach(function(key) {
+                    analyticsData[key] = payload[key];
+                });
+                analyticsData.loadedSections[tab] = true;
+                if (activeAnalyticsTab === tab) {
+                    renderAnalytics();
+                }
+            })
+            .catch(function() {
+                if (requestId !== analyticsRequestId || activeAnalyticsTab !== tab) {
+                    return;
+                }
+                document.getElementById('analyticsSummary').innerHTML = '<div class="inv-error">Failed to load ' + esc(analyticsTabLabel(tab)) + '.</div>';
+            })
+            .finally(function() {
+                delete analyticsSectionRequests[tab];
+            });
+
+        analyticsSectionRequests[tab] = request;
+        return request;
+    }
+
     function updateHeader(kpis) {
-        document.getElementById('recordBadge').textContent = fmtNum(kpis.data_points, 0) + ' records';
-        document.getElementById('monthBadge').textContent = fmtNum(kpis.total_months, 0) + ' months';
-        document.getElementById('kpiMaterials').textContent = fmtNum(kpis.total_materials, 0);
-        document.getElementById('kpiPlants').textContent = fmtNum(kpis.unique_plants, 0);
-        document.getElementById('kpiVendors').textContent = fmtNum(kpis.total_vendors, 0);
-        document.getElementById('kpiValue').textContent = fmtCurrency(kpis.total_procurement_value);
+        kpis = kpis || {};
+        document.getElementById('recordBadge').textContent = fmtNum(kpis.data_points || 0, 0) + ' records';
+        document.getElementById('monthBadge').textContent = fmtNum(kpis.total_months || 0, 0) + ' months';
+        document.getElementById('kpiMaterials').textContent = fmtNum(kpis.total_materials || 0, 0);
+        document.getElementById('kpiPlants').textContent = fmtNum(kpis.unique_plants || 0, 0);
+        document.getElementById('kpiVendors').textContent = fmtNum(kpis.total_vendors || 0, 0);
+        document.getElementById('kpiValue').textContent = fmtCurrency(kpis.total_procurement_value || 0);
         document.getElementById('kpiPeriod').textContent = (kpis.period_from || '') + ' — ' + (kpis.period_to || '');
         document.getElementById('kpiPlantHint').textContent = kpis.selected_plant ? ('Focused on plant ' + kpis.selected_plant) : 'Across all storage locations';
         document.getElementById('pageSubtitle').textContent =
@@ -385,6 +457,13 @@
     var tableWrap = document.getElementById('tableWrap');
     var countEl = document.getElementById('materialCount');
 
+    function renderTableLoading(message) {
+        tbody.innerHTML = '<tr><td colspan="10"><div class="inv-loading"><i class="bi bi-arrow-repeat inv-spin"></i> ' + esc(message) + '</div></td></tr>';
+        emptyEl.style.display = 'none';
+        tableWrap.style.display = '';
+        countEl.textContent = message;
+    }
+
     function renderTable() {
         var rows = filteredMaterials.slice().sort(function(a, b) {
             var left = a[sortCol];
@@ -411,10 +490,6 @@
             var vendors = material.vendors || [];
             var vendorStr = vendors.slice(0, 2).map(esc).join(', ');
             var vendorMore = vendors.length > 2 ? ' <span class="inv-vendor-more">+' + (vendors.length - 2) + ' more</span>' : '';
-            var swingClass = material.max_price_swing_pct >= 15 ? 'inv-status-chip inv-status-alert' : 'inv-status-chip';
-            var swingSymbol = '';
-            if (material.max_price_swing_direction === 'up') swingSymbol = '\u25B2 ';
-            if (material.max_price_swing_direction === 'down') swingSymbol = '\u25BC ';
 
             tr.innerHTML =
                 '<td class="inv-rank-col"><span class="inv-rank-badge">' + (index + 1) + '</span></td>' +
@@ -423,10 +498,11 @@
                 '<td class="inv-td-code"><a href="#" class="inv-code-link" data-action="analytics" data-material="' + esc(material.material) + '">' + esc(material.material_code || '\u2014') + '</a></td>' +
                 '<td>' + esc(material.uom || '\u2014') + '</td>' +
                 '<td class="text-right inv-num inv-td-expandable" data-action="expand-consumption" data-material="' + esc(material.material) + '">' + fmtNum(material.avg_monthly_consumption, 2) + '</td>' +
-                '<td class="text-right inv-num">' + fmtNum(material.forecast_6m_qty, 2) + '</td>' +
+                '<td class="text-right inv-num">' + fmtNum(material.total_qty, 2) + '</td>' +
+                '<td class="text-right inv-num inv-val">' + fmtCurrency(material.total_value) + '</td>' +
                 '<td class="text-right inv-num">' + fmtCurrency(material.last_unit_price) + '</td>' +
                 '<td class="text-right inv-num inv-val inv-td-expandable" data-action="expand-procurement" data-material="' + esc(material.material) + '">' + fmtCurrency(material.last_proc_value) + '</td>' +
-                '<td class="text-right"><span class="' + swingClass + '">' + swingSymbol + fmtPct(material.max_price_swing_pct) + '</span></td>' +
+                '<td class="text-right inv-num">' + fmtNum(material.plant_count, 0) + '</td>' +
                 '<td class="inv-td-vendors">' + (vendorStr || '<span class="inv-muted">\u2014</span>') + vendorMore + '</td>';
             tbody.appendChild(tr);
         });
@@ -445,9 +521,46 @@
         updateExportLink();
     }
 
+    function populatePlantFilter(filters) {
+        var select = document.getElementById('plantFilter');
+        var plants = (filters && filters.plants) || [];
+        select.innerHTML = '<option value="">All Plants</option>';
+        plants.forEach(function(plant) {
+            var option = document.createElement('option');
+            option.value = plant;
+            option.textContent = plant;
+            option.selected = plant === currentPlant;
+            select.appendChild(option);
+        });
+        select.disabled = false;
+    }
+
     function fetchOverview(plant) {
         var url = '/inventory/api/overview' + buildQuery({ plant: plant });
         return fetch(url).then(function(response) { return response.json(); });
+    }
+
+    function fetchMaterials(plant) {
+        var url = '/inventory/api/materials' + buildQuery({ plant: plant });
+        return fetch(url).then(function(response) { return response.json(); });
+    }
+
+    function loadDashboard(plant) {
+        renderTableLoading('Loading materials…');
+        return fetchOverview(plant).then(function(overview) {
+            TOP_CONSUMERS = overview.top_consumers || [];
+            updateHeader(overview.kpis || {});
+            populatePlantFilter(overview.filters || {});
+            renderTopConsumers(TOP_CONSUMERS);
+            return fetchMaterials(plant);
+        }).then(function(materials) {
+            MATERIALS = materials || [];
+            filteredMaterials = MATERIALS.slice();
+            applyFilters();
+        }).catch(function() {
+            tbody.innerHTML = '<tr><td colspan="10"><div class="inv-error">Failed to load inventory data. Please refresh and try again.</div></td></tr>';
+            countEl.textContent = 'Load failed';
+        });
     }
 
     document.getElementById('materialSearch').addEventListener('input', function() {
@@ -456,14 +569,7 @@
 
     document.getElementById('plantFilter').addEventListener('change', function(event) {
         currentPlant = event.target.value;
-        fetchOverview(currentPlant).then(function(payload) {
-            dashboardData = payload;
-            MATERIALS = payload.materials || [];
-            TOP_CONSUMERS = payload.top_consumers || [];
-            updateHeader(payload.kpis || {});
-            renderTopConsumers(TOP_CONSUMERS);
-            applyFilters();
-        });
+        loadDashboard(currentPlant);
     });
 
     document.querySelectorAll('[data-sort]').forEach(function(th) {
@@ -501,6 +607,8 @@
         document.querySelectorAll('.inv-expand-row').forEach(function(row) { row.remove(); });
         document.querySelectorAll('.inv-row-main.is-expanded').forEach(function(row) { row.classList.remove('is-expanded'); });
     });
+
+    loadDashboard(currentPlant);
 
     function toggleExpand(material, mainRow, type) {
         var next = mainRow.nextElementSibling;
@@ -569,13 +677,18 @@
             tab.classList.toggle('is-active', tab.dataset.tab === activeAnalyticsTab);
         });
         showLoadingModal(material);
+        analyticsRequestId += 1;
+        var requestId = analyticsRequestId;
         fetch('/inventory/api/analytics/' + encodeURIComponent(material) + buildQuery({ plant: currentPlant }))
             .then(function(response) { return response.json(); })
             .then(function(payload) {
+                if (requestId !== analyticsRequestId) return;
                 analyticsData = payload;
+                analyticsData.loadedSections = { trend: true };
                 renderAnalytics();
             })
             .catch(function() {
+                if (requestId !== analyticsRequestId) return;
                 document.getElementById('analyticsSummary').innerHTML = '<div class="inv-error">Failed to load analytics.</div>';
             });
     }
@@ -588,6 +701,12 @@
         meta.push('<span class="inv-badge inv-badge-muted">' + fmtNum(analyticsData.summary.active_months, 0) + ' active months</span>');
         meta.push('<span class="inv-badge inv-badge-muted">' + fmtNum(analyticsData.summary.storage_location_count, 0) + ' storage locations</span>');
         document.getElementById('analyticsMeta').innerHTML = meta.join('');
+
+        if (activeAnalyticsTab !== 'trend' && !(analyticsData.loadedSections && analyticsData.loadedSections[activeAnalyticsTab])) {
+            renderAnalyticsSectionLoading(activeAnalyticsTab);
+            ensureAnalyticsSection(activeAnalyticsTab);
+            return;
+        }
 
         if (activeAnalyticsTab === 'trend') renderTrendTab();
         if (activeAnalyticsTab === 'forecast') renderForecastTab();
