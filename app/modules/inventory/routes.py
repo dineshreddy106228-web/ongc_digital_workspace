@@ -53,6 +53,7 @@ def _render_seed_files_page(
     audit_report: dict | None = None,
     upload_error: str | None = None,
     pending_token: str | None = None,
+    target_fy: str | None = None,
 ):
     from app.core.services.inventory_intelligence import (
         get_seed_upload_schema,
@@ -82,7 +83,7 @@ def _render_seed_files_page(
         cleanup_preview=get_procurement_rows_below_threshold(LOW_VALUE_THRESHOLD, token=token),
         cleanup_threshold=LOW_VALUE_THRESHOLD,
         pending_token=token,
-        target_fy=request.args.get("target_fy", "").strip(),
+        target_fy=(target_fy if target_fy is not None else request.args.get("target_fy", "")).strip(),
     )
 
 
@@ -121,16 +122,21 @@ def seed_files():
 
     if request.method == "POST":
         previous_token = _get_pending_token()
+        target_fy = request.form.get("target_fy", "").strip()
         consumption_file = request.files.get("consumption_seed")
         procurement_file = request.files.get("procurement_seed")
+        mc9_file = request.files.get("mc9_seed")
 
         if not consumption_file or not consumption_file.filename:
             return _render_seed_files_page(upload_error="Select the consumption seed file before uploading.")
         if not procurement_file or not procurement_file.filename:
             return _render_seed_files_page(upload_error="Select the procurement seed file before uploading.")
+        if not mc9_file or not mc9_file.filename:
+            return _render_seed_files_page(upload_error="Select the MC.9 monthly stock and consumption seed file before uploading.")
 
         consumption_bytes = consumption_file.read()
         procurement_bytes = procurement_file.read()
+        mc9_bytes = mc9_file.read()
 
         try:
             if previous_token:
@@ -141,6 +147,9 @@ def seed_files():
                 consumption_filename=consumption_file.filename,
                 procurement_bytes=procurement_bytes,
                 procurement_filename=procurement_file.filename,
+                mc9_bytes=mc9_bytes,
+                mc9_filename=mc9_file.filename,
+                expected_fy=target_fy or None,
             )
             _set_pending_token(token)
             return _render_seed_files_page(
@@ -151,12 +160,16 @@ def seed_files():
                     else None
                 ),
                 pending_token=token,
+                target_fy=target_fy,
             )
         except ValueError as exc:
-            return _render_seed_files_page(upload_error=str(exc))
+            return _render_seed_files_page(upload_error=str(exc), target_fy=target_fy)
         except Exception:
             logger.exception("Failed to upload inventory seed workbooks")
-            return _render_seed_files_page(upload_error="Could not update the seed files. Check the files and try again.")
+            return _render_seed_files_page(
+                upload_error="Could not update the seed files. Check the files and try again.",
+                target_fy=target_fy,
+            )
 
     return _render_seed_files_page()
 
@@ -778,3 +791,377 @@ def api_plant_grouping_post():
         pass
 
     return jsonify({"ok": True, "group_members": new_members})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SAP Ingestion & Analytics API  (Phase 2)
+# ══════════════════════════════════════════════════════════════════════════════
+# These routes handle direct SAP file uploads (MB51 / ME2M / MC.9), computed
+# table rebuilds, and structured analytics queries.  They are additive —
+# existing routes above remain unchanged.
+# ══════════════════════════════════════════════════════════════════════════════
+
+import io as _io
+from datetime import date as _date
+
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
+
+_VALID_SOURCES = {"MB51", "ME2M", "MC9"}
+
+
+def _validate_fiscal_year(raw: str | None) -> int | None:
+    """Return an int fiscal year or None.  Raise ValueError on junk input."""
+    if not raw:
+        return None
+    try:
+        fy = int(raw)
+    except (TypeError, ValueError):
+        raise ValueError("fiscal_year must be an integer")
+    if fy < 2000 or fy > 2099:
+        raise ValueError("fiscal_year must be between 2000 and 2099")
+    return fy
+
+
+def _json_error(message: str, status: int = 400):
+    return jsonify({"status": "error", "message": message}), status
+
+
+# ── POST /inventory/upload ────────────────────────────────────────────────────
+
+@inventory_bp.route("/upload", methods=["POST"])
+@login_required
+@module_access_required("inventory")
+def sap_upload():
+    """Upload an SAP export file (MB51 / ME2M / MC.9) for ingestion."""
+    from flask_login import current_user
+    from app.modules.inventory.ingestion.mb51_loader import MB51Loader
+    from app.modules.inventory.ingestion.me2m_loader import ME2MLoader
+    from app.modules.inventory.ingestion.mc9_loader import MC9Loader
+    from app.modules.inventory.analytics.stock_register import build_stock_register
+    from app.modules.inventory.analytics.vendor_grading import build_vendor_scorecard
+    from app.modules.inventory.ingestion.base_loader import ValidationError
+
+    source = (request.form.get("source") or "").strip().upper()
+    if source not in _VALID_SOURCES:
+        return _json_error(f"source must be one of {', '.join(sorted(_VALID_SOURCES))}")
+
+    file = request.files.get("file")
+    if not file or not file.filename:
+        return _json_error("No file provided")
+
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    if ext not in ("xlsx", "csv"):
+        return _json_error("Only .xlsx and .csv files are accepted")
+
+    # Read file into memory
+    raw_bytes = file.read()
+    if len(raw_bytes) > MAX_UPLOAD_BYTES:
+        return _json_error(f"File exceeds the {MAX_UPLOAD_BYTES // (1024*1024)} MB limit", 413)
+
+    try:
+        raw_fy = request.form.get("fiscal_year")
+        fiscal_year = _validate_fiscal_year(raw_fy)
+    except ValueError as exc:
+        return _json_error(str(exc))
+
+    loader_map = {"MB51": MB51Loader, "ME2M": ME2MLoader, "MC9": MC9Loader}
+    loader = loader_map[source]()
+
+    buf = _io.BytesIO(raw_bytes)
+    buf.name = file.filename
+
+    try:
+        result = loader.load(buf, fiscal_year=fiscal_year, loaded_by=getattr(current_user, "username", None))
+    except ValidationError as exc:
+        return _json_error(str(exc))
+    except Exception:
+        logger.exception("SAP upload failed for source=%s", source)
+        return _json_error("File processing failed. Check the file format and try again.", 500)
+
+    # Trigger recompute after successful load
+    warnings = list(result.warnings)
+    if fiscal_year and result.rows_loaded > 0:
+        try:
+            if source in ("MC9", "MB51"):
+                build_stock_register(fiscal_year)
+            if source == "ME2M":
+                build_vendor_scorecard(fiscal_year)
+        except Exception:
+            logger.exception("Post-upload recompute failed")
+            warnings.append("Data loaded but post-upload recompute encountered an error.")
+
+    return jsonify({
+        "status": result.status,
+        "rows_loaded": result.rows_loaded,
+        "rows_rejected": result.rows_rejected,
+        "warnings": warnings,
+    })
+
+
+# ── POST /inventory/recompute ─────────────────────────────────────────────────
+
+@inventory_bp.route("/recompute", methods=["POST"])
+@login_required
+@module_access_required("inventory")
+def sap_recompute():
+    """Trigger a rebuild of computed tables."""
+    from app.modules.inventory.analytics.stock_register import build_stock_register
+    from app.modules.inventory.analytics.vendor_grading import build_vendor_scorecard
+
+    data = request.get_json(silent=True) or {}
+    raw_fy = data.get("fiscal_year")
+    scope = (data.get("scope") or "all").strip().lower()
+
+    try:
+        fiscal_year = _validate_fiscal_year(str(raw_fy) if raw_fy else None)
+    except ValueError as exc:
+        return _json_error(str(exc))
+    if not fiscal_year:
+        return _json_error("fiscal_year is required")
+    if scope not in ("stock_register", "vendor_scorecard", "all"):
+        return _json_error("scope must be stock_register, vendor_scorecard, or all")
+
+    summary: dict = {}
+    try:
+        if scope in ("stock_register", "all"):
+            summary["stock_register"] = build_stock_register(fiscal_year)
+        if scope in ("vendor_scorecard", "all"):
+            summary["vendor_scorecard"] = build_vendor_scorecard(fiscal_year)
+    except Exception:
+        logger.exception("Recompute failed for scope=%s fy=%s", scope, fiscal_year)
+        return _json_error("Recompute failed. Check logs for details.", 500)
+
+    return jsonify({"status": "success", "summary": summary})
+
+
+# ── GET /inventory/stock-register ──────────────────────────────────────────────
+
+@inventory_bp.route("/stock-register")
+@login_required
+@module_access_required("inventory")
+def sap_stock_register():
+    """Return the monthly stock register as JSON or Excel download."""
+    from app.modules.inventory.analytics.queries import get_stock_register
+
+    raw_fy = request.args.get("fiscal_year")
+    try:
+        fiscal_year = _validate_fiscal_year(raw_fy)
+    except ValueError as exc:
+        return _json_error(str(exc))
+    if not fiscal_year:
+        return _json_error("fiscal_year is required")
+
+    plant = request.args.get("plant")
+    material_no = request.args.get("material_no")
+    fmt = (request.args.get("format") or "json").strip().lower()
+
+    rows = get_stock_register(fiscal_year, plant=plant, material_no=material_no)
+
+    if fmt == "excel":
+        import openpyxl
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Stock Register"
+        if rows:
+            ws.append(list(rows[0].keys()))
+            for r in rows:
+                ws.append(list(r.values()))
+        buf = _io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        return send_file(
+            buf,
+            as_attachment=True,
+            download_name=f"stock_register_FY{fiscal_year}.xlsx",
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    return jsonify(rows)
+
+
+# ── GET /inventory/analytics/yoy-spend ─────────────────────────────────────────
+
+@inventory_bp.route("/analytics/yoy-spend")
+@login_required
+@module_access_required("inventory")
+def sap_yoy_spend():
+    from app.modules.inventory.analytics.queries import get_yoy_spend
+
+    raw_fys = request.args.get("fiscal_years", "")
+    try:
+        fiscal_years = [int(x.strip()) for x in raw_fys.split(",") if x.strip()]
+    except ValueError:
+        return _json_error("fiscal_years must be comma-separated integers")
+    if not fiscal_years:
+        return _json_error("fiscal_years is required")
+
+    plant = request.args.get("plant")
+    material_group = request.args.get("material_group")
+    return jsonify(get_yoy_spend(fiscal_years, plant=plant, material_group=material_group))
+
+
+# ── GET /inventory/analytics/abc ───────────────────────────────────────────────
+
+@inventory_bp.route("/analytics/abc")
+@login_required
+@module_access_required("inventory")
+def sap_abc():
+    from app.modules.inventory.analytics.queries import get_abc_analysis
+
+    raw_fy = request.args.get("fiscal_year")
+    try:
+        fiscal_year = _validate_fiscal_year(raw_fy)
+    except ValueError as exc:
+        return _json_error(str(exc))
+    if not fiscal_year:
+        return _json_error("fiscal_year is required")
+
+    plant = request.args.get("plant")
+    return jsonify(get_abc_analysis(fiscal_year, plant=plant))
+
+
+# ── GET /inventory/analytics/vendor-scorecard ──────────────────────────────────
+
+@inventory_bp.route("/analytics/vendor-scorecard")
+@login_required
+@module_access_required("inventory")
+def sap_vendor_scorecard():
+    from app.modules.inventory.analytics.queries import get_vendor_scorecard
+
+    raw_fy = request.args.get("fiscal_year")
+    try:
+        fiscal_year = _validate_fiscal_year(raw_fy)
+    except ValueError as exc:
+        return _json_error(str(exc))
+    if not fiscal_year:
+        return _json_error("fiscal_year is required")
+
+    grade = request.args.get("grade")
+    if grade and grade.upper() not in ("A", "B", "C", "D"):
+        return _json_error("grade must be A, B, C, or D")
+
+    return jsonify(get_vendor_scorecard(fiscal_year, grade=grade))
+
+
+# ── GET /inventory/analytics/dead-stock ────────────────────────────────────────
+
+@inventory_bp.route("/analytics/dead-stock")
+@login_required
+@module_access_required("inventory")
+def sap_dead_stock():
+    from app.modules.inventory.analytics.queries import get_dead_stock
+
+    plant = request.args.get("plant")
+    try:
+        months = int(request.args.get("months", 6))
+    except (TypeError, ValueError):
+        return _json_error("months must be an integer")
+
+    return jsonify(get_dead_stock(plant=plant, no_movement_months=months))
+
+
+# ── GET /inventory/analytics/open-po-aging ─────────────────────────────────────
+
+@inventory_bp.route("/analytics/open-po-aging")
+@login_required
+@module_access_required("inventory")
+def sap_open_po_aging():
+    from app.modules.inventory.analytics.queries import get_open_po_aging
+
+    plant = request.args.get("plant")
+    return jsonify(get_open_po_aging(plant=plant))
+
+
+# ── GET /inventory/analytics/price-evolution ───────────────────────────────────
+
+@inventory_bp.route("/analytics/price-evolution")
+@login_required
+@module_access_required("inventory")
+def sap_price_evolution():
+    from app.modules.inventory.analytics.queries import get_price_evolution
+
+    material_no = request.args.get("material_no")
+    plant = request.args.get("plant")
+    if not material_no or not plant:
+        return _json_error("material_no and plant are required")
+
+    return jsonify(get_price_evolution(material_no, plant))
+
+
+# ── GET /inventory/analytics/consumption-trend ─────────────────────────────────
+
+@inventory_bp.route("/analytics/consumption-trend")
+@login_required
+@module_access_required("inventory")
+def sap_consumption_trend():
+    from app.modules.inventory.analytics.queries import get_material_consumption_trend
+
+    material_no = request.args.get("material_no")
+    plant = request.args.get("plant")
+    if not material_no or not plant:
+        return _json_error("material_no and plant are required")
+
+    try:
+        months = int(request.args.get("months", 24))
+    except (TypeError, ValueError):
+        return _json_error("months must be an integer")
+
+    return jsonify(get_material_consumption_trend(material_no, plant, months=months))
+
+
+# ── GET /inventory/analytics/forecast ──────────────────────────────────────────
+
+@inventory_bp.route("/analytics/forecast")
+@login_required
+@module_access_required("inventory")
+def sap_forecast():
+    from app.modules.inventory.analytics.forecast import forecast_material
+
+    material_no = request.args.get("material_no")
+    plant = request.args.get("plant")
+    if not material_no or not plant:
+        return _json_error("material_no and plant are required")
+
+    method = request.args.get("method", "weighted_moving_avg")
+    try:
+        periods_ahead = int(request.args.get("periods_ahead", 3))
+    except (TypeError, ValueError):
+        return _json_error("periods_ahead must be an integer")
+
+    return jsonify(forecast_material(material_no, plant, method=method, periods_ahead=periods_ahead))
+
+
+# ── GET /inventory/analytics/xyz ───────────────────────────────────────────────
+
+@inventory_bp.route("/analytics/xyz")
+@login_required
+@module_access_required("inventory")
+def sap_xyz():
+    from app.modules.inventory.analytics.forecast import get_xyz_classification
+
+    raw_fy = request.args.get("fiscal_year")
+    try:
+        fiscal_year = _validate_fiscal_year(raw_fy)
+    except ValueError as exc:
+        return _json_error(str(exc))
+    if not fiscal_year:
+        return _json_error("fiscal_year is required")
+
+    plant = request.args.get("plant")
+    return jsonify(get_xyz_classification(fiscal_year, plant=plant))
+
+
+# ── GET /inventory/load-history ────────────────────────────────────────────────
+
+@inventory_bp.route("/load-history")
+@login_required
+@module_access_required("inventory")
+def sap_load_history():
+    """Return the last 50 data_load_log entries."""
+    from app.modules.inventory.analytics.queries import _fetch_all
+
+    rows = _fetch_all(
+        "SELECT * FROM data_load_log ORDER BY loaded_at DESC LIMIT 50", ()
+    )
+    return jsonify(rows)

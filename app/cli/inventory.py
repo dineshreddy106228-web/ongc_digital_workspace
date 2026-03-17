@@ -20,6 +20,7 @@ def _print_summary(report: dict) -> None:
     click.echo("Inventory seed audit")
     click.echo(f"  Consumption file: {report['files']['consumption']}")
     click.echo(f"  Procurement file: {report['files']['procurement']}")
+    click.echo(f"  MC.9 file: {report['files']['mc9']}")
     click.echo("")
     click.echo("Coverage")
     click.echo(
@@ -35,6 +36,14 @@ def _print_summary(report: dict) -> None:
         f"{summary['procurement']['materials']} materials, "
         f"{summary['procurement']['plants']} plants, "
         f"{summary['procurement']['vendors']} vendors"
+    )
+    click.echo(
+        "  MC.9: "
+        f"{summary['mc9']['rows']} rows, "
+        f"{summary['mc9']['materials']} materials, "
+        f"{summary['mc9']['plants']} plants, "
+        f"{summary['mc9']['matched_rows']} matched rows, "
+        f"{summary['mc9']['discrepancy_count']} discrepancies"
     )
     click.echo(
         "  Overlap: "

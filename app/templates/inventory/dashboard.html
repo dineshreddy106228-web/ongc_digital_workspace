@@ -659,12 +659,12 @@
     }
 
     function renderProcurementExpand(row, data, material) {
-        var html = '<div class="inv-expand-header"><i class="bi bi-receipt"></i><strong>Procurement History</strong> — ' + esc(material) + '</div>';
+        var html = '<div class="inv-expand-header"><i class="bi bi-receipt"></i><strong>Procurement History</strong> — ' + esc(material) + ' <span class="inv-muted">(Unit Price = Effective Value / Order Quantity)</span></div>';
         html += '<div class="inv-expand-table-wrap"><table class="inv-expand-table">';
-        html += '<thead><tr><th>PO Number</th><th>Date</th><th>Plant</th><th>Vendor</th><th class="text-right">Order Qty</th><th>Unit</th><th class="text-right">Unit Price</th><th class="text-right">Effective Value</th></tr></thead><tbody>';
+        html += '<thead><tr><th>PO Number</th><th>Date</th><th>Plant</th><th>Vendor</th><th class="text-right">Ordered Qty</th><th class="text-right">Still To Deliver</th><th class="text-right">Procured Qty</th><th>Unit</th><th class="text-right">Unit Price</th><th class="text-right">Effective Value</th></tr></thead><tbody>';
         data.forEach(function(item) {
             html += '<tr><td class="inv-mono">' + esc(item.po_number) + '</td><td>' + esc(item.doc_date) + '</td><td>' + esc(item.plant) + '</td><td>' + esc(item.vendor) +
-                '</td><td class="text-right inv-num">' + fmtNum(item.order_qty, 2) + '</td><td>' + esc(item.order_unit) + '</td><td class="text-right inv-num">' +
+                '</td><td class="text-right inv-num">' + fmtNum(item.order_qty, 2) + '</td><td class="text-right inv-num">' + fmtNum(item.still_to_be_delivered_qty, 2) + '</td><td class="text-right inv-num">' + fmtNum(item.procured_qty, 2) + '</td><td>' + esc(item.order_unit) + '</td><td class="text-right inv-num">' +
                 fmtCurrency(item.unit_price) + '</td><td class="text-right inv-num inv-val">' + fmtCurrency(item.effective_value) + '</td></tr>';
         });
         html += '</tbody></table></div>';

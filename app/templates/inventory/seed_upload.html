@@ -13,7 +13,7 @@
             <div>
                 <h1 class="inv-module-title"><i class="bi bi-database-gear"></i> Data Management</h1>
                 <p class="inv-module-subtitle">
-                    Upload the `MB51` consumption file and `ME2M` procurement file together. Each upload is merged into the FY-tagged seed collection after the sanity checks pass.
+                    Upload the `MB51` consumption file, `ME2M` procurement file, and `MC.9` monthly stock-and-consumption file together. Each upload is merged into the FY-tagged seed collection after the sanity checks pass.
                 </p>
             </div>
             <div class="inv-header-actions">
@@ -79,6 +79,7 @@
                                     <th>Financial Year</th>
                                     <th>Consumption</th>
                                     <th>Procurement</th>
+                                    <th>MC.9</th>
                                     <th>Status</th>
                                     <th>Action</th>
                                 </tr>
@@ -99,6 +100,13 @@
                                         {{ fy.procurement.rows }} rows · {{ fy.procurement.materials }} materials · {{ fy.procurement.plants }} plants
                                         {% else %}
                                         Missing ME2M
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if fy.mc9 %}
+                                        {{ fy.mc9.rows }} rows · {{ fy.mc9.materials }} materials · {{ fy.mc9.plants }} plants
+                                        {% else %}
+                                        Missing MC.9
                                         {% endif %}
                                     </td>
                                     <td>
@@ -125,13 +133,16 @@
                     <h2 class="inv-card-title">Upload Seed Files</h2>
                     <p class="inv-card-subtitle">Accepted formats: `.xlsx`, `.xls`, `.csv`. The uploader keeps historical FYs and replaces only the FYs present in the new files.</p>
                     {% if target_fy %}
-                    <div class="inv-note">Selected FY: <strong>{{ target_fy }}</strong>. Upload the MB51 and ME2M files for this year. Applying the staged upload will replace only this FY in the seed store.</div>
+                    <div class="inv-note">Selected FY: <strong>{{ target_fy }}</strong>. Upload the MB51, ME2M, and MC.9 files for this year. Applying the staged upload will replace only this FY in the seed store. Rows from any other FY will be rejected before staging.</div>
                     {% else %}
                     <div class="inv-note">Uploads are staged first. Nothing is ingested until you review the sanity check results and click <strong>Apply Cleaned Staged Files</strong>.</div>
                     {% endif %}
 
                     <form id="seed-upload-form" method="POST" action="{{ url_for('inventory.seed_files') }}" enctype="multipart/form-data" class="inv-seed-form">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        {% if target_fy %}
+                        <input type="hidden" name="target_fy" value="{{ target_fy }}">
+                        {% endif %}
 
                         <div class="inv-seed-input-grid">
                             <div class="inv-seed-input-group">
@@ -144,6 +155,12 @@
                                 <label for="procurementSeed" class="inv-filter-label">Procurement ME2M File</label>
                                 <div class="inv-seed-input-meta">Target file: {{ schema["procurement"]["filename"] }}</div>
                                 <input id="procurementSeed" name="procurement_seed" type="file" class="form-control" accept=".xlsx,.xls,.csv" required>
+                            </div>
+
+                            <div class="inv-seed-input-group">
+                                <label for="mc9Seed" class="inv-filter-label">Monthly Stock And Consumption MC.9 File</label>
+                                <div class="inv-seed-input-meta">Target file: {{ schema["mc9"]["filename"] }}</div>
+                                <input id="mc9Seed" name="mc9_seed" type="file" class="form-control" accept=".xlsx,.xls,.csv" required>
                             </div>
                         </div>
 
@@ -299,24 +316,39 @@
                 </div>
 
                 {# ── Summary stats ────────────────────────────────────────────── #}
-                <div class="inv-seed-summary-grid">
-                    <div class="inv-summary-item">
-                        <div class="inv-summary-val">{{ audit_report.summary.consumption.rows }}</div>
-                        <div class="inv-summary-label">Consumption Rows</div>
+                    <div class="inv-seed-summary-grid">
+                        <div class="inv-summary-item">
+                            <div class="inv-summary-val">{{ audit_report.summary.consumption.rows }}</div>
+                            <div class="inv-summary-label">Consumption Rows</div>
                     </div>
-                    <div class="inv-summary-item">
-                        <div class="inv-summary-val">{{ audit_report.summary.procurement.rows }}</div>
-                        <div class="inv-summary-label">Procurement Rows</div>
+                        <div class="inv-summary-item">
+                            <div class="inv-summary-val">{{ audit_report.summary.procurement.rows }}</div>
+                            <div class="inv-summary-label">Procurement Rows</div>
+                        </div>
+                        <div class="inv-summary-item">
+                            <div class="inv-summary-val">{{ audit_report.summary.mc9.rows }}</div>
+                            <div class="inv-summary-label">MC.9 Rows</div>
+                        </div>
+                        <div class="inv-summary-item">
+                            <div class="inv-summary-val">{{ audit_report.summary.mc9.matched_rows }}</div>
+                            <div class="inv-summary-label">MC.9 Matched Rows</div>
+                        </div>
+                        <div class="inv-summary-item">
+                            <div class="inv-summary-val">{{ audit_report.summary.mc9.discrepancy_count }}</div>
+                            <div class="inv-summary-label">MC.9 Discrepancies</div>
+                        </div>
+                        <div class="inv-summary-item">
+                            <div class="inv-summary-val">{{ audit_report.summary.cross_file.material_overlap }}</div>
+                            <div class="inv-summary-label">Material Overlap</div>
+                        </div>
                     </div>
-                    <div class="inv-summary-item">
-                        <div class="inv-summary-val">{{ audit_report.summary.cross_file.material_overlap }}</div>
-                        <div class="inv-summary-label">Material Overlap</div>
+                    <div class="inv-note" style="margin-bottom:0.75rem;">
+                        MC.9 reconciliation status:
+                        <strong>{{ audit_report.summary.mc9.status_label }}</strong>
+                        {% if audit_report.summary.mc9.period_from or audit_report.summary.mc9.period_to %}
+                        · Coverage {{ audit_report.summary.mc9.period_from or '—' }} to {{ audit_report.summary.mc9.period_to or '—' }}
+                        {% endif %}
                     </div>
-                    <div class="inv-summary-item">
-                        <div class="inv-summary-val">{{ audit_report.summary.cross_file.plant_overlap }}</div>
-                        <div class="inv-summary-label">Plant Overlap</div>
-                    </div>
-                </div>
 
                 {% if cleanup_preview["count"] %}
                 <div class="inv-note" style="margin-bottom:0.75rem;">

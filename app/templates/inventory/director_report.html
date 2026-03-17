@@ -81,6 +81,9 @@
         <p class="inv-section-desc">
           Header order does not matter. The generator uses the SAP field names below.
         </p>
+        <p class="inv-section-desc">
+          Generated outputs use <strong>Unit Price</strong>, calculated as <code>Effective value / Order Quantity</code>.
+        </p>
 
         <div class="inv-schema-table-wrap">
           <table class="inv-schema-table">
@@ -92,7 +95,7 @@
             </thead>
             <tbody>
               <tr><td>Plant</td><td>Plant</td></tr>
-              <tr><td>Net Price</td><td>Material</td></tr>
+              <tr><td>Net Price (SAP raw)</td><td>Material</td></tr>
               <tr><td>Purchasing Document</td><td>Storage Location</td></tr>
               <tr><td>Document Date</td><td>Month</td></tr>
               <tr><td>Material</td><td>Usage Quantity</td></tr>

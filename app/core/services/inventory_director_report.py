@@ -53,6 +53,11 @@ PROCUREMENT_HEADERS = {
     "supplier supplying plant": "supplier",
     "short text": "short_text",
     "order quantity": "order_quantity",
+    "still to be delivered qty": "still_to_be_delivered_quantity",
+    "still to be delivered quantity": "still_to_be_delivered_quantity",
+    "still to be delivered": "still_to_be_delivered_quantity",
+    "open quantity": "still_to_be_delivered_quantity",
+    "open qty": "still_to_be_delivered_quantity",
     "order unit": "order_unit",
     "currency": "currency",
     "price unit": "price_unit",
@@ -79,6 +84,7 @@ PROCUREMENT_REQUIRED_FIELDS = {
     "supplier",
     "short_text",
     "order_quantity",
+    "still_to_be_delivered_quantity",
     "order_unit",
     "currency",
     "price_unit",
@@ -126,6 +132,7 @@ PROCUREMENT_FIELD_LABELS = {
     "supplier": "Supplier/Supplying Plant",
     "short_text": "Short Text",
     "order_quantity": "Order Quantity",
+    "still_to_be_delivered_quantity": "Still to be delivered (qty)",
     "order_unit": "Order Unit",
     "currency": "Currency",
     "price_unit": "Price Unit",
@@ -597,6 +604,8 @@ def _parse_procurement_rows(rows: list[list[Any]], validations: ValidationCollec
         if not short_text:
             validations.add("MISSING_CHEMICAL_NAME", material, "No Short Text in procurement data.")
 
+        ordered_quantity = _parse_decimal(values.get("order_quantity")) or Decimal("0")
+        still_to_be_delivered_quantity = _parse_decimal(values.get("still_to_be_delivered_quantity")) or Decimal("0")
         parsed_rows.append(
             {
                 "plant": _stringify(values.get("plant")),
@@ -608,7 +617,9 @@ def _parse_procurement_rows(rows: list[list[Any]], validations: ValidationCollec
                 "item": _stringify(values.get("item")),
                 "supplier": _stringify(values.get("supplier")),
                 "short_text": short_text,
-                "order_quantity": _parse_decimal(values.get("order_quantity")) or Decimal("0"),
+                "order_quantity": ordered_quantity,
+                "still_to_be_delivered_quantity": still_to_be_delivered_quantity,
+                "procured_quantity": ordered_quantity - still_to_be_delivered_quantity,
                 "order_unit": _stringify(values.get("order_unit")),
                 "effective_value": _parse_decimal(values.get("effective_value")) or Decimal("0"),
                 "currency": _stringify(values.get("currency")),
@@ -735,6 +746,8 @@ def _build_workbook(
                     row["document_date"].strftime("%Y-%m-%d"),
                     row["supplier"],
                     _excel_number(row["order_quantity"], NUMBER_QUANTITY),
+                    _excel_number(row["still_to_be_delivered_quantity"], NUMBER_QUANTITY),
+                    _excel_number(row["procured_quantity"], NUMBER_QUANTITY),
                     row["order_unit"],
                     _excel_number(row["effective_value"], NUMBER_VALUE),
                     row["currency"],
@@ -745,7 +758,7 @@ def _build_workbook(
             month_key = row["document_month"].strftime("%Y-%m")
             reporting_plant = _select_reporting_plant(_storage_prefix(row["plant"]), procurement_plants_by_prefix) or row["plant"]
             month_location = month_location_map[(month_key, reporting_plant)]
-            month_location["procurement_qty"] += row["order_quantity"]
+            month_location["procurement_qty"] += row["procured_quantity"]
             month_location["procurement_value"] += row["effective_value"]
 
     for material, units in consumption_uoms.items():
@@ -787,7 +800,7 @@ def _build_workbook(
                     NUMBER_VALUE,
                 ),
                 latest_procurement["document_date"].strftime("%d-%m-%Y") if latest_procurement else "",
-                _excel_number(latest_procurement["order_quantity"], NUMBER_QUANTITY) if latest_procurement else "",
+                _excel_number(latest_procurement["procured_quantity"], NUMBER_QUANTITY) if latest_procurement else "",
                 latest_procurement["purchasing_document"] if latest_procurement else "",
                 summary_text,
                 len(consumption.get("plants", set())),
@@ -900,14 +913,16 @@ def _build_workbook(
             "Document_Date",
             "Supplier",
             "Order_Quantity",
+            "Still_To_Be_Delivered_Qty",
+            "Procured_Quantity",
             "Order_Unit",
             "Effective_Value",
             "Currency",
         ],
         procurement_last3_rows,
-        widths=[14, 34, 10, 20, 16, 18, 14, 22, 14, 10, 14, 10],
+        widths=[14, 34, 10, 20, 16, 18, 14, 22, 14, 16, 14, 10, 14, 10],
         wrap_columns={2, 8},
-        numeric_columns={3, 9, 11},
+        numeric_columns={3, 9, 10, 11, 13},
     )
     _append_sheet(
         workbook,
@@ -1422,7 +1437,7 @@ def _excel_number(value: Decimal, quantum: Decimal) -> int | float:
 def _last_three_procurement_summary(procurement_rows: list[dict[str, Any]]) -> str:
     parts = []
     for rank, row in enumerate(procurement_rows[:3], start=1):
-        quantity = _excel_number(row["order_quantity"], NUMBER_QUANTITY)
+        quantity = _excel_number(row["procured_quantity"], NUMBER_QUANTITY)
         parts.append(
             f"{rank}){row['purchasing_document']}|{row['document_date'].strftime('%d-%m-%y')}|{quantity} {row['order_unit']}".strip()
         )

@@ -51,6 +51,7 @@ logger = logging.getLogger(__name__)
 _BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 CONS_FILE = os.path.join(_BASE_DIR, "Consumption_data.xlsx")
 PROC_FILE = os.path.join(_BASE_DIR, "Procurement_data.xlsx")
+MC9_FILE = os.path.join(_BASE_DIR, "MC9_data.xlsx")
 PLANT_GROUPING_FILE = os.path.join(_BASE_DIR, "inventory_plant_grouping.json")
 _CACHE_DIR = os.path.join(_BASE_DIR, ".cache", "inventory")
 _FORECAST_CACHE_FILE = os.path.join(_CACHE_DIR, "forecast_precomputed.pkl")
@@ -71,6 +72,28 @@ _CONSUMPTION_MOVEMENT_SIGNS = {
     "202": -1.0,
     "222": -1.0,
     "262": -1.0,
+}
+_QUANTITY_UNIT_FACTORS = {
+    "G": ("KG", 0.001),
+    "GM": ("KG", 0.001),
+    "GRAM": ("KG", 0.001),
+    "GRAMS": ("KG", 0.001),
+    "KG": ("KG", 1.0),
+    "KGS": ("KG", 1.0),
+    "MT": ("KG", 1000.0),
+    "T": ("KG", 1000.0),
+    "TON": ("KG", 1000.0),
+    "TONS": ("KG", 1000.0),
+    "TONNE": ("KG", 1000.0),
+    "TONNES": ("KG", 1000.0),
+    "KL": ("L", 1000.0),
+    "KLS": ("L", 1000.0),
+    "L": ("L", 1.0),
+    "LT": ("L", 1.0),
+    "LTR": ("L", 1.0),
+    "LTRS": ("L", 1.0),
+    "LTS": ("L", 1.0),
+    "ML": ("L", 0.001),
 }
 _REPORTING_PLANT_GROUPS = {
     "11A1": {"11A1", "11F1", "11F2", "11F3", "11F4", "11F5", "11F9", "11FA"},
@@ -124,6 +147,11 @@ _LEGACY_PROCUREMENT_ALIASES = {
     "supplier supplying plant": "vendor",
     "short text": "material_desc",
     "order quantity": "order_qty",
+    "still to be delivered qty": "still_to_be_delivered_qty",
+    "still to be delivered quantity": "still_to_be_delivered_qty",
+    "still to be delivered": "still_to_be_delivered_qty",
+    "open quantity": "still_to_be_delivered_qty",
+    "open qty": "still_to_be_delivered_qty",
     "order unit": "order_unit",
     "currency": "currency",
     "price unit": "price_unit",
@@ -131,6 +159,26 @@ _LEGACY_PROCUREMENT_ALIASES = {
     "release indicator": "release_indicator",
 }
 _ME2M_PROCUREMENT_ALIASES = dict(_LEGACY_PROCUREMENT_ALIASES)
+_MC9_ALIASES = {
+    "plant": "plant_label",
+    "material": "material_label",
+    "storage location": "storage_location",
+    "mrp controller": "mrp_controller",
+    "mrp type": "mrp_type",
+    "material type": "material_type",
+    "material group": "material_group",
+    "business area": "business_area",
+    "division": "division",
+    "month": "month_raw",
+    "valstckval": "stock_value",
+    "valstckval 1": "stock_value_currency",
+    "val stock": "stock_qty",
+    "val stock 1": "stock_uom",
+    "tot usage": "usage_qty",
+    "tot usage 1": "uom",
+    "tot us val": "usage_value",
+    "tot us val 1": "currency",
+}
 _CANONICAL_CONSUMPTION_COLUMNS = [
     "Material",
     "Plant",
@@ -157,11 +205,32 @@ _CANONICAL_PROCUREMENT_COLUMNS = [
     "Supplier/Supplying Plant",
     "Short Text",
     "Order Quantity",
+    "Still to be delivered (qty)",
     "Order Unit",
     "Currency",
     "Price Unit",
     "Effective value",
     "Release indicator",
+]
+_CANONICAL_MC9_COLUMNS = [
+    "Plant",
+    "Material",
+    "Storage Location",
+    "MRP Controller",
+    "MRP Type",
+    "Material Type",
+    "Material Group",
+    "Business Area",
+    "Division",
+    "Month",
+    "ValStckVal",
+    "ValStckVal.1",
+    "Val. stock",
+    "Val. stock.1",
+    "Tot. usage",
+    "Tot. usage.1",
+    "Tot.us.val",
+    "Tot.us.val.1",
 ]
 _DEFAULT_PLANT_GROUPING_CONFIG = {
     "prefix_groups": {
@@ -778,13 +847,14 @@ SEED_UPLOAD_SCHEMA = {
         "filename": os.path.basename(PROC_FILE),
         "required": [
             ("Plant", "SAP plant code"),
-            ("Net Price", "Procurement price"),
+            ("Net Price", "SAP source field retained in the upload; analytics use calculated Unit Price from Effective value / Order Quantity"),
             ("Purchasing Document", "PO number"),
             ("Document Date", "PO document date"),
             ("Material", "Material code"),
             ("Supplier/Supplying Plant", "Vendor name or supplying plant"),
             ("Short Text", "Material description"),
             ("Order Quantity", "Ordered quantity"),
+            ("Still to be delivered (qty)", "Undelivered balance used to derive procured quantity"),
             ("Order Unit", "Order unit of measure"),
             ("Currency", "Currency code, typically INR"),
             ("Price Unit", "Price basis unit"),
@@ -793,6 +863,33 @@ SEED_UPLOAD_SCHEMA = {
         "optional": [
             ("Item", "PO item number"),
             ("Release indicator", "Release status"),
+        ],
+        "allowed_exts": {".xlsx", ".xls", ".csv"},
+    },
+    "mc9": {
+        "title": "Monthly Stock And Consumption MC.9 File",
+        "filename": os.path.basename(MC9_FILE),
+        "required": [
+            ("Plant", "Plant label with the SAP plant code prefix"),
+            ("Material", "Material code and description"),
+            ("Storage Location", "Storage location"),
+            ("Month", "Monthly reporting period such as 4.2023"),
+            ("ValStckVal", "Closing stock value"),
+            ("ValStckVal.1", "Closing stock currency"),
+            ("Val. stock", "Closing stock quantity"),
+            ("Val. stock.1", "Closing stock unit of measure"),
+            ("Tot. usage", "Monthly consumption quantity"),
+            ("Tot. usage.1", "Monthly consumption unit of measure"),
+            ("Tot.us.val", "Monthly consumption value"),
+            ("Tot.us.val.1", "Monthly consumption currency"),
+        ],
+        "optional": [
+            ("MRP Controller", "MRP controller"),
+            ("MRP Type", "MRP type"),
+            ("Material Type", "Material type"),
+            ("Material Group", "Material group"),
+            ("Business Area", "Business area"),
+            ("Division", "Division"),
         ],
         "allowed_exts": {".xlsx", ".xls", ".csv"},
     },
@@ -907,6 +1004,16 @@ def _normalize_text(value) -> str:
     return str(value).strip()
 
 
+def _normalize_quantity_series(quantity: pd.Series, uom: pd.Series) -> tuple[pd.Series, pd.Series]:
+    normalized_uom = uom.map(_normalize_code)
+    conversion = normalized_uom.map(_QUANTITY_UNIT_FACTORS)
+    factors = conversion.map(lambda item: item[1] if item else np.nan).astype(float)
+    canonical_uom = conversion.map(lambda item: item[0] if item else None)
+    normalized_qty = quantity.where(factors.isna(), quantity * factors)
+    normalized_uom = normalized_uom.where(canonical_uom.isna(), canonical_uom)
+    return normalized_qty, normalized_uom
+
+
 def _normalize_code(value) -> str:
     text = _normalize_text(value)
     if not text:
@@ -914,6 +1021,24 @@ def _normalize_code(value) -> str:
     if text.endswith(".0"):
         text = text[:-2]
     return text.strip().upper()
+
+
+def _extract_prefixed_code(value) -> str:
+    text = _normalize_text(value).upper()
+    if not text:
+        return ""
+    match = re.match(r"^([A-Z0-9]{3,12})\b", text)
+    return _normalize_code(match.group(1)) if match else ""
+
+
+def _split_material_label(value) -> tuple[str, str]:
+    text = _normalize_text(value).upper()
+    if not text:
+        return "", ""
+    match = re.match(r"^([0-9]{6,18})\s+(.+)$", text)
+    if not match:
+        return "", text
+    return _normalize_code(match.group(1)), match.group(2).strip()
 
 
 def _header_key(value) -> str:
@@ -937,6 +1062,10 @@ def _detect_frame_variant(columns: list[str], seed_type: str) -> str:
     if seed_type == "consumption":
         if "movement type" in keys and "posting date" in keys:
             return "mb51"
+        return "legacy"
+    if seed_type == "mc9":
+        if {"plant", "material", "month", "tot usage", "tot us val"}.issubset(keys):
+            return "mc9"
         return "legacy"
     if "purchasing document" in keys and "document date" in keys:
         return "me2m"
@@ -1020,6 +1149,18 @@ def _build_seed_row_financial_years(df: pd.DataFrame, seed_type: str) -> pd.Seri
         ]
         return result
 
+    if seed_type == "mc9":
+        frame = _apply_header_aliases(frame, _MC9_ALIASES)
+        month_raw = frame.get("month_raw", pd.Series(index=frame.index, dtype="object")).fillna("").astype(str)
+        month, year = _parse_period(month_raw)
+        result = pd.Series("", index=frame.index, dtype="object")
+        valid = month.notna() & year.notna()
+        result.loc[valid] = [
+            _financial_year_label(int(y), int(m))
+            for y, m in zip(year.loc[valid], month.loc[valid])
+        ]
+        return result
+
     aliases = _ME2M_PROCUREMENT_ALIASES if variant == "me2m" else _LEGACY_PROCUREMENT_ALIASES
     frame = _apply_header_aliases(frame, aliases)
     doc_dates = pd.to_datetime(frame.get("doc_date"), errors="coerce")
@@ -1074,6 +1215,7 @@ def _normalize_legacy_consumption_frame(df: pd.DataFrame) -> pd.DataFrame:
     frame["currency"] = frame["currency"].map(_clean_currency)
     frame["usage_qty"] = pd.to_numeric(frame["usage_qty"], errors="coerce")
     frame["usage_value"] = pd.to_numeric(frame["usage_value"], errors="coerce")
+    frame["usage_qty"], frame["uom"] = _normalize_quantity_series(frame["usage_qty"], frame["uom"])
 
     month, year = _parse_period(frame["month_raw"])
     frame["month"] = month
@@ -1148,6 +1290,8 @@ def _normalize_mb51_consumption_frame(df: pd.DataFrame) -> pd.DataFrame:
     frame["usage_value_raw"] = frame["usage_value"]
     frame["usage_qty"] = frame["entry_qty"].abs() * frame["movement_sign"]
     frame["usage_value"] = frame["usage_value"].abs() * frame["movement_sign"]
+    frame["usage_qty"], frame["uom"] = _normalize_quantity_series(frame["usage_qty"], frame["uom"])
+    _, frame["base_uom"] = _normalize_quantity_series(pd.Series(np.nan, index=frame.index), frame["base_uom"])
     frame["month"] = frame["posting_date"].dt.month.astype("Int64")
     frame["year"] = frame["posting_date"].dt.year.astype("Int64")
     frame["month_raw"] = frame["posting_date"].dt.strftime("%m.%Y").fillna("")
@@ -1174,6 +1318,79 @@ def _load_consumption() -> pd.DataFrame:
     )
 
 
+def _normalize_mc9_frame(df: pd.DataFrame) -> pd.DataFrame:
+    frame = _apply_header_aliases(df, _MC9_ALIASES)
+    frame["source_excel_row"] = frame.index + 2
+    for column in [
+        "plant_label",
+        "material_label",
+        "storage_location",
+        "mrp_controller",
+        "mrp_type",
+        "material_type",
+        "material_group",
+        "business_area",
+        "division",
+        "month_raw",
+        "stock_value",
+        "stock_value_currency",
+        "stock_qty",
+        "stock_uom",
+        "usage_qty",
+        "uom",
+        "usage_value",
+        "currency",
+    ]:
+        if column not in frame.columns:
+            frame[column] = pd.NA
+
+    frame["plant_label"] = frame["plant_label"].map(_normalize_text)
+    frame["material_label"] = frame["material_label"].map(_normalize_text).str.upper()
+    frame["storage_location"] = frame["storage_location"].map(_normalize_text)
+    frame["mrp_controller"] = frame["mrp_controller"].map(_normalize_text)
+    frame["mrp_type"] = frame["mrp_type"].map(_normalize_text)
+    frame["material_type"] = frame["material_type"].map(_normalize_text)
+    frame["material_group"] = frame["material_group"].map(_normalize_text)
+    frame["business_area"] = frame["business_area"].map(_normalize_text)
+    frame["division"] = frame["division"].map(_normalize_text)
+    frame["month_raw"] = frame["month_raw"].map(_normalize_text)
+    frame["plant"] = frame["plant_label"].map(_extract_prefixed_code)
+    split_material = frame["material_label"].apply(_split_material_label)
+    frame["material_code"] = split_material.apply(lambda item: item[0])
+    frame["material_desc"] = split_material.apply(lambda item: item[1])
+    frame["stock_value_currency"] = frame["stock_value_currency"].map(_clean_currency)
+    frame["stock_uom"] = frame["stock_uom"].map(_normalize_code)
+    frame["uom"] = frame["uom"].map(_normalize_code)
+    frame["currency"] = frame["currency"].map(_clean_currency)
+    for column in ["stock_value", "stock_qty", "usage_qty", "usage_value"]:
+        frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    frame["stock_qty"], frame["stock_uom"] = _normalize_quantity_series(frame["stock_qty"], frame["stock_uom"])
+    frame["usage_qty"], frame["uom"] = _normalize_quantity_series(frame["usage_qty"], frame["uom"])
+
+    month, year = _parse_period(frame["month_raw"])
+    frame["month"] = month
+    frame["year"] = year
+    frame["posting_date"] = pd.to_datetime(
+        dict(
+            year=pd.to_numeric(frame["year"], errors="coerce"),
+            month=pd.to_numeric(frame["month"], errors="coerce"),
+            day=1,
+        ),
+        errors="coerce",
+    )
+    frame["reporting_plant"] = frame["plant"].map(_reporting_plant)
+    frame = _apply_financial_year_columns(frame, "posting_date")
+    return frame[(frame["material_desc"] != "") | (frame["material_code"] != "")].copy()
+
+
+def _load_mc9() -> pd.DataFrame:
+    return _load_normalized_cache(
+        source_path=MC9_FILE,
+        cache_name="mc9_normalized.pkl",
+        normalizer=_normalize_mc9_frame,
+    )
+
+
 def _normalize_legacy_procurement_frame(df: pd.DataFrame) -> pd.DataFrame:
     frame = _apply_header_aliases(df, _LEGACY_PROCUREMENT_ALIASES)
     frame["source_excel_row"] = frame.index + 2
@@ -1187,6 +1404,7 @@ def _normalize_legacy_procurement_frame(df: pd.DataFrame) -> pd.DataFrame:
         "vendor",
         "material_desc",
         "order_qty",
+        "still_to_be_delivered_qty",
         "order_unit",
         "currency",
         "price_unit",
@@ -1206,13 +1424,14 @@ def _normalize_legacy_procurement_frame(df: pd.DataFrame) -> pd.DataFrame:
     frame["currency"] = frame["currency"].map(_clean_currency)
     frame["release_indicator"] = frame["release_indicator"].map(_normalize_text)
     frame["doc_date"] = pd.to_datetime(frame["doc_date"], errors="coerce")
-    for column in ["net_price", "order_qty", "price_unit", "effective_value"]:
+    for column in ["net_price", "order_qty", "still_to_be_delivered_qty", "price_unit", "effective_value"]:
         frame[column] = pd.to_numeric(frame[column], errors="coerce")
 
     positive_qty = frame["order_qty"].where(frame["order_qty"].fillna(0) > 0)
     derived_unit_price = frame["effective_value"] / positive_qty
     frame["unit_price"] = derived_unit_price.replace([np.inf, -np.inf], np.nan)
     frame["net_price"] = frame["unit_price"]
+    frame["procured_qty"] = frame["order_qty"] - frame["still_to_be_delivered_qty"].fillna(0)
     frame["reporting_plant"] = frame["plant"].map(_reporting_plant)
     frame = _apply_financial_year_columns(frame, "doc_date")
     return frame[frame["material_desc"] != ""].copy()
@@ -1418,6 +1637,14 @@ def _detect_procurement_fields(columns: list[str]) -> set[str]:
     }
 
 
+def _detect_mc9_fields(columns: list[str]) -> set[str]:
+    return {
+        _MC9_ALIASES[key]
+        for key in (_header_key(column) for column in columns)
+        if key in _MC9_ALIASES
+    }
+
+
 def _validate_seed_frame(df: pd.DataFrame, seed_type: str) -> None:
     columns = [str(column).strip() for column in df.columns]
     if seed_type == "consumption":
@@ -1445,17 +1672,47 @@ def _validate_seed_frame(df: pd.DataFrame, seed_type: str) -> None:
                 "usage_value": "Usage Value",
                 "currency": "Usage Currency",
             }
+    elif seed_type == "mc9":
+        detected = _detect_mc9_fields(columns)
+        required_fields = {
+            "plant_label",
+            "material_label",
+            "storage_location",
+            "month_raw",
+            "stock_value",
+            "stock_value_currency",
+            "stock_qty",
+            "stock_uom",
+            "usage_qty",
+            "uom",
+            "usage_value",
+            "currency",
+        }
+        display_names = {
+            "plant_label": "Plant",
+            "material_label": "Material",
+            "storage_location": "Storage Location",
+            "month_raw": "Month",
+            "stock_value": "ValStckVal",
+            "stock_value_currency": "ValStckVal.1",
+            "stock_qty": "Val. stock",
+            "stock_uom": "Val. stock.1",
+            "usage_qty": "Tot. usage",
+            "uom": "Tot. usage.1",
+            "usage_value": "Tot.us.val",
+            "currency": "Tot.us.val.1",
+        }
     else:
         detected = _detect_procurement_fields(columns)
         required_fields = {
             "plant",
-            "net_price",
             "po_number",
             "doc_date",
             "material_code",
             "vendor",
             "material_desc",
             "order_qty",
+            "still_to_be_delivered_qty",
             "order_unit",
             "currency",
             "price_unit",
@@ -1463,13 +1720,14 @@ def _validate_seed_frame(df: pd.DataFrame, seed_type: str) -> None:
         }
         display_names = {
             "plant": "Plant",
-            "net_price": "Net Price",
+            "net_price": "Net Price (SAP raw)",
             "po_number": "Purchasing Document",
             "doc_date": "Document Date",
             "material_code": "Material",
             "vendor": "Supplier/Supplying Plant",
             "material_desc": "Short Text",
             "order_qty": "Order Quantity",
+            "still_to_be_delivered_qty": "Still to be delivered (qty)",
             "order_unit": "Order Unit",
             "currency": "Currency",
             "price_unit": "Price Unit",
@@ -1506,6 +1764,7 @@ def get_seed_upload_status(years: int = 5) -> list[dict]:
 
     cons_status: dict[str, dict] = {}
     proc_status: dict[str, dict] = {}
+    mc9_status: dict[str, dict] = {}
 
     if os.path.exists(CONS_FILE):
         cons = _load_consumption()
@@ -1541,26 +1800,60 @@ def get_seed_upload_status(years: int = 5) -> list[dict]:
                 for _, row in grouped.iterrows()
             }
 
+    if os.path.exists(MC9_FILE):
+        mc9 = _load_mc9()
+        if "financial_year" in mc9.columns:
+            grouped = mc9.groupby("financial_year", as_index=False).agg(
+                rows=("material_desc", "size"),
+                materials=("material_code", "nunique"),
+                plants=("reporting_plant", "nunique"),
+            )
+            mc9_status = {
+                row["financial_year"]: {
+                    "rows": int(row["rows"]),
+                    "materials": int(row["materials"]),
+                    "plants": int(row["plants"]),
+                }
+                for _, row in grouped.iterrows()
+            }
+
     results: list[dict] = []
     for label in expected_labels:
         consumption = cons_status.get(label)
         procurement = proc_status.get(label)
-        if consumption and procurement:
+        mc9 = mc9_status.get(label)
+        if consumption and procurement and mc9:
             status_label = "Complete"
             status_tone = "neutral"
-            status_detail = "MB51 and ME2M uploaded"
-        elif consumption and not procurement:
+            status_detail = "MB51, ME2M, and MC.9 uploaded"
+        elif consumption and procurement and not mc9:
             status_label = "Partial"
             status_tone = "warning"
-            status_detail = "MB51 uploaded, ME2M missing"
-        elif procurement and not consumption:
+            status_detail = "MB51 and ME2M uploaded, MC.9 missing"
+        elif consumption and mc9 and not procurement:
             status_label = "Partial"
             status_tone = "warning"
-            status_detail = "ME2M uploaded, MB51 missing"
+            status_detail = "MB51 and MC.9 uploaded, ME2M missing"
+        elif procurement and mc9 and not consumption:
+            status_label = "Partial"
+            status_tone = "warning"
+            status_detail = "ME2M and MC.9 uploaded, MB51 missing"
+        elif consumption and not procurement and not mc9:
+            status_label = "Partial"
+            status_tone = "warning"
+            status_detail = "MB51 uploaded, ME2M and MC.9 missing"
+        elif procurement and not consumption and not mc9:
+            status_label = "Partial"
+            status_tone = "warning"
+            status_detail = "ME2M uploaded, MB51 and MC.9 missing"
+        elif mc9 and not consumption and not procurement:
+            status_label = "Partial"
+            status_tone = "warning"
+            status_detail = "MC.9 uploaded, MB51 and ME2M missing"
         else:
             status_label = "Missing"
             status_tone = "danger"
-            status_detail = "MB51 and ME2M missing"
+            status_detail = "MB51, ME2M, and MC.9 missing"
 
         results.append(
             {
@@ -1568,7 +1861,8 @@ def get_seed_upload_status(years: int = 5) -> list[dict]:
                 "short_label": label.replace("FY", ""),
                 "consumption": consumption,
                 "procurement": procurement,
-                "is_complete": bool(consumption) and bool(procurement),
+                "mc9": mc9,
+                "is_complete": bool(consumption) and bool(procurement) and bool(mc9),
                 "status_label": status_label,
                 "status_tone": status_tone,
                 "status_detail": status_detail,
@@ -1610,6 +1904,35 @@ def _canonicalize_seed_dataframe(df: pd.DataFrame, seed_type: str) -> pd.DataFra
 
         return frame
 
+    if seed_type == "mc9":
+        frame = _apply_header_aliases(frame, _MC9_ALIASES)
+        rename_map = {
+            "plant_label": "Plant",
+            "material_label": "Material",
+            "storage_location": "Storage Location",
+            "mrp_controller": "MRP Controller",
+            "mrp_type": "MRP Type",
+            "material_type": "Material Type",
+            "material_group": "Material Group",
+            "business_area": "Business Area",
+            "division": "Division",
+            "month_raw": "Month",
+            "stock_value": "ValStckVal",
+            "stock_value_currency": "ValStckVal.1",
+            "stock_qty": "Val. stock",
+            "stock_uom": "Val. stock.1",
+            "usage_qty": "Tot. usage",
+            "uom": "Tot. usage.1",
+            "usage_value": "Tot.us.val",
+            "currency": "Tot.us.val.1",
+        }
+        frame = frame.rename(columns=rename_map)
+        frame = frame.loc[:, ~frame.columns.duplicated()]
+        for column in _CANONICAL_MC9_COLUMNS:
+            if column not in frame.columns:
+                frame[column] = pd.NA
+        return frame.reindex(columns=_CANONICAL_MC9_COLUMNS)
+
     frame = _apply_header_aliases(frame, _ME2M_PROCUREMENT_ALIASES)
     rename_map = {
         "plant": "Plant",
@@ -1621,6 +1944,7 @@ def _canonicalize_seed_dataframe(df: pd.DataFrame, seed_type: str) -> pd.DataFra
         "vendor": "Supplier/Supplying Plant",
         "material_desc": "Short Text",
         "order_qty": "Order Quantity",
+        "still_to_be_delivered_qty": "Still to be delivered (qty)",
         "order_unit": "Order Unit",
         "currency": "Currency",
         "price_unit": "Price Unit",
@@ -1698,8 +2022,18 @@ def save_seed_workbook(file_bytes: bytes, filename: str, seed_type: str) -> str:
     df = _read_uploaded_seed_dataframe(file_bytes, filename)
     _validate_seed_frame(df, seed_type)
 
-    target = CONS_FILE if seed_type == "consumption" else PROC_FILE
-    sheet_name = "Sheet1" if seed_type == "consumption" else "Data"
+    target_map = {
+        "consumption": CONS_FILE,
+        "procurement": PROC_FILE,
+        "mc9": MC9_FILE,
+    }
+    sheet_name_map = {
+        "consumption": "Sheet1",
+        "procurement": "Data",
+        "mc9": "Sheet1",
+    }
+    target = target_map[seed_type]
+    sheet_name = sheet_name_map[seed_type]
     existing_df = pd.read_excel(target, sheet_name=0) if os.path.exists(target) else pd.DataFrame()
     merged_df = _merge_seed_collection_frame(existing_df, df, seed_type)
     temp_path = _write_temp_seed_workbook(merged_df, target, sheet_name)
@@ -1732,32 +2066,41 @@ def save_seed_workbooks(
     consumption_filename: str,
     procurement_bytes: bytes,
     procurement_filename: str,
+    mc9_bytes: bytes,
+    mc9_filename: str,
 ) -> dict:
     from app.core.services.inventory_seed_db import sync_inventory_seed_tables
 
     cons_df = _read_uploaded_seed_dataframe(consumption_bytes, consumption_filename)
     proc_df = _read_uploaded_seed_dataframe(procurement_bytes, procurement_filename)
+    mc9_df = _read_uploaded_seed_dataframe(mc9_bytes, mc9_filename)
     _validate_seed_frame(cons_df, "consumption")
     _validate_seed_frame(proc_df, "procurement")
+    _validate_seed_frame(mc9_df, "mc9")
 
     existing_cons = pd.read_excel(CONS_FILE, sheet_name=0) if os.path.exists(CONS_FILE) else pd.DataFrame()
     existing_proc = pd.read_excel(PROC_FILE, sheet_name=0) if os.path.exists(PROC_FILE) else pd.DataFrame()
+    existing_mc9 = pd.read_excel(MC9_FILE, sheet_name=0) if os.path.exists(MC9_FILE) else pd.DataFrame()
     merged_cons = _merge_seed_collection_frame(existing_cons, cons_df, "consumption")
     merged_proc = _merge_seed_collection_frame(existing_proc, proc_df, "procurement")
+    merged_mc9 = _merge_seed_collection_frame(existing_mc9, mc9_df, "mc9")
     normalized_cons = _normalize_consumption_frame(merged_cons)
     normalized_proc = _normalize_procurement_frame(merged_proc)
 
     targets = {
         "consumption": CONS_FILE,
         "procurement": PROC_FILE,
+        "mc9": MC9_FILE,
     }
     temp_files = {
         "consumption": _write_temp_seed_workbook(merged_cons, CONS_FILE, "Sheet1"),
         "procurement": _write_temp_seed_workbook(merged_proc, PROC_FILE, "Data"),
+        "mc9": _write_temp_seed_workbook(merged_mc9, MC9_FILE, "Sheet1"),
     }
 
     os.replace(temp_files["consumption"], targets["consumption"])
     os.replace(temp_files["procurement"], targets["procurement"])
+    os.replace(temp_files["mc9"], targets["mc9"])
     sync_inventory_seed_tables(
         consumption_frame=normalized_cons,
         procurement_frame=normalized_proc,
@@ -2558,7 +2901,7 @@ def _build_cost_variance(proc_df: pd.DataFrame) -> dict:
         timeline.groupby(["doc_date", "po_number", "vendor"], as_index=False)
         .agg(
             unit_price=("unit_price", "mean"),
-            order_qty=("order_qty", "sum"),
+            procured_qty=("procured_qty", "sum"),
             effective_value=("effective_value", "sum"),
         )
         .sort_values(["doc_date", "po_number", "vendor"])
@@ -3201,7 +3544,7 @@ class _DataStore:
                 "plant_count": 0,
                 "storage_location_count": 0,
             })
-            record["last_proc_qty"] = round(_safe_float(row.order_qty), 2)
+            record["last_proc_qty"] = round(_safe_float(row.procured_qty), 2)
             record["last_proc_value"] = round(_safe_float(row.effective_value), 2)
             record["last_po_number"] = _normalize_text(row.po_number)
             record["last_proc_date"] = row.doc_date.strftime("%d %b %Y") if row.doc_date else ""
@@ -3336,7 +3679,7 @@ class _DataStore:
             .first()[
                 [
                     "material_desc",
-                    "order_qty",
+                    "procured_qty",
                     "effective_value",
                     "po_number",
                     "doc_date",
@@ -3348,7 +3691,7 @@ class _DataStore:
             .rename(
                 columns={
                     "material_desc": "material",
-                    "order_qty": "last_proc_qty",
+                    "procured_qty": "last_proc_qty",
                     "effective_value": "last_proc_value",
                     "po_number": "last_po_number",
                     "doc_date": "last_proc_date",
@@ -3449,7 +3792,7 @@ class _DataStore:
             .first()[
                 [
                     "material_desc",
-                    "order_qty",
+                    "procured_qty",
                     "effective_value",
                     "po_number",
                     "doc_date",
@@ -3461,7 +3804,7 @@ class _DataStore:
             .rename(
                 columns={
                     "material_desc": "material",
-                    "order_qty": "last_proc_qty",
+                    "procured_qty": "last_proc_qty",
                     "effective_value": "last_proc_value",
                     "po_number": "last_po_number",
                     "doc_date": "last_proc_date",
@@ -3689,8 +4032,9 @@ class _DataStore:
                 "doc_date": row["doc_date"].strftime("%d %b %Y") if pd.notna(row.get("doc_date")) else "",
                 "vendor": _normalize_text(row.get("vendor")),
                 "order_qty": round(_safe_float(row.get("order_qty")), 2),
+                "still_to_be_delivered_qty": round(_safe_float(row.get("still_to_be_delivered_qty")), 2),
+                "procured_qty": round(_safe_float(row.get("procured_qty")), 2),
                 "order_unit": _normalize_text(row.get("order_unit")),
-                "net_price": round(_safe_float(row.get("net_price")), 2),
                 "unit_price": round(_safe_float(row.get("unit_price")), 2),
                 "price_unit": round(_safe_float(row.get("price_unit"), 1.0), 2),
                 "effective_value": round(_safe_float(row.get("effective_value")), 2),
@@ -3926,7 +4270,7 @@ class _DataStore:
         proc_sheet = workbook.create_sheet("Procurement Detail")
         proc_sheet.append(["Plant", "Source Plant", "Material Code", "Material",
                             "PO Number", "Document Date", "Financial Year", "Vendor",
-                            "Order Quantity", "Order Unit", "Net Price", "Price Unit",
+                            "Ordered Quantity", "Still to be Delivered Qty", "Procured Quantity", "Order Unit", "Price Unit",
                             "Unit Price", "Effective Value", "Currency"])
         for _, row in proc.sort_values(["reporting_plant", "plant", "material_desc", "doc_date"],
                                         ascending=[True, True, True, False]).iterrows():
@@ -3940,8 +4284,9 @@ class _DataStore:
                 _normalize_text(row.get("financial_year")),
                 _normalize_text(row.get("vendor")),
                 round(_safe_float(row.get("order_qty")), 2),
+                round(_safe_float(row.get("still_to_be_delivered_qty")), 2),
+                round(_safe_float(row.get("procured_qty")), 2),
                 _normalize_text(row.get("order_unit")),
-                round(_safe_float(row.get("net_price")), 2),
                 round(_safe_float(row.get("price_unit"), 1.0), 2),
                 round(_safe_float(row.get("unit_price")), 2),
                 round(_safe_float(row.get("effective_value")), 2),

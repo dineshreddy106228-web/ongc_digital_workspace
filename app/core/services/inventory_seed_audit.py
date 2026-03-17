@@ -17,14 +17,18 @@ except ImportError:  # pragma: no cover – present only when ENABLE_INVENTORY=F
 
 from app.core.services.inventory_intelligence import (
     CONS_FILE,
+    MC9_FILE,
     PROC_FILE,
     _MB51_CONSUMPTION_ALIASES,
     _apply_header_aliases,
+    _build_seed_row_financial_years,
     _detect_consumption_fields,
+    _detect_mc9_fields,
     _detect_frame_variant,
     _detect_procurement_fields,
     _looks_like_period,
     _normalize_consumption_frame,
+    _normalize_mc9_frame,
     _normalize_procurement_frame,
     _read_uploaded_seed_dataframe,
     _validate_seed_frame,
@@ -52,6 +56,57 @@ class AuditFinding:
     primary_action: str
 
 
+def _normalize_fy_label(value: str | None) -> str:
+    if not value:
+        return ""
+    return "".join(str(value).upper().split())
+
+
+def _validate_expected_financial_year(
+    *,
+    expected_fy: str | None,
+    consumption_frame: pd.DataFrame,
+    consumption_filename: str,
+    procurement_frame: pd.DataFrame,
+    procurement_filename: str,
+    mc9_frame: pd.DataFrame,
+    mc9_filename: str,
+) -> None:
+    expected_label = _normalize_fy_label(expected_fy)
+    if not expected_label:
+        return
+
+    mismatches: list[str] = []
+    uploads = [
+        ("consumption", consumption_frame, consumption_filename),
+        ("procurement", procurement_frame, procurement_filename),
+        ("mc9", mc9_frame, mc9_filename),
+    ]
+    for seed_type, frame, filename in uploads:
+        fy_series = _build_seed_row_financial_years(frame, seed_type)
+        found_counts = (
+            fy_series.fillna("")
+            .astype(str)
+            .map(_normalize_fy_label)
+            .loc[lambda series: series.ne("")]
+            .value_counts()
+            .sort_index()
+        )
+        unexpected = [
+            f"{label} ({int(count)} row{'s' if int(count) != 1 else ''})"
+            for label, count in found_counts.items()
+            if label != expected_label
+        ]
+        if unexpected:
+            mismatches.append(f"{filename}: {', '.join(unexpected)}")
+
+    if mismatches:
+        raise ValueError(
+            f"Selected FY {expected_label}, but uploaded files contain rows from other financial years. "
+            + " | ".join(mismatches)
+        )
+
+
 def _read_seed_frame(path: str) -> pd.DataFrame:
     return pd.read_excel(path, sheet_name=0)
 
@@ -67,6 +122,7 @@ def _staging_paths(token: str) -> dict:
         "root": root,
         "consumption": os.path.join(root, "consumption.xlsx"),
         "procurement": os.path.join(root, "procurement.xlsx"),
+        "mc9": os.path.join(root, "mc9.xlsx"),
         "meta": os.path.join(root, "meta.json"),
     }
 
@@ -96,14 +152,20 @@ def discard_staged_seed_upload(token: str) -> None:
         shutil.rmtree(paths["root"], ignore_errors=True)
 
 
-def _load_staged_frames(token: str) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+def _load_staged_frames(token: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
     paths = _staging_paths(token)
-    if not os.path.exists(paths["consumption"]) or not os.path.exists(paths["procurement"]) or not os.path.exists(paths["meta"]):
+    if (
+        not os.path.exists(paths["consumption"])
+        or not os.path.exists(paths["procurement"])
+        or not os.path.exists(paths["mc9"])
+        or not os.path.exists(paths["meta"])
+    ):
         raise ValueError("The staged seed upload is no longer available. Upload the files again.")
     cons_raw = _read_seed_frame(paths["consumption"])
     proc_raw = _read_seed_frame(paths["procurement"])
+    mc9_raw = _read_seed_frame(paths["mc9"])
     meta = _read_staged_meta(token)
-    return cons_raw, proc_raw, meta
+    return cons_raw, proc_raw, mc9_raw, meta
 
 
 def _serialize_value(value):
@@ -143,7 +205,12 @@ def _row_fingerprint_from_series(row: pd.Series, columns: list[str]) -> str:
 def _format_examples(rows: list[dict], columns: list[str], limit: int = 5) -> list[str]:
     examples: list[str] = []
     for row in rows[:limit]:
-        examples.append(", ".join(f"{column}={row.get(column) or '∅'}" for column in columns))
+        formatted: list[str] = []
+        for column in columns:
+            value = row.get(column)
+            display = "∅" if value == "" or value is None or pd.isna(value) else value
+            formatted.append(f"{column}={display}")
+        examples.append(", ".join(formatted))
     return examples
 
 
@@ -190,10 +257,38 @@ def _build_procurement_raw_view(df: pd.DataFrame) -> pd.DataFrame:
         "vendor",
         "material_desc",
         "order_qty",
+        "still_to_be_delivered_qty",
+        "procured_qty",
         "order_unit",
         "currency",
         "price_unit",
         "effective_value",
+        "financial_year",
+    ]:
+        if column not in frame.columns:
+            frame[column] = pd.NA
+    return frame
+
+
+def _build_mc9_raw_view(df: pd.DataFrame) -> pd.DataFrame:
+    frame = _normalize_mc9_frame(df).copy()
+    for column in [
+        "plant_label",
+        "plant",
+        "reporting_plant",
+        "material_label",
+        "material_code",
+        "material_desc",
+        "storage_location",
+        "month_raw",
+        "usage_qty",
+        "uom",
+        "usage_value",
+        "currency",
+        "stock_qty",
+        "stock_uom",
+        "stock_value",
+        "stock_value_currency",
         "financial_year",
     ]:
         if column not in frame.columns:
@@ -497,6 +592,46 @@ def _collect_procurement_findings(proc_raw: pd.DataFrame, proc: pd.DataFrame, ig
             )
         )
 
+    negative_procured_qty = _attach_source_excel_row(proc.loc[
+        proc["procured_qty"].fillna(0) < 0,
+        [
+            "po_number",
+            "doc_date",
+            "plant",
+            "material_desc",
+            "vendor",
+            "order_qty",
+            "still_to_be_delivered_qty",
+            "procured_qty",
+            "order_unit",
+            "effective_value",
+            "source_excel_row",
+        ],
+    ])
+    if not negative_procured_qty.empty:
+        findings.append(
+            _finding(
+                severity="error",
+                scope="procurement",
+                check="negative_procured_qty",
+                message="Rows have procured quantity below zero because Still to be delivered exceeds Order Quantity.",
+                frame=negative_procured_qty,
+                columns=[
+                    "po_number",
+                    "doc_date",
+                    "plant",
+                    "material_desc",
+                    "vendor",
+                    "order_qty",
+                    "still_to_be_delivered_qty",
+                    "procured_qty",
+                    "order_unit",
+                    "effective_value",
+                ],
+                ignored_fingerprints=ignored_rows.get("procurement:negative_procured_qty", set()),
+            )
+        )
+
     non_positive_unit_price = _attach_source_excel_row(proc.loc[
         proc["unit_price"].fillna(0) <= 0,
         ["po_number", "doc_date", "plant", "material_desc", "vendor", "order_qty", "unit_price", "effective_value", "source_excel_row"],
@@ -514,8 +649,14 @@ def _collect_procurement_findings(proc_raw: pd.DataFrame, proc: pd.DataFrame, ig
             )
         )
 
-    price_view = proc.dropna(subset=["doc_date", "unit_price"]).sort_values(["material_desc", "doc_date", "po_number"]).copy()
-    price_view["prev_unit_price"] = price_view.groupby("material_desc")["unit_price"].shift(1)
+    price_view = proc.dropna(subset=["doc_date", "unit_price"]).sort_values(
+        ["material_desc", "doc_date", "source_excel_row", "po_number", "item"],
+        kind="stable",
+    ).copy()
+    price_view["prev_unit_price"] = price_view.groupby(
+        ["material_desc", "order_unit", "price_unit"],
+        dropna=False,
+    )["unit_price"].shift(1)
     price_view["pct_change"] = (
         (price_view["unit_price"] - price_view["prev_unit_price"]) / price_view["prev_unit_price"]
     ) * 100
@@ -523,7 +664,7 @@ def _collect_procurement_findings(proc_raw: pd.DataFrame, proc: pd.DataFrame, ig
         (price_view["prev_unit_price"] > 0)
         & (price_view["pct_change"].abs() > 100)
         & (price_view["effective_value"].fillna(float("inf")) >= LOW_VALUE_THRESHOLD),
-        ["po_number", "doc_date", "plant", "material_desc", "vendor", "order_qty", "order_unit", "prev_unit_price", "unit_price", "pct_change", "effective_value", "source_excel_row"],
+        ["po_number", "doc_date", "plant", "material_desc", "vendor", "order_qty", "order_unit", "price_unit", "prev_unit_price", "unit_price", "pct_change", "effective_value", "source_excel_row"],
     ])
     if not extreme_swings.empty:
         findings.append(
@@ -531,9 +672,9 @@ def _collect_procurement_findings(proc_raw: pd.DataFrame, proc: pd.DataFrame, ig
                 severity="warning",
                 scope="procurement",
                 check="extreme_price_swings",
-                message="Sequential swings above 100% in derived unit price suggest dirty procurement rows, unit mismatch, or exceptional spot buys.",
+                message="Sequential swings above 100% in derived unit price within the same order-unit and price-unit context suggest dirty procurement rows or exceptional spot buys.",
                 frame=extreme_swings,
-                columns=["po_number", "doc_date", "plant", "material_desc", "vendor", "order_qty", "order_unit", "prev_unit_price", "unit_price", "pct_change", "effective_value"],
+                columns=["po_number", "doc_date", "plant", "material_desc", "vendor", "order_qty", "order_unit", "price_unit", "prev_unit_price", "unit_price", "pct_change", "effective_value"],
                 ignored_fingerprints=ignored_rows.get("procurement:extreme_price_swings", set()),
             )
         )
@@ -545,6 +686,276 @@ def _collect_procurement_findings(proc_raw: pd.DataFrame, proc: pd.DataFrame, ig
         "vendors": int(proc["vendor"].nunique()),
         "period_from": proc["doc_date"].min().strftime("%Y-%m-%d") if not proc.empty else "",
         "period_to": proc["doc_date"].max().strftime("%Y-%m-%d") if not proc.empty else "",
+    }
+    return findings, summary
+
+
+def _collect_mc9_findings(mc9_raw: pd.DataFrame, mc9: pd.DataFrame, cons: pd.DataFrame, ignored_rows: dict[str, set[str]]) -> tuple[list[AuditFinding], dict]:
+    findings: list[AuditFinding] = []
+
+    invalid_period = _attach_source_excel_row(mc9.loc[
+        mc9["month"].isna() | mc9["year"].isna(),
+        [
+            "plant_label",
+            "material_label",
+            "storage_location",
+            "month_raw",
+            "usage_qty",
+            "uom",
+            "usage_value",
+            "currency",
+            "source_excel_row",
+        ],
+    ])
+    if not invalid_period.empty:
+        findings.append(
+            _finding(
+                severity="error",
+                scope="mc9",
+                check="invalid_period",
+                message="Rows have unparseable MC.9 reporting periods.",
+                frame=invalid_period,
+                columns=["plant_label", "material_label", "storage_location", "month_raw", "usage_qty", "uom", "usage_value", "currency"],
+                ignored_fingerprints=ignored_rows.get("mc9:invalid_period", set()),
+            )
+        )
+
+    missing_plant = _attach_source_excel_row(mc9.loc[
+        mc9["plant"].fillna("").astype(str).str.strip().eq(""),
+        [
+            "plant_label",
+            "material_label",
+            "storage_location",
+            "month_raw",
+            "usage_qty",
+            "uom",
+            "usage_value",
+            "source_excel_row",
+        ],
+    ])
+    if not missing_plant.empty:
+        findings.append(
+            _finding(
+                severity="error",
+                scope="mc9",
+                check="missing_plant_code",
+                message="Rows do not expose a usable SAP plant code prefix in the MC.9 Plant column.",
+                frame=missing_plant,
+                columns=["plant_label", "material_label", "storage_location", "month_raw", "usage_qty", "uom", "usage_value"],
+                ignored_fingerprints=ignored_rows.get("mc9:missing_plant_code", set()),
+            )
+        )
+
+    missing_material = _attach_source_excel_row(mc9.loc[
+        mc9["material_code"].fillna("").astype(str).str.strip().eq(""),
+        [
+            "plant_label",
+            "material_label",
+            "storage_location",
+            "month_raw",
+            "usage_qty",
+            "uom",
+            "usage_value",
+            "source_excel_row",
+        ],
+    ])
+    if not missing_material.empty:
+        findings.append(
+            _finding(
+                severity="error",
+                scope="mc9",
+                check="missing_material_code",
+                message="Rows do not expose a usable material code prefix in the MC.9 Material column.",
+                frame=missing_material,
+                columns=["plant_label", "material_label", "storage_location", "month_raw", "usage_qty", "uom", "usage_value"],
+                ignored_fingerprints=ignored_rows.get("mc9:missing_material_code", set()),
+            )
+        )
+
+    compare_cols = [
+        "plant",
+        "material_code",
+        "material_desc",
+        "year",
+        "month",
+        "usage_qty",
+        "usage_value",
+        "source_excel_row",
+    ]
+    mc9_valid = mc9.dropna(subset=["year", "month"]).copy()
+    mc9_valid = mc9_valid.loc[
+        mc9_valid["plant"].fillna("").astype(str).str.strip().ne("")
+        & mc9_valid["material_code"].fillna("").astype(str).str.strip().ne("")
+    ]
+    mb51_valid = cons.dropna(subset=["year", "month"]).copy()
+    mb51_valid = mb51_valid.loc[
+        mb51_valid["plant"].fillna("").astype(str).str.strip().ne("")
+        & mb51_valid["material_code"].fillna("").astype(str).str.strip().ne("")
+    ]
+
+    mc9_compare = (
+        mc9_valid[compare_cols]
+        .groupby(["plant", "material_code", "year", "month"], as_index=False)
+        .agg(
+            material_desc=("material_desc", "first"),
+            mc9_usage_qty=("usage_qty", "sum"),
+            mc9_usage_value=("usage_value", "sum"),
+            source_excel_row=("source_excel_row", "min"),
+        )
+    )
+    # Ignore MC.9 month buckets that carry no usage at all; these create false
+    # "missing in MB51" errors when MC.9 emits zero-quantity placeholder rows.
+    mc9_compare = mc9_compare.loc[
+        (mc9_compare["mc9_usage_qty"].fillna(0).abs() > 0.01)
+        | (mc9_compare["mc9_usage_value"].fillna(0).abs() > 1.0)
+    ].copy()
+    mb51_compare = (
+        mb51_valid[["plant", "material_code", "material_desc", "year", "month", "usage_qty", "usage_value"]]
+        .groupby(["plant", "material_code", "year", "month"], as_index=False)
+        .agg(
+            material_desc=("material_desc", "first"),
+            mb51_usage_qty=("usage_qty", "sum"),
+            mb51_usage_value=("usage_value", "sum"),
+        )
+    )
+
+    comparison = mc9_compare.merge(
+        mb51_compare,
+        on=["plant", "material_code", "year", "month"],
+        how="outer",
+        indicator=True,
+        suffixes=("_mc9", "_mb51"),
+    )
+    comparison["material_desc"] = comparison["material_desc_mc9"].combine_first(comparison["material_desc_mb51"])
+    comparison["mc9_usage_qty"] = comparison["mc9_usage_qty"].fillna(0.0)
+    comparison["mc9_usage_value"] = comparison["mc9_usage_value"].fillna(0.0)
+    comparison["mb51_usage_qty"] = comparison["mb51_usage_qty"].fillna(0.0)
+    comparison["mb51_usage_value"] = comparison["mb51_usage_value"].fillna(0.0)
+    comparison["period"] = comparison.apply(
+        lambda row: f"{int(row['month']):02d}.{int(row['year'])}" if pd.notna(row["year"]) and pd.notna(row["month"]) else "",
+        axis=1,
+    )
+
+    mc9_only = _attach_source_excel_row(comparison.loc[
+        comparison["_merge"] == "left_only",
+        ["plant", "material_code", "material_desc", "period", "mc9_usage_qty", "mc9_usage_value", "source_excel_row"],
+    ])
+    if not mc9_only.empty:
+        findings.append(
+            _finding(
+                severity="error",
+                scope="mc9",
+                check="missing_in_mb51",
+                message="MC.9 has plant-material-month consumption rows that are not present in MB51-derived consumption.",
+                frame=mc9_only,
+                columns=["plant", "material_code", "material_desc", "period", "mc9_usage_qty", "mc9_usage_value"],
+                ignored_fingerprints=ignored_rows.get("mc9:missing_in_mb51", set()),
+            )
+        )
+
+    mb51_only_examples = [
+        f"{row['plant']} · {row['material_code']} · {row['material_desc']} · {row['period']} · MB51 qty={row['mb51_usage_qty']:.2f} value={row['mb51_usage_value']:.2f}"
+        for _, row in comparison.loc[comparison["_merge"] == "right_only"].head(25).iterrows()
+    ]
+    if mb51_only_examples:
+        findings.append(
+            _finding(
+                severity="error",
+                scope="mc9",
+                check="missing_in_mc9",
+                message="MB51-derived consumption has plant-material-month rows that are missing in MC.9.",
+                examples=mb51_only_examples,
+            )
+        )
+
+    both = comparison.loc[comparison["_merge"] == "both"].copy()
+    qty_tolerance = 0.01
+    value_tolerance = 1.0
+    if not both.empty:
+        both["qty_diff"] = (both["mc9_usage_qty"] - both["mb51_usage_qty"]).abs()
+        both["value_diff"] = (both["mc9_usage_value"] - both["mb51_usage_value"]).abs()
+
+        qty_mismatch = _attach_source_excel_row(both.loc[
+            both["qty_diff"] > qty_tolerance,
+            [
+                "plant",
+                "material_code",
+                "material_desc",
+                "period",
+                "mc9_usage_qty",
+                "mb51_usage_qty",
+                "qty_diff",
+                "source_excel_row",
+            ],
+        ])
+        if not qty_mismatch.empty:
+            findings.append(
+                _finding(
+                    severity="error",
+                    scope="mc9",
+                    check="consumption_qty_mismatch",
+                    message="MC.9 monthly consumption quantity does not match MB51-derived monthly consumption.",
+                    frame=qty_mismatch,
+                    columns=["plant", "material_code", "material_desc", "period", "mc9_usage_qty", "mb51_usage_qty", "qty_diff"],
+                    ignored_fingerprints=ignored_rows.get("mc9:consumption_qty_mismatch", set()),
+                )
+            )
+
+        value_mismatch = _attach_source_excel_row(both.loc[
+            both["value_diff"] > value_tolerance,
+            [
+                "plant",
+                "material_code",
+                "material_desc",
+                "period",
+                "mc9_usage_value",
+                "mb51_usage_value",
+                "value_diff",
+                "source_excel_row",
+            ],
+        ])
+        if not value_mismatch.empty:
+            findings.append(
+                _finding(
+                    severity="error",
+                    scope="mc9",
+                    check="consumption_value_mismatch",
+                    message="MC.9 monthly consumption value does not match MB51-derived monthly consumption value.",
+                    frame=value_mismatch,
+                    columns=["plant", "material_code", "material_desc", "period", "mc9_usage_value", "mb51_usage_value", "value_diff"],
+                    ignored_fingerprints=ignored_rows.get("mc9:consumption_value_mismatch", set()),
+                )
+            )
+
+    matched_rows = 0
+    discrepancy_count = 0
+    if not comparison.empty:
+        qty_mask = comparison["_merge"].eq("both") & ((comparison["mc9_usage_qty"] - comparison["mb51_usage_qty"]).abs() <= qty_tolerance)
+        value_mask = comparison["_merge"].eq("both") & ((comparison["mc9_usage_value"] - comparison["mb51_usage_value"]).abs() <= value_tolerance)
+        matched_rows = int((qty_mask & value_mask).sum())
+        discrepancy_count = int(len(comparison) - matched_rows)
+
+    if matched_rows and discrepancy_count == 0:
+        findings.append(
+            _finding(
+                severity="info",
+                scope="mc9",
+                check="consumption_reconciled",
+                message="MC.9 monthly consumption matches MB51-derived monthly consumption for every comparable plant-material-month row.",
+                examples=[f"{matched_rows} comparable row(s) reconciled within tolerance."],
+            )
+        )
+
+    summary = {
+        "rows": int(len(mc9)),
+        "materials": int(mc9["material_code"].replace("", pd.NA).dropna().nunique()) if "material_code" in mc9.columns else 0,
+        "plants": int(mc9["reporting_plant"].replace("", pd.NA).dropna().nunique()) if "reporting_plant" in mc9.columns else 0,
+        "period_from": _format_consumption_period(mc9, "first"),
+        "period_to": _format_consumption_period(mc9, "last"),
+        "matched_rows": matched_rows,
+        "discrepancy_count": discrepancy_count,
+        "status_label": "Matched" if discrepancy_count == 0 and matched_rows > 0 else "Mismatch" if discrepancy_count else "Pending Review",
+        "status_tone": "neutral" if discrepancy_count == 0 and matched_rows > 0 else "danger" if discrepancy_count else "warning",
     }
     return findings, summary
 
@@ -617,23 +1028,29 @@ def _collect_cross_findings(cons: pd.DataFrame, proc: pd.DataFrame) -> tuple[lis
 def build_seed_audit_report(
     cons_raw: pd.DataFrame,
     proc_raw: pd.DataFrame,
+    mc9_raw: pd.DataFrame,
     consumption_filename: str,
     procurement_filename: str,
+    mc9_filename: str,
     ignored_rows: dict[str, set[str]] | None = None,
 ) -> dict:
     _validate_seed_frame(cons_raw, "consumption")
     _validate_seed_frame(proc_raw, "procurement")
+    _validate_seed_frame(mc9_raw, "mc9")
     ignored_rows = ignored_rows or {}
 
     cons = _normalize_consumption_frame(cons_raw)
     proc = _normalize_procurement_frame(proc_raw)
+    mc9 = _normalize_mc9_frame(mc9_raw)
 
     findings: list[AuditFinding] = []
     cons_findings, cons_summary = _collect_consumption_findings(cons_raw, cons, ignored_rows)
     proc_findings, proc_summary = _collect_procurement_findings(proc_raw, proc, ignored_rows)
+    mc9_findings, mc9_summary = _collect_mc9_findings(mc9_raw, mc9, cons, ignored_rows)
     cross_findings, cross_summary = _collect_cross_findings(cons, proc)
     findings.extend(cons_findings)
     findings.extend(proc_findings)
+    findings.extend(mc9_findings)
     findings.extend(cross_findings)
     serialized_findings = [asdict(finding) for finding in findings]
     has_blocking_failures = any(
@@ -646,14 +1063,17 @@ def build_seed_audit_report(
         "files": {
             "consumption": consumption_filename,
             "procurement": procurement_filename,
+            "mc9": mc9_filename,
         },
         "schema": {
             "consumption_columns_detected": sorted(_detect_consumption_fields([str(column).strip() for column in cons_raw.columns])),
             "procurement_columns_detected": sorted(_detect_procurement_fields([str(column).strip() for column in proc_raw.columns])),
+            "mc9_columns_detected": sorted(_detect_mc9_fields([str(column).strip() for column in mc9_raw.columns])),
         },
         "summary": {
             "consumption": cons_summary,
             "procurement": proc_summary,
+            "mc9": mc9_summary,
             "cross_file": cross_summary,
         },
         "findings": serialized_findings,
@@ -666,16 +1086,30 @@ def audit_uploaded_seed_files(
     consumption_filename: str,
     procurement_bytes: bytes,
     procurement_filename: str,
+    mc9_bytes: bytes,
+    mc9_filename: str,
+    expected_fy: str | None = None,
 ) -> dict:
     cons_raw = _read_uploaded_seed_dataframe(consumption_bytes, consumption_filename)
     proc_raw = _read_uploaded_seed_dataframe(procurement_bytes, procurement_filename)
-    return build_seed_audit_report(cons_raw, proc_raw, consumption_filename, procurement_filename)
+    mc9_raw = _read_uploaded_seed_dataframe(mc9_bytes, mc9_filename)
+    _validate_expected_financial_year(
+        expected_fy=expected_fy,
+        consumption_frame=cons_raw,
+        consumption_filename=consumption_filename,
+        procurement_frame=proc_raw,
+        procurement_filename=procurement_filename,
+        mc9_frame=mc9_raw,
+        mc9_filename=mc9_filename,
+    )
+    return build_seed_audit_report(cons_raw, proc_raw, mc9_raw, consumption_filename, procurement_filename, mc9_filename)
 
 
 def audit_current_seed_files() -> dict:
     cons_raw = _read_seed_frame(CONS_FILE)
     proc_raw = _read_seed_frame(PROC_FILE)
-    return build_seed_audit_report(cons_raw, proc_raw, CONS_FILE, PROC_FILE)
+    mc9_raw = _read_seed_frame(MC9_FILE)
+    return build_seed_audit_report(cons_raw, proc_raw, mc9_raw, CONS_FILE, PROC_FILE, MC9_FILE)
 
 
 def create_staged_seed_upload(
@@ -684,20 +1118,36 @@ def create_staged_seed_upload(
     consumption_filename: str,
     procurement_bytes: bytes,
     procurement_filename: str,
+    mc9_bytes: bytes,
+    mc9_filename: str,
+    expected_fy: str | None = None,
 ) -> tuple[str, dict]:
     cons_raw = _read_uploaded_seed_dataframe(consumption_bytes, consumption_filename)
     proc_raw = _read_uploaded_seed_dataframe(procurement_bytes, procurement_filename)
-    report = build_seed_audit_report(cons_raw, proc_raw, consumption_filename, procurement_filename)
+    mc9_raw = _read_uploaded_seed_dataframe(mc9_bytes, mc9_filename)
+    _validate_expected_financial_year(
+        expected_fy=expected_fy,
+        consumption_frame=cons_raw,
+        consumption_filename=consumption_filename,
+        procurement_frame=proc_raw,
+        procurement_filename=procurement_filename,
+        mc9_frame=mc9_raw,
+        mc9_filename=mc9_filename,
+    )
+    report = build_seed_audit_report(cons_raw, proc_raw, mc9_raw, consumption_filename, procurement_filename, mc9_filename)
 
     token = uuid.uuid4().hex
     paths = _staging_paths(token)
     _write_frame(paths["consumption"], cons_raw, "Sheet1")
     _write_frame(paths["procurement"], proc_raw, "Data")
+    _write_frame(paths["mc9"], mc9_raw, "Sheet1")
     _write_staged_meta(
         token,
         {
             "consumption_filename": consumption_filename,
             "procurement_filename": procurement_filename,
+            "mc9_filename": mc9_filename,
+            "expected_fy": expected_fy or "",
             "ignored_rows": {},
         },
     )
@@ -705,12 +1155,14 @@ def create_staged_seed_upload(
 
 
 def get_staged_seed_report(token: str) -> dict:
-    cons_raw, proc_raw, meta = _load_staged_frames(token)
+    cons_raw, proc_raw, mc9_raw, meta = _load_staged_frames(token)
     return build_seed_audit_report(
         cons_raw,
         proc_raw,
+        mc9_raw,
         meta["consumption_filename"],
         meta["procurement_filename"],
+        meta["mc9_filename"],
         ignored_rows={key: set(values) for key, values in meta.get("ignored_rows", {}).items()},
     )
 
@@ -729,8 +1181,8 @@ def _resolve_raw_row_indices(frame: pd.DataFrame, seed_type: str, excel_rows: li
 
 
 def delete_rows_from_staged_seed_upload(token: str, seed_type: str, finding_check: str, excel_rows: list[int]) -> dict:
-    cons_raw, proc_raw, meta = _load_staged_frames(token)
-    if seed_type not in {"consumption", "procurement"}:
+    cons_raw, proc_raw, mc9_raw, meta = _load_staged_frames(token)
+    if seed_type not in {"consumption", "procurement", "mc9"}:
         raise ValueError("Unsupported seed type for staged deletion.")
     normalized_rows = sorted({int(row) for row in excel_rows if int(row) >= 2})
     if not normalized_rows:
@@ -738,8 +1190,10 @@ def delete_rows_from_staged_seed_upload(token: str, seed_type: str, finding_chec
     report = build_seed_audit_report(
         cons_raw,
         proc_raw,
+        mc9_raw,
         meta["consumption_filename"],
         meta["procurement_filename"],
+        meta["mc9_filename"],
         ignored_rows={key: set(values) for key, values in meta.get("ignored_rows", {}).items()},
     )
     finding = next((item for item in report["findings"] if item["check"] == finding_check and item["scope"] == seed_type), None)
@@ -750,26 +1204,32 @@ def delete_rows_from_staged_seed_upload(token: str, seed_type: str, finding_chec
     if invalid_rows:
         raise ValueError("One or more selected rows are not deletable in this subgroup.")
 
-    indices = _resolve_raw_row_indices(cons_raw if seed_type == "consumption" else proc_raw, seed_type, normalized_rows)
+    target_frame = cons_raw if seed_type == "consumption" else proc_raw if seed_type == "procurement" else mc9_raw
+    indices = _resolve_raw_row_indices(target_frame, seed_type, normalized_rows)
     if seed_type == "consumption":
         cons_raw = cons_raw.drop(index=[index for index in indices if index in cons_raw.index]).reset_index(drop=True)
-    else:
+    elif seed_type == "procurement":
         proc_raw = proc_raw.drop(index=[index for index in indices if index in proc_raw.index]).reset_index(drop=True)
+    else:
+        mc9_raw = mc9_raw.drop(index=[index for index in indices if index in mc9_raw.index]).reset_index(drop=True)
 
     paths = _staging_paths(token)
     _write_frame(paths["consumption"], cons_raw, "Sheet1")
     _write_frame(paths["procurement"], proc_raw, "Data")
+    _write_frame(paths["mc9"], mc9_raw, "Sheet1")
     return build_seed_audit_report(
         cons_raw,
         proc_raw,
+        mc9_raw,
         meta["consumption_filename"],
         meta["procurement_filename"],
+        meta["mc9_filename"],
         ignored_rows={key: set(values) for key, values in meta.get("ignored_rows", {}).items()},
     )
 
 
 def ignore_rows_from_staged_seed_upload(token: str, seed_type: str, finding_check: str, excel_rows: list[int]) -> dict:
-    cons_raw, proc_raw, meta = _load_staged_frames(token)
+    cons_raw, proc_raw, mc9_raw, meta = _load_staged_frames(token)
     normalized_rows = sorted({int(row) for row in excel_rows if int(row) >= 2})
     if not normalized_rows:
         raise ValueError("Select at least one row to keep.")
@@ -778,8 +1238,10 @@ def ignore_rows_from_staged_seed_upload(token: str, seed_type: str, finding_chec
     report = build_seed_audit_report(
         cons_raw,
         proc_raw,
+        mc9_raw,
         meta["consumption_filename"],
         meta["procurement_filename"],
+        meta["mc9_filename"],
         ignored_rows=ignored_rows,
     )
     finding = next((item for item in report["findings"] if item["check"] == finding_check and item["scope"] == seed_type), None)
@@ -821,7 +1283,7 @@ def bulk_cleanup_staged_seed_upload(
     -------
     The updated audit report dict after applying all decisions.
     """
-    cons_raw, proc_raw, meta = _load_staged_frames(token)
+    cons_raw, proc_raw, mc9_raw, meta = _load_staged_frames(token)
     ignored_rows: dict[str, set[str]] = {
         key: set(values) for key, values in meta.get("ignored_rows", {}).items()
     }
@@ -831,13 +1293,16 @@ def bulk_cleanup_staged_seed_upload(
     report = build_seed_audit_report(
         cons_raw,
         proc_raw,
+        mc9_raw,
         meta["consumption_filename"],
         meta["procurement_filename"],
+        meta["mc9_filename"],
         ignored_rows=ignored_rows,
     )
 
     cons_drop: list[int] = []
     proc_drop: list[int] = []
+    mc9_drop: list[int] = []
 
     for finding in report["findings"]:
         scope: str = finding["scope"]
@@ -850,12 +1315,14 @@ def bulk_cleanup_staged_seed_upload(
             allowed = {int(r) for r in finding.get("selectable_rows", [])}
             valid_delete = [r for r in delete_excel_rows if r in allowed]
             if valid_delete:
-                target_frame = cons_raw if scope == "consumption" else proc_raw
+                target_frame = cons_raw if scope == "consumption" else proc_raw if scope == "procurement" else mc9_raw
                 indices = _resolve_raw_row_indices(target_frame, scope, valid_delete)
                 if scope == "consumption":
                     cons_drop.extend(indices)
-                else:
+                elif scope == "procurement":
                     proc_drop.extend(indices)
+                elif scope == "mc9":
+                    mc9_drop.extend(indices)
 
         # ── Keeps / ignores ────────────────────────────────────────────────
         keep_excel_rows = keep_decisions.get(dict_key, [])
@@ -883,11 +1350,15 @@ def bulk_cleanup_staged_seed_upload(
     if proc_drop:
         unique_proc = list({i for i in proc_drop if i in proc_raw.index})
         proc_raw = proc_raw.drop(index=unique_proc).reset_index(drop=True)
+    if mc9_drop:
+        unique_mc9 = list({i for i in mc9_drop if i in mc9_raw.index})
+        mc9_raw = mc9_raw.drop(index=unique_mc9).reset_index(drop=True)
 
     # ── Persist updated staged files and metadata ──────────────────────────
     paths = _staging_paths(token)
     _write_frame(paths["consumption"], cons_raw, "Sheet1")
     _write_frame(paths["procurement"], proc_raw, "Data")
+    _write_frame(paths["mc9"], mc9_raw, "Sheet1")
     meta["ignored_rows"] = {name: sorted(values) for name, values in ignored_rows.items()}
     _write_staged_meta(token, meta)
 
@@ -895,24 +1366,30 @@ def bulk_cleanup_staged_seed_upload(
     return build_seed_audit_report(
         cons_raw,
         proc_raw,
+        mc9_raw,
         meta["consumption_filename"],
         meta["procurement_filename"],
+        meta["mc9_filename"],
         ignored_rows={key: set(values) for key, values in meta.get("ignored_rows", {}).items()},
     )
 
 
 def apply_staged_seed_upload(token: str) -> dict:
     paths = _staging_paths(token)
-    _, _, meta = _load_staged_frames(token)
+    _, _, _, meta = _load_staged_frames(token)
     with open(paths["consumption"], "rb") as cons_handle:
         consumption_bytes = cons_handle.read()
     with open(paths["procurement"], "rb") as proc_handle:
         procurement_bytes = proc_handle.read()
+    with open(paths["mc9"], "rb") as mc9_handle:
+        mc9_bytes = mc9_handle.read()
     save_seed_workbooks(
         consumption_bytes=consumption_bytes,
         consumption_filename=meta["consumption_filename"],
         procurement_bytes=procurement_bytes,
         procurement_filename=meta["procurement_filename"],
+        mc9_bytes=mc9_bytes,
+        mc9_filename=meta["mc9_filename"],
     )
     get_data_store().reload()
     discard_staged_seed_upload(token)
@@ -921,11 +1398,10 @@ def apply_staged_seed_upload(token: str) -> dict:
 
 def _load_procurement_preview_frame(token: str | None = None) -> tuple[pd.DataFrame, pd.DataFrame, bool]:
     if token:
-        _, raw_proc, _ = _load_staged_frames(token)
+        _, raw_proc, _, _ = _load_staged_frames(token)
         return raw_proc, _normalize_procurement_frame(raw_proc), True
 
     raw_proc = _read_seed_frame(PROC_FILE)
-    _validate_seed_frame(raw_proc, "procurement")
     return raw_proc, _normalize_procurement_frame(raw_proc), False
 
 
@@ -936,18 +1412,44 @@ def get_procurement_rows_below_threshold(
     _, proc, is_staged = _load_procurement_preview_frame(token)
     low_rows = proc.loc[
         proc["effective_value"].fillna(float("inf")) < threshold,
-        ["doc_date", "po_number", "plant", "material_code", "material_desc", "vendor", "order_qty", "order_unit", "effective_value", "unit_price"],
+        [
+            "doc_date",
+            "po_number",
+            "plant",
+            "material_code",
+            "material_desc",
+            "vendor",
+            "order_qty",
+            "still_to_be_delivered_qty",
+            "procured_qty",
+            "order_unit",
+            "effective_value",
+            "unit_price",
+        ],
     ]
     rows = _serialize_rows(
         low_rows.sort_values(["doc_date", "po_number"], ascending=[False, False]),
-        ["doc_date", "po_number", "plant", "material_code", "material_desc", "vendor", "order_qty", "order_unit", "effective_value", "unit_price"],
+        [
+            "doc_date",
+            "po_number",
+            "plant",
+            "material_code",
+            "material_desc",
+            "vendor",
+            "order_qty",
+            "still_to_be_delivered_qty",
+            "procured_qty",
+            "order_unit",
+            "effective_value",
+            "unit_price",
+        ],
     )
     return {
         "threshold": threshold,
         "is_staged": is_staged,
         "source_label": "staged procurement file" if is_staged else "current ingested procurement file",
         "count": len(rows),
-        "columns": list(rows[0].keys()) if rows else ["Excel Row", "doc_date", "po_number", "plant", "material_code", "material_desc", "vendor", "order_qty", "order_unit", "effective_value", "unit_price"],
+        "columns": list(rows[0].keys()) if rows else ["Excel Row", "doc_date", "po_number", "plant", "material_code", "material_desc", "vendor", "order_qty", "still_to_be_delivered_qty", "procured_qty", "order_unit", "effective_value", "unit_price"],
         "rows": rows,
     }
 
