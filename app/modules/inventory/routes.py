@@ -716,14 +716,25 @@ def api_plant_grouping_get():
     else:
         cfg = {"prefix_groups": {}, "explicit_groups": {}, "group_members": {}}
 
-    # Collect all plants that appear in the consumption data
+    # Collect all raw and reporting plants from the normalized seed data so
+    # the grouping modal can remap every available plant, not only the
+    # already-grouped reporting parents shown in dashboard summaries.
     store = _get_inventory_store()
     try:
-        payload = store.get_dashboard_payload()
         all_plants_set = set()
-        for mat in payload.get("materials", []):
-            for p in mat.get("plants", []):
-                all_plants_set.add(p)
+        for frame_name in ("cons", "proc"):
+            frame = getattr(store, frame_name, None)
+            if frame is None or frame.empty:
+                continue
+            for column in ("plant", "reporting_plant"):
+                if column in frame.columns:
+                    values = (
+                        frame[column]
+                        .dropna()
+                        .astype(str)
+                        .str.strip()
+                    )
+                    all_plants_set.update(value for value in values.tolist() if value)
     except Exception:
         all_plants_set = set()
 

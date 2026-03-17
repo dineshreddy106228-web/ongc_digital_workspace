@@ -1007,8 +1007,8 @@ def _normalize_text(value) -> str:
 def _normalize_quantity_series(quantity: pd.Series, uom: pd.Series) -> tuple[pd.Series, pd.Series]:
     normalized_uom = uom.map(_normalize_code)
     conversion = normalized_uom.map(_QUANTITY_UNIT_FACTORS)
-    factors = conversion.map(lambda item: item[1] if item else np.nan).astype(float)
-    canonical_uom = conversion.map(lambda item: item[0] if item else None)
+    factors = conversion.map(lambda item: item[1] if isinstance(item, tuple) else np.nan).astype(float)
+    canonical_uom = conversion.map(lambda item: item[0] if isinstance(item, tuple) else None)
     normalized_qty = quantity.where(factors.isna(), quantity * factors)
     normalized_uom = normalized_uom.where(canonical_uom.isna(), canonical_uom)
     return normalized_qty, normalized_uom

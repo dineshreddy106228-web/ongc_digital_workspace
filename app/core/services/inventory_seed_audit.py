@@ -800,7 +800,7 @@ def _collect_mc9_findings(mc9_raw: pd.DataFrame, mc9: pd.DataFrame, cons: pd.Dat
             material_desc=("material_desc", "first"),
             mc9_usage_qty=("usage_qty", "sum"),
             mc9_usage_value=("usage_value", "sum"),
-            source_excel_row=("source_excel_row", "min"),
+            mc9_source_excel_row=("source_excel_row", "min"),
         )
     )
     # Ignore MC.9 month buckets that carry no usage at all; these create false
@@ -810,14 +810,21 @@ def _collect_mc9_findings(mc9_raw: pd.DataFrame, mc9: pd.DataFrame, cons: pd.Dat
         | (mc9_compare["mc9_usage_value"].fillna(0).abs() > 1.0)
     ].copy()
     mb51_compare = (
-        mb51_valid[["plant", "material_code", "material_desc", "year", "month", "usage_qty", "usage_value"]]
+        mb51_valid[["plant", "material_code", "material_desc", "year", "month", "usage_qty", "usage_value", "source_excel_row"]]
         .groupby(["plant", "material_code", "year", "month"], as_index=False)
         .agg(
             material_desc=("material_desc", "first"),
             mb51_usage_qty=("usage_qty", "sum"),
             mb51_usage_value=("usage_value", "sum"),
+            mb51_source_excel_row=("source_excel_row", "min"),
         )
     )
+    # Ignore MB51 month buckets that net to no usage after reversals; these
+    # should not be treated as real consumption that MC.9 is missing.
+    mb51_compare = mb51_compare.loc[
+        (mb51_compare["mb51_usage_qty"].fillna(0).abs() > 0.01)
+        | (mb51_compare["mb51_usage_value"].fillna(0).abs() > 1.0)
+    ].copy()
 
     comparison = mc9_compare.merge(
         mb51_compare,
@@ -836,10 +843,11 @@ def _collect_mc9_findings(mc9_raw: pd.DataFrame, mc9: pd.DataFrame, cons: pd.Dat
         axis=1,
     )
 
-    mc9_only = _attach_source_excel_row(comparison.loc[
+    mc9_only = comparison.loc[
         comparison["_merge"] == "left_only",
-        ["plant", "material_code", "material_desc", "period", "mc9_usage_qty", "mc9_usage_value", "source_excel_row"],
-    ])
+        ["plant", "material_code", "material_desc", "period", "mc9_usage_qty", "mc9_usage_value", "mc9_source_excel_row"],
+    ].rename(columns={"mc9_source_excel_row": "source_excel_row"})
+    mc9_only = _attach_source_excel_row(mc9_only)
     if not mc9_only.empty:
         findings.append(
             _finding(
@@ -869,14 +877,14 @@ def _collect_mc9_findings(mc9_raw: pd.DataFrame, mc9: pd.DataFrame, cons: pd.Dat
         )
 
     both = comparison.loc[comparison["_merge"] == "both"].copy()
-    qty_tolerance = 0.01
+    qty_tolerance = 1.0
     value_tolerance = 1.0
     if not both.empty:
         both["qty_diff"] = (both["mc9_usage_qty"] - both["mb51_usage_qty"]).abs()
         both["value_diff"] = (both["mc9_usage_value"] - both["mb51_usage_value"]).abs()
 
         qty_mismatch = _attach_source_excel_row(both.loc[
-            both["qty_diff"] > qty_tolerance,
+            both["qty_diff"] > (qty_tolerance + 1e-6),
             [
                 "plant",
                 "material_code",
@@ -885,9 +893,9 @@ def _collect_mc9_findings(mc9_raw: pd.DataFrame, mc9: pd.DataFrame, cons: pd.Dat
                 "mc9_usage_qty",
                 "mb51_usage_qty",
                 "qty_diff",
-                "source_excel_row",
+                "mc9_source_excel_row",
             ],
-        ])
+        ].rename(columns={"mc9_source_excel_row": "source_excel_row"}))
         if not qty_mismatch.empty:
             findings.append(
                 _finding(
@@ -911,9 +919,9 @@ def _collect_mc9_findings(mc9_raw: pd.DataFrame, mc9: pd.DataFrame, cons: pd.Dat
                 "mc9_usage_value",
                 "mb51_usage_value",
                 "value_diff",
-                "source_excel_row",
+                "mc9_source_excel_row",
             ],
-        ])
+        ].rename(columns={"mc9_source_excel_row": "source_excel_row"}))
         if not value_mismatch.empty:
             findings.append(
                 _finding(
@@ -1228,7 +1236,12 @@ def delete_rows_from_staged_seed_upload(token: str, seed_type: str, finding_chec
     )
 
 
-def ignore_rows_from_staged_seed_upload(token: str, seed_type: str, finding_check: str, excel_rows: list[int]) -> dict:
+def ignore_rows_from_staged_seed_upload(
+    token: str,
+    seed_type: str,
+    finding_check: str,
+    excel_rows: list[int],
+) -> dict:
     cons_raw, proc_raw, mc9_raw, meta = _load_staged_frames(token)
     normalized_rows = sorted({int(row) for row in excel_rows if int(row) >= 2})
     if not normalized_rows:
