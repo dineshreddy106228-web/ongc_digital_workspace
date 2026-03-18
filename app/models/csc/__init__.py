@@ -8,6 +8,7 @@ from app.models.csc.impact_analysis import CSCImpactAnalysis  # noqa: F401
 from app.models.csc.audit import CSCAudit  # noqa: F401
 from app.models.csc.revision import CSCRevision  # noqa: F401
 from app.models.csc.spec_version import CSCSpecVersion  # noqa: F401
+from app.models.csc.governance import CSCConfig, CSCOfficeOrderFile # noqa: F401
 
 __all__ = [
     "CSCDraft",
@@ -18,4 +19,6 @@ __all__ = [
     "CSCAudit",
     "CSCRevision",
     "CSCSpecVersion",
+    "CSCConfig",
+    "CSCOfficeOrderFile",
 ]

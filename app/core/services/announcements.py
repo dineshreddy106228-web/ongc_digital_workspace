@@ -169,6 +169,16 @@ def get_announcement_for_user(announcement_id: int, user_id: int, include_superu
         announcement_id=announcement.id,
         user_id=user_id,
     ).first()
+
+    if recipient is None and announcement.status == "PUBLISHED":
+        recipient = AnnouncementRecipient(
+            announcement_id=announcement.id,
+            user_id=user_id,
+            is_read=False,
+        )
+        db.session.add(recipient)
+        db.session.flush()
+
     user_is_super = bool(user and canonicalize_role_name(user.role.name if user.role else None) == SUPERUSER_ROLE)
     if recipient is None and not (include_superuser and user_is_super):
         return None, None
@@ -181,7 +191,7 @@ def get_announcement_recipients_for_user(user_id: int) -> list[AnnouncementRecip
         .filter_by(user_id=user_id)
         .join(Announcement, Announcement.id == AnnouncementRecipient.announcement_id)
         .order_by(
-            Announcement.published_at.desc().nullslast(),
+            Announcement.published_at.desc(),
             Announcement.created_at.desc(),
         )
         .all()
@@ -211,8 +221,7 @@ def get_latest_login_announcement_for_user(user_id: int) -> SimpleNamespace | No
     now = _now_utc()
     row = (
         db.session.query(
-            AnnouncementRecipient.id.label("recipient_id"),
-            AnnouncementRecipient.announcement_id,
+            Announcement.id.label("announcement_id"),
             Announcement.title,
             Announcement.summary,
             Announcement.body,
@@ -220,16 +229,20 @@ def get_latest_login_announcement_for_user(user_id: int) -> SimpleNamespace | No
             Announcement.published_at,
             Announcement.created_at,
         )
-        .join(Announcement, Announcement.id == AnnouncementRecipient.announcement_id)
+        .outerjoin(
+            AnnouncementRecipient,
+            (Announcement.id == AnnouncementRecipient.announcement_id) &
+            (AnnouncementRecipient.user_id == user_id)
+        )
         .filter(
-            AnnouncementRecipient.user_id == user_id,
-            AnnouncementRecipient.is_read.is_(False),
             Announcement.status == "PUBLISHED",
+            Announcement.created_by != user_id,
             or_(Announcement.expires_at.is_(None), Announcement.expires_at >= now),
             Announcement.closed_at.is_(None),
+            or_(AnnouncementRecipient.id.is_(None), AnnouncementRecipient.is_read.is_(False))
         )
         .order_by(
-            Announcement.published_at.desc().nullslast(),
+            Announcement.published_at.desc(),
             Announcement.created_at.desc(),
         )
         .first()

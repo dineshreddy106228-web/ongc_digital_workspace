@@ -17,76 +17,84 @@
         {% endfor %}
     {% endwith %}
 
-    <div class="card" style="margin-bottom: 1rem;">
-        <div class="card-body">
-            <div class="detail-overview-grid">
-                <div class="detail-field">
-                    <div class="form-label">Type</div>
-                    <div class="detail-value">{{ 'Poll' if announcement.announcement_type == 'POLL' else 'Announcement' }}</div>
-                </div>
-                <div class="detail-field">
-                    <div class="form-label">Published</div>
-                    <div class="detail-value">{{ announcement.published_at|datetime_ist('%d %b %Y') if announcement.published_at else 'Draft' }}</div>
-                </div>
-                <div class="detail-field">
-                    <div class="form-label">Expiry</div>
-                    <div class="detail-value">{{ announcement.expires_at|datetime_ist('%d %b %Y') if announcement.expires_at else 'No expiry' }}</div>
-                </div>
-                <div class="detail-field">
-                    <div class="form-label">Issued By</div>
-                    <div class="detail-value">{{ announcement.creator.full_name or announcement.creator.username }}</div>
-                </div>
-                {% if can_manage_announcements %}
-                <div class="detail-field">
-                    <div class="form-label">Recipients</div>
-                    <div class="detail-value">{{ announcement_stats.recipients }}</div>
-                </div>
-                <div class="detail-field">
-                    <div class="form-label">Read</div>
-                    <div class="detail-value">{{ announcement_stats.read_count }}</div>
-                </div>
-                {% endif %}
+    <div class="card" style="margin-bottom: 2rem; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+        <!-- Header Banner -->
+        <div style="background: linear-gradient(135deg, var(--color-surface-alt, #f8fafc) 0%, var(--color-surface, #ffffff) 100%); padding: 1.5rem 2rem; border-bottom: 1px solid var(--color-border, #e2e8f0);">
+            <div style="display: flex; gap: 1rem; align-items: center; margin-bottom: 1.25rem;">
+                <span class="status-pill status-pill-{{ announcement.severity }}" style="font-size: 0.75rem;">
+                    {{ 'POLL' if announcement.announcement_type == 'POLL' else 'ANNOUNCEMENT' }}
+                </span>
+                <span style="color: var(--color-text-muted, #64748b); font-size: 0.85rem; font-weight: 500;">
+                    <i class="bi bi-calendar3"></i> {{ announcement.published_at|datetime_ist('%d %b %Y') if announcement.published_at else 'Draft' }}
+                </span>
             </div>
-            <div class="detail-field detail-field-wide" style="margin-top: 1rem;">
-                <div class="form-label">Message</div>
-                <div class="detail-value preserve-whitespace">{{ announcement.body }}</div>
+            <h1 style="font-size: 1.75rem; color: var(--color-text, #0f172a); margin-bottom: 0.5rem; line-height: 1.3;">
+                {{ announcement.title }}
+            </h1>
+            <div style="color: var(--color-text-muted, #64748b); font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;">
+                <i class="bi bi-person-circle"></i> Issued by <strong>{{ announcement.creator.full_name or announcement.creator.username }}</strong>
             </div>
+        </div>
+
+        <!-- Metadata Grid -->
+        <div style="padding: 1.25rem 2rem; background: var(--color-surface, #ffffff); border-bottom: 1px solid var(--color-border, #e2e8f0); display: flex; flex-wrap: wrap; gap: 2.5rem;">
+            <div>
+                <dt style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted, #64748b); margin-bottom: 0.3rem;">Valid Until</dt>
+                <dd style="font-size: 0.95rem; font-weight: 600; color: var(--color-text, #0f172a); margin: 0;">{{ announcement.expires_at|datetime_ist('%d %b %Y') if announcement.expires_at else 'No Expiry' }}</dd>
+            </div>
+            {% if can_manage_announcements %}
+            <div>
+                <dt style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted, #64748b); margin-bottom: 0.3rem;">Delivery</dt>
+                <dd style="font-size: 0.95rem; font-weight: 600; color: var(--color-text, #0f172a); margin: 0;">{{ announcement_stats.recipients }} Recipients</dd>
+            </div>
+            <div>
+                <dt style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted, #64748b); margin-bottom: 0.3rem;">Engagement</dt>
+                <dd style="font-size: 0.95rem; font-weight: 600; color: var(--color-text, #0f172a); margin: 0;">{{ announcement_stats.read_count }} Read</dd>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Message Body -->
+        <div style="padding: 2.5rem 2rem; background: var(--color-surface, #ffffff);">
+            <div class="preserve-whitespace" style="font-size: 1.05rem; line-height: 1.7; color: var(--color-text, #334155); max-width: 800px;">{{ announcement.body }}</div>
         </div>
     </div>
 
     {% if announcement.announcement_type == 'POLL' %}
-    <div class="card">
-        <div class="card-body">
-            <div class="section-heading">
-                <h2 class="section-heading-title">Poll</h2>
-            </div>
+    <div class="card" style="border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid var(--color-border, #e2e8f0);">
+        <div style="padding: 1.5rem 2rem; background: linear-gradient(135deg, var(--color-surface, #ffffff) 0%, var(--color-surface-alt, #f8fafc) 100%); border-bottom: 1px solid var(--color-border, #e2e8f0);">
+            <h2 style="font-size: 1.25rem; font-weight: 700; color: var(--color-text, #0f172a); margin: 0;">Poll Responses</h2>
+        </div>
+        <div style="padding: 2rem; background: var(--color-surface, #ffffff);">
             {% if can_vote %}
             <form method="POST" action="{{ url_for('notifications.vote_announcement', announcement_id=announcement.id) }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <div class="form-section">
+                <div style="display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1.5rem;">
                     {% for option in announcement.options %}
-                    <label class="nav-link-pill" style="display:flex; gap:0.75rem; align-items:flex-start; margin-bottom:0.75rem;">
-                        <input type="radio" name="option_id" value="{{ option.id }}" required style="margin-top:0.2rem;">
-                        <span>{{ option.option_text }}</span>
+                    <label style="display: flex; gap: 1rem; align-items: center; padding: 1rem 1.25rem; border: 1px solid var(--color-border, #e2e8f0); border-radius: 8px; cursor: pointer; transition: all 0.2s ease; background: var(--color-surface-alt, #f8fafc);">
+                        <input type="radio" name="option_id" value="{{ option.id }}" required style="transform: scale(1.2);">
+                        <span style="font-weight: 500; font-size: 1.05rem; color: var(--color-text, #334155);">{{ option.option_text }}</span>
                     </label>
                     {% endfor %}
                 </div>
-                <button type="submit" class="btn btn-primary">Submit Response</button>
+                <button type="submit" class="btn btn-primary" style="padding: 0.75rem 1.5rem; font-size: 1rem;">Submit Response</button>
             </form>
             {% elif user_vote %}
-            <div class="alert alert-success">Your response has been recorded.</div>
+            <div style="padding: 1rem 1.5rem; background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; border-radius: 8px; font-weight: 500; margin-bottom: 2rem; display: flex; align-items: center; gap: 0.75rem;">
+                <i class="bi bi-check-circle-fill" style="font-size: 1.25rem;"></i> Your response has been securely recorded.
+            </div>
             {% endif %}
 
             {% if show_results %}
-            <div style="margin-top: 1rem;">
+            <div style="display: flex; flex-direction: column; gap: 1.5rem; margin-top: {% if can_vote %}2rem{% else %}0{% endif %};">
                 {% for row in poll_results %}
-                <div style="margin-bottom: 0.85rem;">
-                    <div style="display:flex; justify-content:space-between; gap:1rem; font-weight:600;">
-                        <span>{{ row.option.option_text }}</span>
-                        <span>{{ row.votes }} vote{{ '' if row.votes == 1 else 's' }} · {{ row.percent }}%</span>
+                <div>
+                    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 0.5rem;">
+                        <span style="font-weight: 600; font-size: 1rem; color: var(--color-text, #1e293b);">{{ row.option.option_text }}</span>
+                        <span style="font-weight: 500; font-size: 0.85rem; color: var(--color-text-muted, #64748b);">{{ row.votes }} vote{{ '' if row.votes == 1 else 's' }} ({{ row.percent }}%)</span>
                     </div>
-                    <div style="height:0.65rem; border-radius:999px; background:var(--color-surface-alt); overflow:hidden; margin-top:0.35rem;">
-                        <div style="height:100%; width:{{ row.percent }}%; background:var(--color-primary);"></div>
+                    <div style="height: 0.75rem; border-radius: 999px; background: var(--color-surface-alt, #e2e8f0); overflow: hidden;">
+                        <div style="height: 100%; width: {{ row.percent }}%; background: var(--color-primary, #3b82f6); border-radius: 999px; transition: width 1s ease-out;"></div>
                     </div>
                 </div>
                 {% endfor %}

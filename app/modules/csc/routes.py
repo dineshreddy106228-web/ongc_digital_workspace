@@ -485,6 +485,22 @@ def landing():
 @module_access_required("csc")
 def office_order(slug: str):
     """Stream configured office-order PDFs for committee governance."""
+    download = request.args.get("download", "").strip().lower() in {"1", "true", "yes"}
+
+    try:
+        from app.models.csc.governance import CSCOfficeOrderFile
+        order_file = db.session.get(CSCOfficeOrderFile, slug)
+        if order_file:
+            from io import BytesIO
+            return send_file(
+                BytesIO(order_file.file_data),
+                as_attachment=download,
+                download_name=order_file.file_name,
+                mimetype="application/pdf",
+            )
+    except Exception:
+        pass
+
     order = next((item for item in OFFICE_ORDERS if item["slug"] == slug), None)
     if order is None:
         abort(404)
@@ -494,7 +510,6 @@ def office_order(slug: str):
         flash("Office order file is not available on this machine.", "danger")
         return redirect(url_for("csc.index"))
 
-    download = request.args.get("download", "").strip().lower() in {"1", "true", "yes"}
     return send_file(
         path,
         as_attachment=download,
@@ -1818,6 +1833,126 @@ def admin_delete_draft(draft_id: int):
 def api_admin_delete_draft(draft_id: int):
     """Alias for admin_delete_draft."""
     return admin_delete_draft(draft_id)
+
+
+@csc_bp.route("/admin/settings", methods=["GET"])
+@login_required
+@module_access_required("csc")
+@superuser_required
+def admin_settings():
+    """Settings to configure committee directory and upload office orders."""
+    from app.models.csc.governance import CSCConfig, CSCOfficeOrderFile
+    from app.core.services.csc_committee_directory import (
+        ROOT_COMMITTEE, CHILD_COMMITTEES, OFFICE_ORDERS,
+        get_committee_directory,
+    )
+
+    # ── Resolve current committee data (DB or defaults) ──────────────────
+    config = db.session.query(CSCConfig).first()
+    if config and config.directory_json:
+        try:
+            raw = json.loads(config.directory_json)
+            root_c = raw.get("ROOT_COMMITTEE", ROOT_COMMITTEE)
+            child_c = raw.get("CHILD_COMMITTEES", CHILD_COMMITTEES)
+            office_orders_raw = raw.get("OFFICE_ORDERS", OFFICE_ORDERS)
+        except Exception:
+            root_c, child_c, office_orders_raw = ROOT_COMMITTEE, CHILD_COMMITTEES, OFFICE_ORDERS
+    else:
+        root_c, child_c = ROOT_COMMITTEE, CHILD_COMMITTEES
+        office_orders_raw = [{k: str(v) if k == "path" else v for k, v in o.items()} for o in OFFICE_ORDERS]
+
+    all_committees = [root_c] + list(child_c)
+
+    # ── Office order upload status ────────────────────────────────────────
+    try:
+        db_slugs = {row.slug: row for row in db.session.query(CSCOfficeOrderFile).all()}
+    except Exception:
+        db_slugs = {}
+
+    office_order_statuses = []
+    for o in OFFICE_ORDERS:
+        slug = o["slug"]
+        in_db = slug in db_slugs
+        office_order_statuses.append({
+            "slug": slug,
+            "title": o["title"],
+            "in_db": in_db,
+            "file_name": db_slugs[slug].file_name if in_db else None,
+        })
+
+    # ── Data blob for JS serialiser ────────────────────────────────────────
+    config_data = {
+        "all_committees": all_committees,
+        "office_orders": office_orders_raw,
+    }
+
+    # ── Master subset catalogue (from root committee defaults) ────────────
+    all_subsets = ROOT_COMMITTEE["subsets"]
+
+    return render_template(
+        "csc/settings.html",
+        all_committees=all_committees,
+        all_subsets=all_subsets,
+        office_order_statuses=office_order_statuses,
+        config_data=config_data,
+    )
+
+
+@csc_bp.route("/admin/settings/update", methods=["POST"])
+@login_required
+@module_access_required("csc")
+@superuser_required
+def admin_settings_update():
+    from app.models.csc.governance import CSCConfig
+    try:
+        data_text = request.form.get("directory_json", "").strip()
+        parsed = json.loads(data_text)
+        if not isinstance(parsed, dict):
+            raise ValueError("Must be a JSON object.")
+
+        config = db.session.query(CSCConfig).first()
+        if not config:
+            config = CSCConfig()
+            db.session.add(config)
+        
+        config.directory_json = data_text
+        db.session.commit()
+        flash("Committee configuration saved.", "success")
+    except Exception as e:
+        flash(f"Invalid JSON: {e}", "danger")
+    
+    return redirect(url_for("csc.admin_settings"))
+
+
+@csc_bp.route("/admin/office-order/upload", methods=["POST"])
+@login_required
+@module_access_required("csc")
+@superuser_required
+def admin_upload_office_order():
+    from app.models.csc.governance import CSCOfficeOrderFile
+    slug = request.form.get("slug", "").strip()
+    file_obj = request.files.get("file")
+
+    if not slug or not file_obj:
+        flash("Slug and file are required.", "danger")
+        return redirect(url_for("csc.admin_settings"))
+
+    file_data = file_obj.read()
+    if not file_data:
+        flash("Uploaded file is empty.", "danger")
+        return redirect(url_for("csc.admin_settings"))
+
+    order = db.session.get(CSCOfficeOrderFile, slug)
+    if not order:
+        order = CSCOfficeOrderFile(slug=slug)
+        db.session.add(order)
+    
+    order.file_name = file_obj.filename or "office_order.pdf"
+    order.file_data = file_data
+    db.session.commit()
+
+    flash(f"Office Order '{slug}' mapped and saved to database successfully.", "success")
+    return redirect(url_for("csc.admin_settings"))
 
 
 @csc_bp.route("/admin/revisions")

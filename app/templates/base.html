@@ -229,7 +229,7 @@
             <div class="workspace-header-location">Mumbai | Dehradun</div>
         </div>
         <div class="workspace-header-band-meta">
-            <span class="workspace-header-chip workspace-header-chip-version">v1</span>
+            <span class="workspace-header-chip workspace-header-chip-version">v1.1</span>
             {% if last_refreshed %}
             <div class="workspace-header-meta-text">Updated {{ last_refreshed|datetime_ist('%d %b %Y') }}</div>
             {% endif %}
@@ -240,28 +240,27 @@
     {% if current_user.is_authenticated and session.get('show_login_welcome') and request.endpoint != 'auth.change_password' %}
     <div class="workspace-welcome-overlay" id="loginWelcomeModal" role="dialog" aria-modal="true" aria-labelledby="loginWelcomeTitle">
         <div class="workspace-welcome-modal">
-            <div class="workspace-welcome-eyebrow">ONGC Digital Workspace</div>
-            <h2 class="workspace-welcome-title" id="loginWelcomeTitle">Welcome to the ONGC Digital Workspace</h2>
-            <p class="workspace-welcome-copy">
-                This internal platform is designed to bring a structured, transparent, and collaborative approach to office coordination, task tracking, and workflow monitoring.
-            </p>
-            <div class="workspace-welcome-grid">
-                <div class="workspace-welcome-card">
-                    <div class="workspace-welcome-card-title">Now Live</div>
-                    <p>The Office Management Module is available for daily task tracking, coordination, and monitoring.</p>
-                </div>
-                <div class="workspace-welcome-card">
-                    <div class="workspace-welcome-card-title">Next Rollout</div>
-                    <p>Inventory Monitoring and CSC Workflow modules are being prepared for ONGC Intranet deployment.</p>
-                </div>
-                <div class="workspace-welcome-card">
-                    <div class="workspace-welcome-card-title">Operating Model</div>
-                    <p>Users are onboarded as per the present controlling officer structure of the office.</p>
-                </div>
+            <div class="workspace-welcome-eyebrow">ONGC Digital Workspace — Version 1.1</div>
+            <h2 class="workspace-welcome-title" id="loginWelcomeTitle">Version updated to 1.1</h2>
+            <div class="workspace-welcome-copy" style="text-align: left; margin-bottom: 1.5rem;">
+                <ul style="margin-bottom: 1.2rem; padding-left: 1.5rem;">
+                    <li style="margin-bottom: 0.5rem;">Broadcat / Polling has been introduced. Superusers can launch a poll or send out an announcement to all users of the workspace</li>
+                </ul>
+                
+                <p style="margin-bottom: 1.2rem;">
+                    CSC Workflow has been introduced for structured input collection from the Specification Review Committees and the Material Handling Committee. This is under Material Master Management Module
+                </p>
+                
+                <p style="margin-bottom: 0.5rem;">Following processes have been digitized:</p>
+                <ul style="margin-bottom: 1.2rem; padding-left: 1.5rem;">
+                    <li style="margin-bottom: 0.5rem;">Review committee workflow</li>
+                </ul>
+                
+                <p style="margin-bottom: 0.5rem;">Following processes have been automated:</p>
+                <ul style="margin-bottom: 0.5rem; padding-left: 1.5rem;">
+                    <li>Compilation of Specifications for the 12th Edition of Corporate Specifications of Oil Field Chemicals</li>
+                </ul>
             </div>
-            <p class="workspace-welcome-note">
-                Your feedback will help strengthen the Digital Workspace and support more efficient office functioning.
-            </p>
             <form id="loginWelcomeForm" method="POST" action="{{ url_for('auth.welcome_acknowledge') }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="workspace-welcome-actions">

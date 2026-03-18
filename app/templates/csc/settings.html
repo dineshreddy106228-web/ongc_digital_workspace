@@ -1,0 +1,521 @@
+{% extends "base.html" %}
+{% block title %}Governance Settings — {{ app_name }}{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}">
+<style nonce="{{ csp_nonce() }}">
+/* ── Page layout ──────────────────────────────────────────── */
+.gs-tabs { display: flex; gap: 0.25rem; border-bottom: 2px solid var(--border); margin-bottom: 1.75rem; }
+.gs-tab {
+    padding: 0.55rem 1.1rem;
+    font-size: 0.85rem; font-weight: 600;
+    color: var(--muted);
+    border: none; background: none; cursor: pointer;
+    border-bottom: 2px solid transparent; margin-bottom: -2px;
+    transition: color .15s, border-color .15s;
+}
+.gs-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+.gs-tab-panel { display: none; }
+.gs-tab-panel.active { display: block; }
+
+/* ── Upload panel ──────────────────────────────────────────── */
+.gs-upload-grid {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 1.5rem;
+    align-items: start;
+}
+@media (max-width: 900px) { .gs-upload-grid { grid-template-columns: 1fr; } }
+
+/* ── Committee editor grid ─────────────────────────────────── */
+.gs-committee-grid {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    gap: 1.5rem;
+    align-items: start;
+}
+@media (max-width: 900px) { .gs-committee-grid { grid-template-columns: 1fr; } }
+
+/* ── Sidebar nav ───────────────────────────────────────────── */
+.gs-sidebar { position: sticky; top: 1rem; }
+.gs-sidebar-nav { list-style: none; margin: 0; padding: 0; }
+.gs-sidebar-item {
+    padding: 0.55rem 0.85rem;
+    border-radius: 8px;
+    font-size: 0.84rem;
+    font-weight: 500;
+    color: var(--muted);
+    cursor: pointer;
+    display: flex; align-items: center; gap: 0.5rem;
+    transition: background .12s, color .12s;
+    margin-bottom: 2px;
+}
+.gs-sidebar-item:hover { background: var(--surface-alt); color: var(--text); }
+.gs-sidebar-item.active { background: color-mix(in srgb, var(--primary) 8%, transparent); color: var(--primary); font-weight: 700; }
+.gs-sidebar-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+}
+
+/* ── Card ──────────────────────────────────────────────────── */
+.gs-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: calc(var(--radius) + 4px); box-shadow: var(--shadow-sm); overflow: hidden;
+}
+.gs-card-header {
+    display: flex; align-items: center; gap: 0.65rem;
+    padding: 0.9rem 1.25rem; border-bottom: 1px solid var(--border);
+    background: var(--surface-alt);
+}
+.gs-card-icon {
+    width: 2rem; height: 2rem; border-radius: 8px; display: flex;
+    align-items: center; justify-content: center; font-size: 0.95rem; flex-shrink: 0;
+}
+.gs-card-title { margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--text); flex: 1; }
+.gs-card-kind { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: .18rem .55rem; border-radius: 999px; }
+.gs-card-body { padding: 1.25rem; }
+
+/* ── Section labels ────────────────────────────────────────── */
+.gs-field-label {
+    font-size: 0.74rem; font-weight: 800; text-transform: uppercase; letter-spacing: .05em;
+    color: var(--muted); margin: 0 0 0.55rem;
+}
+.gs-section { margin-bottom: 1.4rem; }
+.gs-section:last-child { margin-bottom: 0; }
+
+/* ── Members list ───────────────────────────────────────────── */
+.gs-tag-list { display: flex; flex-direction: column; gap: 0.45rem; }
+.gs-tag-row { display: flex; align-items: center; gap: 0.5rem; }
+.gs-tag-remove {
+    width: 1.75rem; height: 1.75rem; border-radius: 50%; border: none;
+    background: transparent; color: var(--muted); cursor: pointer; font-size: 1rem;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    transition: background .12s, color .12s;
+}
+.gs-tag-remove:hover { background: #fef2f2; color: #dc2626; }
+.gs-member-input {
+    flex: 1; padding: .3rem .6rem; border: 1px solid var(--border); border-radius: 6px;
+    font-size: 0.82rem; background: var(--surface-alt); color: var(--text);
+}
+.gs-add-btn {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    font-size: 0.78rem; font-weight: 600; color: var(--primary);
+    background: none; border: 1px dashed color-mix(in srgb, var(--primary) 35%, transparent);
+    border-radius: 6px; padding: .28rem .75rem; cursor: pointer;
+    transition: background .12s, border-color .12s;
+    margin-top: 0.4rem;
+}
+.gs-add-btn:hover { background: color-mix(in srgb, var(--primary) 7%, transparent); border-color: var(--primary); }
+
+/* ── Subset chip picker ─────────────────────────────────────── */
+.gs-subset-picker {
+    display: flex; flex-wrap: wrap; gap: 0.5rem;
+    padding: 0.75rem;
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+.gs-subset-chip {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    padding: 0.35rem 0.75rem;
+    border-radius: 999px;
+    border: 1.5px solid var(--border);
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 0.8rem; font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+    transition: background .15s, border-color .15s, color .15s, box-shadow .15s;
+}
+.gs-subset-chip:hover {
+    border-color: #0f766e;
+    color: #0f766e;
+    background: color-mix(in srgb, #0f766e 6%, transparent);
+}
+.gs-subset-chip.active {
+    background: #0f766e;
+    border-color: #0f766e;
+    color: #fff;
+    box-shadow: 0 2px 8px color-mix(in srgb, #0f766e 30%, transparent);
+}
+.gs-subset-chip.active:hover {
+    background: #0d5f58;
+    border-color: #0d5f58;
+}
+.gs-subset-chip-code {
+    font-family: monospace; font-weight: 800; font-size: 0.78rem;
+    opacity: 0.85;
+}
+.gs-subset-hint {
+    font-size: 0.76rem; color: var(--muted); margin: 0.45rem 0 0;
+    display: flex; align-items: center; gap: 0.4rem;
+}
+
+/* ── File upload ───────────────────────────────────────────── */
+.gs-upload-zone {
+    border: 2px dashed var(--border); border-radius: var(--radius);
+    padding: 1.5rem 1rem; text-align: center; background: var(--surface-alt);
+    cursor: pointer; transition: border-color .15s, background .15s;
+}
+.gs-upload-zone:hover { border-color: #0f766e; background: color-mix(in srgb, #0f766e 4%, transparent); }
+.gs-upload-zone i { font-size: 1.75rem; color: var(--muted); display: block; margin-bottom: 0.45rem; }
+.gs-upload-zone p { margin: 0; font-size: 0.8rem; color: var(--muted); }
+.gs-file-input { display: none; }
+.gs-slug-chips { display: flex; flex-direction: column; gap: 0.35rem; }
+.gs-slug-chip { font-size: 0.76rem; font-family: monospace; padding: .3rem .6rem; border-radius: 6px; background: var(--surface-alt); color: var(--muted); }
+.gs-slot-status { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; }
+.gs-slot-ok   { color: var(--success); font-weight: 600; }
+.gs-slot-miss { color: var(--muted); }
+
+/* tone dot colours */
+.dot-indigo { background: #4f46e5; }
+.dot-blue   { background: #2563eb; }
+.dot-green  { background: #15803d; }
+.dot-teal   { background: #0f766e; }
+.dot-amber  { background: #b45309; }
+.dot-rose   { background: #be123c; }
+
+.tone-indigo { background: color-mix(in srgb,#4f46e5 10%,transparent); color:#4f46e5; }
+.tone-blue   { background: color-mix(in srgb,#2563eb 10%,transparent); color:#2563eb; }
+.tone-green  { background: color-mix(in srgb,#15803d 10%,transparent); color:#15803d; }
+.tone-teal   { background: color-mix(in srgb,#0f766e 10%,transparent); color:#0f766e; }
+.tone-amber  { background: color-mix(in srgb,#b45309 10%,transparent); color:#b45309; }
+.tone-rose   { background: color-mix(in srgb,#be123c 10%,transparent); color:#be123c; }
+.icon-indigo { background:color-mix(in srgb,#4f46e5 10%,transparent); color:#4f46e5; }
+.icon-blue   { background:color-mix(in srgb,#2563eb 10%,transparent); color:#2563eb; }
+.icon-green  { background:color-mix(in srgb,#15803d 10%,transparent); color:#15803d; }
+.icon-teal   { background:color-mix(in srgb,#0f766e 10%,transparent); color:#0f766e; }
+.icon-amber  { background:color-mix(in srgb,#b45309 10%,transparent); color:#b45309; }
+.icon-rose   { background:color-mix(in srgb,#be123c 10%,transparent); color:#be123c; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="inv-page">
+    <div class="inv-module-header">
+        <div>
+            <div class="page-kicker"><a href="{{ url_for('csc.admin_index') }}">Material Master Admin</a></div>
+            <h1 class="inv-module-title"><i class="bi bi-sliders"></i> Governance Settings</h1>
+            <p class="inv-module-subtitle">Edit committee members, subset coverage, and upload office order PDFs.</p>
+        </div>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}
+    <div style="margin-bottom:1.25rem;">
+        {% for cat, msg in messages %}
+        <div style="padding:.75rem 1rem;border-radius:var(--radius);margin-bottom:.5rem;font-size:.88rem;font-weight:600;
+            background:{% if cat=='success' %}color-mix(in srgb,var(--success) 10%,transparent){% else %}color-mix(in srgb,var(--danger) 10%,transparent){% endif %};
+            border:1px solid {% if cat=='success' %}var(--success){% else %}var(--danger){% endif %};
+            color:{% if cat=='success' %}var(--success){% else %}var(--danger){% endif %};">
+            <i class="bi bi-{% if cat=='success' %}check-circle{% else %}exclamation-triangle{% endif %}"></i> {{ msg }}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}{% endwith %}
+
+    {# ── Tabs ──────────────────────────────────────────────── #}
+    <div class="gs-tabs">
+        <button class="gs-tab active" onclick="switchTab('committees', this)">
+            <i class="bi bi-diagram-3"></i> Committee Editor
+        </button>
+        <button class="gs-tab" onclick="switchTab('upload', this)">
+            <i class="bi bi-file-earmark-arrow-up"></i> Office Order PDFs
+        </button>
+    </div>
+
+    {# ══════════════════════════════════════════════════════
+       TAB 1: Committee Editor
+    ══════════════════════════════════════════════════════ #}
+    <div id="tab-committees" class="gs-tab-panel active">
+        <form method="POST" action="{{ url_for('csc.admin_settings_update') }}" id="committeeForm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            {# hidden field populated by JS before submit #}
+            <input type="hidden" name="directory_json" id="directory_json_field">
+
+            <div class="gs-committee-grid">
+                {# ── Sidebar ──────────────────────────────── #}
+                <div class="gs-sidebar">
+                    <div class="gs-card">
+                        <div class="gs-card-header">
+                            <div class="gs-card-icon icon-indigo"><i class="bi bi-diagram-3"></i></div>
+                            <h2 class="gs-card-title">Committees</h2>
+                        </div>
+                        <div class="gs-card-body" style="padding: 0.6rem;">
+                            <ul class="gs-sidebar-nav" id="committeeSidebarNav">
+                                {% for c in all_committees %}
+                                <li class="gs-sidebar-item {% if loop.first %}active{% endif %}"
+                                    onclick="selectCommittee('{{ c.slug }}', this)"
+                                    data-slug="{{ c.slug }}">
+                                    <span class="gs-sidebar-dot dot-{{ c.tone }}"></span>
+                                    {{ c.title }}
+                                </li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                        <div style="padding: 0.85rem; border-top: 1px solid var(--border);">
+                            <button type="submit" class="btn btn-primary" style="width:100%;" onclick="prepareJson()">
+                                <i class="bi bi-cloud-check"></i> Save All Changes
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                {# ── Editor panels ─────────────────────────── #}
+                <div>
+                    {% for c in all_committees %}
+                    <div id="panel-{{ c.slug }}" class="committee-panel" {% if not loop.first %}style="display:none;"{% endif %}>
+                        <div class="gs-card">
+                            <div class="gs-card-header">
+                                <div class="gs-card-icon icon-{{ c.tone }}"><i class="bi bi-people-fill"></i></div>
+                                <h2 class="gs-card-title">{{ c.title }}</h2>
+                                <span class="gs-card-kind tone-{{ c.tone }}">{{ c.kind }}</span>
+                            </div>
+                            <div class="gs-card-body">
+
+                                {# —— Members ————————————————————————— #}
+                                <div class="gs-section">
+                                    <p class="gs-field-label"><i class="bi bi-person-fill"></i> Members</p>
+                                    <div class="gs-tag-list" id="members-{{ c.slug }}">
+                                        {% if c.members %}
+                                            {% for member in c.members %}
+                                            <div class="gs-tag-row">
+                                                <input class="gs-member-input" type="text" value="{{ member }}" placeholder="Full name / designation">
+                                                <button type="button" class="gs-tag-remove" onclick="removeRow(this)" title="Remove">×</button>
+                                            </div>
+                                            {% endfor %}
+                                        {% else %}
+                                            <p style="font-size:.82rem; color:var(--muted); margin:0;">
+                                                {{ c.get('members_note', 'No members listed yet.') }}
+                                            </p>
+                                        {% endif %}
+                                    </div>
+                                    <button type="button" class="gs-add-btn" onclick="addMemberRow('members-{{ c.slug }}')">
+                                        <i class="bi bi-plus"></i> Add Member
+                                    </button>
+                                </div>
+
+                                {# —— Subsets ————————————————————————— #}
+                                <div class="gs-section">
+                                    <p class="gs-field-label"><i class="bi bi-tag-fill"></i> Subset Coverage</p>
+                                    {# Build active set from Jinja #}
+                                    {% set active_codes = c.subsets | map(attribute='code') | list %}
+                                    <div class="gs-subset-picker" id="subsets-{{ c.slug }}">
+                                        {% for s in all_subsets %}
+                                        <button type="button"
+                                            class="gs-subset-chip {% if s.code in active_codes %}active{% endif %}"
+                                            data-code="{{ s.code }}"
+                                            data-label="{{ s.label }}"
+                                            onclick="toggleSubset(this)">
+                                            <span class="gs-subset-chip-code">{{ s.code }}</span>
+                                            {{ s.label }}
+                                        </button>
+                                        {% endfor %}
+                                    </div>
+                                    <p class="gs-subset-hint">
+                                        <i class="bi bi-info-circle"></i>
+                                        Click a subset to add or remove it. Highlighted in teal = assigned.
+                                    </p>
+                                </div>
+
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </form>
+    </div>
+
+    {# ══════════════════════════════════════════════════════
+       TAB 2: Office Order PDFs
+    ══════════════════════════════════════════════════════ #}
+    <div id="tab-upload" class="gs-tab-panel">
+        <div class="gs-upload-grid">
+            <div class="gs-card">
+                <div class="gs-card-header">
+                    <div class="gs-card-icon icon-teal"><i class="bi bi-file-earmark-arrow-up"></i></div>
+                    <h2 class="gs-card-title">Upload PDF to Database</h2>
+                </div>
+                <div class="gs-card-body">
+                    <form method="POST" action="{{ url_for('csc.admin_upload_office_order') }}" enctype="multipart/form-data" id="uploadForm">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                        <div class="gs-section">
+                            <p class="gs-field-label">Office Order Slug</p>
+                            <select id="slug" name="slug" class="form-control" style="font-family:monospace; font-size:0.85rem;">
+                                {% for o in office_order_statuses %}
+                                <option value="{{ o.slug }}">{{ o.slug }}</option>
+                                {% endfor %}
+                            </select>
+                            <p style="font-size:.78rem; color:var(--muted); margin:.4rem 0 0;">Select which order you are uploading.</p>
+                        </div>
+
+                        <div class="gs-section">
+                            <p class="gs-field-label">PDF File</p>
+                            <div class="gs-upload-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+                                <i class="bi bi-file-earmark-pdf"></i>
+                                <p id="dropZoneText">Click to select a PDF, or drag &amp; drop</p>
+                            </div>
+                            <input type="file" id="fileInput" name="file" class="gs-file-input" accept="application/pdf" required>
+                        </div>
+
+                        <button type="submit" class="btn btn-success" style="width:100%;">
+                            <i class="bi bi-upload"></i> Upload &amp; Save to Database
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            {# Right: status panel #}
+            <div>
+                <div class="gs-card">
+                    <div class="gs-card-header">
+                        <div class="gs-card-icon icon-green"><i class="bi bi-database-check"></i></div>
+                        <h2 class="gs-card-title">Upload Status</h2>
+                    </div>
+                    <div class="gs-card-body">
+                        <p style="font-size:.82rem; color:var(--muted); margin-bottom:.85rem;">
+                            PDFs stored in the database are accessible on Railway and all cloud deployments.
+                        </p>
+                        <div class="gs-slug-chips" style="gap:.65rem;">
+                            {% for o in office_order_statuses %}
+                            <div style="padding:.75rem; border-radius:var(--radius); border:1px solid var(--border); background:var(--surface-alt);">
+                                <div class="gs-slot-status" style="margin-bottom:.2rem;">
+                                    {% if o.in_db %}
+                                    <i class="bi bi-check-circle-fill" style="color:var(--success);"></i>
+                                    <span class="gs-slot-ok">Stored in database</span>
+                                    {% else %}
+                                    <i class="bi bi-cloud-slash" style="color:var(--muted);"></i>
+                                    <span class="gs-slot-miss">Not yet uploaded</span>
+                                    {% endif %}
+                                </div>
+                                <div style="font-family:monospace; font-size:.76rem; color:var(--muted);">{{ o.slug }}</div>
+                                <div style="font-size:.82rem; font-weight:600; color:var(--text); margin-top:.15rem;">{{ o.title }}</div>
+                                {% if o.in_db %}
+                                <div style="font-size:.75rem; color:var(--muted); margin-top:.15rem;">{{ o.file_name }}</div>
+                                {% endif %}
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts_extra %}
+<script nonce="{{ csp_nonce() }}">
+(function() {
+    'use strict';
+
+    // ── Tab switching ────────────────────────────────────────
+    window.switchTab = function(name, btn) {
+        document.querySelectorAll('.gs-tab-panel').forEach(function(p){ p.classList.remove('active'); });
+        document.querySelectorAll('.gs-tab').forEach(function(t){ t.classList.remove('active'); });
+        document.getElementById('tab-' + name).classList.add('active');
+        btn.classList.add('active');
+    };
+
+    // ── Sidebar nav ──────────────────────────────────────────
+    window.selectCommittee = function(slug, el) {
+        document.querySelectorAll('.gs-sidebar-item').forEach(function(i){ i.classList.remove('active'); });
+        document.querySelectorAll('.committee-panel').forEach(function(p){ p.style.display = 'none'; });
+        el.classList.add('active');
+        document.getElementById('panel-' + slug).style.display = '';
+    };
+
+    // ── Add member row ────────────────────────────────────────
+    window.addMemberRow = function(containerId) {
+        var container = document.getElementById(containerId);
+        // remove placeholder text if present
+        var placeholder = container.querySelector('p');
+        if (placeholder) placeholder.remove();
+
+        var row = document.createElement('div');
+        row.className = 'gs-tag-row';
+        row.innerHTML = '<input class="gs-member-input" type="text" value="" placeholder="Full name / designation">' +
+                        '<button type="button" class="gs-tag-remove" onclick="removeRow(this)" title="Remove">\xd7</button>';
+        container.appendChild(row);
+        row.querySelector('input').focus();
+    };
+
+    // ── Toggle subset chip ────────────────────────────────────
+    window.toggleSubset = function(chip) {
+        chip.classList.toggle('active');
+    };
+
+    // ── Remove member row ─────────────────────────────────────
+    window.removeRow = function(btn) {
+        btn.closest('.gs-tag-row').remove();
+    };
+
+    // ── Build JSON from DOM before form submit ────────────────
+    var rawConfig = {{ config_data | tojson }};
+
+    window.prepareJson = function() {
+        var allCommittees = rawConfig.all_committees;
+
+        allCommittees.forEach(function(c) {
+            var panel = document.getElementById('panel-' + c.slug);
+            if (!panel) return;
+
+            // members
+            var memberInputs = panel.querySelectorAll('#members-' + c.slug + ' .gs-member-input');
+            var members = [];
+            memberInputs.forEach(function(inp) {
+                var v = inp.value.trim();
+                if (v) members.push(v);
+            });
+            c.members = members;
+
+            // subsets — read from active chip buttons
+            var activeChips = panel.querySelectorAll('#subsets-' + c.slug + ' .gs-subset-chip.active');
+            var subsets = [];
+            activeChips.forEach(function(chip) {
+                subsets.push({
+                    code: chip.dataset.code,
+                    label: chip.dataset.label
+                });
+            });
+            c.subsets = subsets;
+        });
+
+        var root = allCommittees.shift();
+        var result = {
+            ROOT_COMMITTEE: root,
+            CHILD_COMMITTEES: allCommittees,
+            OFFICE_ORDERS: rawConfig.office_orders
+        };
+        document.getElementById('directory_json_field').value = JSON.stringify(result, null, 2);
+    };
+
+    // ── Drag & drop file ──────────────────────────────────────
+    var fileInput = document.getElementById('fileInput');
+    var dropZone  = document.getElementById('dropZone');
+    var dropText  = document.getElementById('dropZoneText');
+
+    if (fileInput && dropZone) {
+        fileInput.addEventListener('change', function() {
+            if (fileInput.files.length > 0) {
+                dropText.textContent = fileInput.files[0].name;
+                dropZone.style.borderColor = '#0f766e';
+            }
+        });
+        dropZone.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            dropZone.style.borderColor = '#0f766e';
+        });
+        dropZone.addEventListener('dragleave', function() { dropZone.style.borderColor = ''; });
+        dropZone.addEventListener('drop', function(e) {
+            e.preventDefault();
+            if (e.dataTransfer.files.length > 0) {
+                fileInput.files = e.dataTransfer.files;
+                dropText.textContent = e.dataTransfer.files[0].name;
+                dropZone.style.borderColor = '#0f766e';
+            }
+        });
+    }
+})();
+</script>
+{% endblock %}

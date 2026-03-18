@@ -1084,6 +1084,7 @@
 .inv-landing-card-green:hover  { border-color: color-mix(in srgb, var(--success) 50%, transparent); }
 .inv-landing-card-amber:hover  { border-color: color-mix(in srgb, var(--warning) 50%, transparent); }
 .inv-landing-card-purple:hover { border-color: color-mix(in srgb, #7c3aed 50%, transparent); }
+.inv-landing-card-teal:hover   { border-color: color-mix(in srgb, #0f766e 50%, transparent); }
 
 .inv-landing-icon {
   display: flex;
@@ -1096,25 +1097,13 @@
 .inv-landing-card-green  .inv-landing-icon { color: var(--success); }
 .inv-landing-card-amber  .inv-landing-icon { color: var(--warning); }
 .inv-landing-card-purple .inv-landing-icon { color: #7c3aed; }
+.inv-landing-card-teal   .inv-landing-icon { color: #0f766e; }
 
-.inv-landing-card-body {
-  flex: 1;
-  padding: 0 1.5rem 1rem;
-}
+.inv-landing-card-body { flex: 1; padding: 0 1.5rem 1rem; }
 
-.inv-landing-card-title {
-  margin: 0 0 0.5rem;
-  font-size: 1.15rem;
-  font-weight: 700;
-  color: var(--text);
-}
+.inv-landing-card-title { margin: 0 0 0.5rem; font-size: 1.15rem; font-weight: 700; color: var(--text); }
 
-.inv-landing-card-desc {
-  margin: 0 0 0.85rem;
-  font-size: 0.85rem;
-  color: var(--muted);
-  line-height: 1.5;
-}
+.inv-landing-card-desc { margin: 0 0 0.85rem; font-size: 0.85rem; color: var(--muted); line-height: 1.5; }
 
 .inv-landing-features {
   list-style: none;
@@ -1138,6 +1127,7 @@
 .inv-landing-card-green  .inv-landing-features li i { color: var(--success); }
 .inv-landing-card-amber  .inv-landing-features li i { color: var(--warning); }
 .inv-landing-card-purple .inv-landing-features li i { color: #7c3aed; }
+.inv-landing-card-teal   .inv-landing-features li i { color: #0f766e; }
 
 .inv-landing-card-footer {
   padding: 0.85rem 1.5rem;
@@ -1158,6 +1148,7 @@
 .inv-landing-card-green  .inv-landing-enter { color: var(--success); }
 .inv-landing-card-amber  .inv-landing-enter { color: var(--warning); }
 .inv-landing-card-purple .inv-landing-enter { color: #7c3aed; }
+.inv-landing-card-teal   .inv-landing-enter { color: #0f766e; }
 
 @media (max-width: 600px) {
   .inv-landing-grid { grid-template-columns: 1fr; }
