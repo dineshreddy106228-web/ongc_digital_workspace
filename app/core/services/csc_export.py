@@ -488,19 +488,20 @@ def _build_review_parameters_page(doc: Document, review_context: dict[str, Any])
         doc.add_paragraph("No parameters are present in this submission.")
         return
 
-    table = doc.add_table(rows=1, cols=6)
+    table = doc.add_table(rows=1, cols=7)
     table.style = "Table Grid"
     _set_table_outer_border(table, _COPPER_HEX, sz=8)
     _set_table_inner_borders(table, _LGRAY_HEX, sz=4)
     headers = [
         "Parameter",
-        "Type",
+        "Current Type",
+        "Proposed Type",
         "Unit",
         "Current Requirement",
         "Proposed Requirement",
         "Change Status",
     ]
-    widths = [1.5, 0.7, 0.7, 1.45, 1.45, 0.8]
+    widths = [1.45, 0.8, 0.8, 0.6, 1.25, 1.25, 0.8]
     for idx, header in enumerate(headers):
         _shade_cell(table.rows[0].cells[idx], _COPPER_HEX, font_white=True)
         paragraph = table.rows[0].cells[idx].paragraphs[0]
@@ -514,9 +515,12 @@ def _build_review_parameters_page(doc: Document, review_context: dict[str, Any])
 
     for parameter in parameter_rows:
         cells = table.add_row().cells
+        revised_type = str(parameter.get("parameter_type", "—"))
+        source_type = str(parameter.get("source_parameter_type", revised_type or "—"))
         values = [
             str(parameter.get("parameter_name", "Untitled Parameter")),
-            str(parameter.get("parameter_type", "—")),
+            source_type,
+            revised_type,
             str(parameter.get("unit_of_measure", "—")),
             str(parameter.get("required_value", "—")),
             str(parameter.get("proposed_value", "No change submitted")),
@@ -527,10 +531,10 @@ def _build_review_parameters_page(doc: Document, review_context: dict[str, Any])
             run = paragraph.add_run(value)
             run.font.name = _FONT_MAIN
             run.font.size = Pt(9)
-            if idx == 4 and parameter.get("change_status") == "Revised":
+            if idx in {2, 5} and parameter.get("change_status") == "Revised":
                 run.bold = True
                 run.font.color.rgb = _COPPER
-            if idx == 5:
+            if idx == 6:
                 run.bold = True
                 run.font.color.rgb = _COPPER if parameter.get("change_status") == "Revised" else _DARK_GRAY
         _set_cell_widths(cells, widths)

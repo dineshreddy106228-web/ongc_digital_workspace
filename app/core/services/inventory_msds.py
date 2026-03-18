@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 
 from flask import current_app
+from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.datastructures import FileStorage
 from werkzeug.utils import secure_filename
 
@@ -100,8 +101,28 @@ def _delete_file_if_present(path_value: str | None) -> None:
         raise MSDSError(f"Could not remove stored MSDS file: {exc}") from exc
 
 
+def _msds_metadata_unavailable_error(exc: Exception) -> MSDSError:
+    current_app.logger.warning("MSDS metadata query failed", exc_info=True)
+    return MSDSError(
+        "MSDS metadata is not available in this environment yet. "
+        "Apply the MSDS database migration on Railway and try again."
+    )
+
+
+def list_msds_documents() -> list[MaterialMSDSDocument]:
+    try:
+        return MaterialMSDSDocument.query.order_by(
+            MaterialMSDSDocument.material_code.asc()
+        ).all()
+    except SQLAlchemyError as exc:
+        raise _msds_metadata_unavailable_error(exc) from exc
+
+
 def get_msds_document(material_code: str) -> MaterialMSDSDocument | None:
-    return MaterialMSDSDocument.query.filter_by(material_code=material_code).first()
+    try:
+        return MaterialMSDSDocument.query.filter_by(material_code=material_code).first()
+    except SQLAlchemyError as exc:
+        raise _msds_metadata_unavailable_error(exc) from exc
 
 
 def store_msds_document(

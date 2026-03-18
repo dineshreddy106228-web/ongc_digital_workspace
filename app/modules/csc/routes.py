@@ -1574,12 +1574,14 @@ def landing():
 @module_access_required("csc")
 def msds_page():
     """MSDS center within Material Master Management."""
-    from app.models.inventory.material_msds_document import MaterialMSDSDocument
+    from app.core.services.inventory_msds import MSDSError, list_msds_documents
 
     rows = get_all_master_data()
-    msds_documents = MaterialMSDSDocument.query.order_by(
-        MaterialMSDSDocument.material_code.asc()
-    ).all()
+    msds_documents = []
+    try:
+        msds_documents = list_msds_documents()
+    except MSDSError as exc:
+        flash(str(exc), "warning")
     msds_by_material = {
         document.material_code: document for document in msds_documents
     }

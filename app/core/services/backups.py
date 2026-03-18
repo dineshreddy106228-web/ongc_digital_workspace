@@ -236,6 +236,25 @@ def _format_command_failure(stderr: bytes | str | None) -> str:
     return message or "No stderr output was captured."
 
 
+def _resolve_mysql_client_binary(
+    configured_name: str | None,
+    *fallback_names: str,
+) -> str:
+    """Return the first available MySQL/MariaDB client binary on PATH."""
+    candidates: list[str] = []
+    primary = (configured_name or "").strip()
+    if primary:
+        candidates.append(primary)
+    candidates.extend(name for name in fallback_names if name and name not in candidates)
+
+    for candidate in candidates:
+        resolved = shutil.which(candidate)
+        if resolved:
+            return resolved
+
+    raise FileNotFoundError(", ".join(candidates) or "mysql client")
+
+
 def create_database_backup() -> BackupArtifact:
     """Run mysqldump into a temporary gzip file and return the artifact."""
 
@@ -244,7 +263,11 @@ def create_database_backup() -> BackupArtifact:
     raw_dump_path = _create_temp_path(".sql")
     compressed_dump_path = _create_temp_path(".sql.gz")
     dump_command = [
-        current_app.config.get("MYSQLDUMP_BIN", "mysqldump"),
+        _resolve_mysql_client_binary(
+            current_app.config.get("MYSQLDUMP_BIN", "mysqldump"),
+            "mysqldump",
+            "mariadb-dump",
+        ),
         f"--defaults-extra-file={defaults_file}",
         "--protocol=TCP",
         "--single-transaction",
@@ -281,8 +304,8 @@ def create_database_backup() -> BackupArtifact:
         backup_created = True
     except FileNotFoundError as exc:
         raise BackupError(
-            "mysqldump is not installed or not available on PATH. "
-            "Install the MySQL client package in the deployment image."
+            "No MySQL dump client was found on PATH. "
+            "Install a MySQL/MariaDB client package in the deployment image."
         ) from exc
     except subprocess.TimeoutExpired as exc:
         raise BackupError(
@@ -362,7 +385,11 @@ def restore_database_backup(file_path: str | Path) -> dict:
     settings = resolve_database_connection_settings()
     defaults_file = _write_client_defaults_file(settings)
     restore_command = [
-        current_app.config.get("MYSQL_BIN", "mysql"),
+        _resolve_mysql_client_binary(
+            current_app.config.get("MYSQL_BIN", "mysql"),
+            "mysql",
+            "mariadb",
+        ),
         f"--defaults-extra-file={defaults_file}",
         "--protocol=TCP",
         "--default-character-set=utf8mb4",
@@ -387,8 +414,8 @@ def restore_database_backup(file_path: str | Path) -> dict:
             )
     except FileNotFoundError as exc:
         raise BackupError(
-            "mysql client is not installed or not available on PATH. "
-            "Install the MySQL client package in the deployment image or admin shell."
+            "No MySQL client was found on PATH. "
+            "Install a MySQL/MariaDB client package in the deployment image or admin shell."
         ) from exc
     except subprocess.TimeoutExpired as exc:
         raise BackupError(

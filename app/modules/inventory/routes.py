@@ -615,13 +615,15 @@ def master_data_page():
 @superuser_required
 def msds_page():
     """Dedicated MSDS upload and management page for superusers."""
+    from app.core.services.inventory_msds import MSDSError, list_msds_documents
     from app.core.services.master_data import get_all_master_data
-    from app.models.inventory.material_msds_document import MaterialMSDSDocument
 
     rows = get_all_master_data()
-    msds_documents = MaterialMSDSDocument.query.order_by(
-        MaterialMSDSDocument.material_code.asc()
-    ).all()
+    msds_documents = []
+    try:
+        msds_documents = list_msds_documents()
+    except MSDSError as exc:
+        flash(str(exc), "warning")
     msds_by_material = {
         document.material_code: document for document in msds_documents
     }
