@@ -68,6 +68,10 @@
             {% endif %}
           </dd>
         </div>
+        <div class="task-summary-fact">
+          <dt>Series End Date</dt>
+          <dd>{{ task.recurring_template.end_date.strftime('%d %b %Y') if task.recurring_template.end_date else 'No end date' }}</dd>
+        </div>
         {% endif %}
       </dl>
       <div class="task-summary-copy-block">
@@ -127,8 +131,14 @@
 
   <div class="task-summary-footer">
     <a href="{{ url_for('tasks.task_detail', task_id=task.id) }}" class="btn btn-secondary">Open Full Page</a>
+    {% if task.recurring_template %}
+    <a href="{{ url_for('tasks.recurring_series_detail', template_id=task.recurring_template.id) }}" class="btn btn-secondary">Open Series</a>
+    {% endif %}
     {% if can_edit %}
     <a href="{{ url_for('tasks.edit_task', task_id=task.id) }}" class="btn btn-secondary">Edit Task</a>
+    {% endif %}
+    {% if task.recurring_template and can_edit_series %}
+    <a href="{{ url_for('tasks.edit_recurring_series', template_id=task.recurring_template.id) }}" class="btn btn-secondary">Edit Series</a>
     {% endif %}
     {% if can_add_update %}
     <a href="{{ url_for('tasks.add_task_update', task_id=task.id) }}" class="btn btn-primary">Add Update</a>

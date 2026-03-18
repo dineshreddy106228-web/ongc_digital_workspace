@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% from "components/ui.html" import page_header %}
+{% block title %}{{ announcement.title }} – {{ app_name }}{% endblock %}
+
+{% block content %}
+<section class="notifications-page">
+    {% call page_header(announcement.title, announcement.summary or "Workspace announcement", "Communications", announcement.status|title, "info") %}
+        <a href="{{ url_for('notifications.index') }}" class="btn btn-secondary">Notifications</a>
+        {% if can_manage_announcements %}
+        <a href="{{ url_for('notifications.manage_announcements') }}" class="btn btn-secondary">Manage Broadcasts</a>
+        {% endif %}
+    {% endcall %}
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+        <div class="flash flash-{{ category }}">{{ message }}</div>
+        {% endfor %}
+    {% endwith %}
+
+    <div class="card" style="margin-bottom: 1rem;">
+        <div class="card-body">
+            <div class="detail-overview-grid">
+                <div class="detail-field">
+                    <div class="form-label">Type</div>
+                    <div class="detail-value">{{ 'Poll' if announcement.announcement_type == 'POLL' else 'Announcement' }}</div>
+                </div>
+                <div class="detail-field">
+                    <div class="form-label">Published</div>
+                    <div class="detail-value">{{ announcement.published_at|datetime_ist('%d %b %Y') if announcement.published_at else 'Draft' }}</div>
+                </div>
+                <div class="detail-field">
+                    <div class="form-label">Expiry</div>
+                    <div class="detail-value">{{ announcement.expires_at|datetime_ist('%d %b %Y') if announcement.expires_at else 'No expiry' }}</div>
+                </div>
+                <div class="detail-field">
+                    <div class="form-label">Issued By</div>
+                    <div class="detail-value">{{ announcement.creator.full_name or announcement.creator.username }}</div>
+                </div>
+                {% if can_manage_announcements %}
+                <div class="detail-field">
+                    <div class="form-label">Recipients</div>
+                    <div class="detail-value">{{ announcement_stats.recipients }}</div>
+                </div>
+                <div class="detail-field">
+                    <div class="form-label">Read</div>
+                    <div class="detail-value">{{ announcement_stats.read_count }}</div>
+                </div>
+                {% endif %}
+            </div>
+            <div class="detail-field detail-field-wide" style="margin-top: 1rem;">
+                <div class="form-label">Message</div>
+                <div class="detail-value preserve-whitespace">{{ announcement.body }}</div>
+            </div>
+        </div>
+    </div>
+
+    {% if announcement.announcement_type == 'POLL' %}
+    <div class="card">
+        <div class="card-body">
+            <div class="section-heading">
+                <h2 class="section-heading-title">Poll</h2>
+            </div>
+            {% if can_vote %}
+            <form method="POST" action="{{ url_for('notifications.vote_announcement', announcement_id=announcement.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="form-section">
+                    {% for option in announcement.options %}
+                    <label class="nav-link-pill" style="display:flex; gap:0.75rem; align-items:flex-start; margin-bottom:0.75rem;">
+                        <input type="radio" name="option_id" value="{{ option.id }}" required style="margin-top:0.2rem;">
+                        <span>{{ option.option_text }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+                <button type="submit" class="btn btn-primary">Submit Response</button>
+            </form>
+            {% elif user_vote %}
+            <div class="alert alert-success">Your response has been recorded.</div>
+            {% endif %}
+
+            {% if show_results %}
+            <div style="margin-top: 1rem;">
+                {% for row in poll_results %}
+                <div style="margin-bottom: 0.85rem;">
+                    <div style="display:flex; justify-content:space-between; gap:1rem; font-weight:600;">
+                        <span>{{ row.option.option_text }}</span>
+                        <span>{{ row.votes }} vote{{ '' if row.votes == 1 else 's' }} · {{ row.percent }}%</span>
+                    </div>
+                    <div style="height:0.65rem; border-radius:999px; background:var(--color-surface-alt); overflow:hidden; margin-top:0.35rem;">
+                        <div style="height:100%; width:{{ row.percent }}%; background:var(--color-primary);"></div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+</section>
+{% endblock %}

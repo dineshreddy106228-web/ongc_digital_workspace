@@ -23,10 +23,12 @@ from app.models.tasks.task_update import TaskUpdate
 from app.core.services.dashboard import invalidate_dashboard_summary_metrics
 from app.core.services.notifications import create_notification
 from app.core.services.recurring_tasks import (
+    create_initial_task_for_template,
     decode_weekday_codes,
     encode_weekday_codes,
     first_occurrence_date,
-    generate_due_recurring_tasks,
+    next_scheduled_occurrence_for_template,
+    occurrence_dates_in_window,
     normalize_weekday_codes,
     recurrence_summary,
 )
@@ -92,6 +94,18 @@ def _is_task_collaborator(task: Task, user_id: int) -> bool:
     return int(user_id) in _task_collaborator_user_ids(task)
 
 
+def _recurring_template_collaborator_user_ids(template: RecurringTaskTemplate) -> set[int]:
+    return {
+        int(link.user_id)
+        for link in getattr(template, "collaborator_links", [])
+        if getattr(link, "user_id", None)
+    }
+
+
+def _is_recurring_template_collaborator(template: RecurringTaskTemplate, user_id: int) -> bool:
+    return int(user_id) in _recurring_template_collaborator_user_ids(template)
+
+
 def _participant_and_controller_ids(task: Task) -> set[int]:
     recipient_ids = set()
 
@@ -100,6 +114,27 @@ def _participant_and_controller_ids(task: Task) -> set[int]:
         participant_users.append(task.owner)
     participant_users.extend(
         link.user for link in getattr(task, "collaborator_links", []) if getattr(link, "user", None)
+    )
+
+    for user in participant_users:
+        if user and user.id:
+            recipient_ids.add(int(user.id))
+        if user and user.controlling_officer_id:
+            recipient_ids.add(int(user.controlling_officer_id))
+
+    return recipient_ids
+
+
+def _recurring_template_participant_and_controller_ids(
+    template: RecurringTaskTemplate,
+) -> set[int]:
+    recipient_ids = set()
+
+    participant_users = []
+    if template.owner:
+        participant_users.append(template.owner)
+    participant_users.extend(
+        link.user for link in getattr(template, "collaborator_links", []) if getattr(link, "user", None)
     )
 
     for user in participant_users:
@@ -173,11 +208,36 @@ def _can_view_task(task: Task) -> bool:
     return False
 
 
+def _can_view_recurring_template(template: RecurringTaskTemplate) -> bool:
+    scope = _normalize_task_scope(template.task_scope)
+    if _is_privileged():
+        return True
+    if template.owner_id == current_user.id:
+        return True
+    if _is_recurring_template_collaborator(template, current_user.id):
+        return True
+    if scope == "GLOBAL":
+        return True
+    if scope == "MY" and current_user.id in _recurring_template_participant_and_controller_ids(template):
+        if (
+            template.owner_id != current_user.id
+            and not _is_recurring_template_collaborator(template, current_user.id)
+        ):
+            return True
+    return False
+
+
 def _can_edit_task(task: Task) -> bool:
     """Editing rights: privileged roles, creator, or task owner."""
     if _is_privileged():
         return True
     return task.owner_id == current_user.id or task.created_by == current_user.id
+
+
+def _can_edit_recurring_template(template: RecurringTaskTemplate) -> bool:
+    if _is_privileged():
+        return True
+    return template.owner_id == current_user.id or template.created_by == current_user.id
 
 
 def _can_add_update(task: Task) -> bool:
@@ -340,6 +400,48 @@ def _task_visibility_query():
             or_(
                 Task.owner_id.in_(select(controlled_ids_subq.c.id)),
                 Task.id.in_(select(controlled_collaborator_task_ids_subq.c.task_id)),
+            ),
+        )
+    )
+
+    return base.filter(or_(*conds))
+
+
+def _recurring_template_visibility_query():
+    base = RecurringTaskTemplate.query
+
+    if _is_privileged():
+        return base
+
+    conds = []
+    conds.append(RecurringTaskTemplate.task_scope == "GLOBAL")
+    conds.append(RecurringTaskTemplate.owner_id == current_user.id)
+
+    collaborator_template_ids_subq = (
+        db.session.query(RecurringTaskCollaborator.template_id)
+        .filter_by(user_id=current_user.id)
+        .subquery()
+    )
+    conds.append(RecurringTaskTemplate.id.in_(select(collaborator_template_ids_subq.c.template_id)))
+
+    controlled_ids_subq = (
+        db.session.query(User.id)
+        .filter_by(controlling_officer_id=current_user.id, is_active=True)
+        .subquery()
+    )
+    controlled_collaborator_template_ids_subq = (
+        db.session.query(RecurringTaskCollaborator.template_id)
+        .filter(RecurringTaskCollaborator.user_id.in_(select(controlled_ids_subq.c.id)))
+        .subquery()
+    )
+    conds.append(
+        and_(
+            RecurringTaskTemplate.task_scope.in_(["MY", "TEAM"]),
+            or_(
+                RecurringTaskTemplate.owner_id.in_(select(controlled_ids_subq.c.id)),
+                RecurringTaskTemplate.id.in_(
+                    select(controlled_collaborator_template_ids_subq.c.template_id)
+                ),
             ),
         )
     )
@@ -660,14 +762,60 @@ def calendar_data():
     items = [
         {
             "id": int(t.id),
+            "template_id": int(t.recurring_template_id) if t.recurring_template_id else None,
             "title": t.task_title or "",
             "scope": _normalize_task_scope(t.task_scope),
             "due_date": t.due_date.strftime("%Y-%m-%d"),
             "status": t.status or "Not Started",
+            "is_projected": False,
         }
         for t in rows
         if t.due_date
     ]
+
+    existing_recurring_occurrences = {
+        (int(task.recurring_template_id), task.occurrence_date)
+        for task in rows
+        if task.recurring_template_id and task.occurrence_date
+    }
+    visible_templates = (
+        _recurring_template_visibility_query()
+        .filter(
+            RecurringTaskTemplate.is_active.is_(True),
+            RecurringTaskTemplate.next_generation_date.isnot(None),
+            RecurringTaskTemplate.next_generation_date < end_date,
+            or_(
+                RecurringTaskTemplate.end_date.is_(None),
+                RecurringTaskTemplate.end_date >= start_date,
+            ),
+        )
+        .order_by(RecurringTaskTemplate.next_generation_date.asc(), RecurringTaskTemplate.id.asc())
+        .all()
+    )
+    for template in visible_templates:
+        for occurrence_date in occurrence_dates_in_window(template, start_date, end_date):
+            occurrence_key = (int(template.id), occurrence_date)
+            if occurrence_key in existing_recurring_occurrences:
+                continue
+            items.append(
+                {
+                    "id": None,
+                    "template_id": int(template.id),
+                    "title": template.task_title or "",
+                    "scope": _normalize_task_scope(template.task_scope),
+                    "due_date": occurrence_date.strftime("%Y-%m-%d"),
+                    "status": template.status or "Not Started",
+                    "is_projected": True,
+                }
+            )
+
+    items.sort(
+        key=lambda item: (
+            item["due_date"],
+            0 if not item["is_projected"] else 1,
+            (item["title"] or "").lower(),
+        )
+    )
     return jsonify({"year": year, "month": month, "items": items})
 
 
@@ -881,6 +1029,7 @@ def create_task():
                 user.full_name or user.username for user in collaborator_users
             ) or "none"
             scope_label = "GLOBAL" if task_scope == "GLOBAL" else "LOCAL"
+            created_task = None
             if schedule_mode == "RECURRING":
                 template = RecurringTaskTemplate(
                     task_title=task_title,
@@ -913,12 +1062,7 @@ def create_task():
 
                 db.session.flush()
 
-                generation_result = {"tasks": 0}
-                if (
-                    template.next_generation_date
-                    and template.next_generation_date <= date_type.today()
-                ):
-                    generation_result = generate_due_recurring_tasks(date_type.today())
+                created_task = create_initial_task_for_template(template)
 
                 summary = recurrence_summary(template)
                 log_action(
@@ -946,6 +1090,18 @@ def create_task():
                         f"{','.join(user.username for user in collaborator_users) or 'none'}"
                     ),
                 )
+                if created_task is not None:
+                    _notify_task_participants(
+                        created_task,
+                        title="New recurring task assigned",
+                        message=(
+                            f"{current_user.full_name or current_user.username} created "
+                            f"the recurring task '{created_task.task_title}' and added you "
+                            f"as an owner/collaborator."
+                        ),
+                        severity="info",
+                        skip_user_ids={current_user.id},
+                    )
             else:
                 task = Task(
                     task_title=task_title,
@@ -1011,14 +1167,14 @@ def create_task():
             return _render_create(request.form)
 
         if schedule_mode == "RECURRING":
-            if generation_result["tasks"]:
+            if created_task is not None:
                 flash(
-                    "Recurring task series created successfully. The first occurrence was generated.",
+                    "Recurring task series created successfully. The first occurrence is now available in the task list.",
                     "success",
                 )
             else:
                 flash(
-                    f"Recurring task series created successfully. The first occurrence will be generated on {next_generation_date.strftime('%d %b %Y')}.",
+                    "Recurring task series created successfully.",
                     "success",
                 )
             return redirect(url_for("tasks.list_tasks"))
@@ -1035,6 +1191,120 @@ def create_task():
         return redirect(url_for("tasks.list_tasks"))
 
     return _render_create({})
+
+
+# ── Recurring Series Detail / Edit ───────────────────────────────
+@office_bp.route("/series/<int:template_id>")
+@login_required
+@module_access_required("tasks")
+def recurring_series_detail(template_id):
+    template = RecurringTaskTemplate.query.get_or_404(template_id)
+    if not _can_view_recurring_template(template):
+        abort(403)
+
+    generated_tasks = (
+        template.generated_tasks
+        .order_by(Task.due_date.desc(), Task.id.desc())
+        .limit(12)
+        .all()
+    )
+
+    return render_template(
+        "tasks/series_detail.html",
+        template=template,
+        generated_tasks=generated_tasks,
+        recurrence_summary=recurrence_summary,
+        can_edit_series=_can_edit_recurring_template(template),
+    )
+
+
+@office_bp.route("/series/<int:template_id>/edit", methods=["GET", "POST"])
+@login_required
+@module_access_required("tasks")
+def edit_recurring_series(template_id):
+    template = RecurringTaskTemplate.query.get_or_404(template_id)
+    if not _can_edit_recurring_template(template):
+        abort(403)
+
+    def _render_edit_series(form_data):
+        return render_template(
+            "tasks/series_edit.html",
+            template=template,
+            form_data=form_data,
+            recurrence_summary=recurrence_summary,
+        )
+
+    if request.method == "POST":
+        recurrence_end_date_raw = request.form.get("recurrence_end_date", "").strip()
+        recurrence_end_date = _parse_due_date(recurrence_end_date_raw)
+
+        errors = []
+        if recurrence_end_date_raw and recurrence_end_date is None:
+            errors.append("End date must be in YYYY-MM-DD format.")
+        if recurrence_end_date and recurrence_end_date < template.start_date:
+            errors.append("End date cannot be earlier than the recurring start date.")
+
+        if errors:
+            for err in errors:
+                flash(err, "danger")
+            return _render_edit_series(request.form)
+
+        previous_end_date = template.end_date
+        template.end_date = recurrence_end_date
+
+        latest_generated_task = (
+            template.generated_tasks
+            .order_by(Task.occurrence_date.desc(), Task.id.desc())
+            .first()
+        )
+        if recurrence_end_date and template.next_generation_date and template.next_generation_date > recurrence_end_date:
+            template.next_generation_date = None
+            template.is_active = False
+        elif (
+            template.next_generation_date is None
+            and recurrence_end_date != previous_end_date
+        ):
+            after_date = (
+                latest_generated_task.occurrence_date
+                if latest_generated_task and latest_generated_task.occurrence_date
+                else None
+            )
+            resumed_next_date = next_scheduled_occurrence_for_template(
+                template,
+                after_date=after_date,
+            )
+            if resumed_next_date is not None:
+                template.next_generation_date = resumed_next_date
+                template.is_active = True
+
+        try:
+            db.session.flush()
+            log_action(
+                action="RECURRING_TASK_TEMPLATE_UPDATED",
+                user_id=current_user.id,
+                entity_type="RecurringTaskTemplate",
+                entity_id=str(template.id),
+                details=(
+                    f"Recurring task series '{template.task_title}' updated. "
+                    f"end_date '{previous_end_date or '-'}' -> '{template.end_date or '-'}'."
+                ),
+            )
+            log_activity(
+                current_user.username,
+                "recurring_task_updated",
+                "task",
+                template.task_title,
+                details=f"end_date={template.end_date or '-'}",
+            )
+            db.session.commit()
+        except SQLAlchemyError:
+            _db_error("Could not update recurring task series due to a database error.")
+            return _render_edit_series(request.form)
+
+        flash("Recurring task series updated successfully.", "success")
+        return redirect(url_for("tasks.recurring_series_detail", template_id=template.id))
+
+    return _render_edit_series({})
 
 
 # ── Task Detail ───────────────────────────────────────────────────
@@ -1056,6 +1326,8 @@ def task_detail(task_id):
         updates=updates,
         can_edit=_can_edit_task(task),
         can_add_update=_can_add_update(task),
+        can_edit_series=_can_edit_recurring_template(task.recurring_template)
+        if task.recurring_template else False,
         recurrence_summary=recurrence_summary,
     )
 
@@ -1080,6 +1352,8 @@ def task_summary(task_id):
         updates=updates,
         can_edit=_can_edit_task(task),
         can_add_update=_can_add_update(task),
+        can_edit_series=_can_edit_recurring_template(task.recurring_template)
+        if task.recurring_template else False,
         recurrence_summary=recurrence_summary,
         is_privileged=_is_privileged(),
     )

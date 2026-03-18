@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% from "components/ui.html" import page_header %}
+{% block title %}Recurring Task Series{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+  {% call page_header(template.task_title, "Recurring task series", "Office Management") %}
+    <a href="{{ url_for('tasks.list_tasks') }}" class="btn btn-secondary btn-sm">Back to List</a>
+    {% if can_edit_series %}
+    <a href="{{ url_for('tasks.edit_recurring_series', template_id=template.id) }}" class="btn btn-primary btn-sm">Edit Series</a>
+    {% endif %}
+  {% endcall %}
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+    <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  <div class="card" style="margin-bottom: 1.25rem;">
+    <div class="card-body">
+      <div class="detail-overview-grid">
+        <div class="detail-field detail-field-wide">
+          <div class="form-label">Description</div>
+          <div class="detail-value preserve-whitespace">{{ template.task_description or '—' }}</div>
+        </div>
+
+        <div class="detail-field">
+          <div class="form-label">Schedule</div>
+          <div class="detail-value">{{ recurrence_summary(template) }}</div>
+        </div>
+
+        <div class="detail-field">
+          <div class="form-label">Series Start Date</div>
+          <div class="detail-value">{{ template.start_date.strftime('%d %b %Y') if template.start_date else '—' }}</div>
+        </div>
+
+        <div class="detail-field">
+          <div class="form-label">Series End Date</div>
+          <div class="detail-value">{{ template.end_date.strftime('%d %b %Y') if template.end_date else 'No end date' }}</div>
+        </div>
+
+        <div class="detail-field">
+          <div class="form-label">Next Scheduled Date</div>
+          <div class="detail-value">{{ template.next_generation_date.strftime('%d %b %Y') if template.next_generation_date else 'No further occurrences scheduled' }}</div>
+        </div>
+
+        <div class="detail-field">
+          <div class="form-label">Status</div>
+          <span class="task-badge status-{{ template.status|lower|replace(' ', '-') }}">{{ template.status }}</span>
+        </div>
+
+        <div class="detail-field">
+          <div class="form-label">Priority</div>
+          <span class="task-badge priority-{{ template.priority|lower }}">{{ template.priority }}</span>
+        </div>
+
+        <div class="detail-field">
+          <div class="form-label">Scope</div>
+          <div class="detail-value">{{ 'Global Task' if template.task_scope == 'GLOBAL' else 'Local Task' }}</div>
+        </div>
+
+        <div class="detail-field">
+          <div class="form-label">Owner</div>
+          <div class="detail-value">{{ template.owner.full_name if template.owner and template.owner.full_name else (template.owner.username if template.owner else '—') }}</div>
+        </div>
+
+        <div class="detail-field">
+          <div class="form-label">Collaborators</div>
+          <div class="detail-value">
+            {% if template.collaborator_links %}
+              {% for link in template.collaborator_links %}
+                {{ link.user.full_name or link.user.username }}{% if not loop.last %}, {% endif %}
+              {% endfor %}
+            {% else %}
+              —
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="detail-field">
+          <div class="form-label">Created By</div>
+          <div class="detail-value">{{ template.creator.full_name if template.creator and template.creator.full_name else (template.creator.username if template.creator else '—') }}</div>
+        </div>
+
+        <div class="detail-field">
+          <div class="form-label">Active</div>
+          <div class="detail-value">{{ 'Yes' if template.is_active else 'No' }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body" style="padding-bottom: 0;">
+      <div class="section-heading">
+        <h2 class="section-heading-title">Generated Occurrences</h2>
+      </div>
+    </div>
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Occurrence Date</th>
+            <th>Status</th>
+            <th>Priority</th>
+            <th>Owner</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if generated_tasks %}
+            {% for task in generated_tasks %}
+            <tr>
+              <td>{{ task.occurrence_date.strftime('%d %b %Y') if task.occurrence_date else (task.due_date.strftime('%d %b %Y') if task.due_date else '—') }}</td>
+              <td><span class="task-badge status-{{ task.status|lower|replace(' ', '-') }}">{{ task.status }}</span></td>
+              <td><span class="task-badge priority-{{ task.priority|lower }}">{{ task.priority }}</span></td>
+              <td>{{ task.owner.full_name if task.owner and task.owner.full_name else (task.owner.username if task.owner else '—') }}</td>
+              <td><a href="{{ url_for('tasks.task_detail', task_id=task.id) }}" class="btn btn-sm btn-secondary">Open Task</a></td>
+            </tr>
+            {% endfor %}
+          {% else %}
+          <tr>
+            <td colspan="5" class="table-empty-row">No task occurrences have been generated yet.</td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

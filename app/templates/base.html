@@ -89,6 +89,11 @@
                             <a href="{{ url_for('notifications.index') }}" class="btn btn-sm btn-secondary">
                                 Open notifications
                             </a>
+                            {% if current_user.is_super_user() %}
+                            <a href="{{ url_for('notifications.manage_announcements') }}" class="btn btn-sm btn-primary">
+                                Broadcasts
+                            </a>
+                            {% endif %}
                         </div>
                     </div>
                 </details>
@@ -267,6 +272,40 @@
     </div>
     {% endif %}
 
+    {% if current_user.is_authenticated and login_announcement and request.endpoint != 'auth.change_password' %}
+    <div class="workspace-welcome-overlay hidden" id="loginAnnouncementModal" role="dialog" aria-modal="true" aria-labelledby="loginAnnouncementTitle">
+        <div class="workspace-welcome-modal" style="max-width: 760px;">
+            <div class="workspace-welcome-eyebrow">Workspace Announcement</div>
+            <h2 class="workspace-welcome-title" id="loginAnnouncementTitle">{{ login_announcement.announcement.title }}</h2>
+            <p class="workspace-welcome-copy">
+                {{ login_announcement.announcement.summary or login_announcement.announcement.body[:280] ~ ('...' if login_announcement.announcement.body|length > 280 else '') }}
+            </p>
+            <div class="workspace-welcome-grid">
+                <div class="workspace-welcome-card">
+                    <div class="workspace-welcome-card-title">Type</div>
+                    <p>{{ 'Poll' if login_announcement.announcement.announcement_type == 'POLL' else 'Announcement' }}</p>
+                </div>
+                <div class="workspace-welcome-card">
+                    <div class="workspace-welcome-card-title">Published</div>
+                    <p>{{ login_announcement.announcement.published_at|datetime_ist('%d %b %Y') if login_announcement.announcement.published_at else login_announcement.announcement.created_at|datetime_ist('%d %b %Y') }}</p>
+                </div>
+                <div class="workspace-welcome-card">
+                    <div class="workspace-welcome-card-title">Action</div>
+                    <p>{{ 'Response requested' if login_announcement.announcement.announcement_type == 'POLL' else 'Please review' }}</p>
+                </div>
+            </div>
+            <div class="workspace-welcome-actions">
+                <form id="loginAnnouncementDismissForm" method="POST" action="{{ url_for('notifications.dismiss_login_announcement') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="announcement_id" value="{{ login_announcement.announcement.id }}">
+                    <button type="submit" class="btn btn-secondary">Later</button>
+                </form>
+                <a href="{{ url_for('notifications.announcement_detail', announcement_id=login_announcement.announcement.id) }}" class="btn btn-primary">Open Announcement</a>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <div class="container">
         {% if current_user.is_authenticated and request.endpoint != 'main.dashboard' %}
             {% set back_fallback = url_for('main.dashboard') %}
@@ -323,6 +362,7 @@
         (function () {
             var overlay = document.getElementById('loginWelcomeModal');
             var form = document.getElementById('loginWelcomeForm');
+            var announcementOverlay = document.getElementById('loginAnnouncementModal');
             if (!overlay || !form) return;
 
             document.body.classList.add('welcome-modal-open');
@@ -340,11 +380,108 @@
                 }).then(function (response) {
                     if (!response.ok) throw new Error('Welcome acknowledgement failed');
                     overlay.remove();
-                    document.body.classList.remove('welcome-modal-open');
+                    if (announcementOverlay) {
+                        announcementOverlay.classList.remove('hidden');
+                    } else {
+                        document.body.classList.remove('welcome-modal-open');
+                    }
                 }).catch(function () {
                     form.submit();
                 });
             });
+        })();
+    </script>
+    {% endif %}
+    {% if current_user.is_authenticated and login_announcement and request.endpoint != 'auth.change_password' %}
+    <script nonce="{{ csp_nonce() }}">
+        (function () {
+            var overlay = document.getElementById('loginAnnouncementModal');
+            var dismissForm = document.getElementById('loginAnnouncementDismissForm');
+            var welcomeOverlay = document.getElementById('loginWelcomeModal');
+            if (!overlay || !dismissForm) return;
+
+            if (!welcomeOverlay) {
+                overlay.classList.remove('hidden');
+                document.body.classList.add('welcome-modal-open');
+            }
+
+            dismissForm.addEventListener('submit', function (event) {
+                event.preventDefault();
+                var formData = new FormData(dismissForm);
+                fetch(dismissForm.action, {
+                    method: 'POST',
+                    body: new URLSearchParams(formData),
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest'
+                    }
+                }).then(function (response) {
+                    if (!response.ok) throw new Error('Announcement dismiss failed');
+                    overlay.remove();
+                    document.body.classList.remove('welcome-modal-open');
+                }).catch(function () {
+                    dismissForm.submit();
+                });
+            });
+        })();
+    </script>
+    {% endif %}
+    {% if current_user.is_authenticated and request.endpoint != 'auth.change_password' %}
+    <script nonce="{{ csp_nonce() }}">
+        /* Poll for new broadcasts every 60 s so users already on the page are notified. */
+        (function () {
+            var POLL_INTERVAL = 60000;
+            var _notifiedId = null;
+
+            function showBroadcastBanner(broadcast) {
+                if (document.getElementById('js-broadcast-banner')) return;
+                var bar = document.createElement('div');
+                bar.id = 'js-broadcast-banner';
+                bar.style.cssText = [
+                    'position:fixed', 'bottom:1.25rem', 'left:50%',
+                    'transform:translateX(-50%)', 'z-index:9999',
+                    'background:var(--color-primary,#1a56db)', 'color:#fff',
+                    'padding:0.75rem 1.25rem', 'border-radius:0.5rem',
+                    'box-shadow:0 4px 16px rgba(0,0,0,.18)',
+                    'display:flex', 'align-items:center', 'gap:1rem',
+                    'max-width:560px', 'width:calc(100% - 2rem)', 'font-size:0.9rem'
+                ].join(';');
+                var msg = document.createElement('span');
+                msg.textContent = '\uD83D\uDCE3 New broadcast: ' + broadcast.title;
+                var link = document.createElement('a');
+                link.href = broadcast.url;
+                link.textContent = 'Open';
+                link.style.cssText = 'color:#fff;font-weight:600;text-decoration:underline;white-space:nowrap;';
+                var close = document.createElement('button');
+                close.textContent = '\u00D7';
+                close.setAttribute('aria-label', 'Dismiss');
+                close.style.cssText = 'background:none;border:none;color:#fff;font-size:1.25rem;cursor:pointer;margin-left:auto;padding:0 0.25rem;line-height:1;';
+                close.addEventListener('click', function () { bar.remove(); });
+                bar.appendChild(msg);
+                bar.appendChild(link);
+                bar.appendChild(close);
+                document.body.appendChild(bar);
+            }
+
+            function poll() {
+                fetch('{{ url_for("notifications.latest_broadcast_api") }}', {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                }).then(function (r) { return r.ok ? r.json() : null; })
+                  .then(function (data) {
+                    if (!data || !data.broadcast) return;
+                    var b = data.broadcast;
+                    if (_notifiedId === b.id) return;
+                    /* skip if the full-page modal is already showing this broadcast */
+                    var modal = document.getElementById('loginAnnouncementModal');
+                    if (modal && !modal.classList.contains('hidden')) return;
+                    _notifiedId = b.id;
+                    showBroadcastBanner(b);
+                }).catch(function () { /* network hiccup — silently skip */ });
+            }
+
+            setTimeout(function () {
+                poll();
+                setInterval(poll, POLL_INTERVAL);
+            }, POLL_INTERVAL);
         })();
     </script>
     {% endif %}

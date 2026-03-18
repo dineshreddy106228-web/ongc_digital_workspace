@@ -146,6 +146,82 @@ def _create_task_instance(template: RecurringTaskTemplate, occurrence_date: date
     return task
 
 
+def create_initial_task_for_template(template: RecurringTaskTemplate) -> Task | None:
+    occurrence_date = template.next_generation_date
+    if occurrence_date is None:
+        return None
+
+    task = _create_task_instance(template, occurrence_date)
+    template.last_generated_at = datetime.now(timezone.utc)
+
+    next_date = next_occurrence_date(
+        occurrence_date,
+        template.recurrence_type,
+        weekly_days=decode_weekday_codes(template.weekly_days),
+        monthly_day=template.monthly_day,
+    )
+    if template.end_date and next_date > template.end_date:
+        template.next_generation_date = None
+        template.is_active = False
+    else:
+        template.next_generation_date = next_date
+
+    return task
+
+
+def occurrence_dates_in_window(
+    template: RecurringTaskTemplate,
+    window_start: date_type,
+    window_end: date_type,
+    seed_date: date_type | None = None,
+) -> list[date_type]:
+    if window_end <= window_start:
+        return []
+
+    occurrence_date = seed_date or template.next_generation_date
+    if occurrence_date is None:
+        return []
+
+    dates = []
+    while occurrence_date and occurrence_date < window_end:
+        if template.end_date and occurrence_date > template.end_date:
+            break
+        if occurrence_date >= window_start:
+            dates.append(occurrence_date)
+        occurrence_date = next_occurrence_date(
+            occurrence_date,
+            template.recurrence_type,
+            weekly_days=decode_weekday_codes(template.weekly_days),
+            monthly_day=template.monthly_day,
+        )
+
+    return dates
+
+
+def next_scheduled_occurrence_for_template(
+    template: RecurringTaskTemplate,
+    after_date: date_type | None = None,
+) -> date_type | None:
+    occurrence_date = first_occurrence_date(
+        template.recurrence_type,
+        template.start_date,
+        weekly_days=decode_weekday_codes(template.weekly_days),
+        monthly_day=template.monthly_day,
+    )
+    if after_date is not None:
+        while occurrence_date and occurrence_date <= after_date:
+            occurrence_date = next_occurrence_date(
+                occurrence_date,
+                template.recurrence_type,
+                weekly_days=decode_weekday_codes(template.weekly_days),
+                monthly_day=template.monthly_day,
+            )
+
+    if template.end_date and occurrence_date and occurrence_date > template.end_date:
+        return None
+    return occurrence_date
+
+
 def generate_due_recurring_tasks(as_of_date: date_type | None = None) -> dict[str, int]:
     generation_date = as_of_date or date_type.today()
     templates = (

@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Edit Recurring Series{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+  <div class="page-header">
+    <div class="page-header-left">
+      <h1 class="page-title">Edit Recurring Series</h1>
+      <p class="page-subtitle">Update the recurring schedule settings for "{{ template.task_title }}".</p>
+    </div>
+    <div class="page-header-right">
+      <a href="{{ url_for('tasks.recurring_series_detail', template_id=template.id) }}" class="btn btn-secondary">Back to Series</a>
+    </div>
+  </div>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+    <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  <div class="alert alert-info">
+    This form updates the recurring series itself. Existing generated task occurrences remain unchanged.
+  </div>
+
+  <div class="card form-card">
+    <div class="card-body">
+      <form method="POST" action="{{ url_for('tasks.edit_recurring_series', template_id=template.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <div class="form-section">
+          <div class="form-section-title">Series Schedule</div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Schedule</label>
+              <input type="text" class="form-control" value="{{ recurrence_summary(template) }}" readonly>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Series Start Date</label>
+              <input type="text" class="form-control" value="{{ template.start_date.strftime('%d %b %Y') if template.start_date else '—' }}" readonly>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="recurrence_end_date">Series End Date</label>
+              <input type="date" id="recurrence_end_date" name="recurrence_end_date" class="form-control"
+                     value="{{ form_data.get('recurrence_end_date', template.end_date.strftime('%Y-%m-%d') if template.end_date else '') }}">
+              <small class="form-hint">Optional. Leave blank to keep the series open-ended.</small>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Next Scheduled Date</label>
+              <input type="text" class="form-control" value="{{ template.next_generation_date.strftime('%d %b %Y') if template.next_generation_date else 'No further occurrences scheduled' }}" readonly>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">Save Series</button>
+          <a href="{{ url_for('tasks.recurring_series_detail', template_id=template.id) }}" class="btn btn-secondary">Cancel</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

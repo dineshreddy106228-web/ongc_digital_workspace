@@ -20,6 +20,18 @@
         <span>Edit Task</span>
       </a>
       {% endif %}
+      {% if task.recurring_template %}
+      <a href="{{ url_for('tasks.recurring_series_detail', template_id=task.recurring_template.id) }}" class="btn btn-secondary btn-sm">
+        <i class="bi bi-arrow-repeat"></i>
+        <span>View Series</span>
+      </a>
+      {% if can_edit_series %}
+      <a href="{{ url_for('tasks.edit_recurring_series', template_id=task.recurring_template.id) }}" class="btn btn-secondary btn-sm">
+        <i class="bi bi-calendar-range"></i>
+        <span>Edit Series</span>
+      </a>
+      {% endif %}
+      {% endif %}
       {% if can_add_update %}
       <a href="{{ url_for('tasks.add_task_update', task_id=task.id) }}" class="btn btn-primary btn-sm">
         <i class="bi bi-plus-lg"></i>
@@ -99,6 +111,18 @@
           <div class="form-label">Occurrence Date</div>
           <div class="detail-value">{{ task.occurrence_date.strftime('%d %b %Y') if task.occurrence_date else '—' }}</div>
         </div>
+
+        {% if task.recurring_template %}
+        <div class="detail-field">
+          <div class="form-label">Series Start Date</div>
+          <div class="detail-value">{{ task.recurring_template.start_date.strftime('%d %b %Y') if task.recurring_template.start_date else '—' }}</div>
+        </div>
+
+        <div class="detail-field">
+          <div class="form-label">Series End Date</div>
+          <div class="detail-value">{{ task.recurring_template.end_date.strftime('%d %b %Y') if task.recurring_template.end_date else 'No end date' }}</div>
+        </div>
+        {% endif %}
 
         <div class="detail-field">
           <div class="form-label">Collaborators</div>

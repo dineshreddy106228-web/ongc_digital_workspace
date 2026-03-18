@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% from "components/ui.html" import page_header %}
+{% block title %}Announcements – {{ app_name }}{% endblock %}
+
+{% block content %}
+<section class="notifications-page">
+    {% call page_header("Announcements", "Executive broadcasts, policy notices, and polls sent across the workspace.", "Workspace", recipients|length ~ " items" if recipients else "No active items", "info" if recipients else "neutral") %}
+        <a href="{{ url_for('notifications.index') }}" class="btn btn-secondary">Notifications</a>
+        {% if can_manage_announcements %}
+        <a href="{{ url_for('notifications.manage_announcements') }}" class="btn btn-primary">Manage Broadcasts</a>
+        {% endif %}
+    {% endcall %}
+
+    <div class="notifications-list">
+        {% for recipient in recipients %}
+        {% set announcement = recipient.announcement %}
+        <article class="notification-card notification-card-{{ announcement.severity }} {{ 'notification-read' if recipient.is_read else 'notification-unread' }}">
+            <div class="notification-card-main">
+                <div class="notification-card-header">
+                    <div>
+                        <h2>{{ announcement.title }}</h2>
+                        <p>{{ announcement.summary or announcement.body[:260] ~ ('...' if announcement.body|length > 260 else '') }}</p>
+                    </div>
+                    <span class="notification-severity-pill severity-{{ announcement.severity }}">
+                        {{ 'Poll' if announcement.announcement_type == 'POLL' else 'Announcement' }}
+                    </span>
+                </div>
+                <div class="notification-card-meta">
+                    <span>
+                        {{ announcement.published_at|datetime_ist('%d %b %Y') if announcement.published_at else announcement.created_at|datetime_ist('%d %b %Y') }}
+                    </span>
+                    <span class="notification-state {{ 'state-read' if recipient.is_read else 'state-unread' }}">
+                        {{ 'Read' if recipient.is_read else 'Unread' }}
+                    </span>
+                </div>
+            </div>
+            <div class="notification-card-actions">
+                <a href="{{ url_for('notifications.announcement_detail', announcement_id=announcement.id) }}" class="btn btn-sm btn-primary">
+                    Open
+                </a>
+            </div>
+        </article>
+        {% else %}
+        <div class="notification-empty-state">
+            <h3>No announcements yet</h3>
+            <p>Published broadcasts and polls will appear here as soon as they are sent.</p>
+        </div>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

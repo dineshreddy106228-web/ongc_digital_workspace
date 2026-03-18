@@ -12,6 +12,10 @@ from app.models.tasks.recurring_task_collaborator import RecurringTaskCollaborat
 from app.models.tasks.task_update import TaskUpdate                       # noqa: F401
 from app.models.core.activity_log import ActivityLog                     # noqa: F401
 from app.models.core.notification import Notification                    # noqa: F401
+from app.models.core.announcement import Announcement                    # noqa: F401
+from app.models.core.announcement import AnnouncementOption              # noqa: F401
+from app.models.core.announcement import AnnouncementRecipient           # noqa: F401
+from app.models.core.announcement import AnnouncementVote                # noqa: F401
 from app.models.core.backup_snapshot import BackupSnapshot              # noqa: F401
 from app.models.inventory.inventory_upload import InventoryUpload            # noqa: F401
 from app.models.inventory.inventory_record import InventoryRecord            # noqa: F401

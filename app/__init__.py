@@ -2,7 +2,7 @@
 
 import secrets
 from importlib import import_module
-from flask import Flask, g, render_template_string, request
+from flask import Flask, g, render_template_string, request, session
 from flask_login import current_user
 from config import Config
 from app.core.utils.datetime import format_datetime_ist
@@ -70,6 +70,20 @@ def create_app(config_class=Config):
             get_unread_notification_count,
             get_unread_notifications,
         )
+        from app.core.services.announcements import get_latest_login_announcement_for_user
+
+        def _get_broadcast_popup(user_id):
+            """Return the latest unread broadcast unless dismissed this session."""
+            try:
+                recipient = get_latest_login_announcement_for_user(user_id)
+            except Exception:
+                return None
+            if recipient is None:
+                return None
+            dismissed = session.get("dismissed_broadcast")
+            if dismissed is not None and dismissed == recipient.announcement_id:
+                return None
+            return recipient
 
         return dict(
             app_name=app.config["APP_NAME"],
@@ -84,6 +98,11 @@ def create_app(config_class=Config):
             unread_notifications=get_unread_notifications(current_user.id, limit=5)
             if current_user.is_authenticated
             else [],
+            login_announcement=(
+                _get_broadcast_popup(current_user.id)
+                if current_user.is_authenticated
+                else None
+            ),
         )
 
     # ── Per-request nonce for CSP-compatible inline scripts ──────

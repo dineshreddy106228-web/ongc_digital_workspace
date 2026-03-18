@@ -5,6 +5,9 @@
 {% block content %}
 <section class="notifications-page">
     {% call page_header("Notifications", "Track platform alerts, assignment updates, and account changes for your user.", "Workspace", unread_count ~ " unread" if unread_count else "All caught up", "info" if unread_count else "neutral") %}
+            {% if can_manage_announcements %}
+            <a href="{{ url_for('notifications.manage_announcements') }}" class="btn btn-primary">Manage Broadcasts</a>
+            {% endif %}
             {% if unread_count %}
             <form method="POST" action="{{ url_for('notifications.read_all') }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

@@ -168,6 +168,7 @@ def logout():
     uid = current_user.id
     uname = current_user.username
     session.pop("show_login_welcome", None)
+    session.pop("dismissed_broadcast", None)
     logout_user()
     AuditLog.log(
         action="logout",

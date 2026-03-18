@@ -251,6 +251,7 @@
 /* ── Calendar data endpoint (month-wise lazy loading) ────────── */
 const CALENDAR_API_URL = "{{ url_for('tasks.calendar_data') }}";
 const TASK_SUMMARY_URL_TEMPLATE = "{{ url_for('tasks.task_summary', task_id=999999) }}";
+const TASK_SERIES_URL_TEMPLATE = "{{ url_for('tasks.recurring_series_detail', template_id=999999) }}";
 
 const SCOPE_LABELS = {
   GLOBAL: 'Global',
@@ -441,15 +442,24 @@ function openModalByDate(dateStr) {
 
       const link = document.createElement('a');
       link.className = 'cal-modal-task-link';
-      link.href = `/tasks/${Number(task.id) || 0}`;
-      link.dataset.taskSummaryUrl = TASK_SUMMARY_URL_TEMPLATE.replace('999999', String(Number(task.id) || 0));
-      link.dataset.taskSummaryTitle = String(task.title || '');
-      link.addEventListener('click', closeModal);
+      if (task.id) {
+        link.href = `/tasks/${Number(task.id) || 0}`;
+        link.dataset.taskSummaryUrl = TASK_SUMMARY_URL_TEMPLATE.replace('999999', String(Number(task.id) || 0));
+        link.dataset.taskSummaryTitle = String(task.title || '');
+        link.addEventListener('click', closeModal);
+      } else if (task.template_id) {
+        link.href = TASK_SERIES_URL_TEMPLATE.replace('999999', String(Number(task.template_id) || 0));
+        link.addEventListener('click', closeModal);
+      } else {
+        link.href = '#';
+      }
       link.textContent = String(task.title || '');
 
       const status = document.createElement('span');
       status.className = 'cal-modal-status';
-      status.textContent = String(task.status || '');
+      status.textContent = task.is_projected
+        ? `Scheduled · ${String(task.status || '')}`.trim()
+        : String(task.status || '');
 
       li.appendChild(dot);
       li.appendChild(link);
@@ -484,6 +494,23 @@ document.getElementById('cal-next').addEventListener('click', async () => {
 document.getElementById('cal-today').addEventListener('click', async () => {
   currentYear  = today.getFullYear();
   currentMonth = today.getMonth();
+  await renderCalendar();
+});
+
+window.addEventListener('pageshow', async (event) => {
+  if (!event.persisted) {
+    return;
+  }
+  monthCache.clear();
+  closeModal();
+  await renderCalendar();
+});
+
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState !== 'visible') {
+    return;
+  }
+  monthCache.delete(monthKey(currentYear, currentMonth));
   await renderCalendar();
 });
 

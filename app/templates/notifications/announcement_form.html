@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% from "components/ui.html" import page_header %}
+{% block title %}{{ 'Create Broadcast' if form_mode == 'create' else 'Edit Broadcast Draft' }} – {{ app_name }}{% endblock %}
+
+{% block content %}
+<section class="notifications-page">
+    {% call page_header('Create Broadcast' if form_mode == 'create' else 'Edit Broadcast Draft', 'Send a governed announcement or a single-response poll across the workspace.', 'Superuser') %}
+        <a href="{{ url_for('notifications.manage_announcements') }}" class="btn btn-secondary">Back to Control</a>
+    {% endcall %}
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+        <div class="flash flash-{{ category }}">{{ message }}</div>
+        {% endfor %}
+    {% endwith %}
+
+    <div class="card form-card">
+        <div class="card-body">
+            <form method="POST" action="{{ url_for('notifications.create_announcement') if form_mode == 'create' else url_for('notifications.edit_announcement', announcement_id=announcement.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                <div class="form-section">
+                    <div class="form-section-title">Message Design</div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label" for="announcement_type">Type</label>
+                            <select id="announcement_type" name="announcement_type" class="form-control" required>
+                                {% set selected_type = form_data.get('announcement_type', announcement.announcement_type if announcement else 'ANNOUNCEMENT') %}
+                                <option value="ANNOUNCEMENT" {{ 'selected' if selected_type == 'ANNOUNCEMENT' }}>Announcement</option>
+                                <option value="POLL" {{ 'selected' if selected_type == 'POLL' }}>Poll</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="severity">Tone</label>
+                            {% set selected_severity = form_data.get('severity', announcement.severity if announcement else 'info') %}
+                            <select id="severity" name="severity" class="form-control" required>
+                                {% for severity in ['info', 'success', 'warning', 'danger'] %}
+                                <option value="{{ severity }}" {{ 'selected' if selected_severity == severity }}>{{ severity|title }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="expires_at">Expires At (IST)</label>
+                            <input type="datetime-local" id="expires_at" name="expires_at" class="form-control" value="{{ expires_at_value }}">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="title">Title</label>
+                        <input type="text" id="title" name="title" class="form-control" maxlength="255" required
+                               value="{{ form_data.get('title', announcement.title if announcement else '') }}">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="summary">Summary</label>
+                        <input type="text" id="summary" name="summary" class="form-control" maxlength="500"
+                               value="{{ form_data.get('summary', announcement.summary if announcement else '') }}">
+                        <small class="form-hint">Used in notifications and executive previews.</small>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="body">Body</label>
+                        <textarea id="body" name="body" class="form-control" rows="8" maxlength="10000" required>{{ form_data.get('body', announcement.body if announcement else '') }}</textarea>
+                    </div>
+                </div>
+
+                <div class="form-section" id="poll-options-section">
+                    <div class="form-section-title">Poll Options</div>
+                    <div class="form-hint" style="margin-bottom: 0.75rem;">Required only when the broadcast type is Poll.</div>
+                    {% for option_value in option_values %}
+                    <div class="form-group">
+                        <label class="form-label" for="poll_option_{{ loop.index }}">Option {{ loop.index }}</label>
+                        <input type="text" id="poll_option_{{ loop.index }}" name="poll_options" class="form-control" maxlength="255" value="{{ option_value }}">
+                    </div>
+                    {% endfor %}
+                    {% for slot in range(option_values|length, 6) %}
+                    <div class="form-group">
+                        <label class="form-label" for="poll_option_{{ slot + 1 }}">Option {{ slot + 1 }}</label>
+                        <input type="text" id="poll_option_{{ slot + 1 }}" name="poll_options" class="form-control" maxlength="255" value="">
+                    </div>
+                    {% endfor %}
+                </div>
+
+                <div class="form-actions">
+                    {% if form_mode == 'create' %}
+                    <button type="submit" name="submit_action" value="draft" class="btn btn-secondary">Save Draft</button>
+                    <button type="submit" name="submit_action" value="publish" class="btn btn-primary">Publish Now</button>
+                    {% else %}
+                    <button type="submit" class="btn btn-primary">Save Draft Changes</button>
+                    {% endif %}
+                </div>
+            </form>
+        </div>
+    </div>
+</section>
+
+<script nonce="{{ csp_nonce() }}">
+(() => {
+  const typeInput = document.getElementById('announcement_type');
+  const pollSection = document.getElementById('poll-options-section');
+
+  function syncPollVisibility() {
+    if (!typeInput || !pollSection) {
+      return;
+    }
+    pollSection.style.display = typeInput.value === 'POLL' ? '' : 'none';
+  }
+
+  if (typeInput) {
+    typeInput.addEventListener('change', syncPollVisibility);
+  }
+  syncPollVisibility();
+})();
+</script>
+{% endblock %}

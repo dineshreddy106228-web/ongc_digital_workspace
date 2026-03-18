@@ -28,6 +28,8 @@
   <div class="alert alert-info">
     This task was generated from a recurring series. Changes here apply to this occurrence only.
     Schedule: {{ recurrence_summary(task.recurring_template) }}.
+    Series end date: {{ task.recurring_template.end_date.strftime('%d %b %Y') if task.recurring_template.end_date else 'No end date' }}.
+    <a href="{{ url_for('tasks.edit_recurring_series', template_id=task.recurring_template.id) }}">Edit series settings</a>.
   </div>
   {% endif %}
 

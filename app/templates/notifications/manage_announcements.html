@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% from "components/ui.html" import page_header %}
+{% block title %}Manage Broadcasts – {{ app_name }}{% endblock %}
+
+{% block content %}
+<section class="notifications-page">
+    {% call page_header("Announcement Control", "Create enterprise broadcasts and single-response polls for workspace users.", "Superuser", target_user_count ~ " target users", "info") %}
+        <a href="{{ url_for('notifications.index') }}" class="btn btn-secondary">Notifications</a>
+        <a href="{{ url_for('notifications.create_announcement') }}" class="btn btn-primary">New Broadcast</a>
+    {% endcall %}
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+        <div class="flash flash-{{ category }}">{{ message }}</div>
+        {% endfor %}
+    {% endwith %}
+
+    <div class="notifications-list">
+        {% for announcement in announcements %}
+        {% set stats = announcement_stats.get(announcement.id, {}) %}
+        <article class="notification-card notification-card-{{ announcement.severity }}">
+            <div class="notification-card-main">
+                <div class="notification-card-header">
+                    <div>
+                        <h2>{{ announcement.title }}</h2>
+                        <p>{{ announcement.summary or announcement.body[:260] ~ ('...' if announcement.body|length > 260 else '') }}</p>
+                    </div>
+                    <span class="notification-severity-pill severity-{{ announcement.severity }}">
+                        {{ announcement.status|title }} · {{ 'Poll' if announcement.announcement_type == 'POLL' else 'Announcement' }}
+                    </span>
+                </div>
+                <div class="notification-card-meta" style="gap:1rem; flex-wrap:wrap;">
+                    <span>Recipients: {{ stats.recipients or 0 }}</span>
+                    <span>Read: {{ stats.read_count or 0 }}</span>
+                    {% if announcement.announcement_type == 'POLL' %}
+                    <span>Votes: {{ stats.vote_count or 0 }}</span>
+                    {% endif %}
+                    <span>Created: {{ announcement.created_at|datetime_ist('%d %b %Y') }}</span>
+                </div>
+            </div>
+            <div class="notification-card-actions">
+                <a href="{{ url_for('notifications.announcement_detail', announcement_id=announcement.id) }}" class="btn btn-sm btn-secondary">Open</a>
+                {% if announcement.status == 'DRAFT' %}
+                <a href="{{ url_for('notifications.edit_announcement', announcement_id=announcement.id) }}" class="btn btn-sm btn-secondary">Edit</a>
+                <form method="POST" action="{{ url_for('notifications.publish_announcement_route', announcement_id=announcement.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-sm btn-primary">Publish</button>
+                </form>
+                {% elif announcement.status == 'PUBLISHED' %}
+                <form method="POST" action="{{ url_for('notifications.close_announcement_route', announcement_id=announcement.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-sm btn-outline">Close</button>
+                </form>
+                {% endif %}
+            </div>
+        </article>
+        {% else %}
+        <div class="notification-empty-state">
+            <h3>No broadcasts created yet</h3>
+            <p>Create a draft announcement or publish a poll to reach every active workspace user.</p>
+        </div>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}
