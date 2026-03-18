@@ -133,6 +133,103 @@ tr.is-saving td { opacity: 0.6; }
   color: var(--muted);
 }
 .md-no-data i { font-size: 2.5rem; display: block; margin-bottom: 0.75rem; }
+
+.msds-card {
+  background: linear-gradient(135deg, rgba(239, 246, 255, 0.92) 0%, rgba(255, 255, 255, 1) 100%);
+  border: 1px solid rgba(59, 130, 246, 0.18);
+}
+
+.msds-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 1.2fr) minmax(220px, 0.8fr);
+  gap: 1rem;
+}
+
+.msds-stat {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 1rem 1.1rem;
+}
+
+.msds-stat-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-bottom: 0.35rem;
+}
+
+.msds-stat-value {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.msds-form-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(260px, 1.2fr) auto;
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.msds-field-label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 0.35rem;
+}
+
+.msds-input {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.msds-input:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.msds-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 999px;
+  padding: 0.22rem 0.6rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.msds-status-pill.is-present {
+  color: #166534;
+  background: rgba(34, 197, 94, 0.12);
+}
+
+.msds-status-pill.is-missing {
+  color: #92400e;
+  background: rgba(245, 158, 11, 0.14);
+}
+
+.msds-link-list {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+@media (max-width: 980px) {
+  .msds-grid,
+  .msds-form-grid {
+    grid-template-columns: 1fr;
+  }
+}
 </style>
 {% endblock %}
 
@@ -148,6 +245,7 @@ tr.is-saving td { opacity: 0.6; }
     <div class="inv-header-actions">
       <span class="md-superuser-badge"><i class="bi bi-shield-lock"></i> Superuser only</span>
       <span class="inv-badge inv-badge-info">{{ total }} materials</span>
+      <span class="inv-badge inv-badge-success">{{ msds_count }} MSDS stored</span>
       {% if extra_keys %}
       <span class="inv-badge inv-badge-muted">{{ extra_keys | length }} extra column(s)</span>
       {% endif %}
@@ -184,6 +282,52 @@ tr.is-saving td { opacity: 0.6; }
       <a href="{{ url_for('csc.admin_drafts') }}" class="btn btn-sm btn-primary">
         <i class="bi bi-box-arrow-up-right"></i> Open CSC Manage Drafts
       </a>
+    </div>
+  </div>
+
+  <div class="md-import-card msds-card">
+    <div class="md-import-header">
+      <i class="bi bi-file-earmark-pdf" style="color: var(--primary); font-size: 1.1rem;"></i>
+      <h2 class="md-import-title">MSDS PDF Storage</h2>
+    </div>
+    <p class="md-import-subtitle">
+      Upload a material-specific MSDS PDF. The file is stored on disk in the configured <code>MSDS_STORAGE_DIR</code> folder,
+      while MySQL keeps only the metadata and file reference.
+    </p>
+    <div class="msds-grid">
+      <div>
+        <form method="POST" action="{{ url_for('inventory.upload_msds') }}" enctype="multipart/form-data" class="msds-form-grid">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div>
+            <label class="msds-field-label" for="material_code">Material Code</label>
+            <input class="msds-input" list="materialCodes" id="material_code" name="material_code" placeholder="Enter material code" required>
+            <datalist id="materialCodes">
+              {% for row in rows %}
+              <option value="{{ row.material }}">{{ row.short_text }}</option>
+              {% endfor %}
+            </datalist>
+          </div>
+          <div>
+            <label class="msds-field-label" for="msds_file">PDF File</label>
+            <input class="msds-input" type="file" id="msds_file" name="msds_file" accept="application/pdf,.pdf" required>
+          </div>
+          <div>
+            <button type="submit" class="btn btn-sm btn-primary">
+              <i class="bi bi-upload"></i> Upload MSDS
+            </button>
+          </div>
+        </form>
+      </div>
+      <div style="display:grid; gap:0.75rem;">
+        <div class="msds-stat">
+          <div class="msds-stat-label">Storage Pattern</div>
+          <div class="msds-stat-value">PDF on disk, metadata in MySQL</div>
+        </div>
+        <div class="msds-stat">
+          <div class="msds-stat-label">Replacement Behavior</div>
+          <div class="msds-stat-value">A new upload replaces the previous MSDS for that material</div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -231,12 +375,14 @@ tr.is-saving td { opacity: 0.6; }
               {% for key in extra_keys %}
               <th class="md-col-med">{{ key }}</th>
               {% endfor %}
+              <th class="md-col-med">MSDS PDF</th>
               <th class="md-col-sm">Updated By</th>
               <th class="md-col-sm">Updated Date</th>
             </tr>
           </thead>
           <tbody>
             {% for row in rows %}
+            {% set msds_doc = msds_by_material.get(row.material) %}
             <tr class="inv-row-main" data-code="{{ row.material }}">
 
               {# Material – always read-only (PK) #}
@@ -369,6 +515,25 @@ tr.is-saving td { opacity: 0.6; }
                        style="display:none;">
               </td>
               {% endfor %}
+
+              <td class="md-col-med">
+                {% if msds_doc %}
+                <div class="msds-link-list">
+                  <span class="msds-status-pill is-present"><i class="bi bi-check-circle-fill"></i> Stored</span>
+                  <a href="{{ url_for('inventory.open_msds', material_code=row.material) }}" class="btn btn-sm btn-secondary">View</a>
+                  <a href="{{ url_for('inventory.open_msds', material_code=row.material, download=1) }}" class="btn btn-sm btn-outline">Download</a>
+                  <form method="POST" action="{{ url_for('inventory.delete_msds', material_code=row.material) }}" onsubmit="return confirm('Delete the stored MSDS PDF for {{ row.material }}?');" style="display:inline;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-sm btn-outline" style="color: var(--danger,#dc3545); border-color: color-mix(in srgb, var(--danger,#dc3545) 35%, transparent);">Delete</button>
+                  </form>
+                </div>
+                <div style="font-size:0.74rem; color:var(--muted); margin-top:0.35rem;">
+                  {{ msds_doc.original_filename }} · {{ "{:,.0f}".format(msds_doc.file_size_bytes / 1024) }} KB
+                </div>
+                {% else %}
+                <span class="msds-status-pill is-missing"><i class="bi bi-dash-circle"></i> Not Stored</span>
+                {% endif %}
+              </td>
 
               {# Audit #}
               <td class="md-col-sm" style="color:var(--muted); font-size:0.8rem;">

@@ -75,10 +75,12 @@ def _normalize_param_type(raw: str) -> str:
     if "desirable" in txt:
         return "Desirable"
     if "vital" in txt:
-        return "Desirable"
+        return "Vital"
     if "inform" in txt:
         return "Desirable"
-    return "Essential"
+    if "essential" in txt:
+        return "Desirable"
+    return "Desirable"
 
 
 # Patterns that mark lines/paragraphs that are NOT parameters:
@@ -260,7 +262,7 @@ def _parse_format_a(
     # State machine
     cur_name  = ""
     cur_value = ""
-    cur_type  = "Essential"
+    cur_type  = "Desirable"
     in_param  = False
 
     def _flush() -> None:
@@ -278,7 +280,7 @@ def _parse_format_a(
             ))
         cur_name  = ""
         cur_value = ""
-        cur_type  = "Essential"
+        cur_type  = "Desirable"
         in_param  = False
 
     for el in body_els:
@@ -463,7 +465,7 @@ def _parse_2col_table(spec: SpecDocument, tbl: Any) -> None:
                 name           = n,
                 unit_condition = "",
                 existing_value = v,
-                parameter_type = "Essential",
+                parameter_type = "Desirable",
                 group          = "",
                 raw_left       = n,
                 raw_right      = v,
@@ -558,7 +560,7 @@ def _parse_multigrade_table(spec: SpecDocument, tbl: Any) -> None:
                 name           = display_name,
                 unit_condition = "",
                 existing_value = val,
-                parameter_type = "Essential",
+                parameter_type = "Desirable",
                 group          = "",
                 raw_left       = param_name,
                 raw_right      = val,
@@ -602,7 +604,7 @@ def _parse_slno_matrix_table(spec: SpecDocument, tbl: Any) -> None:
                 name           = display_name,
                 unit_condition = "",
                 existing_value = val,
-                parameter_type = "Essential",
+                parameter_type = "Desirable",
                 group          = "",
                 raw_left       = param_name,
                 raw_right      = val,
@@ -620,7 +622,7 @@ def spec_to_parameter_dicts(spec: SpecDocument) -> list[dict]:
     for p in spec.parameters:
         rows.append({
             "parameter_name":  p.name,
-            "parameter_type":  "Essential",
+            "parameter_type":  "Desirable",
             "existing_value":  p.existing_value,
             "proposed_value":  p.existing_value,   # pre-fill proposed = existing
             "test_method":     "",

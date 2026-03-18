@@ -1,0 +1,167 @@
+<div class="csc-review-intro">
+  This admin review is read-only. If the admin needs to make workflow edits, create a self draft from the Manage Drafts page instead of editing the committee submission.
+</div>
+
+<div class="csc-review-card">
+  <h3>Submission Snapshot</h3>
+  <div class="csc-review-stat-grid">
+    {% for row in summary_rows %}
+    <div class="csc-review-stat">
+      <span class="csc-review-stat-label">{{ row.label }}</span>
+      <span class="csc-review-stat-value">
+        {% if row.is_datetime %}
+          {{ row.value | datetime_ist('%d %b %Y, %H:%M') if row.value else '—' }}
+        {% else %}
+          {{ row.value }}
+        {% endif %}
+      </span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="csc-review-columns">
+  <div class="csc-review-card">
+    <h3>Section Narrative</h3>
+    {% if section_rows %}
+      {% for section in section_rows %}
+      <div class="csc-review-section-block">
+        <h4>{{ section.label }}</h4>
+        <pre class="csc-review-pre">{{ section.text or '—' }}</pre>
+      </div>
+      {% endfor %}
+    {% else %}
+    <p class="csc-review-empty">No section content captured in this draft.</p>
+    {% endif %}
+  </div>
+
+  <div class="csc-review-card">
+    <h3>Issue Flags</h3>
+    <div class="csc-review-list">
+      {% for issue in issue_rows %}
+      <div class="csc-review-list-item">
+        <div class="csc-review-list-head">
+          <strong>{{ issue.label }}</strong>
+          <span class="csc-review-flag {{ 'is-flagged' if issue.flagged else '' }}">
+            {{ 'Flagged' if issue.flagged else 'Clear' }}
+          </span>
+        </div>
+        <p>{{ issue.notes or 'No review note entered.' }}</p>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<div class="csc-review-card">
+  <h3>Parameter Review</h3>
+  {% if parameter_rows %}
+  <div class="csc-review-table-wrap">
+    <table class="csc-review-table">
+      <thead>
+        <tr>
+          <th>Parameter</th>
+          <th>Type</th>
+          <th>Existing</th>
+          <th>Required</th>
+          <th>Proposed</th>
+          <th>Test Method</th>
+          <th>Conditions</th>
+          <th>Justification</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for parameter in parameter_rows %}
+        <tr>
+          <td>{{ parameter.parameter_name }}</td>
+          <td>{{ parameter.parameter_type or '—' }}</td>
+          <td>{{ parameter.existing_value }}</td>
+          <td>{{ parameter.required_value }}</td>
+          <td>{{ parameter.proposed_value }}</td>
+          <td>{{ parameter.test_method }}</td>
+          <td>{{ parameter.conditions }}</td>
+          <td>{{ parameter.justification }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="csc-review-empty">No parameters are present in this draft.</p>
+  {% endif %}
+</div>
+
+<div class="csc-review-columns">
+  <div class="csc-review-card">
+    <h3>Material Master Snapshot</h3>
+    {% if master_rows %}
+    <dl class="csc-review-kv">
+      {% for row in master_rows %}
+      <div>
+        <dt>{{ row.label }}</dt>
+        <dd>{{ row.value }}</dd>
+      </div>
+      {% endfor %}
+    </dl>
+    {% else %}
+    <p class="csc-review-empty">No material master data captured.</p>
+    {% endif %}
+  </div>
+
+  <div class="csc-review-card">
+    <h3>Material Properties</h3>
+    {% if material_property_rows %}
+    <dl class="csc-review-kv">
+      {% for row in material_property_rows %}
+      <div>
+        <dt>{{ row.label }}</dt>
+        <dd>{{ row.value }}</dd>
+      </div>
+      {% endfor %}
+    </dl>
+    {% else %}
+    <p class="csc-review-empty">No material property values captured.</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="csc-review-columns">
+  <div class="csc-review-card">
+    <h3>Storage &amp; Handling</h3>
+    {% if storage_rows %}
+    <dl class="csc-review-kv">
+      {% for row in storage_rows %}
+      <div>
+        <dt>{{ row.label }}</dt>
+        <dd>{{ row.value }}</dd>
+      </div>
+      {% endfor %}
+    </dl>
+    {% else %}
+    <p class="csc-review-empty">No storage or handling values captured.</p>
+    {% endif %}
+  </div>
+
+  <div class="csc-review-card">
+    <h3>Impact Assessment</h3>
+    {% if impact_rows %}
+    <dl class="csc-review-kv">
+      {% for row in impact_rows %}
+      <div>
+        <dt>{{ row.label }}</dt>
+        <dd>{{ row.value }}</dd>
+      </div>
+      {% endfor %}
+    </dl>
+    {% else %}
+    <p class="csc-review-empty">No impact assessment data captured.</p>
+    {% endif %}
+  </div>
+</div>
+
+{% if revision.reviewer_notes %}
+<div class="csc-review-card">
+  <h3>Latest Review Notes</h3>
+  <pre class="csc-review-pre">{{ revision.reviewer_notes }}</pre>
+</div>
+{% endif %}

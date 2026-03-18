@@ -7,6 +7,8 @@ Governance V2 additions:
   - User category reflected via role assignment
 """
 
+import os
+import tempfile
 from flask import render_template, redirect, url_for, flash, request, send_file
 from flask_login import login_required, current_user
 from sqlalchemy.exc import SQLAlchemyError
@@ -36,8 +38,11 @@ from app.core.module_registry import invalidate_user_module_access_cache
 from app.core.services.notifications import create_notification
 from app.core.services.backups import (
     BackupError,
+    build_backup_filename,
     create_database_backup,
+    restore_database_backup,
     get_runtime_environment_name,
+    validate_backup_file,
 )
 from app.core.roles import (
     ADMIN_ROLE,
@@ -726,11 +731,24 @@ def activity_history():
 @roles_required(ADMIN_ROLE)
 def backup_center():
     snapshots = []
+    backup_events = []
     history_available = True
     try:
         snapshots = (
             BackupSnapshot.query
             .order_by(BackupSnapshot.created_at.desc())
+            .limit(20)
+            .all()
+        )
+        backup_events = (
+            AuditLog.query
+            .filter(
+                AuditLog.action.in_([
+                    "DATABASE_BACKUP_EXPORTED",
+                    "DATABASE_BACKUP_IMPORTED",
+                ])
+            )
+            .order_by(AuditLog.created_at.desc())
             .limit(20)
             .all()
         )
@@ -741,8 +759,11 @@ def backup_center():
     return render_template(
         "admin/backups.html",
         snapshots=snapshots,
+        backup_events=backup_events,
         history_available=history_available,
         environment_name=get_runtime_environment_name(),
+        next_backup_filename=build_backup_filename(),
+        restore_phrase="RESTORE DATABASE",
     )
 
 
@@ -799,3 +820,97 @@ def export_backup():
     )
     response.call_on_close(artifact.cleanup)
     return response
+
+
+@admin_bp.route("/backups/import", methods=["POST"])
+@login_required
+@roles_required(ADMIN_ROLE)
+def import_backup():
+    """Ingest/Restore a database backup from an uploaded SQL file."""
+    environment_name = get_runtime_environment_name()
+    required_restore_phrase = "RESTORE DATABASE"
+
+    if "backup_file" not in request.files:
+        flash("No file part provided.", "danger")
+        return redirect(url_for("admin.backup_center"))
+
+    file = request.files["backup_file"]
+    if not file or not file.filename:
+        flash("No file selected.", "danger")
+        return redirect(url_for("admin.backup_center"))
+
+    if not (file.filename.endswith(".sql") or file.filename.endswith(".sql.gz")):
+        flash("Unsupported file format. Please upload a .sql or .sql.gz file.", "danger")
+        return redirect(url_for("admin.backup_center"))
+
+    if request.form.get("ack_downloaded_backup") != "on":
+        flash("Confirm that you downloaded a fresh backup of the current database before ingesting a new one.", "danger")
+        return redirect(url_for("admin.backup_center"))
+
+    if request.form.get("ack_destructive_restore") != "on":
+        flash("Confirm that you understand the ingest will overwrite the current database.", "danger")
+        return redirect(url_for("admin.backup_center"))
+
+    confirm_environment = (request.form.get("confirm_environment") or "").strip()
+    if confirm_environment.casefold() != environment_name.casefold():
+        flash(
+            f"Environment confirmation failed. Type the current environment name exactly: {environment_name}.",
+            "danger",
+        )
+        return redirect(url_for("admin.backup_center"))
+
+    confirm_phrase = (request.form.get("confirm_phrase") or "").strip()
+    if confirm_phrase.upper() != required_restore_phrase:
+        flash(
+            f"Restore confirmation phrase mismatch. Type '{required_restore_phrase}' to continue.",
+            "danger",
+        )
+        return redirect(url_for("admin.backup_center"))
+
+    # ── Temporary storage for the upload ──────────────────────────
+    fd, temp_path = tempfile.mkstemp(prefix="restore-upload-", suffix=os.path.splitext(file.filename)[1])
+    try:
+        with os.fdopen(fd, "wb") as f:
+            file.save(f)
+
+        validation = validate_backup_file(temp_path)
+
+        # ── Trigger restore ───────────────────────────────────────
+        result = restore_database_backup(temp_path)
+
+        # ── Audit log ──────────────────────────────────────────────
+        AuditLog.log(
+            action="DATABASE_BACKUP_IMPORTED",
+            user_id=current_user.id,
+            entity_type="BackupRestore",
+            entity_id=file.filename,
+            details=(
+                f"Admin '{current_user.username}' restored database from "
+                f"'{file.filename}' into {result['database']} at {result['host']}."
+            ),
+            ip_address=_client_ip(),
+            user_agent=get_user_agent(),
+        )
+        log_activity(
+            current_user.username,
+            "backup_restored",
+            "backup",
+            file.filename,
+            details=f"database={result['database']}",
+        )
+        db.session.commit()
+
+        flash(
+            f"Database successfully restored from '{file.filename}' "
+            f"({validation['size_bytes']} bytes). All tables in {environment_name} have been refreshed.",
+            "success",
+        )
+    except BackupError as exc:
+        flash(f"Restore failed: {exc}", "danger")
+    except Exception as exc:
+        flash(f"An unexpected error occurred during restore: {exc}", "danger")
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+    return redirect(url_for("admin.backup_center"))

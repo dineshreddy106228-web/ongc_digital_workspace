@@ -15,6 +15,24 @@
         {% endfor %}
     {% endwith %}
 
+    <div class="card" style="margin-bottom: 1.5rem; border: 1px solid rgba(239, 68, 68, 0.22); background: linear-gradient(135deg, rgba(254, 242, 242, 0.92) 0%, rgba(255, 255, 255, 1) 100%);">
+        <div class="card-body" style="display: flex; justify-content: space-between; gap: 1.25rem; align-items: center; flex-wrap: wrap;">
+            <div>
+                <h2 class="backup-section-title" style="margin-bottom: 0.35rem;">Delete All Ongoing Broadcasts</h2>
+                <p style="margin: 0; color: var(--color-text-muted, #64748b); max-width: 780px;">
+                    Removes every currently active published announcement or poll for all users.
+                    This also deletes the related in-app notifications and unread popup delivery records, even for users who have not logged in yet.
+                </p>
+            </div>
+            <form method="POST" action="{{ url_for('notifications.delete_active_announcements_route') }}" onsubmit="return confirm('Delete all ongoing broadcasts for every user? This also removes the related notifications and popup delivery records.');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-danger" {% if not active_announcement_count %}disabled{% endif %}>
+                    Delete {{ active_announcement_count }} Ongoing Broadcast{{ '' if active_announcement_count == 1 else 's' }}
+                </button>
+            </form>
+        </div>
+    </div>
+
     <div class="notifications-list">
         {% for announcement in announcements %}
         {% set stats = announcement_stats.get(announcement.id, {}) %}

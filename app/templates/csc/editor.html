@@ -54,6 +54,66 @@
     gap: 0.5rem;
 }
 
+.csc-workflow-scope-banner {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--primary) 7%, transparent);
+}
+
+.csc-workflow-scope-title {
+    font-weight: 700;
+}
+
+.csc-workflow-scope-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.3rem 0.65rem;
+    border-radius: 999px;
+    background: var(--surface);
+    border: 1px solid color-mix(in srgb, var(--primary) 20%, var(--border));
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+
+.csc-parameter-scope-note {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding: 0.8rem 0.9rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface-alt);
+}
+
+.csc-parameter-scope-note strong {
+    font-size: 0.85rem;
+}
+
+.csc-workflow-subnote {
+    color: var(--muted);
+    font-size: 0.84rem;
+}
+
+.csc-parameter-type-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.25rem 0.6rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, #2563eb 12%, transparent);
+    color: #1d4ed8;
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
 .csc-tab-bar {
     display: flex;
     gap: 0.5rem;
@@ -963,6 +1023,9 @@
     z-index: 1000;
     align-items: center;
     justify-content: center;
+    padding: 1.5rem;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 .csc-modal-overlay.show {
@@ -1005,8 +1068,12 @@
 
 .csc-submit-modal {
     max-width: 880px;
+    width: min(880px, calc(100vw - 3rem));
+    max-height: calc(100vh - 3rem);
     padding: 0;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
 }
 
 .csc-submit-modal-header {
@@ -1049,6 +1116,9 @@
 .csc-submit-modal-body {
     padding: 1.5rem;
     background: #f8fafc;
+    overflow-y: auto;
+    flex: 1 1 auto;
+    min-height: 0;
 }
 
 .csc-submit-step {
@@ -1199,6 +1269,17 @@
 }
 
 @media (max-width: 768px) {
+    .csc-modal-overlay {
+        align-items: flex-start;
+        padding: 0.75rem;
+    }
+    .csc-submit-modal {
+        width: min(100%, calc(100vw - 1.5rem));
+        max-height: calc(100vh - 1.5rem);
+    }
+    .csc-submit-modal-body {
+        padding: 1rem;
+    }
     .csc-tab-bar { gap: 0.25rem; }
     .csc-tab { padding: 0.5rem 0.75rem; font-size: 0.85rem; }
     .csc-section-panel { padding: 1rem; }
@@ -1239,6 +1320,13 @@
         </div>
     </div>
 
+    <div class="csc-workflow-scope-banner">
+        <span class="csc-workflow-scope-title">Open for revision:</span>
+        {% for scope_label in workflow_scope_summary %}
+        <span class="csc-workflow-scope-pill">{{ scope_label }}</span>
+        {% endfor %}
+    </div>
+
     {# ── Tab bar - 11 sections ───────────────────────────────────────── #}
     <div class="csc-tab-bar" role="tablist">
         <button type="button" class="csc-tab is-active" data-tab="background" role="tab" aria-selected="true">
@@ -1250,18 +1338,26 @@
         <button type="button" class="csc-tab" data-tab="master-data" role="tab">
             <i class="bi bi-diagram-3"></i> Master Data
         </button>
+        {% if workflow_scope.material_properties %}
         <button type="button" class="csc-tab" data-tab="material-properties" role="tab">
             <i class="bi bi-sliders"></i> Material Properties
         </button>
+        {% endif %}
+        {% if workflow_scope.storage_handling %}
         <button type="button" class="csc-tab" data-tab="storage-handling" role="tab">
             <i class="bi bi-box-seam"></i> Storage and Handling
         </button>
+        {% endif %}
+        {% if workflow_scope.parameter_type or workflow_scope.parameter_other %}
         <button type="button" class="csc-tab" data-tab="parameters" role="tab">
             <i class="bi bi-table"></i> Parameters
         </button>
+        {% endif %}
+        {% if workflow_scope.parameters_impact %}
         <button type="button" class="csc-tab" data-tab="impact" role="tab">
             <i class="bi bi-graph-up"></i> Impact
         </button>
+        {% endif %}
         <button type="button" class="csc-tab" data-tab="proposed" role="tab">
             <i class="bi bi-pen"></i> Changes
         </button>
@@ -1343,6 +1439,7 @@
         </div>
     </div>
 
+    {% if workflow_scope.material_properties %}
     <div class="csc-tab-content" data-tab="material-properties" role="tabpanel">
         <div class="csc-section-panel">
             <div class="csc-section-header">
@@ -1362,7 +1459,9 @@
             </form>
         </div>
     </div>
+    {% endif %}
 
+    {% if workflow_scope.storage_handling %}
     <div class="csc-tab-content" data-tab="storage-handling" role="tabpanel">
         <div class="csc-section-panel">
             <div class="csc-section-header">
@@ -1382,6 +1481,7 @@
             </form>
         </div>
     </div>
+    {% endif %}
 
     {# ════════════════════════════════════════════════════════════════ #}
     {# SECTION 2: Existing Spec Summary                                 #}
@@ -1457,6 +1557,7 @@
     {# ════════════════════════════════════════════════════════════════ #}
     {# SECTION 4: Parameter Review                                      #}
     {# ════════════════════════════════════════════════════════════════ #}
+    {% if workflow_scope.parameter_type or workflow_scope.parameter_other %}
     <div class="csc-tab-content" data-tab="parameters" role="tabpanel">
         <div class="csc-section-panel">
             <div class="csc-section-header">
@@ -1468,6 +1569,18 @@
                     Phase 1: Define/edit specification parameters and measurement units.
                     {% endif %}
                 </p>
+            </div>
+
+            <div class="csc-parameter-scope-note">
+                <strong>Type values are now limited to:</strong>
+                <span class="csc-parameter-type-pill">Vital</span>
+                <span class="csc-parameter-type-pill">Desirable</span>
+                <span class="csc-workflow-subnote">
+                    Open in this draft:
+                    {% if workflow_scope.parameter_type %}<strong>Type</strong>{% endif %}
+                    {% if workflow_scope.parameter_type and workflow_scope.parameter_other %} and {% endif %}
+                    {% if workflow_scope.parameter_other %}<strong>Other than Type</strong>{% endif %}
+                </span>
             </div>
 
             {% if not draft.phase1_locked %}
@@ -1551,6 +1664,7 @@
             </div>
         </div>
     </div>
+    {% endif %}
 
     {# ════════════════════════════════════════════════════════════════ #}
     {# SECTION 5: Proposed Changes                                      #}
@@ -1676,6 +1790,7 @@
     {# ════════════════════════════════════════════════════════════════ #}
     {# SECTION 7: Impact Analysis                                       #}
     {# ════════════════════════════════════════════════════════════════ #}
+    {% if workflow_scope.parameters_impact %}
     <div class="csc-tab-content" data-tab="impact" role="tabpanel">
         <div class="csc-section-panel">
             <div class="csc-section-header">
@@ -1725,6 +1840,7 @@
             </form>
         </div>
     </div>
+    {% endif %}
 
     {# ════════════════════════════════════════════════════════════════ #}
     {# SECTION 8: Committee Recommendation                               #}
@@ -1961,6 +2077,9 @@
     var submitStep = 1;
     var visitedTabs = { background: true };
     var initialEditorState = null;
+    var workflowScope = {{ workflow_scope|tojson }};
+    var parameterTypeEditable = !!workflowScope.parameter_type;
+    var parameterOtherEditable = !!workflowScope.parameter_other;
     var parameterTypeOptions = {{ parameter_type_options|tojson }};
     var testProcedureOptions = {{ test_procedure_options|tojson }};
     var impactChecklistConfig = {{ impact_checklist_flags|tojson }};
@@ -2102,7 +2221,7 @@
             } else {
                 rows.push({
                     parameter_name: normalizedValue(row.querySelector('.param-name')?.value || ''),
-                    parameter_type: normalizedValue(row.querySelector('.param-type')?.value || 'Essential'),
+                    parameter_type: normalizedValue(row.querySelector('.param-type')?.value || row.getAttribute('data-param-type') || 'Desirable'),
                     unit_of_measure: normalizedValue(row.querySelector('.param-unit')?.value || ''),
                     required_value_type: normalizedValue(row.querySelector('.param-required-type')?.value || 'text'),
                     required_value_text: normalizedValue(row.querySelector('.param-required-text')?.value || ''),
@@ -2759,7 +2878,7 @@
     // Material Properties
     // ═══════════════════════════════════════════════════════════════════════════
 
-    document.querySelector('[data-save-section="material-properties"]').addEventListener('click', function() {
+    document.querySelector('[data-save-section="material-properties"]')?.addEventListener('click', function() {
         fetch('/csc/api/draft/' + draftId + '/material-properties', {
             method: 'POST',
             headers: {
@@ -2793,7 +2912,7 @@
     // Storage and Handling
     // ═══════════════════════════════════════════════════════════════════════════
 
-    document.querySelector('[data-save-section="storage-handling"]').addEventListener('click', function() {
+    document.querySelector('[data-save-section="storage-handling"]')?.addEventListener('click', function() {
         fetch('/csc/api/draft/' + draftId + '/storage-handling', {
             method: 'POST',
             headers: {
@@ -2884,7 +3003,7 @@
     function normalizedParameterType(value) {
         var token = normalizedValue(value || '').toLowerCase();
         if (token === 'vital') return 'Vital';
-        return 'Essential';
+        return 'Desirable';
     }
 
     function normalizedTestProcedureType(value) {
@@ -2905,7 +3024,7 @@
     function normalizeParameterRowData(param) {
         var normalized = Object.assign({}, param || {});
         normalized.parameter_name = normalizedValue(normalized.parameter_name || '');
-        normalized.parameter_type = normalizedParameterType(normalized.parameter_type || 'Essential');
+        normalized.parameter_type = normalizedParameterType(normalized.parameter_type || 'Desirable');
         normalized.unit_of_measure = normalizedValue(normalized.unit_of_measure || '');
         normalized.required_value_type = normalizedValue(normalized.required_value_type || '').toLowerCase() === 'comparison' ? 'comparison' : 'text';
         normalized.required_value_text = normalizedValue(normalized.required_value_text || normalized.specification || normalized.existing_value || '');
@@ -2953,42 +3072,54 @@
 
     function renderParameterPhase1Row(param, idx) {
         var p = normalizeParameterRowData(param);
-        return '<tr data-param-id="' + escapeHtml(p.id || '') + '">' +
-            '<td><textarea class="param-name" placeholder="Parameter name">' + escapeHtml(p.parameter_name) + '</textarea></td>' +
-            '<td><select class="param-type">' + selectOptionsHtml(parameterTypeOptions, p.parameter_type || 'Essential') + '</select></td>' +
-            '<td><input type="text" class="param-unit" value="' + escapeHtml(p.unit_of_measure) + '" placeholder="Unit"></td>' +
+        var typeCell = parameterTypeEditable
+            ? '<select class="param-type">' + selectOptionsHtml(parameterTypeOptions, p.parameter_type || 'Desirable') + '</select>'
+            : '<div class="csc-param-readonly csc-parameter-type-pill">' + escapeHtml(p.parameter_type || 'Desirable') + '</div>';
+        var nameReadonly = parameterOtherEditable ? '' : ' readonly';
+        var unitReadonly = parameterOtherEditable ? '' : ' readonly';
+        var requiredDisabled = parameterOtherEditable ? '' : ' disabled';
+        var conditionsReadonly = parameterOtherEditable ? '' : ' readonly';
+        var procedureDisabled = parameterOtherEditable ? '' : ' disabled';
+        var procedureTextReadonly = parameterOtherEditable ? '' : ' readonly';
+        var deleteCell = parameterOtherEditable
+            ? '<button type="button" class="btn btn-sm btn-danger deleteParamBtn" data-idx="' + idx + '"><i class="bi bi-trash"></i></button>'
+            : '<span class="csc-param-readonly">Locked</span>';
+        return '<tr data-param-id="' + escapeHtml(p.id || '') + '" data-param-type="' + escapeHtml(p.parameter_type || 'Desirable') + '">' +
+            '<td><textarea class="param-name" placeholder="Parameter name"' + nameReadonly + '>' + escapeHtml(p.parameter_name) + '</textarea></td>' +
+            '<td>' + typeCell + '</td>' +
+            '<td><input type="text" class="param-unit" value="' + escapeHtml(p.unit_of_measure) + '" placeholder="Unit"' + unitReadonly + '></td>' +
             '<td>' +
                 '<div class="csc-param-required-mode">' +
-                    '<select class="param-required-type">' +
+                    '<select class="param-required-type"' + requiredDisabled + '>' +
                         '<option value="text"' + (p.required_value_type !== 'comparison' ? ' selected' : '') + '>Text</option>' +
                         '<option value="comparison"' + (p.required_value_type === 'comparison' ? ' selected' : '') + '>Comparison</option>' +
                     '</select>' +
                     '<div data-required-mode="text" style="' + (p.required_value_type === 'comparison' ? 'display:none;' : '') + '">' +
-                        '<textarea class="param-required-text" placeholder="Enter required value text">' + escapeHtml(p.required_value_text) + '</textarea>' +
+                        '<textarea class="param-required-text" placeholder="Enter required value text"' + nameReadonly + '>' + escapeHtml(p.required_value_text) + '</textarea>' +
                         '<div class="csc-param-inline-note">Paste or structure legacy required-value text here.</div>' +
                     '</div>' +
                     '<div class="csc-param-required-comparison" data-required-mode="comparison" style="' + (p.required_value_type === 'comparison' ? '' : 'display:none;') + '">' +
                         '<div class="csc-param-required-row">' +
-                            '<select class="param-required-operator-1">' +
+                            '<select class="param-required-operator-1"' + requiredDisabled + '>' +
                                 '<option value="">Operator</option>' +
                                 selectOptionsHtml(['>', '<', '>=', '<='], p.required_value_operator_1) +
                             '</select>' +
-                            '<input type="text" class="param-required-value-1" value="' + escapeHtml(p.required_value_value_1) + '" placeholder="Value 1">' +
+                            '<input type="text" class="param-required-value-1" value="' + escapeHtml(p.required_value_value_1) + '" placeholder="Value 1"' + unitReadonly + '>' +
                         '</div>' +
                         '<div class="csc-param-required-row">' +
-                            '<select class="param-required-operator-2">' +
+                            '<select class="param-required-operator-2"' + requiredDisabled + '>' +
                                 '<option value="">Operator</option>' +
                                 selectOptionsHtml(['>', '<', '>=', '<='], p.required_value_operator_2) +
                             '</select>' +
-                            '<input type="text" class="param-required-value-2" value="' + escapeHtml(p.required_value_value_2) + '" placeholder="Value 2">' +
+                            '<input type="text" class="param-required-value-2" value="' + escapeHtml(p.required_value_value_2) + '" placeholder="Value 2"' + unitReadonly + '>' +
                         '</div>' +
                     '</div>' +
                 '</div>' +
             '</td>' +
-            '<td><textarea class="param-conditions" placeholder="Enter parameter conditions">' + escapeHtml(p.parameter_conditions) + '</textarea></td>' +
-            '<td><select class="param-procedure-type"><option value="">Select</option>' + selectOptionsHtml(testProcedureOptions, p.test_procedure_type) + '</select></td>' +
-            '<td><textarea class="param-procedure-text" placeholder="Enter standard number / text">' + escapeHtml(p.test_procedure_text) + '</textarea></td>' +
-            '<td style="text-align: center;"><button type="button" class="btn btn-sm btn-danger deleteParamBtn" data-idx="' + idx + '"><i class="bi bi-trash"></i></button></td>' +
+            '<td><textarea class="param-conditions" placeholder="Enter parameter conditions"' + conditionsReadonly + '>' + escapeHtml(p.parameter_conditions) + '</textarea></td>' +
+            '<td><select class="param-procedure-type"' + procedureDisabled + '><option value="">Select</option>' + selectOptionsHtml(testProcedureOptions, p.test_procedure_type) + '</select></td>' +
+            '<td><textarea class="param-procedure-text" placeholder="Enter standard number / text"' + procedureTextReadonly + '>' + escapeHtml(p.test_procedure_text) + '</textarea></td>' +
+            '<td style="text-align: center;">' + deleteCell + '</td>' +
             '</tr>';
     }
 
@@ -3019,15 +3150,15 @@
         if (!tbody) return;
         tbody.innerHTML = parametersData.map(function(p, idx) {
             var normalized = normalizeParameterRowData(p);
-            return '<tr data-param-id="' + p.id + '">' +
+            return '<tr data-param-id="' + p.id + '" data-param-type="' + escapeHtml(normalized.parameter_type || 'Desirable') + '">' +
                 '<td class="csc-param-readonly">' + escapeHtml(normalized.parameter_name || '—') + '</td>' +
                 '<td class="csc-param-readonly">' + escapeHtml(normalized.parameter_type || '—') + '</td>' +
                 '<td class="csc-param-readonly">' + escapeHtml(normalized.unit_of_measure || '—') + '</td>' +
                 '<td class="csc-param-readonly">' + escapeHtml(normalized.specification || '—') + '</td>' +
                 '<td class="csc-param-readonly">' + escapeHtml(normalized.parameter_conditions || '—') + '</td>' +
                 '<td class="csc-param-readonly">' + escapeHtml((normalized.test_procedure_type ? normalized.test_procedure_type + (normalized.test_procedure_text ? ' - ' + normalized.test_procedure_text : '') : '—')) + '</td>' +
-                '<td><textarea class="param-proposed" placeholder="Proposed value">' + escapeHtml(normalized.proposed_value || '') + '</textarea></td>' +
-                '<td style="text-align: center;"><input type="checkbox" class="param-approved" ' + (p.approved ? 'checked' : '') + '></td>' +
+                '<td><textarea class="param-proposed" placeholder="Proposed value"' + (parameterOtherEditable ? '' : ' readonly') + '>' + escapeHtml(normalized.proposed_value || '') + '</textarea></td>' +
+                '<td style="text-align: center;"><input type="checkbox" class="param-approved" ' + (p.approved ? 'checked' : '') + (parameterOtherEditable ? '' : ' disabled') + '></td>' +
                 '</tr>';
         }).join('');
 
@@ -3042,7 +3173,7 @@
         var tr = document.createElement('tr');
         tr.innerHTML = renderParameterPhase1Row({
             parameter_name: '',
-            parameter_type: 'Essential',
+            parameter_type: 'Desirable',
             unit_of_measure: '',
             required_value_type: 'text',
             required_value_text: '',
@@ -3059,7 +3190,12 @@
         updateChangesChecklist();
     });
 
-    document.querySelector('[data-save-section="parameters"]').addEventListener('click', function() {
+    if (!parameterOtherEditable) {
+        var addParamBtn = document.getElementById('addParamBtn');
+        if (addParamBtn) addParamBtn.style.display = 'none';
+    }
+
+    document.querySelector('[data-save-section="parameters"]')?.addEventListener('click', function() {
         var params = [];
         document.querySelectorAll('#paramBodyPhase1 tr, #paramBodyPhase2 tr').forEach(function(row) {
             var paramId = row.getAttribute('data-param-id') || null;
@@ -3073,7 +3209,8 @@
                 // Phase 1
                 params.push({
                     parameter_name: row.querySelector('.param-name')?.value || '',
-                    parameter_type: row.querySelector('.param-type')?.value || 'Essential',
+                    parameter_id: paramId,
+                    parameter_type: row.querySelector('.param-type')?.value || (row.getAttribute('data-param-type') || 'Desirable'),
                     unit_of_measure: row.querySelector('.param-unit')?.value || '',
                     required_value_type: row.querySelector('.param-required-type')?.value || 'text',
                     required_value_text: row.querySelector('.param-required-text')?.value || '',
@@ -3172,7 +3309,7 @@
         updateChangesChecklist();
     });
 
-    document.querySelector('[data-save-section="impact"]').addEventListener('click', function() {
+    document.querySelector('[data-save-section="impact"]')?.addEventListener('click', function() {
         syncImpactChemicalName();
 
         fetch('/csc/api/draft/' + draftId + '/impact', {

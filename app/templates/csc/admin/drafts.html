@@ -23,7 +23,9 @@
   color: var(--text);
 }
 .csc-filter-select,
-.csc-filter-input {
+.csc-filter-input,
+.csc-workflow-input,
+.csc-workflow-select {
   padding: 0.5rem 0.75rem;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm, 6px);
@@ -119,6 +121,191 @@
   display: block;
   margin-bottom: 0.75rem;
 }
+.csc-workflow-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background: rgba(15, 23, 42, 0.55);
+  padding: 1.25rem;
+  overflow-y: auto;
+}
+.csc-workflow-modal.active {
+  display: block;
+}
+.csc-workflow-shell {
+  width: min(1180px, calc(100vw - 2.5rem));
+  margin: 0 auto;
+  background: var(--surface);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  max-height: calc(100vh - 2.5rem);
+  display: flex;
+  flex-direction: column;
+}
+.csc-workflow-header,
+.csc-workflow-footer {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+.csc-workflow-footer {
+  border-bottom: none;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.csc-workflow-body {
+  padding: 1.25rem;
+  overflow-y: auto;
+}
+.csc-workflow-header-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+.csc-workflow-close {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  cursor: pointer;
+}
+.csc-workflow-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.95fr) minmax(420px, 1.2fr);
+  gap: 1rem;
+}
+.csc-workflow-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  background: var(--surface);
+}
+.csc-workflow-panel h3 {
+  margin-top: 0;
+}
+.csc-workflow-note {
+  margin: 0 0 1rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.csc-workflow-scope-list,
+.csc-workflow-spec-list {
+  display: grid;
+  gap: 0.75rem;
+}
+.csc-workflow-check {
+  display: flex;
+  gap: 0.65rem;
+  align-items: flex-start;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+}
+.csc-workflow-check input {
+  margin-top: 0.15rem;
+}
+.csc-workflow-check strong {
+  display: block;
+  margin-bottom: 0.2rem;
+}
+.csc-workflow-check p,
+.csc-workflow-subnote {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+.csc-workflow-subgroup {
+  margin-left: 2rem;
+  display: grid;
+  gap: 0.6rem;
+}
+.csc-workflow-subgroup.is-disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+.csc-workflow-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  margin-bottom: 0.9rem;
+  flex-wrap: wrap;
+}
+.csc-workflow-group {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.csc-workflow-group-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.8rem 0.9rem;
+  background: color-mix(in srgb, var(--background) 65%, transparent);
+  border-bottom: 1px solid var(--border);
+}
+.csc-workflow-group-title {
+  font-weight: 700;
+}
+.csc-workflow-group-meta {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.csc-workflow-spec {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  padding: 0.8rem 0.9rem;
+  border-top: 1px solid var(--border);
+}
+.csc-workflow-spec:first-child {
+  border-top: none;
+}
+.csc-workflow-spec strong {
+  display: block;
+}
+.csc-workflow-spec small {
+  display: block;
+  color: var(--muted);
+}
+.csc-workflow-empty {
+  margin: 0;
+  color: var(--muted);
+}
+.csc-workflow-footer-note {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+.csc-workflow-count {
+  font-weight: 700;
+}
+@media (max-width: 960px) {
+  .csc-workflow-grid {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 640px) {
+  .csc-workflow-modal {
+    padding: 0.75rem;
+  }
+  .csc-workflow-shell {
+    width: calc(100vw - 1.5rem);
+    max-height: calc(100vh - 1.5rem);
+  }
+  .csc-workflow-header,
+  .csc-workflow-body,
+  .csc-workflow-footer {
+    padding: 0.9rem;
+  }
+}
 </style>
 {% endblock %}
 
@@ -128,12 +315,22 @@
     <div>
       <div class="page-kicker"><a href="{{ url_for('csc.admin_index') }}">Material Master Admin</a></div>
       <h1 class="inv-module-title"><i class="bi bi-list-task"></i> Manage Drafts</h1>
-      <p class="inv-module-subtitle">Open drafting for published materials and route open drafts into workflow editing</p>
+      <p class="inv-module-subtitle">Create admin self drafts for workflow edits and manage published material master records</p>
+    </div>
+    <div class="inv-header-actions">
+      <button
+        type="button"
+        class="btn btn-primary"
+        id="openWorkflowPlanner"
+        {% if not workflow_create_groups %}disabled{% endif %}
+      >
+        <i class="bi bi-ui-checks-grid"></i> Create Workflow
+      </button>
     </div>
   </div>
 
   <div class="alert alert-info">
-    `Open Drafting` creates the working copy used by subcommittee users. `Material Master Data` only edits the non-workflow fields that are not managed from Material Properties, Storage and Handling, or Impact.
+    Workflow creation now starts with a scope prompt. Select which tabs are open for revision, choose parameter scope for <strong>Type</strong> and <strong>Other than Type</strong>, then select specs grouped by subset. Committee submissions stay read-only in the Committee Workbench.
   </div>
 
   {% with messages = get_flashed_messages(with_categories=true) %}
@@ -217,14 +414,27 @@
               <td>v{{ draft.version if draft.version is not none else '0' }}</td>
               <td>{{ row.submitted_at | datetime_ist('%d %b %Y, %H:%M') if row.submitted_at else '—' }}</td>
               <td class="csc-actions">
-                {% if revision %}
-                <a href="{{ url_for('csc.editor', draft_id=row.workflow_draft.id) }}" class="csc-action-link">
-                  <i class="bi bi-box-arrow-up-right"></i> Workflow
+                {% if revision and revision.child_draft and revision.child_draft.is_admin_draft and revision.child_draft.created_by_id == current_user.id and revision.status in ['open', 'returned'] %}
+                <a href="{{ url_for('csc.editor', draft_id=revision.child_draft.id) }}" class="csc-action-link">
+                  <i class="bi bi-box-arrow-up-right"></i> Open My Draft
+                </a>
+                {% elif not revision %}
+                <button
+                  type="button"
+                  class="csc-action-btn csc-action-btn-primary csc-configure-workflow"
+                  data-parent-id="{{ draft.id }}"
+                  data-spec-number="{{ draft.spec_number }}"
+                >
+                  <i class="bi bi-ui-checks-grid"></i> Configure Workflow
+                </button>
+                {% elif revision.status == 'submitted' %}
+                <a href="{{ url_for('csc.admin_revisions') }}" class="csc-action-link">
+                  <i class="bi bi-clipboard-check"></i> Review in Workbench
                 </a>
                 {% else %}
-                <button type="button" class="csc-action-btn csc-action-btn-primary csc-open-drafting" data-parent-id="{{ draft.id }}">
-                  <i class="bi bi-pencil-square"></i> Open Drafting
-                </button>
+                <span class="csc-action-link" style="cursor: default; color: var(--muted);">
+                  <i class="bi bi-lock"></i> Committee Draft Active
+                </span>
                 {% endif %}
                 <a href="{{ url_for('csc.admin_edit_draft', draft_id=draft.id) }}" class="csc-action-link">
                   <i class="bi bi-pencil"></i> Material Master Data
@@ -244,6 +454,143 @@
     </div>
   </div>
 </div>
+
+<div id="workflowPlannerModal" class="csc-workflow-modal" aria-hidden="true">
+  <div class="csc-workflow-shell" role="dialog" aria-modal="true" aria-labelledby="workflowPlannerTitle">
+    <div class="csc-workflow-header">
+      <div class="csc-workflow-header-top">
+        <div>
+          <h2 id="workflowPlannerTitle">Create Workflow Drafts</h2>
+          <p class="csc-workflow-note">
+            Choose the revision tabs first. <strong>Parameters &amp; Impact</strong> opens the Impact tab, while the parameter sub-options decide whether <strong>Type</strong> and/or <strong>Other than Type</strong> can be revised.
+          </p>
+        </div>
+        <button type="button" class="csc-workflow-close" id="closeWorkflowPlanner" aria-label="Close workflow planner">
+          <i class="bi bi-x-lg"></i>
+        </button>
+      </div>
+    </div>
+
+    <div class="csc-workflow-body">
+      <div class="csc-workflow-grid">
+        <div class="csc-workflow-panel">
+          <h3>Open Draft For Revision In</h3>
+          <div class="csc-workflow-scope-list">
+            <label class="csc-workflow-check">
+              <input type="checkbox" id="scopeMaterialProperties" checked>
+              <span>
+                <strong>Material Properties</strong>
+                <p>Workbook-driven classification values and density logic.</p>
+              </span>
+            </label>
+            <label class="csc-workflow-check">
+              <input type="checkbox" id="scopeStorageHandling" checked>
+              <span>
+                <strong>Storage and Handling</strong>
+                <p>Packing, storage conditions, and primary storage classification.</p>
+              </span>
+            </label>
+            <label class="csc-workflow-check">
+              <input type="checkbox" id="scopeParametersImpact" checked>
+              <span>
+                <strong>Parameters &amp; Impact</strong>
+                <p>Impact stays available whenever this option is enabled.</p>
+              </span>
+            </label>
+            <div id="parameterScopeGroup" class="csc-workflow-subgroup">
+              <label class="csc-workflow-check">
+                <input type="checkbox" id="scopeParameterType" checked>
+                <span>
+                  <strong>Type</strong>
+                  <p>Revise the parameter type list value only.</p>
+                </span>
+              </label>
+              <label class="csc-workflow-check">
+                <input type="checkbox" id="scopeParameterOther" checked>
+                <span>
+                  <strong>Other than Type</strong>
+                  <p>Revise parameter structure, values, conditions, and methods.</p>
+                </span>
+              </label>
+              <p class="csc-workflow-subnote">If both parameter sub-options are cleared, the workflow will open <strong>Impact</strong> only.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="csc-workflow-panel">
+          <div class="csc-workflow-toolbar">
+            <div>
+              <h3 style="margin-bottom: 0.2rem;">Select Specifications</h3>
+              <p class="csc-workflow-note">Specifications are grouped by subset. Use select-all for each subset or keep the default one-click selection.</p>
+            </div>
+            <label class="csc-workflow-check" style="margin: 0; padding: 0.55rem 0.8rem;">
+              <input type="checkbox" id="selectAllWorkflowSpecs">
+              <span>
+                <strong>Select All Available</strong>
+                <p>Default selection for one-click workflow creation.</p>
+              </span>
+            </label>
+          </div>
+
+          {% if workflow_create_groups %}
+          <div class="csc-workflow-spec-list">
+            {% for group in workflow_create_groups %}
+            <section class="csc-workflow-group" data-subset-group="{{ group.subset_code }}">
+              <div class="csc-workflow-group-head">
+                <div>
+                  <div class="csc-workflow-group-title">{{ group.subset_display }}</div>
+                  <div class="csc-workflow-group-meta">{{ group.rows|length }} available specification(s)</div>
+                </div>
+                <label class="csc-workflow-check" style="margin: 0; padding: 0.45rem 0.7rem;">
+                  <input type="checkbox" class="subset-select-all" data-subset-code="{{ group.subset_code }}">
+                  <span>
+                    <strong>Select All</strong>
+                    <p>Subset</p>
+                  </span>
+                </label>
+              </div>
+              {% for spec in group.rows %}
+              <label class="csc-workflow-spec">
+                <input
+                  type="checkbox"
+                  class="workflow-spec-checkbox"
+                  value="{{ spec.parent_id }}"
+                  data-subset-code="{{ group.subset_code }}"
+                >
+                <span>
+                  <strong>{{ spec.spec_number }}</strong>
+                  <small>{{ spec.chemical_name }}{% if spec.material_code %} • Material {{ spec.material_code }}{% endif %}</small>
+                </span>
+              </label>
+              {% endfor %}
+            </section>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="csc-workflow-empty">All specifications already have an active workflow draft. Review or close those drafts before opening new workflow revisions.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="csc-workflow-footer">
+      <div class="csc-workflow-footer-note">
+        <span class="csc-workflow-count" id="selectedWorkflowCount">0</span> specification(s) selected.
+      </div>
+      <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+        <button type="button" class="btn btn-secondary" id="cancelWorkflowPlanner">Cancel</button>
+        <button
+          type="button"
+          class="btn btn-primary"
+          id="createWorkflowDrafts"
+          {% if not workflow_create_groups %}disabled{% endif %}
+        >
+          Create Workflow Drafts
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts_extra %}
@@ -256,6 +603,20 @@
   const statusFilter = document.getElementById('filterStatus');
   const subsetFilter = document.getElementById('filterSubset');
   const searchFilter = document.getElementById('filterSearch');
+  const workflowModal = document.getElementById('workflowPlannerModal');
+  const workflowCount = document.getElementById('selectedWorkflowCount');
+  const createWorkflowButton = document.getElementById('createWorkflowDrafts');
+  const openWorkflowPlanner = document.getElementById('openWorkflowPlanner');
+  const selectAllWorkflowSpecs = document.getElementById('selectAllWorkflowSpecs');
+  const subsetSelectAllBoxes = Array.from(document.querySelectorAll('.subset-select-all'));
+  const workflowSpecBoxes = Array.from(document.querySelectorAll('.workflow-spec-checkbox'));
+  const scopeMaterialProperties = document.getElementById('scopeMaterialProperties');
+  const scopeStorageHandling = document.getElementById('scopeStorageHandling');
+  const scopeParametersImpact = document.getElementById('scopeParametersImpact');
+  const scopeParameterType = document.getElementById('scopeParameterType');
+  const scopeParameterOther = document.getElementById('scopeParameterOther');
+  const parameterScopeGroup = document.getElementById('parameterScopeGroup');
+  let singleSelectionId = null;
 
   function renumberVisibleRows() {
     let serial = 1;
@@ -280,36 +641,173 @@
     renumberVisibleRows();
   }
 
+  function resetWorkflowScope() {
+    if (scopeMaterialProperties) scopeMaterialProperties.checked = true;
+    if (scopeStorageHandling) scopeStorageHandling.checked = true;
+    if (scopeParametersImpact) scopeParametersImpact.checked = true;
+    if (scopeParameterType) scopeParameterType.checked = true;
+    if (scopeParameterOther) scopeParameterOther.checked = true;
+    syncParameterScopeState();
+  }
+
+  function syncSubsetSelectAllState() {
+    subsetSelectAllBoxes.forEach(box => {
+      const subsetCode = box.dataset.subsetCode;
+      const subsetBoxes = workflowSpecBoxes.filter(input => input.dataset.subsetCode === subsetCode);
+      box.checked = subsetBoxes.length > 0 && subsetBoxes.every(input => input.checked);
+      box.indeterminate = subsetBoxes.some(input => input.checked) && !box.checked;
+    });
+  }
+
+  function syncWorkflowCount() {
+    const selected = workflowSpecBoxes.filter(input => input.checked).length;
+    if (workflowCount) {
+      workflowCount.textContent = String(selected);
+    }
+    if (createWorkflowButton) {
+      createWorkflowButton.disabled = selected === 0;
+      createWorkflowButton.textContent = selected > 1 ? `Create ${selected} Workflow Drafts` : 'Create Workflow Drafts';
+    }
+    if (selectAllWorkflowSpecs) {
+      selectAllWorkflowSpecs.checked = workflowSpecBoxes.length > 0 && workflowSpecBoxes.every(input => input.checked);
+      selectAllWorkflowSpecs.indeterminate = workflowSpecBoxes.some(input => input.checked) && !selectAllWorkflowSpecs.checked;
+    }
+    syncSubsetSelectAllState();
+  }
+
+  function syncParameterScopeState() {
+    const enabled = !!scopeParametersImpact?.checked;
+    if (parameterScopeGroup) {
+      parameterScopeGroup.classList.toggle('is-disabled', !enabled);
+    }
+    if (!enabled) {
+      scopeParameterType.checked = false;
+      scopeParameterOther.checked = false;
+    } else if (!scopeParameterType.checked && !scopeParameterOther.checked && singleSelectionId === null) {
+      scopeParameterType.checked = true;
+      scopeParameterOther.checked = true;
+    }
+  }
+
+  function openWorkflowModal(parentId) {
+    singleSelectionId = parentId || null;
+    resetWorkflowScope();
+    workflowSpecBoxes.forEach(input => {
+      input.checked = singleSelectionId ? input.value === String(singleSelectionId) : true;
+    });
+    syncWorkflowCount();
+    workflowModal.classList.add('active');
+    workflowModal.setAttribute('aria-hidden', 'false');
+  }
+
+  function closeWorkflowModal() {
+    workflowModal.classList.remove('active');
+    workflowModal.setAttribute('aria-hidden', 'true');
+    singleSelectionId = null;
+  }
+
+  function currentWorkflowScope() {
+    return {
+      material_properties: !!scopeMaterialProperties?.checked,
+      storage_handling: !!scopeStorageHandling?.checked,
+      parameters_impact: !!scopeParametersImpact?.checked,
+      parameter_type: !!scopeParameterType?.checked,
+      parameter_other: !!scopeParameterOther?.checked
+    };
+  }
+
   statusFilter?.addEventListener('change', applyFilters);
   subsetFilter?.addEventListener('change', applyFilters);
   searchFilter?.addEventListener('input', applyFilters);
   renumberVisibleRows();
 
-  document.querySelectorAll('.csc-open-drafting').forEach(button => {
+  openWorkflowPlanner?.addEventListener('click', function() {
+    openWorkflowModal(null);
+  });
+
+  document.querySelectorAll('.csc-configure-workflow').forEach(button => {
     button.addEventListener('click', function() {
-      const parentId = this.dataset.parentId;
-      this.disabled = true;
-      fetch(`/csc/workspace/new-revision/${parentId}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRFToken': csrfToken
-        },
-        body: JSON.stringify({})
-      })
-      .then(r => r.json().then(data => ({ ok: r.ok, data })))
-      .then(({ ok, data }) => {
-        if (!ok || !data.success) {
-          throw new Error(data.error || 'Failed to open drafting');
-        }
-        window.location.href = data.redirect;
-      })
-      .catch(error => {
-        this.disabled = false;
-        alert(error.message);
-      });
+      openWorkflowModal(this.dataset.parentId);
     });
   });
+
+  document.getElementById('closeWorkflowPlanner')?.addEventListener('click', closeWorkflowModal);
+  document.getElementById('cancelWorkflowPlanner')?.addEventListener('click', closeWorkflowModal);
+  workflowModal?.addEventListener('click', function(event) {
+    if (event.target === workflowModal) {
+      closeWorkflowModal();
+    }
+  });
+
+  selectAllWorkflowSpecs?.addEventListener('change', function() {
+    workflowSpecBoxes.forEach(input => {
+      input.checked = this.checked;
+    });
+    syncWorkflowCount();
+  });
+
+  subsetSelectAllBoxes.forEach(box => {
+    box.addEventListener('change', function() {
+      const subsetCode = this.dataset.subsetCode;
+      workflowSpecBoxes.forEach(input => {
+        if (input.dataset.subsetCode === subsetCode) {
+          input.checked = this.checked;
+        }
+      });
+      syncWorkflowCount();
+    });
+  });
+
+  workflowSpecBoxes.forEach(input => {
+    input.addEventListener('change', syncWorkflowCount);
+  });
+
+  scopeParametersImpact?.addEventListener('change', syncParameterScopeState);
+  scopeParameterType?.addEventListener('change', syncWorkflowCount);
+  scopeParameterOther?.addEventListener('change', syncWorkflowCount);
+
+  createWorkflowButton?.addEventListener('click', function() {
+    const parentIds = workflowSpecBoxes.filter(input => input.checked).map(input => Number(input.value));
+    const workflowScope = currentWorkflowScope();
+    if (!parentIds.length) {
+      alert('Select at least one specification to open for revision.');
+      return;
+    }
+    if (!workflowScope.material_properties && !workflowScope.storage_handling && !workflowScope.parameters_impact) {
+      alert('Select at least one revision tab before creating the workflow.');
+      return;
+    }
+
+    createWorkflowButton.disabled = true;
+    fetch('/csc/admin/drafts/open-self-drafts', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrfToken
+      },
+      body: JSON.stringify({
+        parent_ids: parentIds,
+        workflow_scope: workflowScope
+      })
+    })
+    .then(response => response.json().then(data => ({ ok: response.ok, data })))
+    .then(({ ok, data }) => {
+      if (!ok || !data.success) {
+        throw new Error(data.error || 'Failed to create workflow drafts');
+      }
+      if (Array.isArray(data.conflicts) && data.conflicts.length) {
+        alert([data.message || 'Workflow drafts opened.', '', 'Skipped:', ...data.conflicts].join('\n'));
+      }
+      window.location.href = data.redirect;
+    })
+    .catch(error => {
+      createWorkflowButton.disabled = false;
+      alert(error.message);
+    });
+  });
+
+  syncParameterScopeState();
+  syncWorkflowCount();
 })();
 </script>
 {% endblock %}

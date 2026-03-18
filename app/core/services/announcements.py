@@ -11,7 +11,7 @@ from flask import url_for
 from sqlalchemy import or_
 
 from app.core.roles import SUPERUSER_ROLE, canonicalize_role_name
-from app.core.services.notifications import create_notification
+from app.core.services.notifications import create_notification, invalidate_notification_cache
 from app.extensions import db
 from app.models.core.announcement import (
     ANNOUNCEMENT_STATUSES,
@@ -21,6 +21,7 @@ from app.models.core.announcement import (
     AnnouncementRecipient,
     AnnouncementVote,
 )
+from app.models.core.notification import Notification
 from app.models.core.user import User
 
 
@@ -43,6 +44,22 @@ def _is_active_for_delivery(announcement: Announcement) -> bool:
     if announcement.closed_at:
         return False
     return True
+
+
+def get_active_published_announcements() -> list[Announcement]:
+    """Return broadcasts that are still live for users right now."""
+    now = _now_utc()
+    return (
+        Announcement.query
+        .filter(
+            Announcement.status == "PUBLISHED",
+            Announcement.closed_at.is_(None),
+            or_(Announcement.published_at.is_(None), Announcement.published_at <= now),
+            or_(Announcement.expires_at.is_(None), Announcement.expires_at >= now),
+        )
+        .order_by(Announcement.published_at.desc(), Announcement.created_at.desc())
+        .all()
+    )
 
 
 def get_target_announcement_users() -> list[User]:
@@ -157,6 +174,74 @@ def close_announcement(announcement: Announcement) -> None:
     announcement.status = "CLOSED"
     announcement.closed_at = _now_utc()
     db.session.flush()
+
+
+def delete_active_announcements() -> dict[str, int | list[int]]:
+    """Delete all ongoing broadcasts and their related in-app notifications."""
+    active_announcements = get_active_published_announcements()
+    if not active_announcements:
+        return {
+            "announcements": 0,
+            "recipients": 0,
+            "votes": 0,
+            "options": 0,
+            "notifications": 0,
+            "announcement_ids": [],
+        }
+
+    announcement_ids = [announcement.id for announcement in active_announcements]
+    detail_links = [
+        url_for("notifications.announcement_detail", announcement_id=announcement_id)
+        for announcement_id in announcement_ids
+    ]
+    affected_user_ids = [
+        user_id
+        for (user_id,) in (
+            db.session.query(Notification.user_id)
+            .filter(Notification.link.in_(detail_links))
+            .distinct()
+            .all()
+        )
+    ]
+
+    deleted_notifications = (
+        Notification.query
+        .filter(Notification.link.in_(detail_links))
+        .delete(synchronize_session=False)
+    )
+    deleted_votes = (
+        AnnouncementVote.query
+        .filter(AnnouncementVote.announcement_id.in_(announcement_ids))
+        .delete(synchronize_session=False)
+    )
+    deleted_recipients = (
+        AnnouncementRecipient.query
+        .filter(AnnouncementRecipient.announcement_id.in_(announcement_ids))
+        .delete(synchronize_session=False)
+    )
+    deleted_options = (
+        AnnouncementOption.query
+        .filter(AnnouncementOption.announcement_id.in_(announcement_ids))
+        .delete(synchronize_session=False)
+    )
+    deleted_announcements = (
+        Announcement.query
+        .filter(Announcement.id.in_(announcement_ids))
+        .delete(synchronize_session=False)
+    )
+    db.session.flush()
+
+    for user_id in affected_user_ids:
+        invalidate_notification_cache(user_id)
+
+    return {
+        "announcements": deleted_announcements,
+        "recipients": deleted_recipients,
+        "votes": deleted_votes,
+        "options": deleted_options,
+        "notifications": deleted_notifications,
+        "announcement_ids": announcement_ids,
+    }
 
 
 def get_announcement_for_user(announcement_id: int, user_id: int, include_superuser: bool = False):

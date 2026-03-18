@@ -18,7 +18,7 @@ class CSCParameter(db.Model):
         nullable=False,
     )
     parameter_name = db.Column(db.Text, nullable=False)
-    parameter_type = db.Column(db.String(50), nullable=False, default="Essential")
+    parameter_type = db.Column(db.String(50), nullable=False, default="Desirable")
     unit_of_measure = db.Column(db.String(100), nullable=True)
     existing_value = db.Column(db.Text, nullable=True)
     proposed_value = db.Column(db.Text, nullable=True)

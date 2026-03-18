@@ -3,6 +3,65 @@
 
 {% block head_extra %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+<style nonce="{{ csp_nonce() }}">
+  .backup-grid {
+    align-items: start;
+  }
+
+  .backup-copy {
+    margin-bottom: 1rem;
+  }
+
+  .backup-flow {
+    margin: 0 0 1rem;
+    padding-left: 1.25rem;
+    color: var(--text-secondary, #475569);
+  }
+
+  .backup-flow li + li {
+    margin-top: 0.45rem;
+  }
+
+  .backup-meta {
+    display: grid;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+
+  .backup-meta-card {
+    border: 1px solid rgba(148, 163, 184, 0.24);
+    border-radius: 12px;
+    padding: 0.9rem 1rem;
+    background: rgba(248, 250, 252, 0.72);
+  }
+
+  .backup-meta-label {
+    display: block;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted, #64748b);
+    margin-bottom: 0.35rem;
+  }
+
+  .backup-meta-value {
+    margin: 0;
+    font-size: 0.96rem;
+    word-break: break-word;
+  }
+
+  .backup-confirm-grid {
+    display: grid;
+    gap: 1rem;
+    margin-top: 1rem;
+  }
+
+  .backup-history-stack {
+    display: grid;
+    gap: 1.5rem;
+  }
+</style>
 {% endblock %}
 
 {% block content %}
@@ -20,15 +79,33 @@
   <div class="backup-grid">
     <section class="card">
       <div class="card-body">
-        <h2 class="backup-section-title">Export Backup</h2>
+        <h2 class="backup-section-title">Download Current Backup</h2>
         <p class="backup-copy">
           Generate a fresh MySQL dump for the current <strong>{{ environment_name }}</strong> environment.
-          The file is streamed immediately as <code>.sql.gz</code> and is not retained on the web server.
+          The backup file is streamed to your browser as <code>.sql.gz</code> and is not retained on the web server after download.
         </p>
+        <div class="backup-meta">
+          <div class="backup-meta-card">
+            <span class="backup-meta-label">Current Environment</span>
+            <p class="backup-meta-value"><strong>{{ environment_name }}</strong></p>
+          </div>
+          <div class="backup-meta-card">
+            <span class="backup-meta-label">Expected Filename</span>
+            <p class="backup-meta-value"><code>{{ next_backup_filename }}</code></p>
+          </div>
+        </div>
+        <ol class="backup-flow">
+          <li>Click download to create a fresh export of the live database.</li>
+          <li>Wait for the browser download to complete and store the file in a safe location.</li>
+          <li>Use that file for rollback if a later ingest goes wrong.</li>
+        </ol>
         <form method="POST" action="{{ url_for('admin.export_backup') }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button type="submit" class="btn btn-primary">Download Backup</button>
+          <button type="submit" class="btn btn-primary">Download Current Database Backup</button>
         </form>
+        <div class="backup-note backup-note-warning">
+          <strong>Important:</strong> this app records that a download was triggered, but the actual SQL file is only saved wherever the admin downloads it.
+        </div>
         <div class="backup-note backup-note-warning">
           <strong>Runtime requirement:</strong> the deployment environment must include
           <code>mysqldump</code>. On Railway this usually means adding a MySQL client package
@@ -39,65 +116,254 @@
 
     <section class="card">
       <div class="card-body">
-        <h2 class="backup-section-title">Restore Procedure</h2>
+        <h2 class="backup-section-title">Ingest Backup Into Current Database</h2>
         <p class="backup-copy">
-          Restore remains terminal-only by design. There is no web restore button yet because
-          full database restores are destructive and not fully rollback-safe.
+          Upload a <code>.sql</code> or <code>.sql.gz</code> file and restore it into the current <strong>{{ environment_name }}</strong> database.
+          <span class="text-danger" style="font-weight: 700;">This replaces the current data.</span>
         </p>
-        <div class="backup-command-block">
-          <code>python -m flask validate-backup --file path/to/backup.sql.gz</code>
-        </div>
-        <div class="backup-command-block">
-          <code>python -m flask restore-db --file path/to/backup.sql.gz --confirm-restore</code>
-        </div>
-        <div class="backup-note">
-          If a restore fails midway, MySQL may already have applied part of the dump. Take a fresh backup before restoring.
-        </div>
+        <ol class="backup-flow">
+          <li>Download a fresh backup of the current environment before starting.</li>
+          <li>Select the SQL backup file you intend to ingest.</li>
+          <li>Confirm the environment and type the restore phrase before execution is enabled.</li>
+        </ol>
+
+        <form id="restoreForm" method="POST" action="{{ url_for('admin.import_backup') }}" enctype="multipart/form-data" class="backup-restore-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+          <div class="form-group" style="margin-bottom: 1rem;">
+            <label class="form-label" for="backup_file">Select SQL Backup File</label>
+            <input type="file" id="backup_file" name="backup_file" class="form-control" accept=".sql,.sql.gz" required>
+            <div class="form-hint">Accepted formats: .sql, .sql.gz. The uploaded file is validated before restore begins.</div>
+          </div>
+
+          <div class="backup-meta-card" style="margin-bottom: 1rem;">
+            <span class="backup-meta-label">Restore Target</span>
+            <p class="backup-meta-value">Current environment: <strong>{{ environment_name }}</strong></p>
+            <p class="backup-meta-value" style="margin-top: 0.35rem;">Required confirmation phrase: <code>{{ restore_phrase }}</code></p>
+          </div>
+
+          <div id="restoreConfirmArea" style="display: none;">
+            <div class="backup-note backup-note-danger" style="margin-bottom: 1rem;">
+              <i class="bi bi-exclamation-triangle-fill"></i>
+              <strong>Destructive Action:</strong> This will overwrite the live database for <strong>{{ environment_name }}</strong> with the contents of the uploaded file. This cannot be undone from the browser.
+            </div>
+
+            <div class="backup-confirm-grid">
+              <div class="backup-meta-card">
+                <span class="backup-meta-label">Selected File</span>
+                <p id="selectedBackupFile" class="backup-meta-value">No file selected.</p>
+              </div>
+
+              <div class="form-group-checkbox">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="confirmDownloadedBackup" name="ack_downloaded_backup" required>
+                  <span>I downloaded a fresh backup of the current database and stored it outside the server.</span>
+                </label>
+              </div>
+
+              <div class="form-group-checkbox">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="confirmDestructiveRestore" name="ack_destructive_restore" required>
+                  <span>I understand this ingest will overwrite the current <strong>{{ environment_name }}</strong> database.</span>
+                </label>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="confirm_environment">Type the current environment name</label>
+                <input
+                  type="text"
+                  id="confirm_environment"
+                  name="confirm_environment"
+                  class="form-control"
+                  placeholder="{{ environment_name }}"
+                  autocomplete="off"
+                  required
+                >
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="confirm_phrase">Type the restore phrase</label>
+                <input
+                  type="text"
+                  id="confirm_phrase"
+                  name="confirm_phrase"
+                  class="form-control"
+                  placeholder="{{ restore_phrase }}"
+                  autocomplete="off"
+                  required
+                >
+              </div>
+            </div>
+
+            <button type="submit" id="finalRestoreBtn" class="btn btn-danger" disabled>
+              <i class="bi bi-cloud-upload"></i> Ingest Backup And Replace Current Database
+            </button>
+            <button type="button" id="cancelRestoreBtn" class="btn btn-secondary">Cancel</button>
+          </div>
+
+          <div id="restoreInitialArea">
+            <button type="button" id="startRestoreBtn" class="btn btn-warning">
+              <i class="bi bi-arrow-repeat"></i> Review Ingest Safeguards
+            </button>
+          </div>
+        </form>
+
+        <script nonce="{{ csp_nonce() }}">
+          document.addEventListener('DOMContentLoaded', function() {
+            const startBtn = document.getElementById('startRestoreBtn');
+            const cancelBtn = document.getElementById('cancelRestoreBtn');
+            const confirmArea = document.getElementById('restoreConfirmArea');
+            const initialArea = document.getElementById('restoreInitialArea');
+            const downloadedCheckbox = document.getElementById('confirmDownloadedBackup');
+            const destructiveCheckbox = document.getElementById('confirmDestructiveRestore');
+            const finalBtn = document.getElementById('finalRestoreBtn');
+            const fileInput = document.getElementById('backup_file');
+            const selectedFile = document.getElementById('selectedBackupFile');
+            const confirmEnvironment = document.getElementById('confirm_environment');
+            const confirmPhrase = document.getElementById('confirm_phrase');
+            const requiredEnvironment = {{ environment_name|tojson }};
+            const requiredPhrase = {{ restore_phrase|tojson }};
+
+            function updateRestoreState() {
+              const environmentMatches = confirmEnvironment.value.trim().toLowerCase() === requiredEnvironment.toLowerCase();
+              const phraseMatches = confirmPhrase.value.trim().toUpperCase() === requiredPhrase;
+              finalBtn.disabled = !(
+                downloadedCheckbox.checked &&
+                destructiveCheckbox.checked &&
+                environmentMatches &&
+                phraseMatches
+              );
+            }
+
+            startBtn.addEventListener('click', function() {
+              if (!fileInput.value) {
+                alert('Please select a backup file first.');
+                return;
+              }
+              selectedFile.textContent = fileInput.files.length ? fileInput.files[0].name : fileInput.value;
+              initialArea.style.display = 'none';
+              confirmArea.style.display = 'block';
+              updateRestoreState();
+            });
+
+            cancelBtn.addEventListener('click', function() {
+              confirmArea.style.display = 'none';
+              initialArea.style.display = 'block';
+              downloadedCheckbox.checked = false;
+              destructiveCheckbox.checked = false;
+              confirmEnvironment.value = '';
+              confirmPhrase.value = '';
+              selectedFile.textContent = 'No file selected.';
+              updateRestoreState();
+            });
+
+            fileInput.addEventListener('change', function() {
+              if (confirmArea.style.display === 'block') {
+                selectedFile.textContent = fileInput.files.length ? fileInput.files[0].name : 'No file selected.';
+              }
+            });
+
+            downloadedCheckbox.addEventListener('change', updateRestoreState);
+            destructiveCheckbox.addEventListener('change', updateRestoreState);
+            confirmEnvironment.addEventListener('input', updateRestoreState);
+            confirmPhrase.addEventListener('input', updateRestoreState);
+          });
+        </script>
       </div>
     </section>
   </div>
 
   <section class="card" style="margin-top: 1.5rem;">
     <div class="card-body">
-      <div class="backup-history-header">
+      <div class="backup-history-stack">
         <div>
-          <h2 class="backup-section-title" style="margin-bottom: 0.25rem;">Recent Export History</h2>
-          <p class="page-subtitle">Most recent admin-triggered exports recorded by the application.</p>
+          <div class="backup-history-header">
+            <div>
+              <h2 class="backup-section-title" style="margin-bottom: 0.25rem;">Recent Download History</h2>
+              <p class="page-subtitle">Most recent admin-triggered backup downloads recorded by the application.</p>
+            </div>
+          </div>
+
+          {% if not history_available %}
+          <div class="alert alert-warning" style="margin-bottom: 0;">
+            Backup history is temporarily unavailable. Apply the latest database migration to enable snapshot logging.
+          </div>
+          {% elif snapshots %}
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Filename</th>
+                  <th>Created By</th>
+                  <th>Created At</th>
+                  <th>Environment</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for snapshot in snapshots %}
+                <tr>
+                  <td><strong>{{ snapshot.filename }}</strong></td>
+                  <td>{{ snapshot.created_by_username }}</td>
+                  <td>{{ snapshot.created_at|datetime_ist('%d %b %Y %H:%M') }}</td>
+                  <td>{{ snapshot.environment or '—' }}</td>
+                  <td>{{ snapshot.notes or '—' }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% else %}
+          <p class="text-muted" style="margin: 0;">No backup downloads have been recorded yet.</p>
+          {% endif %}
+        </div>
+
+        <div>
+          <div class="backup-history-header">
+            <div>
+              <h2 class="backup-section-title" style="margin-bottom: 0.25rem;">Recent Backup Activity</h2>
+              <p class="page-subtitle">Recent backup exports and ingests from the audit trail.</p>
+            </div>
+          </div>
+
+          {% if not history_available %}
+          <div class="alert alert-warning" style="margin-bottom: 0;">
+            Backup activity is temporarily unavailable.
+          </div>
+          {% elif backup_events %}
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Action</th>
+                  <th>Item</th>
+                  <th>When</th>
+                  <th>Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for event in backup_events %}
+                <tr>
+                  <td>
+                    {% if event.action == "DATABASE_BACKUP_IMPORTED" %}
+                    <strong>Ingested</strong>
+                    {% else %}
+                    <strong>Downloaded</strong>
+                    {% endif %}
+                  </td>
+                  <td>{{ event.entity_id or '—' }}</td>
+                  <td>{{ event.created_at|datetime_ist('%d %b %Y %H:%M') }}</td>
+                  <td>{{ event.details or '—' }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% else %}
+          <p class="text-muted" style="margin: 0;">No backup activity has been recorded yet.</p>
+          {% endif %}
         </div>
       </div>
-
-      {% if not history_available %}
-      <div class="alert alert-warning" style="margin-bottom: 0;">
-        Backup history is temporarily unavailable. Apply the latest database migration to enable snapshot logging.
-      </div>
-      {% elif snapshots %}
-      <div class="table-responsive">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Filename</th>
-              <th>Created By</th>
-              <th>Created At</th>
-              <th>Environment</th>
-              <th>Notes</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for snapshot in snapshots %}
-            <tr>
-              <td><strong>{{ snapshot.filename }}</strong></td>
-              <td>{{ snapshot.created_by_username }}</td>
-              <td>{{ snapshot.created_at|datetime_ist('%d %b %Y %H:%M') }}</td>
-              <td>{{ snapshot.environment or '—' }}</td>
-              <td>{{ snapshot.notes or '—' }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      {% else %}
-      <p class="text-muted" style="margin: 0;">No backup exports have been recorded yet.</p>
-      {% endif %}
     </div>
   </section>
 </div>

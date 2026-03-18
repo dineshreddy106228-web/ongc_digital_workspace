@@ -129,11 +129,12 @@
                     <th class="text-right" data-sort="last_proc_value">Last Procurement Value <i class="bi bi-arrow-down-up inv-sort-icon"></i></th>
                     <th class="text-right" data-sort="plant_count">Plants <i class="bi bi-arrow-down-up inv-sort-icon"></i></th>
                     <th>Vendor(s)</th>
+                    <th>MSDS</th>
                 </tr>
             </thead>
             <tbody id="materialsBody">
                 <tr>
-                    <td colspan="10">
+                    <td colspan="12">
                         <div class="inv-loading"><i class="bi bi-arrow-repeat inv-spin"></i> Loading materials…</div>
                     </td>
                 </tr>
@@ -458,7 +459,7 @@
     var countEl = document.getElementById('materialCount');
 
     function renderTableLoading(message) {
-        tbody.innerHTML = '<tr><td colspan="10"><div class="inv-loading"><i class="bi bi-arrow-repeat inv-spin"></i> ' + esc(message) + '</div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="12"><div class="inv-loading"><i class="bi bi-arrow-repeat inv-spin"></i> ' + esc(message) + '</div></td></tr>';
         emptyEl.style.display = 'none';
         tableWrap.style.display = '';
         countEl.textContent = message;
@@ -490,6 +491,13 @@
             var vendors = material.vendors || [];
             var vendorStr = vendors.slice(0, 2).map(esc).join(', ');
             var vendorMore = vendors.length > 2 ? ' <span class="inv-vendor-more">+' + (vendors.length - 2) + ' more</span>' : '';
+            var msdsHtml = material.has_msds
+                ? '<div style="display:flex; gap:0.35rem; flex-wrap:wrap; align-items:center;">' +
+                    '<span class="inv-badge inv-badge-success" title="' + esc(material.msds_filename || 'MSDS available') + '">Available</span>' +
+                    '<a href="/inventory/master-data/msds/' + encodeURIComponent(material.msds_material_code) + '" class="btn btn-sm btn-secondary" target="_blank" rel="noopener">View</a>' +
+                    '<a href="/inventory/master-data/msds/' + encodeURIComponent(material.msds_material_code) + '?download=1" class="btn btn-sm btn-outline">Download</a>' +
+                  '</div>'
+                : '<span class="inv-muted">\u2014</span>';
 
             tr.innerHTML =
                 '<td class="inv-rank-col"><span class="inv-rank-badge">' + (index + 1) + '</span></td>' +
@@ -503,7 +511,8 @@
                 '<td class="text-right inv-num">' + fmtCurrency(material.last_unit_price) + '</td>' +
                 '<td class="text-right inv-num inv-val inv-td-expandable" data-action="expand-procurement" data-material="' + esc(material.material) + '">' + fmtCurrency(material.last_proc_value) + '</td>' +
                 '<td class="text-right inv-num">' + fmtNum(material.plant_count, 0) + '</td>' +
-                '<td class="inv-td-vendors">' + (vendorStr || '<span class="inv-muted">\u2014</span>') + vendorMore + '</td>';
+                '<td class="inv-td-vendors">' + (vendorStr || '<span class="inv-muted">\u2014</span>') + vendorMore + '</td>' +
+                '<td>' + msdsHtml + '</td>';
             tbody.appendChild(tr);
         });
     }
@@ -558,7 +567,7 @@
             filteredMaterials = MATERIALS.slice();
             applyFilters();
         }).catch(function() {
-            tbody.innerHTML = '<tr><td colspan="10"><div class="inv-error">Failed to load inventory data. Please refresh and try again.</div></td></tr>';
+            tbody.innerHTML = '<tr><td colspan="12"><div class="inv-error">Failed to load inventory data. Please refresh and try again.</div></td></tr>';
             countEl.textContent = 'Load failed';
         });
     }
@@ -626,7 +635,7 @@
         var expandRow = document.createElement('tr');
         expandRow.className = 'inv-expand-row';
         expandRow.dataset.expandType = type;
-        expandRow.innerHTML = '<td colspan="11"><div class="inv-expand-content"><div class="inv-loading"><i class="bi bi-arrow-repeat inv-spin"></i> Loading ' + type + ' data\u2026</div></div></td>';
+        expandRow.innerHTML = '<td colspan="12"><div class="inv-expand-content"><div class="inv-loading"><i class="bi bi-arrow-repeat inv-spin"></i> Loading ' + type + ' data\u2026</div></div></td>';
         mainRow.after(expandRow);
 
         var url = type === 'consumption'

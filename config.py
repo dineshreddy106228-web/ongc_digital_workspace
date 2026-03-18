@@ -62,6 +62,8 @@ class Config:
     )
     REMEMBER_COOKIE_SECURE = SESSION_COOKIE_SECURE
     MAX_CONTENT_LENGTH = int(os.environ.get("MAX_CONTENT_LENGTH", str(256 * 1024 * 1024)))
+    MSDS_STORAGE_DIR = os.environ.get("MSDS_STORAGE_DIR", "storage/msds")
+    MSDS_MAX_UPLOAD_BYTES = int(os.environ.get("MSDS_MAX_UPLOAD_BYTES", str(20 * 1024 * 1024)))
     DB_COMMAND_TIMEOUT_SECONDS = int(os.environ.get("DB_COMMAND_TIMEOUT_SECONDS", "600"))
     MYSQL_BIN = os.environ.get("MYSQL_BIN", "mysql")
     MYSQLDUMP_BIN = os.environ.get("MYSQLDUMP_BIN", "mysqldump")

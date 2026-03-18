@@ -131,6 +131,14 @@ from app.core.services.csc_committee_directory import (
 )
 
 logger = logging.getLogger(__name__)
+WORKFLOW_SCOPE_SECTION_NAME = "__workflow_scope_json__"
+WORKFLOW_SCOPE_DEFAULT = {
+    "material_properties": True,
+    "storage_handling": True,
+    "parameters_impact": True,
+    "parameter_type": True,
+    "parameter_other": True,
+}
 EDITOR_ISSUE_LABELS = [
     "Specification Ambiguity",
     "Parameter Non-compliance",
@@ -175,8 +183,6 @@ def _can_submit_revision(revision: CSCRevision | None) -> bool:
 
 
 def _can_user_edit_workflow_draft(draft: CSCDraft) -> bool:
-    if current_user.is_super_user():
-        return True
     revision = _get_revision_for_child(draft.id)
     if revision is None:
         return False
@@ -236,7 +242,7 @@ def _copy_draft_content(source: CSCDraft, target: CSCDraft) -> None:
 
     target.sections.delete()
     for section in source.sections.order_by(CSCSection.sort_order).all():
-        if section.section_name == STAGED_MASTER_SECTION_NAME:
+        if section.section_name in {STAGED_MASTER_SECTION_NAME, WORKFLOW_SCOPE_SECTION_NAME}:
             continue
         db.session.add(
             CSCSection(
@@ -287,7 +293,14 @@ def _copy_draft_content(source: CSCDraft, target: CSCDraft) -> None:
 def _can_edit_draft(draft: CSCDraft) -> bool:
     """Check if current user can edit this draft."""
     if current_user.is_super_user():
-        return draft.parent_draft_id is not None
+        revision = _get_revision_for_child(draft.id)
+        return (
+            draft.parent_draft_id is not None
+            and draft.is_admin_draft
+            and draft.created_by_id == current_user.id
+            and revision is not None
+            and _is_open_revision_state(revision.status)
+        )
     return _can_user_edit_workflow_draft(draft)
 
 
@@ -384,6 +397,401 @@ def _create_audit_entry(
     except Exception as e:
         logger.error(f"Failed to create audit entry: {e}")
         db.session.rollback()
+
+
+def _display_review_value(value: object, default: str = "—") -> str:
+    """Normalize values for read-only admin review rendering."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    text = str(value).strip()
+    return text or default
+
+
+def _normalize_workflow_scope_payload(raw: object | None) -> dict[str, bool]:
+    """Normalize workflow scope JSON stored on workflow drafts."""
+    payload = dict(WORKFLOW_SCOPE_DEFAULT)
+    data = raw if isinstance(raw, dict) else {}
+
+    for key in WORKFLOW_SCOPE_DEFAULT:
+        if key in data:
+            payload[key] = _coerce_admin_boolean(data.get(key))
+
+    if not payload["parameters_impact"]:
+        payload["parameter_type"] = False
+        payload["parameter_other"] = False
+    elif "parameter_type" not in data and "parameter_other" not in data:
+        payload["parameter_type"] = True
+        payload["parameter_other"] = True
+
+    return payload
+
+
+def _get_workflow_scope_section(draft: CSCDraft) -> CSCSection | None:
+    if not getattr(draft, "id", None) or not getattr(draft, "parent_draft_id", None):
+        return None
+    return CSCSection.query.filter_by(
+        draft_id=draft.id,
+        section_name=WORKFLOW_SCOPE_SECTION_NAME,
+    ).first()
+
+
+def _load_workflow_scope(draft: CSCDraft) -> dict[str, bool]:
+    """Return per-draft workflow scope, defaulting to all tabs open."""
+    section = _get_workflow_scope_section(draft)
+    if section is None or not (section.section_text or "").strip():
+        return dict(WORKFLOW_SCOPE_DEFAULT)
+    try:
+        payload = json.loads(section.section_text or "{}")
+    except Exception:
+        return dict(WORKFLOW_SCOPE_DEFAULT)
+    return _normalize_workflow_scope_payload(payload)
+
+
+def _write_workflow_scope(draft: CSCDraft, raw_scope: object | None) -> dict[str, bool]:
+    """Persist workflow scope on a child workflow draft."""
+    scope = _normalize_workflow_scope_payload(raw_scope)
+    section = _get_workflow_scope_section(draft)
+    if section is None:
+        section = CSCSection(
+            draft_id=draft.id,
+            section_name=WORKFLOW_SCOPE_SECTION_NAME,
+            sort_order=9998,
+        )
+        db.session.add(section)
+    section.section_text = json.dumps(scope)
+    return scope
+
+
+def _validate_workflow_scope(scope: dict[str, bool]) -> str | None:
+    if not any(scope.get(key) for key in ("material_properties", "storage_handling", "parameters_impact")):
+        return "Select at least one revision tab before creating the workflow."
+    return None
+
+
+def _scope_allows_material_properties(scope: dict[str, bool]) -> bool:
+    return bool(scope.get("material_properties"))
+
+
+def _scope_allows_storage_handling(scope: dict[str, bool]) -> bool:
+    return bool(scope.get("storage_handling"))
+
+
+def _scope_allows_impact(scope: dict[str, bool]) -> bool:
+    return bool(scope.get("parameters_impact"))
+
+
+def _scope_allows_parameter_tab(scope: dict[str, bool]) -> bool:
+    return bool(scope.get("parameter_type") or scope.get("parameter_other"))
+
+
+def _summarize_workflow_scope(scope: dict[str, bool]) -> list[str]:
+    summary: list[str] = []
+    if _scope_allows_material_properties(scope):
+        summary.append("Material Properties")
+    if _scope_allows_storage_handling(scope):
+        summary.append("Storage and Handling")
+    if _scope_allows_impact(scope):
+        parameter_parts = []
+        if scope.get("parameter_type"):
+            parameter_parts.append("Type")
+        if scope.get("parameter_other"):
+            parameter_parts.append("Other than Type")
+        if parameter_parts:
+            summary.append("Parameters & Impact — " + ", ".join(parameter_parts))
+        else:
+            summary.append("Impact only")
+    return summary
+
+
+def _build_labeled_value_rows(
+    fields: list[tuple[str, str]],
+    values: dict[str, object],
+) -> list[dict[str, str]]:
+    """Build non-empty label/value rows for review cards."""
+    rows: list[dict[str, str]] = []
+    for field_name, label in fields:
+        value = _display_review_value(values.get(field_name))
+        if value == "—":
+            continue
+        rows.append({"label": label, "value": value})
+    return rows
+
+
+def _create_workflow_child_draft(
+    parent_draft: CSCDraft,
+    *,
+    created_by_id: int | None,
+    created_by_role: str,
+    is_admin_draft: bool,
+) -> CSCDraft:
+    """Create a workflow child draft by copying the published parent snapshot."""
+    child_draft = CSCDraft(
+        spec_number=parent_draft.spec_number,
+        chemical_name=parent_draft.chemical_name,
+        committee_name=parent_draft.committee_name,
+        meeting_date=parent_draft.meeting_date,
+        prepared_by=parent_draft.prepared_by,
+        reviewed_by=parent_draft.reviewed_by,
+        material_code=parent_draft.material_code,
+        status="Drafting",
+        created_by_role=created_by_role,
+        is_admin_draft=is_admin_draft,
+        phase1_locked=False,
+        parent_draft_id=parent_draft.id,
+        admin_stage=ADMIN_STAGE_DRAFTING,
+        spec_version=parent_draft.spec_version,
+        created_by_id=created_by_id,
+    )
+    db.session.add(child_draft)
+    db.session.flush()
+    _copy_draft_content(parent_draft, child_draft)
+    child_draft.status = "Drafting"
+    child_draft.created_by_role = created_by_role
+    child_draft.is_admin_draft = is_admin_draft
+    child_draft.phase1_locked = False
+    child_draft.parent_draft_id = parent_draft.id
+    child_draft.admin_stage = ADMIN_STAGE_DRAFTING
+    child_draft.spec_version = parent_draft.spec_version
+    child_draft.created_by_id = created_by_id
+    return child_draft
+
+
+def _open_admin_self_draft_for_parent(
+    parent_draft: CSCDraft,
+    workflow_scope: dict[str, bool],
+) -> tuple[CSCDraft | None, bool, str | None]:
+    """Create or reuse an admin-owned self draft for a published parent spec."""
+    active_revision = _get_active_revision_for_parent(parent_draft.id)
+    if active_revision and active_revision.child_draft:
+        child_draft = active_revision.child_draft
+        if (
+            child_draft.is_admin_draft
+            and child_draft.created_by_id == current_user.id
+            and _is_open_revision_state(active_revision.status)
+        ):
+            _write_workflow_scope(child_draft, workflow_scope)
+            return child_draft, False, None
+
+        if active_revision.status == WORKFLOW_DRAFTING_SUBMITTED:
+            return None, False, (
+                "A submitted committee draft is already under admin review. "
+                "Approve, return, or reject it before creating your own admin draft."
+            )
+
+        owner_name = (
+            child_draft.creator.username
+            if child_draft.creator and child_draft.creator.username
+            else "another user"
+        )
+        return None, False, (
+            f"An active workflow draft already exists for this specification under {owner_name}. "
+            "Admin edits must use a self draft after that workflow is closed."
+        )
+
+    child_draft = _create_workflow_child_draft(
+        parent_draft,
+        created_by_id=current_user.id,
+        created_by_role=current_user.role.name if current_user.role else "Admin",
+        is_admin_draft=True,
+    )
+    _write_workflow_scope(child_draft, workflow_scope)
+
+    revision = CSCRevision(
+        parent_draft_id=parent_draft.id,
+        child_draft_id=child_draft.id,
+        status=WORKFLOW_DRAFTING_OPEN,
+    )
+    db.session.add(revision)
+    parent_draft.status = "Drafting"
+    parent_draft.admin_stage = ADMIN_STAGE_DRAFTING
+    parent_draft.updated_at = datetime.now(timezone.utc)
+    return child_draft, True, None
+
+
+def _compose_approval_notes(
+    reviewer_notes: str,
+    approved_by_name: str,
+    disha_file_number: str,
+) -> str:
+    """Persist approval note plus approval reference details in one field."""
+    lines = [
+        reviewer_notes.strip(),
+        f"Approved By: {approved_by_name.strip()}",
+        f"Disha File Number: {disha_file_number.strip()}",
+    ]
+    return "\n".join(line for line in lines if line)
+
+
+def _build_revision_review_context(revision: CSCRevision) -> dict[str, object]:
+    """Assemble a read-only snapshot for the admin review modal."""
+    draft = revision.child_draft
+    master_values = get_master_form_values(draft)
+    material_values = get_material_properties_values(draft)
+    storage_values = get_storage_handling_values(draft)
+    workflow_scope = _load_workflow_scope(draft)
+
+    summary_rows = [
+        {"label": "Specification", "value": _display_review_value(draft.spec_number)},
+        {"label": "Chemical", "value": _display_review_value(draft.chemical_name)},
+        {"label": "Subset", "value": _display_review_value(draft.subset_display)},
+        {"label": "Version", "value": f"v{draft.version}"},
+        {"label": "Material Code", "value": _display_review_value(draft.material_code)},
+        {
+            "label": "Physical State",
+            "value": _display_review_value(master_values.get("physical_state")),
+        },
+        {"label": "Submitted By", "value": _display_review_value(revision.submitted_by)},
+        {
+            "label": "Submitted At",
+            "value": revision.submitted_at,
+            "is_datetime": True,
+        },
+        {
+            "label": "Authorized By",
+            "value": _display_review_value(revision.authorized_by_name),
+        },
+        {
+            "label": "Subcommittee Head",
+            "value": _display_review_value(revision.subcommittee_head_name),
+        },
+        {
+            "label": "Authorization Confirmed",
+            "value": _display_review_value(revision.authorization_confirmed),
+        },
+        {
+            "label": "Current Status",
+            "value": _display_review_value((revision.status or "").replace("_", " ").title()),
+        },
+        {
+            "label": "Open for Revision",
+            "value": _display_review_value(", ".join(_summarize_workflow_scope(workflow_scope))),
+        },
+    ]
+
+    section_labels = {
+        "background": "Background Context",
+        "existing_spec": "Existing Specification Summary",
+        "changes": "Proposed Changes",
+        "recommendation": "Version Change Reason",
+    }
+    sections = [
+        {
+            "label": section_labels.get(
+                section.section_name,
+                (section.section_name or "").replace("_", " ").strip().title() or "Section",
+            ),
+            "text": (section.section_text or "").strip(),
+        }
+        for section in draft.sections.order_by(CSCSection.sort_order).all()
+        if section.section_name not in {STAGED_MASTER_SECTION_NAME, WORKFLOW_SCOPE_SECTION_NAME}
+    ]
+
+    issue_lookup = {
+        flag.issue_type: flag
+        for flag in draft.issue_flags.order_by(CSCIssueFlag.sort_order).all()
+    }
+    issue_rows = []
+    for label in EDITOR_ISSUE_LABELS:
+        flag = issue_lookup.get(label)
+        issue_rows.append(
+            {
+                "label": label,
+                "flagged": bool(flag.is_present) if flag else False,
+                "notes": (flag.note or "").strip() if flag else "",
+            }
+        )
+
+    parameter_rows = [
+        {
+            "parameter_name": parameter.parameter_name or "Untitled Parameter",
+            "parameter_type": normalize_parameter_type_label(parameter.parameter_type or ""),
+            "existing_value": _display_review_value(parameter.existing_value),
+            "required_value": _display_review_value(format_required_value(parameter)),
+            "proposed_value": _display_review_value(parameter.proposed_value),
+            "test_method": _display_review_value(
+                parameter.test_procedure_text or parameter.test_method
+            ),
+            "conditions": _display_review_value(parameter.parameter_conditions),
+            "justification": _display_review_value(parameter.justification),
+            "remarks": _display_review_value(parameter.remarks),
+        }
+        for parameter in draft.parameters.order_by(CSCParameter.sort_order).all()
+    ]
+
+    impact_rows = []
+    impact_analysis = draft.impact_analysis
+    if impact_analysis:
+        impact_rows.extend(
+            [
+                {
+                    "label": "Operational Impact Score",
+                    "value": _display_review_value(impact_analysis.operational_impact_score),
+                },
+                {
+                    "label": "Safety / Environment Score",
+                    "value": _display_review_value(impact_analysis.safety_environment_score),
+                },
+                {
+                    "label": "Supply Risk Score",
+                    "value": _display_review_value(impact_analysis.supply_risk_score),
+                },
+                {
+                    "label": "No Substitute",
+                    "value": _display_review_value(impact_analysis.no_substitute_flag),
+                },
+                {
+                    "label": "Impact Score Total",
+                    "value": _display_review_value(impact_analysis.impact_score_total),
+                },
+                {
+                    "label": "Impact Grade",
+                    "value": _display_review_value(impact_analysis.impact_grade),
+                },
+                {
+                    "label": "Checklist Summary",
+                    "value": _display_review_value(
+                        summarize_impact_checklist_state(
+                            deserialize_impact_checklist_state(
+                                impact_analysis.checklist_state_json,
+                                draft.chemical_name,
+                            )
+                        )
+                    ),
+                },
+            ]
+        )
+    impact_rows.extend(_build_labeled_value_rows(MASTER_IMPACT_FIELDS, master_values))
+
+    return {
+        "draft": draft,
+        "summary_rows": summary_rows,
+        "section_rows": sections,
+        "issue_rows": issue_rows,
+        "parameter_rows": parameter_rows,
+        "master_rows": _build_labeled_value_rows(
+            [("material_code", "Material Code"), *MASTER_DATA_FIELDS, *MASTER_EXTRA_FIELDS],
+            master_values,
+        ),
+        "material_property_rows": [
+            {
+                "label": field["label"],
+                "value": _display_review_value(material_values.get(field["field_name"])),
+            }
+            for field in get_material_properties_fields()
+            if _display_review_value(material_values.get(field["field_name"])) != "—"
+        ],
+        "storage_rows": [
+            {
+                "label": field["label"],
+                "value": _display_review_value(storage_values.get(field["field_name"])),
+            }
+            for field in get_storage_handling_fields()
+            if _display_review_value(storage_values.get(field["field_name"])) != "—"
+        ],
+        "impact_rows": impact_rows,
+    }
 
 
 def _get_admin_stats() -> dict:
@@ -666,7 +1074,7 @@ def editor(draft_id: int):
             {
                 "id": parameter.id,
                 "parameter_name": parameter.parameter_name,
-                "parameter_type": parameter.parameter_type or "Essential",
+                "parameter_type": parameter.parameter_type or "Desirable",
                 "unit_of_measure": parameter.unit_of_measure or "",
                 "specification": parameter.existing_value or "",
                 "required_value_type": parameter.required_value_type or "text",
@@ -709,6 +1117,7 @@ def editor(draft_id: int):
                 "checklist_summary": summarize_impact_checklist_state(checklist_state),
                 "legacy_only": not bool((draft.impact_analysis.checklist_state_json or "").strip()),
             }
+        workflow_scope = _load_workflow_scope(draft)
 
         return render_template(
             "csc/editor.html",
@@ -728,6 +1137,8 @@ def editor(draft_id: int):
             master_fields=MASTER_DATA_FIELDS,
             master_extra_fields=MASTER_EXTRA_FIELDS,
             master_impact_fields=MASTER_IMPACT_FIELDS,
+            workflow_scope=workflow_scope,
+            workflow_scope_summary=_summarize_workflow_scope(workflow_scope),
         )
     except Exception as e:
         logger.error(f"Error loading editor: {e}")
@@ -831,6 +1242,8 @@ def save_material_properties(draft_id: int):
 
         if not _can_edit_draft(draft):
             return jsonify({"error": "Unauthorized"}), 403
+        if not _scope_allows_material_properties(_load_workflow_scope(draft)):
+            return jsonify({"error": "This draft is not open for revision in Material Properties."}), 403
 
         if not (draft.material_code or "").strip():
             return jsonify({"error": "Material code is required before material properties can be saved."}), 400
@@ -870,6 +1283,8 @@ def save_storage_handling(draft_id: int):
 
         if not _can_edit_draft(draft):
             return jsonify({"error": "Unauthorized"}), 403
+        if not _scope_allows_storage_handling(_load_workflow_scope(draft)):
+            return jsonify({"error": "This draft is not open for revision in Storage and Handling."}), 403
 
         if not (draft.material_code or "").strip():
             return jsonify({"error": "Material code is required before storage and handling can be saved."}), 400
@@ -998,17 +1413,54 @@ def save_parameters(draft_id: int):
         if draft.phase1_locked:
             return jsonify({"error": "Phase 1 is locked"}), 403
 
+        workflow_scope = _load_workflow_scope(draft)
+        parameter_type_allowed = bool(workflow_scope.get("parameter_type"))
+        parameter_other_allowed = bool(workflow_scope.get("parameter_other"))
+        if not _scope_allows_parameter_tab(workflow_scope):
+            return jsonify({"error": "This draft is not open for revision in Parameters."}), 403
+
         data = request.get_json() or []
+        existing_parameters = draft.parameters.order_by(CSCParameter.sort_order).all()
+        existing_by_id = {str(parameter.id): parameter for parameter in existing_parameters}
+
+        if parameter_type_allowed and not parameter_other_allowed:
+            if len(data) != len(existing_parameters):
+                return jsonify({"error": "Parameter structure is locked. Only Type can be revised in this workflow."}), 400
+            for idx, param_data in enumerate(data):
+                param_id = str(param_data.get("parameter_id") or "")
+                parameter = existing_by_id.get(param_id)
+                if parameter is None and idx < len(existing_parameters):
+                    parameter = existing_parameters[idx]
+                if parameter is None:
+                    return jsonify({"error": "Parameter structure is locked. Refresh and try again."}), 400
+                parameter.parameter_type = normalize_parameter_type_label(
+                    param_data.get("parameter_type", parameter.parameter_type or "Desirable")
+                )
+            draft.updated_at = datetime.now(timezone.utc)
+            db.session.commit()
+
+            _create_audit_entry(draft_id, f"Parameter types saved: {len(data)} items")
+
+            return jsonify({"success": True})
 
         CSCParameter.query.filter_by(draft_id=draft_id).delete()
 
         for idx, param_data in enumerate(data):
+            param_id = str(param_data.get("parameter_id") or "")
+            existing_parameter = existing_by_id.get(param_id)
+            parameter_type = normalize_parameter_type_label(
+                param_data.get(
+                    "parameter_type",
+                    (existing_parameter.parameter_type if existing_parameter else "Desirable"),
+                )
+            ) if parameter_type_allowed else normalize_parameter_type_label(
+                existing_parameter.parameter_type if existing_parameter else "Desirable"
+            )
+
             param = CSCParameter(
                 draft_id=draft_id,
                 parameter_name=param_data.get("parameter_name", ""),
-                parameter_type=normalize_parameter_type_label(
-                    param_data.get("parameter_type", "Essential")
-                ),
+                parameter_type=parameter_type,
                 unit_of_measure=(param_data.get("unit_of_measure", "") or "").strip() or None,
                 existing_value=format_required_value(
                     param_data.get("required_value_type", "text"),
@@ -1067,6 +1519,9 @@ def save_proposed_values(draft_id: int):
 
         if not _can_edit_draft(draft):
             return jsonify({"error": "Unauthorized"}), 403
+        workflow_scope = _load_workflow_scope(draft)
+        if not bool(workflow_scope.get("parameter_other")):
+            return jsonify({"error": "This draft is not open for revision in parameter values."}), 403
 
         data = request.get_json() or []
 
@@ -1105,6 +1560,8 @@ def save_impact(draft_id: int):
 
         if not _can_edit_draft(draft):
             return jsonify({"error": "Unauthorized"}), 403
+        if not _scope_allows_impact(_load_workflow_scope(draft)):
+            return jsonify({"error": "This draft is not open for revision in Impact."}), 403
 
         data = request.get_json() or {}
 
@@ -1298,93 +1755,30 @@ def create_revision(parent_id: int):
         if not parent_draft:
             return jsonify({"error": "Parent draft not found"}), 404
 
-        active_revision = _get_active_revision_for_parent(parent_id)
-        if active_revision and active_revision.child_draft_id:
-            return jsonify({
-                "success": True,
-                "draft_id": active_revision.child_draft_id,
-                "redirect": url_for("csc.editor", draft_id=active_revision.child_draft_id),
-            })
-
-        child_draft = CSCDraft(
-            spec_number=parent_draft.spec_number,
-            chemical_name=parent_draft.chemical_name,
-            committee_name=parent_draft.committee_name,
-            meeting_date=parent_draft.meeting_date,
-            prepared_by=parent_draft.prepared_by,
-            reviewed_by=parent_draft.reviewed_by,
-            material_code=parent_draft.material_code,
-            status="Drafting",
-            created_by_role=current_user.role.name if current_user.role else "User",
-            is_admin_draft=False,
-            phase1_locked=False,
-            parent_draft_id=parent_id,
-            admin_stage=ADMIN_STAGE_DRAFTING,
-            spec_version=parent_draft.spec_version,
-            created_by_id=current_user.id,
+        workflow_scope = _normalize_workflow_scope_payload(
+            (request.get_json(silent=True) or {}).get("workflow_scope")
         )
-        db.session.add(child_draft)
-        db.session.flush()
+        scope_error = _validate_workflow_scope(workflow_scope)
+        if scope_error:
+            return jsonify({"error": scope_error}), 400
 
-        for param in parent_draft.parameters.all():
-            new_param = CSCParameter(
-                draft_id=child_draft.id,
-                parameter_name=param.parameter_name,
-                parameter_type=param.parameter_type,
-                unit_of_measure=param.unit_of_measure,
-                existing_value=param.existing_value,
-                proposed_value=param.proposed_value,
-                test_method=param.test_method,
-                test_procedure_type=param.test_procedure_type,
-                test_procedure_text=param.test_procedure_text,
-                parameter_conditions=param.parameter_conditions,
-                required_value_type=param.required_value_type,
-                required_value_text=param.required_value_text,
-                required_value_operator_1=param.required_value_operator_1,
-                required_value_value_1=param.required_value_value_1,
-                required_value_operator_2=param.required_value_operator_2,
-                required_value_value_2=param.required_value_value_2,
-                justification=param.justification,
-                remarks=param.remarks,
-                sort_order=param.sort_order,
-            )
-            db.session.add(new_param)
-
-        for section in parent_draft.sections.all():
-            new_section = CSCSection(
-                draft_id=child_draft.id,
-                section_name=section.section_name,
-                section_text=section.section_text,
-                sort_order=section.sort_order,
-            )
-            db.session.add(new_section)
-
-        for flag in parent_draft.issue_flags.all():
-            new_flag = CSCIssueFlag(
-                draft_id=child_draft.id,
-                issue_type=flag.issue_type,
-                is_present=flag.is_present,
-                note=flag.note,
-                sort_order=flag.sort_order,
-            )
-            db.session.add(new_flag)
-
-        revision = CSCRevision(
-            parent_draft_id=parent_id,
-            child_draft_id=child_draft.id,
-            status=WORKFLOW_DRAFTING_OPEN,
-        )
-        db.session.add(revision)
-        parent_draft.status = "Drafting"
-        parent_draft.admin_stage = ADMIN_STAGE_DRAFTING
-        parent_draft.updated_at = datetime.now(timezone.utc)
+        child_draft, _, error = _open_admin_self_draft_for_parent(parent_draft, workflow_scope)
+        if error:
+            return jsonify({"error": error}), 409
+        if child_draft is None:
+            return jsonify({"error": "Unable to open workflow draft"}), 500
 
         db.session.commit()
 
         _create_audit_entry(
             parent_id,
             "Drafting opened",
-            new_value=json.dumps({"child_draft_id": child_draft.id}),
+            new_value=json.dumps(
+                {
+                    "child_draft_id": child_draft.id,
+                    "workflow_scope": workflow_scope,
+                }
+            ),
         )
 
         return jsonify({
@@ -1394,6 +1788,138 @@ def create_revision(parent_id: int):
         })
     except Exception as e:
         logger.error(f"Error creating revision: {e}")
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+
+@csc_bp.route("/admin/draft/<int:parent_id>/open-self-draft", methods=["POST"])
+@login_required
+@module_access_required("csc")
+@superuser_required
+def admin_open_self_draft(parent_id: int):
+    """Create or reopen an admin-owned workflow draft for the published spec."""
+    try:
+        parent_draft = db.session.get(CSCDraft, parent_id)
+        if not parent_draft or parent_draft.parent_draft_id is not None:
+            return jsonify({"error": "Published specification not found"}), 404
+        workflow_scope = _normalize_workflow_scope_payload(
+            (request.get_json(silent=True) or {}).get("workflow_scope")
+        )
+        scope_error = _validate_workflow_scope(workflow_scope)
+        if scope_error:
+            return jsonify({"error": scope_error}), 400
+
+        child_draft, _, error = _open_admin_self_draft_for_parent(parent_draft, workflow_scope)
+        if error:
+            return jsonify({"error": error}), 409
+        if child_draft is None:
+            return jsonify({"error": "Unable to open workflow draft"}), 500
+        db.session.commit()
+
+        _create_audit_entry(
+            parent_id,
+            "Admin self draft opened",
+            new_value=json.dumps(
+                {
+                    "child_draft_id": child_draft.id,
+                    "workflow_scope": workflow_scope,
+                }
+            ),
+        )
+
+        return jsonify(
+            {
+                "success": True,
+                "draft_id": child_draft.id,
+                "redirect": url_for("csc.editor", draft_id=child_draft.id),
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error opening admin self draft: {e}")
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+
+@csc_bp.route("/admin/drafts/open-self-drafts", methods=["POST"])
+@login_required
+@module_access_required("csc")
+@superuser_required
+def admin_open_self_drafts_bulk():
+    """Create admin workflow drafts for a selected set of published specs."""
+    try:
+        data = request.get_json(silent=True) or {}
+        raw_ids = data.get("parent_ids") or []
+        parent_ids: list[int] = []
+        for value in raw_ids:
+            try:
+                parent_ids.append(int(value))
+            except (TypeError, ValueError):
+                continue
+        parent_ids = list(dict.fromkeys(parent_ids))
+        if not parent_ids:
+            return jsonify({"error": "Select at least one specification to open for revision."}), 400
+
+        workflow_scope = _normalize_workflow_scope_payload(data.get("workflow_scope"))
+        scope_error = _validate_workflow_scope(workflow_scope)
+        if scope_error:
+            return jsonify({"error": scope_error}), 400
+
+        created_rows: list[dict[str, object]] = []
+        conflicts: list[str] = []
+        for parent_id in parent_ids:
+            parent_draft = db.session.get(CSCDraft, parent_id)
+            if not parent_draft or parent_draft.parent_draft_id is not None:
+                conflicts.append(f"Specification {parent_id} is not available.")
+                continue
+            child_draft, created_new, error = _open_admin_self_draft_for_parent(parent_draft, workflow_scope)
+            if error:
+                conflicts.append(f"{parent_draft.spec_number}: {error}")
+                continue
+            if child_draft is None:
+                conflicts.append(f"{parent_draft.spec_number}: unable to open workflow draft.")
+                continue
+            created_rows.append(
+                {
+                    "parent_id": parent_id,
+                    "child_draft_id": child_draft.id,
+                    "created_new": created_new,
+                }
+            )
+
+        if not created_rows:
+            db.session.rollback()
+            return jsonify({"error": conflicts[0] if conflicts else "No workflow drafts were opened."}), 409
+
+        db.session.commit()
+
+        for row in created_rows:
+            _create_audit_entry(
+                int(row["parent_id"]),
+                "Admin self draft opened",
+                new_value=json.dumps(
+                    {
+                        "child_draft_id": row["child_draft_id"],
+                        "workflow_scope": workflow_scope,
+                    }
+                ),
+            )
+
+        redirect = (
+            url_for("csc.editor", draft_id=created_rows[0]["child_draft_id"])
+            if len(created_rows) == 1
+            else url_for("csc.admin_drafts")
+        )
+        return jsonify(
+            {
+                "success": True,
+                "redirect": redirect,
+                "created_count": len(created_rows),
+                "message": f"Opened {len(created_rows)} workflow draft(s).",
+                "conflicts": conflicts,
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error opening admin workflow drafts: {e}")
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
@@ -1562,11 +2088,36 @@ def admin_drafts():
                     "submitted_at": active_revision.submitted_at if active_revision else None,
                 }
             )
+        workflow_create_groups_map: dict[str, dict[str, object]] = {}
+        for row in workflow_rows:
+            if row["active_revision"]:
+                continue
+            draft = row["draft"]
+            subset_code = draft.subset or "OTHER"
+            subset_display = draft.subset_display or "Other / Unmapped"
+            group = workflow_create_groups_map.setdefault(
+                subset_code,
+                {
+                    "subset_code": subset_code,
+                    "subset_display": subset_display,
+                    "rows": [],
+                },
+            )
+            group["rows"].append(
+                {
+                    "parent_id": draft.id,
+                    "spec_number": draft.spec_number,
+                    "chemical_name": draft.chemical_name or "—",
+                    "material_code": draft.material_code or "",
+                }
+            )
+        workflow_create_groups = list(workflow_create_groups_map.values())
         response = make_response(
             render_template(
                 "csc/admin/drafts.html",
                 workflow_rows=workflow_rows,
                 subsets=subsets,
+                workflow_create_groups=workflow_create_groups,
             )
         )
         # Safari's back/forward cache can restore an older drafts table after
@@ -1980,11 +2531,22 @@ def admin_revisions():
 @module_access_required("csc")
 @superuser_required
 def admin_review_revision(revision_id: int):
-    """Review revision – redirect to the child draft editor."""
+    """Return a read-only revision snapshot for the admin review modal."""
     revision = db.session.get(CSCRevision, revision_id)
     if not revision:
-        abort(404)
-    return redirect(url_for("csc.editor", draft_id=revision.child_draft_id))
+        return jsonify({"error": "Revision not found"}), 404
+
+    return jsonify(
+        {
+            "success": True,
+            "status": revision.status,
+            "html": render_template(
+                "csc/admin/_revision_detail.html",
+                revision=revision,
+                **_build_revision_review_context(revision),
+            ),
+        }
+    )
 
 
 @csc_bp.route("/admin/revision/<int:revision_id>/approve", methods=["POST"])
@@ -2005,8 +2567,18 @@ def admin_approve_revision(revision_id: int):
         child_draft = revision.child_draft
         parent_draft = revision.parent_draft
         version_increment = (data.get("version_increment") or "whole").strip().lower()
+        reviewer_notes = (data.get("reviewer_notes") or "").strip()
+        approval_authorized_by = (data.get("approval_authorized_by") or "").strip()
+        approval_disha_file_number = (data.get("approval_disha_file_number") or "").strip()
+
         if version_increment not in {"whole", "decimal"}:
             return jsonify({"error": "Choose whole or decimal version increment"}), 400
+        if not reviewer_notes:
+            return jsonify({"error": "Approval notes are required"}), 400
+        if not approval_authorized_by:
+            return jsonify({"error": "Enter the Approved By name before publishing"}), 400
+        if not approval_disha_file_number:
+            return jsonify({"error": "Enter the Disha File Number before publishing"}), 400
 
         _copy_draft_content(child_draft, parent_draft)
         record = upsert_master_record_from_form(
@@ -2019,7 +2591,11 @@ def admin_approve_revision(revision_id: int):
 
         revision.status = WORKFLOW_DRAFTING_APPROVED
         revision.reviewed_at = datetime.now(timezone.utc)
-        revision.reviewer_notes = data.get("reviewer_notes", "")
+        revision.reviewer_notes = _compose_approval_notes(
+            reviewer_notes,
+            approval_authorized_by,
+            approval_disha_file_number,
+        )
 
         parent_draft.status = "Published"
         parent_draft.admin_stage = ADMIN_STAGE_PUBLISHED

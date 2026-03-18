@@ -24,7 +24,9 @@ from app.core.services.announcements import (
     can_vote_on_announcement,
     cast_vote,
     close_announcement,
+    delete_active_announcements,
     get_announcement_for_user,
+    get_active_published_announcements,
     get_latest_login_announcement_for_user,
     get_poll_result_rows,
     get_target_announcement_users,
@@ -300,12 +302,14 @@ def manage_announcements():
         Announcement.created_at.desc(),
         Announcement.id.desc(),
     ).all()
+    active_announcements = get_active_published_announcements()
     stats = {announcement.id: _announcement_stats(announcement) for announcement in announcements}
     return render_template(
         "notifications/manage_announcements.html",
         announcements=announcements,
         announcement_stats=stats,
         target_user_count=len(get_target_announcement_users()),
+        active_announcement_count=len(active_announcements),
     )
 
 
@@ -576,4 +580,49 @@ def close_announcement_route(announcement_id):
         return redirect(url_for("notifications.manage_announcements"))
 
     flash("Announcement closed successfully.", "success")
+    return redirect(url_for("notifications.manage_announcements"))
+
+
+@notifications_bp.route("/announcements/manage/delete-active", methods=["POST"])
+@login_required
+@superuser_required
+def delete_active_announcements_route():
+    try:
+        result = delete_active_announcements()
+        deleted_count = int(result["announcements"])
+        if deleted_count == 0:
+            flash("No ongoing broadcasts were active.", "info")
+            return redirect(url_for("notifications.manage_announcements"))
+
+        log_activity(
+            current_user.username,
+            "announcements_deleted",
+            "announcement",
+            f"{deleted_count} active broadcasts",
+            details=(
+                f"recipients={result['recipients']}, "
+                f"notifications={result['notifications']}, "
+                f"votes={result['votes']}"
+            ),
+        )
+        _superuser_audit(
+            "ACTIVE_ANNOUNCEMENTS_DELETED",
+            "ACTIVE_BROADCASTS",
+            (
+                f"Deleted {deleted_count} active broadcasts; "
+                f"removed {result['notifications']} notifications, "
+                f"{result['recipients']} recipients, and {result['votes']} votes."
+            ),
+        )
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        flash("Could not delete the ongoing broadcasts due to a database error.", "danger")
+        return redirect(url_for("notifications.manage_announcements"))
+
+    flash(
+        f"Deleted {deleted_count} ongoing broadcast(s) for all users. "
+        "Associated notifications and popup delivery records were removed.",
+        "success",
+    )
     return redirect(url_for("notifications.manage_announcements"))

@@ -309,6 +309,12 @@
   border-color: var(--color-warning, #eab308);
 }
 
+.backup-note-danger {
+  background: var(--flash-danger-bg, #fee2e2);
+  border-color: var(--color-danger, #ef4444);
+  color: var(--color-danger, #991b1b);
+}
+
 .backup-command-block {
   margin-top: 0.75rem;
   padding: 0.875rem 1rem;

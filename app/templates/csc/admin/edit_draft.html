@@ -137,7 +137,7 @@
 
     <div class="csc-edit-card">
       <h2>Material Master Table</h2>
-      <p class="csc-edit-note">Only fields that are not managed from the workflow `Material Properties`, `Storage and Handling`, or `Impact` tabs are editable here. Inventory Intelligence reads directly from this master table.</p>
+      <p class="csc-edit-note">Only fields that are not managed from the workflow `Material Properties`, `Storage and Handling`, or `Impact` tabs are editable here. Inventory Intelligence reads directly from this master table. If workflow content needs to change, create your own admin draft instead of editing the committee submission.</p>
       <div class="csc-edit-grid">
         {% for field_name, label in master_fields %}
         <div class="csc-edit-field">
@@ -156,7 +156,7 @@
 
     <div class="csc-edit-actions">
       <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> Save Material Master Data</button>
-      <a href="{{ url_for('csc.editor', draft_id=draft.id) }}" class="btn btn-secondary">Open Workflow Editor</a>
+      <a href="{{ url_for('csc.admin_drafts') }}" class="btn btn-secondary"><i class="bi bi-ui-checks-grid"></i> Configure Workflow in Manage Drafts</a>
       <a href="{{ url_for('csc.admin_drafts') }}" class="btn btn-secondary">Back to Manage Drafts</a>
     </div>
   </form>

@@ -30,7 +30,7 @@ class ExtractedParameter:
     name: str                          # "Physical state"
     unit_condition: str                # "at 105±2°C, percent by mass"  (may be "")
     existing_value: str                # "15.0 (Maximum)"
-    parameter_type: str = "Essential"  # Essential / Desirable
+    parameter_type: str = "Desirable"  # Vital / Desirable
     group: str = ""                    # Section group header, e.g. "Borate Sensitivity Test"
     raw_left: str = ""                 # full left-side text as extracted
     raw_right: str = ""                # full right-side text as extracted
@@ -261,12 +261,12 @@ def _normalize_param_type_label(raw: str) -> str:
     if "desirable" in txt:
         return "Desirable"
     if "vital" in txt:
-        return "Desirable"
+        return "Vital"
     if "inform" in txt:
         return "Desirable"
     if "essential" in txt:
-        return "Essential"
-    return "Essential"
+        return "Desirable"
+    return "Desirable"
 
 
 def _split_leading_param_type(name: str) -> tuple[str, str]:
@@ -307,7 +307,7 @@ def _split_leading_param_type(name: str) -> tuple[str, str]:
 
     raw = (name or "").strip()
     if not raw:
-        return "", "Essential"
+        return "", "Desirable"
 
     cleaned = raw
     detected_types: list[str] = []
@@ -332,10 +332,12 @@ def _split_leading_param_type(name: str) -> tuple[str, str]:
             break
 
     if not detected_types:
-        return raw, "Essential"
+        return raw, "Desirable"
     if "Desirable" in detected_types:
         return cleaned, "Desirable"
-    return cleaned, "Essential"
+    if "Vital" in detected_types:
+        return cleaned, "Vital"
+    return cleaned, "Desirable"
 
 
 def _parse_rows_into_params(result: SpecDocument, rows: list[list[dict]]) -> None:
@@ -450,7 +452,7 @@ def spec_to_parameter_dicts(spec: SpecDocument) -> list[dict]:
             name = f"[{p.group}] {name}"
         rows.append({
             "parameter_name":  name,
-            "parameter_type":  "Essential",
+            "parameter_type":  "Desirable",
             "existing_value":  p.existing_value,
             "proposed_value":  p.existing_value,   # pre-fill proposed = existing
             "test_method":     "",

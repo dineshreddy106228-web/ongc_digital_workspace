@@ -24,7 +24,7 @@ import json
 import logging
 
 from flask import flash, jsonify, redirect, render_template, request, send_file, session, url_for
-from flask_login import login_required
+from flask_login import current_user, login_required
 
 from app.modules.inventory import inventory_bp
 from app.core.utils.decorators import module_access_required, superuser_required
@@ -457,9 +457,38 @@ def api_overview():
 @module_access_required("inventory")
 def api_materials():
     """Return all materials as JSON for client-side table rendering."""
+    from app.models.inventory.material_msds_document import MaterialMSDSDocument
+
     store = _get_inventory_store()
     plant = request.args.get("plant")
-    return jsonify(store.get_materials_table(plant=plant))
+    rows = store.get_materials_table(plant=plant)
+    material_codes = [
+        str(row.get("material_code") or "").strip()
+        for row in rows
+        if str(row.get("material_code") or "").strip()
+    ]
+    msds_documents = {}
+    if material_codes:
+        msds_documents = {
+            document.material_code: document
+            for document in (
+                MaterialMSDSDocument.query
+                .filter(MaterialMSDSDocument.material_code.in_(material_codes))
+                .all()
+            )
+        }
+
+    enriched_rows = []
+    for row in rows:
+        material_code = str(row.get("material_code") or "").strip()
+        document = msds_documents.get(material_code)
+        enriched = dict(row)
+        enriched["has_msds"] = document is not None
+        enriched["msds_material_code"] = material_code if document else ""
+        enriched["msds_filename"] = document.original_filename if document else ""
+        enriched_rows.append(enriched)
+
+    return jsonify(enriched_rows)
 
 
 # ── API: Monthly consumption detail ──────────────────────────────────────────
@@ -559,15 +588,24 @@ def export_excel():
 def master_data_page():
     """Master Data viewer/editor – superusers only."""
     from app.core.services.master_data import get_all_master_data, get_extra_column_keys
+    from app.models.inventory.material_msds_document import MaterialMSDSDocument
 
     rows = get_all_master_data()
     extra_keys = get_extra_column_keys()
+    msds_documents = MaterialMSDSDocument.query.order_by(
+        MaterialMSDSDocument.material_code.asc()
+    ).all()
+    msds_by_material = {
+        document.material_code: document for document in msds_documents
+    }
     return render_template(
         "inventory/master_data.html",
         rows=rows,
         extra_keys=extra_keys,
         total=len(rows),
         read_only=True,
+        msds_by_material=msds_by_material,
+        msds_count=len(msds_documents),
     )
 
 
@@ -577,6 +615,84 @@ def master_data_page():
 def master_data_import():
     """Upload a Master_data.xlsx workbook and upsert all rows."""
     flash("Inventory Master Data import is disabled. Edit master data from CSC Manage Drafts.", "warning")
+    return redirect(url_for("inventory.master_data_page"))
+
+
+@inventory_bp.route("/master-data/msds/upload", methods=["POST"])
+@login_required
+@superuser_required
+def upload_msds():
+    from app.core.services.inventory_msds import MSDSError, store_msds_document
+
+    material_code = request.form.get("material_code", "").strip()
+    file_obj = request.files.get("msds_file")
+
+    try:
+        store_msds_document(
+            material_code=material_code,
+            file_obj=file_obj,
+            uploaded_by=getattr(current_user, "id", None),
+        )
+        db.session.commit()
+    except MSDSError as exc:
+        db.session.rollback()
+        flash(str(exc), "danger")
+        return redirect(url_for("inventory.master_data_page"))
+    except Exception:
+        db.session.rollback()
+        logger.exception("Failed to upload MSDS PDF for material=%s", material_code)
+        flash("Could not upload the MSDS PDF.", "danger")
+        return redirect(url_for("inventory.master_data_page"))
+
+    flash(f"MSDS PDF stored for material '{material_code}'.", "success")
+    return redirect(url_for("inventory.master_data_page"))
+
+
+@inventory_bp.route("/master-data/msds/<path:material_code>")
+@login_required
+@module_access_required("inventory")
+def open_msds(material_code: str):
+    from app.core.services.inventory_msds import MSDSError, open_msds_file
+
+    download = (request.args.get("download") or "").strip().lower() in {"1", "true", "yes"}
+    try:
+        document, file_stream = open_msds_file(material_code)
+    except MSDSError as exc:
+        flash(str(exc), "warning")
+        return redirect(request.referrer or url_for("inventory.materials_page"))
+
+    return send_file(
+        file_stream,
+        mimetype=document.mime_type or "application/pdf",
+        as_attachment=download,
+        download_name=document.original_filename,
+        max_age=0,
+    )
+
+
+@inventory_bp.route("/master-data/msds/<path:material_code>/delete", methods=["POST"])
+@login_required
+@superuser_required
+def delete_msds(material_code: str):
+    from app.core.services.inventory_msds import MSDSError, delete_msds_document
+
+    try:
+        deleted = delete_msds_document(material_code)
+        if not deleted:
+            flash(f"No MSDS PDF is stored for material '{material_code}'.", "info")
+            return redirect(url_for("inventory.master_data_page"))
+        db.session.commit()
+    except MSDSError as exc:
+        db.session.rollback()
+        flash(str(exc), "danger")
+        return redirect(url_for("inventory.master_data_page"))
+    except Exception:
+        db.session.rollback()
+        logger.exception("Failed to delete MSDS PDF for material=%s", material_code)
+        flash("Could not delete the MSDS PDF.", "danger")
+        return redirect(url_for("inventory.master_data_page"))
+
+    flash(f"MSDS PDF deleted for material '{material_code}'.", "success")
     return redirect(url_for("inventory.master_data_page"))
 
 

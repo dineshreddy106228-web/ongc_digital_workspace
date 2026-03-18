@@ -44,87 +44,280 @@
   background: color-mix(in srgb, #f59e0b 15%, transparent);
   color: #b45309;
 }
-.csc-status-open {
+.csc-status-open,
+.csc-status-approved {
   background: color-mix(in srgb, #10b981 15%, transparent);
   color: #047857;
+}
+.csc-status-rejected {
+  background: color-mix(in srgb, #dc3545 15%, transparent);
+  color: #b91c1c;
 }
 .csc-actions {
   white-space: nowrap;
   text-align: right;
 }
 .csc-btn-sm {
-  padding: 0.35rem 0.65rem;
-  font-size: 0.8rem;
-  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.82rem;
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm, 5px);
   cursor: pointer;
-  margin-left: 0.25rem;
-}
-.csc-btn-review {
+  background: var(--surface);
   color: var(--primary);
-  background: none;
-}
-.csc-btn-approve {
-  color: #fff;
-  background: var(--success, #10b981);
-}
-.csc-btn-return {
-  color: #fff;
-  background: #f59e0b;
-}
-.csc-btn-reject {
-  color: #fff;
-  background: var(--danger, #dc3545);
 }
 .csc-no-data {
   text-align: center;
   padding: 3rem 1rem;
   color: var(--muted);
 }
-.csc-modal-backdrop {
+.csc-review-modal {
   display: none;
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  z-index: 1000;
-  align-items: center;
-  justify-content: center;
+  background: rgba(15, 23, 42, 0.55);
+  z-index: 1100;
+  padding: 1.5rem;
+  overflow-y: auto;
 }
-.csc-modal-backdrop.active {
-  display: flex;
+.csc-review-modal.active {
+  display: block;
 }
-.csc-modal-content {
+.csc-review-shell {
+  width: min(1200px, calc(100vw - 3rem));
+  margin: 0 auto;
   background: var(--surface);
   border-radius: var(--radius);
-  padding: 1.75rem;
-  max-width: 520px;
-  width: calc(100% - 2rem);
   box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border);
+  max-height: calc(100vh - 3rem);
+  display: flex;
+  flex-direction: column;
 }
-.csc-modal-title {
-  margin: 0 0 0.75rem;
+.csc-review-header,
+.csc-review-footer {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
 }
-.csc-modal-field {
+.csc-review-footer {
+  border-bottom: none;
+  border-top: 1px solid var(--border);
+}
+.csc-review-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+.csc-review-title {
+  margin: 0;
+}
+.csc-review-subtitle {
+  margin: 0.25rem 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.csc-review-close {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 999px;
+  width: 2.25rem;
+  height: 2.25rem;
+  cursor: pointer;
+}
+.csc-review-body {
+  padding: 1.25rem;
+  overflow-y: auto;
+}
+.csc-review-loading,
+.csc-review-error {
+  padding: 2rem;
+  text-align: center;
+  color: var(--muted);
+}
+.csc-review-intro {
+  margin-bottom: 1rem;
+  padding: 0.9rem 1rem;
+  border-radius: var(--radius-sm, 8px);
+  background: color-mix(in srgb, var(--primary) 7%, transparent);
+  color: var(--text);
+}
+.csc-review-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
   margin-bottom: 1rem;
 }
-.csc-modal-field label {
+.csc-review-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  margin-bottom: 1rem;
+  background: var(--surface);
+}
+.csc-review-card h3,
+.csc-review-card h4 {
+  margin-top: 0;
+}
+.csc-review-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0.9rem;
+}
+.csc-review-stat {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+  padding: 0.8rem 0.9rem;
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+}
+.csc-review-stat-label {
   display: block;
-  margin-bottom: 0.4rem;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-bottom: 0.35rem;
+}
+.csc-review-stat-value {
+  font-weight: 600;
+  white-space: pre-wrap;
+}
+.csc-review-section-block + .csc-review-section-block,
+.csc-review-list-item + .csc-review-list-item {
+  margin-top: 1rem;
+}
+.csc-review-pre {
+  margin: 0;
+  white-space: pre-wrap;
+  font: inherit;
+  color: var(--text);
+}
+.csc-review-list-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+}
+.csc-review-flag {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  font-size: 0.75rem;
+  background: color-mix(in srgb, #10b981 15%, transparent);
+  color: #047857;
+}
+.csc-review-flag.is-flagged {
+  background: color-mix(in srgb, #f59e0b 18%, transparent);
+  color: #b45309;
+}
+.csc-review-table-wrap {
+  overflow-x: auto;
+}
+.csc-review-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+.csc-review-table th,
+.csc-review-table td {
+  padding: 0.6rem 0.65rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.csc-review-kv {
+  margin: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+.csc-review-kv div {
+  display: grid;
+  gap: 0.25rem;
+}
+.csc-review-kv dt {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.csc-review-kv dd {
+  margin: 0;
+  white-space: pre-wrap;
+}
+.csc-review-empty {
+  margin: 0;
+  color: var(--muted);
+}
+.csc-decision-panel {
+  display: none;
+}
+.csc-decision-panel.active {
+  display: block;
+}
+.csc-decision-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+  margin-bottom: 0.9rem;
+}
+.csc-decision-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.csc-decision-field label {
   font-weight: 600;
 }
-.csc-modal-field select,
-.csc-modal-field textarea {
+.csc-decision-field small {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.csc-decision-field input,
+.csc-decision-field select,
+.csc-decision-field textarea {
   width: 100%;
-  padding: 0.7rem 0.8rem;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-sm, 6px);
+  padding: 0.7rem 0.8rem;
   background: var(--surface);
   color: var(--text);
 }
-.csc-modal-actions {
+.csc-decision-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+}
+.csc-decision-buttons {
   display: flex;
   gap: 0.75rem;
-  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.csc-decision-note {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+@media (max-width: 900px) {
+  .csc-review-columns,
+  .csc-decision-grid {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 640px) {
+  .csc-review-modal {
+    padding: 0.75rem;
+  }
+  .csc-review-shell {
+    width: calc(100vw - 1.5rem);
+    max-height: calc(100vh - 1.5rem);
+  }
+  .csc-review-header,
+  .csc-review-body,
+  .csc-review-footer {
+    padding: 0.9rem;
+  }
 }
 </style>
 {% endblock %}
@@ -135,8 +328,12 @@
     <div>
       <div class="page-kicker"><a href="{{ url_for('csc.admin_index') }}">Material Master Admin</a></div>
       <h1 class="inv-module-title"><i class="bi bi-clipboard-check"></i> Committee Workbench</h1>
-      <p class="inv-module-subtitle">Review drafts submitted from the drafting workspace and either approve, return, or reject them</p>
+      <p class="inv-module-subtitle">Review committee submissions in read-only mode, then approve, return, or reject them from the workbench modal</p>
     </div>
+  </div>
+
+  <div class="alert alert-info">
+    Admin review is read-only. Committee submissions are not opened in the editor from this screen. If workflow edits are required, use Manage Drafts to create a separate admin self draft.
   </div>
 
   {% with messages = get_flashed_messages(with_categories=true) %}
@@ -159,7 +356,7 @@
               <th>Submitted At</th>
               <th>Status</th>
               <th>Notes</th>
-              <th style="width: 280px; text-align: right;">Actions</th>
+              <th style="width: 220px; text-align: right;">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -177,20 +374,15 @@
               </td>
               <td>{{ revision.reviewer_notes or '—' }}</td>
               <td class="csc-actions">
-                <a href="{{ url_for('csc.admin_review_revision', revision_id=revision.id) }}" class="csc-btn-sm csc-btn-review">
-                  <i class="bi bi-eye"></i> Review
-                </a>
-                {% if revision.status == 'submitted' %}
-                <button type="button" class="csc-btn-sm csc-btn-approve" data-action="approve" data-revision-id="{{ revision.id }}">
-                  <i class="bi bi-check-lg"></i> Approve
+                <button
+                  type="button"
+                  class="csc-btn-sm"
+                  data-review-revision-id="{{ revision.id }}"
+                  data-review-title="{{ revision.parent_spec.spec_number }} — {{ revision.parent_spec.chemical_name or 'Draft Review' }}"
+                >
+                  <i class="bi bi-eye"></i>
+                  {{ 'Review & Decide' if revision.status == 'submitted' else 'View Snapshot' }}
                 </button>
-                <button type="button" class="csc-btn-sm csc-btn-return" data-action="return" data-revision-id="{{ revision.id }}">
-                  <i class="bi bi-arrow-return-left"></i> Return
-                </button>
-                <button type="button" class="csc-btn-sm csc-btn-reject" data-action="reject" data-revision-id="{{ revision.id }}">
-                  <i class="bi bi-x-lg"></i> Reject
-                </button>
-                {% endif %}
               </td>
             </tr>
             {% endfor %}
@@ -207,23 +399,62 @@
   </div>
 </div>
 
-<div id="reviewActionModal" class="csc-modal-backdrop">
-  <div class="csc-modal-content">
-    <h3 class="csc-modal-title" id="reviewActionTitle">Review Draft</h3>
-    <div class="csc-modal-field" id="versionField">
-      <label for="versionIncrement">Version Increment</label>
-      <select id="versionIncrement">
-        <option value="whole">Whole Number</option>
-        <option value="decimal">Decimal</option>
-      </select>
+<div id="reviewDetailModal" class="csc-review-modal" aria-hidden="true">
+  <div class="csc-review-shell" role="dialog" aria-modal="true" aria-labelledby="reviewDetailTitle">
+    <div class="csc-review-header">
+      <div>
+        <h2 class="csc-review-title" id="reviewDetailTitle">Draft Review</h2>
+        <p class="csc-review-subtitle" id="reviewDetailSubtitle">Read-only revision snapshot for admin review.</p>
+      </div>
+      <button type="button" class="csc-review-close" id="closeReviewDetailModal" aria-label="Close review dialog">
+        <i class="bi bi-x-lg"></i>
+      </button>
     </div>
-    <div class="csc-modal-field">
-      <label for="reviewerNotes">Reviewer Notes</label>
-      <textarea id="reviewerNotes" rows="5" placeholder="Enter approval, return, or rejection note..."></textarea>
+
+    <div class="csc-review-body" id="reviewDetailBody">
+      <div class="csc-review-loading">Loading draft snapshot…</div>
     </div>
-    <div class="csc-modal-actions">
-      <button type="button" id="cancelReviewAction" class="btn btn-secondary">Cancel</button>
-      <button type="button" id="confirmReviewAction" class="btn btn-primary">Continue</button>
+
+    <div class="csc-review-footer">
+      <div id="reviewDecisionPanel" class="csc-decision-panel">
+        <div class="csc-decision-grid">
+          <div class="csc-decision-field">
+            <label for="reviewVersionIncrement">Version Increment</label>
+            <select id="reviewVersionIncrement">
+              <option value="whole">Whole Number</option>
+              <option value="decimal">Decimal</option>
+            </select>
+          </div>
+          <div class="csc-decision-field">
+            <label for="reviewApprovedBy">Approved By</label>
+            <input id="reviewApprovedBy" type="text" placeholder="Enter the approving authority name">
+            <small>Required on approval. Capture the exact approving authority.</small>
+          </div>
+          <div class="csc-decision-field">
+            <label for="reviewDishaFileNumber">Disha File Number</label>
+            <input id="reviewDishaFileNumber" type="text" placeholder="Enter the Disha file number">
+            <small>Required on approval. Enter the file reference under which approval was obtained.</small>
+          </div>
+          <div class="csc-decision-field" style="grid-column: 1 / -1;">
+            <label for="reviewerNotes">Approval / Return Notes</label>
+            <textarea id="reviewerNotes" rows="4" placeholder="Enter the review decision note. On approval, include the rationale and any publication direction."></textarea>
+            <small>Approval notes must include decision context, the Approved By name, and the Disha File Number.</small>
+          </div>
+        </div>
+        <div class="csc-decision-actions">
+          <div class="csc-decision-note">Approve publishes the submitted draft. Return sends it back without admin edits. Reject deletes the submitted child draft.</div>
+          <div class="csc-decision-buttons">
+            <button type="button" class="btn btn-secondary" id="dismissReviewDetail">Close</button>
+            <button type="button" class="btn btn-warning" data-decision-action="return">Return</button>
+            <button type="button" class="btn btn-danger" data-decision-action="reject">Reject</button>
+            <button type="button" class="btn btn-primary" data-decision-action="approve">Approve and Publish</button>
+          </div>
+        </div>
+      </div>
+      <div id="reviewReadOnlyFooter" class="csc-decision-actions">
+        <div class="csc-decision-note">This submission is no longer awaiting a decision. The snapshot remains available for audit review.</div>
+        <button type="button" class="btn btn-secondary" id="dismissReviewReadOnly">Close</button>
+      </div>
     </div>
   </div>
 </div>
@@ -235,61 +466,92 @@
   'use strict';
 
   const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
-  const modal = document.getElementById('reviewActionModal');
-  const notesInput = document.getElementById('reviewerNotes');
-  const versionField = document.getElementById('versionField');
-  const confirmButton = document.getElementById('confirmReviewAction');
-  const title = document.getElementById('reviewActionTitle');
-  let currentAction = null;
+  const modal = document.getElementById('reviewDetailModal');
+  const modalTitle = document.getElementById('reviewDetailTitle');
+  const modalSubtitle = document.getElementById('reviewDetailSubtitle');
+  const modalBody = document.getElementById('reviewDetailBody');
+  const decisionPanel = document.getElementById('reviewDecisionPanel');
+  const readOnlyFooter = document.getElementById('reviewReadOnlyFooter');
+  const reviewerNotes = document.getElementById('reviewerNotes');
+  const approvedByInput = document.getElementById('reviewApprovedBy');
+  const dishaInput = document.getElementById('reviewDishaFileNumber');
+  const versionSelect = document.getElementById('reviewVersionIncrement');
   let currentRevisionId = null;
-
-  function openModal(action, revisionId) {
-    currentAction = action;
-    currentRevisionId = revisionId;
-    notesInput.value = '';
-    versionField.style.display = action === 'approve' ? 'block' : 'none';
-    title.textContent = action === 'approve'
-      ? 'Approve Draft'
-      : action === 'return'
-        ? 'Return Draft'
-        : 'Reject Draft';
-    confirmButton.textContent = action === 'approve'
-      ? 'Approve and Publish'
-      : action === 'return'
-        ? 'Return Draft'
-        : 'Reject Draft';
-    modal.classList.add('active');
-  }
+  let currentStatus = null;
 
   function closeModal() {
     modal.classList.remove('active');
-    currentAction = null;
+    modal.setAttribute('aria-hidden', 'true');
     currentRevisionId = null;
+    currentStatus = null;
+    modalBody.innerHTML = '<div class="csc-review-loading">Loading draft snapshot…</div>';
+    reviewerNotes.value = '';
+    approvedByInput.value = '';
+    dishaInput.value = '';
+    versionSelect.value = 'whole';
   }
 
-  document.querySelectorAll('[data-action]').forEach(button => {
-    button.addEventListener('click', function() {
-      openModal(this.dataset.action, this.dataset.revisionId);
+  function setDecisionMode(status) {
+    const isSubmitted = status === 'submitted';
+    decisionPanel.classList.toggle('active', isSubmitted);
+    readOnlyFooter.style.display = isSubmitted ? 'none' : 'flex';
+  }
+
+  function openReview(revisionId, title) {
+    currentRevisionId = revisionId;
+    modalTitle.textContent = title || 'Draft Review';
+    modalSubtitle.textContent = 'Loading read-only revision snapshot…';
+    modalBody.innerHTML = '<div class="csc-review-loading">Loading draft snapshot…</div>';
+    setDecisionMode(false);
+    modal.classList.add('active');
+    modal.setAttribute('aria-hidden', 'false');
+
+    fetch(`/csc/admin/revision/${revisionId}/review`, {
+      headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+    .then(response => response.json().then(data => ({ ok: response.ok, data })))
+    .then(({ ok, data }) => {
+      if (!ok || !data.success) {
+        throw new Error(data.error || 'Failed to load revision detail');
+      }
+      currentStatus = data.status;
+      modalSubtitle.textContent = data.status === 'submitted'
+        ? 'Review the full submission below and decide from this dialog.'
+        : 'Read-only revision snapshot.';
+      modalBody.innerHTML = data.html;
+      setDecisionMode(data.status);
+    })
+    .catch(error => {
+      modalBody.innerHTML = `<div class="csc-review-error">${error.message}</div>`;
+      setDecisionMode(false);
     });
-  });
+  }
 
-  document.getElementById('cancelReviewAction').addEventListener('click', closeModal);
-  modal.addEventListener('click', function(event) {
-    if (event.target === modal) closeModal();
-  });
+  function submitDecision(action) {
+    if (!currentRevisionId || currentStatus !== 'submitted') return;
 
-  confirmButton.addEventListener('click', function() {
-    if (!currentAction || !currentRevisionId) return;
-    const reviewerNotes = notesInput.value.trim();
-    if (!reviewerNotes) {
-      alert('Reviewer notes are required.');
+    const noteText = reviewerNotes.value.trim();
+    if (!noteText) {
+      alert('Review notes are required.');
       return;
     }
-    const payload = { reviewer_notes: reviewerNotes };
-    if (currentAction === 'approve') {
-      payload.version_increment = document.getElementById('versionIncrement').value;
+
+    const payload = { reviewer_notes: noteText };
+    if (action === 'approve') {
+      payload.version_increment = versionSelect.value;
+      payload.approval_authorized_by = approvedByInput.value.trim();
+      payload.approval_disha_file_number = dishaInput.value.trim();
+      if (!payload.approval_authorized_by) {
+        alert('Enter the Approved By name before publishing.');
+        return;
+      }
+      if (!payload.approval_disha_file_number) {
+        alert('Enter the Disha File Number before publishing.');
+        return;
+      }
     }
-    fetch(`/csc/admin/revision/${currentRevisionId}/${currentAction}`, {
+
+    fetch(`/csc/admin/revision/${currentRevisionId}/${action}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -307,6 +569,27 @@
     .catch(error => {
       alert(error.message);
     });
+  }
+
+  document.querySelectorAll('[data-review-revision-id]').forEach(button => {
+    button.addEventListener('click', function() {
+      openReview(this.dataset.reviewRevisionId, this.dataset.reviewTitle);
+    });
+  });
+
+  document.querySelectorAll('[data-decision-action]').forEach(button => {
+    button.addEventListener('click', function() {
+      submitDecision(this.dataset.decisionAction);
+    });
+  });
+
+  document.getElementById('closeReviewDetailModal').addEventListener('click', closeModal);
+  document.getElementById('dismissReviewDetail').addEventListener('click', closeModal);
+  document.getElementById('dismissReviewReadOnly').addEventListener('click', closeModal);
+  modal.addEventListener('click', function(event) {
+    if (event.target === modal) {
+      closeModal();
+    }
   });
 })();
 </script>

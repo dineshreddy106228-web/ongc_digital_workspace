@@ -38,4 +38,5 @@ migrations/versions/__pycache__/
 backups/
 *.sql
 *.sql.gz
+storage/msds/
 .DS_Store

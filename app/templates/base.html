@@ -368,24 +368,23 @@
 
             form.addEventListener('submit', function (event) {
                 event.preventDefault();
-                var formData = new FormData(form);
 
+                // ── Optimistic close: remove modal immediately ─────────────────
+                overlay.remove();
+                document.body.classList.remove('welcome-modal-open');
+                if (announcementOverlay) {
+                    announcementOverlay.classList.remove('hidden');
+                    document.body.classList.add('welcome-modal-open');
+                }
+
+                // ── Acknowledge to server in background ────────────────────────
+                var formData = new FormData(form);
                 fetch(form.action, {
                     method: 'POST',
                     body: new URLSearchParams(formData),
-                    headers: {
-                        'X-Requested-With': 'XMLHttpRequest'
-                    }
-                }).then(function (response) {
-                    if (!response.ok) throw new Error('Welcome acknowledgement failed');
-                    overlay.remove();
-                    if (announcementOverlay) {
-                        announcementOverlay.classList.remove('hidden');
-                    } else {
-                        document.body.classList.remove('welcome-modal-open');
-                    }
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
                 }).catch(function () {
-                    form.submit();
+                    /* Network hiccup — modal already gone, silently ignore */
                 });
             });
         })();
@@ -406,19 +405,19 @@
 
             dismissForm.addEventListener('submit', function (event) {
                 event.preventDefault();
+
+                // ── Optimistic close: remove modal immediately so it never hangs ──
+                overlay.remove();
+                document.body.classList.remove('welcome-modal-open');
+
+                // ── Fire dismiss to server in background (best-effort) ──────────
                 var formData = new FormData(dismissForm);
                 fetch(dismissForm.action, {
                     method: 'POST',
                     body: new URLSearchParams(formData),
-                    headers: {
-                        'X-Requested-With': 'XMLHttpRequest'
-                    }
-                }).then(function (response) {
-                    if (!response.ok) throw new Error('Announcement dismiss failed');
-                    overlay.remove();
-                    document.body.classList.remove('welcome-modal-open');
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
                 }).catch(function () {
-                    dismissForm.submit();
+                    /* Network hiccup — modal already gone, silently ignore */
                 });
             });
         })();

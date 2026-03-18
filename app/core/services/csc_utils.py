@@ -45,7 +45,7 @@ IMPACT_SUBTYPES = [
 REC_MAIN_KEY = "Recommendation::main"
 REC_REMARKS_KEY = "Recommendation::remarks"
 
-PARAMETER_TYPES = ["Vital", "Essential"]
+PARAMETER_TYPES = ["Vital", "Desirable"]
 TEST_PROCEDURE_OPTIONS = [
     "ASTIM",
     "API",
@@ -90,14 +90,15 @@ ADMIN_PUBLISHED_STATUS = "Published"
 
 # Type normalization aliases
 TYPE_CLASS_ALIASES = {
-    "essential": "Essential",
-    "desirable": "Essential",
+    "essential": "Desirable",
+    "desirable": "Desirable",
     "vital": "Vital",
-    "essential-informational": "Essential",
-    "essential informational": "Essential",
-    "essential / informational": "Essential",
-    "essential - informational": "Essential",
-    "essential/informational": "Essential",
+    "essential-informational": "Desirable",
+    "essential informational": "Desirable",
+    "essential / informational": "Desirable",
+    "essential - informational": "Desirable",
+    "essential/informational": "Desirable",
+    "informational": "Desirable",
 }
 
 TEST_PROCEDURE_TYPE_ALIASES = {
@@ -231,7 +232,7 @@ def sort_specs_by_subset_order(rows, spec_key="spec_number"):
 
 def normalize_parameter_type_label(raw: str) -> str:
     txt = str(raw or "").strip().lower()
-    return TYPE_CLASS_ALIASES.get(txt, "Essential") if txt else "Essential"
+    return TYPE_CLASS_ALIASES.get(txt, "Desirable") if txt else "Desirable"
 
 
 def normalize_test_procedure_type(raw: str) -> str:
