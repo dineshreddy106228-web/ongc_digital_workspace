@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+{% block title %}MSDS Center — Material Master Management — {{ app_name }}{% endblock %}
+
+{% block head_extra %}
+<meta name="csrf-token" content="{{ csrf_token() }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}">
+<style nonce="{{ csp_nonce() }}">
+.msds-center-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 1.1fr) minmax(260px, 0.9fr);
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+.msds-center-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 1.25rem 1.5rem;
+}
+.msds-center-card.is-primary {
+  background: linear-gradient(135deg, rgba(239, 246, 255, 0.96) 0%, rgba(255, 255, 255, 1) 100%);
+  border-color: rgba(59, 130, 246, 0.2);
+}
+.msds-center-title {
+  margin: 0 0 0.3rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.msds-center-subtitle {
+  margin: 0 0 1rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.msds-center-form {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(260px, 1.15fr) auto;
+  gap: 0.75rem;
+  align-items: end;
+}
+.msds-field-label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 0.35rem;
+}
+.msds-input {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+.msds-input:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.msds-center-stats {
+  display: grid;
+  gap: 0.75rem;
+}
+.msds-stat {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 1rem 1.1rem;
+}
+.msds-stat-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-bottom: 0.35rem;
+}
+.msds-stat-value {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.msds-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 999px;
+  padding: 0.22rem 0.6rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+.msds-status-pill.is-present {
+  color: #166534;
+  background: rgba(34, 197, 94, 0.12);
+}
+.msds-status-pill.is-missing {
+  color: #92400e;
+  background: rgba(245, 158, 11, 0.14);
+}
+.msds-link-list {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+@media (max-width: 980px) {
+  .msds-center-grid,
+  .msds-center-form {
+    grid-template-columns: 1fr;
+  }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="inv-page">
+  <a href="{{ url_for('csc.landing') }}" class="csc-back-link">
+    <i class="bi bi-arrow-left"></i> Back to Material Master Management
+  </a>
+
+  <div class="inv-module-header">
+    <div>
+      <h1 class="inv-module-title"><i class="bi bi-file-earmark-pdf"></i> MSDS Center</h1>
+      <p class="inv-module-subtitle">Upload, replace, view, and delete material-specific MSDS PDFs from the Material Master Management module.</p>
+    </div>
+    <div class="inv-header-actions">
+      <span class="inv-badge inv-badge-info">{{ total }} materials</span>
+      <span class="inv-badge inv-badge-success">{{ msds_count }} MSDS stored</span>
+      <a href="{{ url_for('csc.workspace') }}" class="btn btn-sm btn-secondary">
+        <i class="bi bi-pencil-square"></i> Drafting Workspace
+      </a>
+    </div>
+  </div>
+
+  <div class="msds-center-grid">
+    <div class="msds-center-card is-primary">
+      <h2 class="msds-center-title">Upload or Replace MSDS</h2>
+      <p class="msds-center-subtitle">
+        Committee users can upload the PDF here without needing Inventory Intelligence access.
+      </p>
+      <form method="POST" action="{{ url_for('csc.upload_msds') }}" enctype="multipart/form-data" class="msds-center-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div>
+          <label class="msds-field-label" for="material_code">Material Code</label>
+          <input class="msds-input" list="materialCodes" id="material_code" name="material_code" placeholder="Enter material code" value="{{ prefill_material_code or '' }}" required>
+          <datalist id="materialCodes">
+            {% for row in rows %}
+            <option value="{{ row.material }}">{{ row.short_text }}</option>
+            {% endfor %}
+          </datalist>
+        </div>
+        <div>
+          <label class="msds-field-label" for="msds_file">PDF File</label>
+          <input class="msds-input" type="file" id="msds_file" name="msds_file" accept="application/pdf,.pdf" required>
+        </div>
+        <div>
+          <button type="submit" class="btn btn-sm btn-primary">
+            <i class="bi bi-upload"></i> Upload MSDS
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <div class="msds-center-stats">
+      <div class="msds-stat">
+        <div class="msds-stat-label">Module</div>
+        <div class="msds-stat-value">Material Master Management</div>
+      </div>
+      <div class="msds-stat">
+        <div class="msds-stat-label">Storage Pattern</div>
+        <div class="msds-stat-value">PDF on disk, metadata in MySQL</div>
+      </div>
+      <div class="msds-stat">
+        <div class="msds-stat-label">Replacement Behavior</div>
+        <div class="msds-stat-value">New upload replaces the prior MSDS for that material</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="inv-card">
+    <div class="inv-card-header">
+      <div>
+        <h2 class="inv-card-title">Material MSDS Status</h2>
+        <p class="inv-card-subtitle">Direct MSDS management for all materials available in Material Master Management.</p>
+      </div>
+    </div>
+    <div class="inv-card-body">
+      <div class="inv-table-wrap">
+        <table class="inv-data-table">
+          <thead>
+            <tr>
+              <th>Material Code</th>
+              <th>Short Text</th>
+              <th>MSDS Status</th>
+              <th>Stored File</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+            {% set msds_doc = msds_by_material.get(row.material) %}
+            <tr class="inv-row-main">
+              <td>{{ row.material }}</td>
+              <td>{{ row.short_text }}</td>
+              <td>
+                {% if msds_doc %}
+                <span class="msds-status-pill is-present"><i class="bi bi-check-circle-fill"></i> Stored</span>
+                {% else %}
+                <span class="msds-status-pill is-missing"><i class="bi bi-dash-circle"></i> Not Stored</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if msds_doc %}
+                <div>{{ msds_doc.original_filename }}</div>
+                <div style="font-size:0.74rem; color:var(--muted);">
+                  {{ "{:,.0f}".format(msds_doc.file_size_bytes / 1024) }} KB
+                </div>
+                {% else %}
+                <span class="inv-muted">—</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if msds_doc %}
+                <div class="msds-link-list">
+                  <a href="{{ url_for('csc.open_msds', material_code=row.material) }}" class="btn btn-sm btn-secondary">View</a>
+                  <a href="{{ url_for('csc.open_msds', material_code=row.material, download=1) }}" class="btn btn-sm btn-outline">Download</a>
+                  <form method="POST" action="{{ url_for('csc.delete_msds', material_code=row.material) }}" onsubmit="return confirm('Delete the stored MSDS PDF for {{ row.material }}?');" style="display:inline;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-sm btn-outline" style="color: var(--danger,#dc3545); border-color: color-mix(in srgb, var(--danger,#dc3545) 35%, transparent);">Delete</button>
+                  </form>
+                </div>
+                {% else %}
+                <a href="{{ url_for('csc.msds_page', material_code=row.material) }}" class="btn btn-sm btn-outline">Upload</a>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

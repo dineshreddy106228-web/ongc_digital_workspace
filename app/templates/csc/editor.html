@@ -1309,6 +1309,11 @@
         <div class="csc-editor-title-block">
             <h1><i class="bi bi-pencil-square"></i> {{ draft.spec_number }}</h1>
             <p class="csc-editor-title-meta" id="draftChemicalMeta">{{ draft.chemical_name }} — v{{ draft.version if draft.version is not none else 1 }}</p>
+            {% if draft_type_label == 'New Specification' %}
+            <div style="margin-top:0.55rem;">
+                <span class="csc-workflow-scope-pill">New Specification</span>
+            </div>
+            {% endif %}
         </div>
         <div class="csc-editor-actions">
             <span class="csc-editor-status" id="draftStatus">

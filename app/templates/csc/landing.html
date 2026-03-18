@@ -461,6 +461,12 @@
         </div>
         <div class="inv-header-actions">
             <span class="inv-badge inv-badge-info" id="cscTotalBadge">Loading…</span>
+            <a href="{{ url_for('csc.msds_page') }}" class="btn btn-sm btn-secondary">
+                <i class="bi bi-file-earmark-pdf"></i> MSDS Center
+            </a>
+            <a href="{{ url_for('csc.ingest') }}" class="btn btn-sm btn-primary">
+                <i class="bi bi-cloud-upload"></i> New Specification Upload
+            </a>
         </div>
     </div>
 
@@ -521,6 +527,38 @@
             </div>
             <div class="inv-landing-card-footer">
                 <span class="inv-landing-enter">Open Workspace <i class="bi bi-arrow-right"></i></span>
+            </div>
+        </a>
+
+        <a href="{{ url_for('csc.msds_page') }}" class="inv-landing-card inv-landing-card-teal">
+            <div class="inv-landing-icon"><i class="bi bi-file-earmark-pdf"></i></div>
+            <div class="inv-landing-card-body">
+                <h2 class="inv-landing-card-title">MSDS Center</h2>
+                <p class="inv-landing-card-desc">Upload and manage material-specific MSDS PDFs directly from the Material Master Management module.</p>
+                <ul class="inv-landing-features">
+                    <li><i class="bi bi-check2"></i> Committee-user upload access</li>
+                    <li><i class="bi bi-check2"></i> View and download stored PDFs</li>
+                    <li><i class="bi bi-check2"></i> Replace or delete material MSDS</li>
+                </ul>
+            </div>
+            <div class="inv-landing-card-footer">
+                <span class="inv-landing-enter">Open MSDS Center <i class="bi bi-arrow-right"></i></span>
+            </div>
+        </a>
+
+        <a href="{{ url_for('csc.ingest') }}" class="inv-landing-card inv-landing-card-blue">
+            <div class="inv-landing-icon"><i class="bi bi-cloud-upload"></i></div>
+            <div class="inv-landing-card-body">
+                <h2 class="inv-landing-card-title">New Specification Upload</h2>
+                <p class="inv-landing-card-desc">Ingest a CSC Format A PDF or DOCX and open the same workflow as a new specification draft.</p>
+                <ul class="inv-landing-features">
+                    <li><i class="bi bi-check2"></i> Committee-user upload flow</li>
+                    <li><i class="bi bi-check2"></i> Duplicate serial blocking</li>
+                    <li><i class="bi bi-check2"></i> Same review and approval workflow</li>
+                </ul>
+            </div>
+            <div class="inv-landing-card-footer">
+                <span class="inv-landing-enter">Open Upload <i class="bi bi-arrow-right"></i></span>
             </div>
         </a>
 

@@ -136,6 +136,14 @@
             <i class="bi bi-pencil-square"></i> Material Master Drafting Workspace
         </h1>
         <p class="inv-module-subtitle" style="margin: 0.5rem 0 0;">Only chemicals in open drafting status are available here for subcommittee work.</p>
+        <div style="margin-top: 0.85rem;">
+            <a href="{{ url_for('csc.msds_page') }}" class="btn btn-sm btn-secondary">
+                <i class="bi bi-file-earmark-pdf"></i> Open MSDS Center
+            </a>
+            <a href="{{ url_for('csc.ingest') }}" class="btn btn-sm btn-primary">
+                <i class="bi bi-cloud-upload"></i> New Specification Upload
+            </a>
+        </div>
     </div>
 
     <div class="csc-filter-bar">
@@ -232,9 +240,12 @@
         }
         emptyState.style.display = 'none';
         tableBody.innerHTML = drafts.map(function(draft) {
+            const typeBadge = draft.draft_type === 'New Specification'
+                ? ' <span class="csc-badge csc-badge-open">New Specification</span>'
+                : '';
             return '' +
                 '<tr>' +
-                '<td><strong>' + (draft.spec_number || '—') + '</strong></td>' +
+                '<td><strong>' + (draft.spec_number || '—') + '</strong>' + typeBadge + '</td>' +
                 '<td>' + (draft.chemical_name || '—') + '</td>' +
                 '<td>' + (draft.subset_display || draft.subset || '—') + '</td>' +
                 '<td>v' + (draft.version || '0') + '</td>' +

@@ -129,9 +129,21 @@ from app.core.services.csc_committee_directory import (
     get_office_orders,
     OFFICE_ORDERS,
 )
+from app.core.services.csc_pdf_extractor import (
+    ExtractedParameter,
+    SpecDocument,
+    extract_spec_from_pdf,
+)
+from app.core.services.csc_docx_extractor import extract_all_specs_from_docx
+from app.core.services.csc_export import (
+    build_flask_review_document,
+    build_master_spec_document,
+)
+from app.core.services.master_data import get_all_master_data
 
 logger = logging.getLogger(__name__)
 WORKFLOW_SCOPE_SECTION_NAME = "__workflow_scope_json__"
+DRAFT_ORIGIN_SECTION_NAME = "__draft_origin_json__"
 WORKFLOW_SCOPE_DEFAULT = {
     "material_properties": True,
     "storage_handling": True,
@@ -183,6 +195,13 @@ def _can_submit_revision(revision: CSCRevision | None) -> bool:
 
 
 def _can_user_edit_workflow_draft(draft: CSCDraft) -> bool:
+    if (
+        draft.parent_draft_id is not None
+        and not draft.is_admin_draft
+        and draft.created_by_id == current_user.id
+    ):
+        revision = _get_revision_for_child(draft.id)
+        return revision is not None and _is_open_revision_state(revision.status)
     revision = _get_revision_for_child(draft.id)
     if revision is None:
         return False
@@ -314,6 +333,45 @@ def _can_delete_draft(draft: CSCDraft) -> bool:
     return False
 
 
+def _load_draft_origin_metadata(draft: CSCDraft) -> dict[str, object]:
+    """Return hidden draft-origin metadata persisted in a system section."""
+    if not getattr(draft, "id", None):
+        return {}
+    section = draft.sections.filter_by(section_name=DRAFT_ORIGIN_SECTION_NAME).first()
+    if section is None or not (section.section_text or "").strip():
+        return {}
+    try:
+        payload = json.loads(section.section_text)
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _write_draft_origin_metadata(draft: CSCDraft, payload: dict[str, object]) -> None:
+    """Persist hidden draft-origin metadata on a draft."""
+    section = draft.sections.filter_by(section_name=DRAFT_ORIGIN_SECTION_NAME).first()
+    text = json.dumps(payload)
+    if section is None:
+        db.session.add(
+            CSCSection(
+                draft_id=draft.id,
+                section_name=DRAFT_ORIGIN_SECTION_NAME,
+                section_text=text,
+                sort_order=9990,
+            )
+        )
+        return
+    section.section_text = text
+
+
+def _draft_type_label(draft: CSCDraft) -> str:
+    """Return the user-facing workflow type for a draft."""
+    origin = _load_draft_origin_metadata(draft)
+    if (origin.get("draft_kind") or "").strip() == "new_specification":
+        return "New Specification"
+    return "Revision"
+
+
 def _calculate_impact_grade(
     operational: int, safety: int, supply: int, no_substitute: bool
 ) -> str:
@@ -374,6 +432,237 @@ def _draft_sort_key(draft: CSCDraft) -> tuple:
     return spec_sort_key(draft.spec_number or "")
 
 
+def _find_conflicting_root_spec(spec_number: str) -> CSCDraft | None:
+    """Return an existing root draft if the subset/serial is already in use."""
+    subset_code, sequence, _ = parse_spec_number(spec_number or "")
+    if not subset_code or not sequence:
+        return None
+    for draft in CSCDraft.query.filter(CSCDraft.parent_draft_id.is_(None)).all():
+        draft_subset, draft_sequence, _ = parse_spec_number(draft.spec_number or "")
+        if draft_subset == subset_code and draft_sequence == sequence:
+            return draft
+    return None
+
+
+def _seed_sections_for_new_spec(draft: CSCDraft, source_label: str) -> None:
+    """Create initial narrative sections for a newly ingested specification."""
+    section_rows = [
+        (
+            "background",
+            f"New specification ingested from uploaded {source_label}. Review and complete the committee narrative before submission.",
+            10,
+        ),
+        (
+            "existing_spec",
+            "New specification proposal captured from CSC Format A source document.",
+            20,
+        ),
+        (
+            "changes",
+            "Complete the proposed changes narrative for this new specification before submission.",
+            30,
+        ),
+        (
+            "recommendation",
+            "New specification proposed for committee review and admin publication.",
+            40,
+        ),
+    ]
+    for section_name, section_text, sort_order in section_rows:
+        db.session.add(
+            CSCSection(
+                draft_id=draft.id,
+                section_name=section_name,
+                section_text=section_text,
+                sort_order=sort_order,
+            )
+        )
+
+
+def _seed_parameters_from_extracted_spec(draft: CSCDraft, spec: SpecDocument) -> None:
+    """Create CSC parameter rows from an extracted CSC Format A spec document."""
+    for index, parameter in enumerate(spec.parameters, start=1):
+        parameter_name = (parameter.name or "").strip() or f"Parameter {index}"
+        if (parameter.group or "").strip():
+            parameter_name = f"[{parameter.group.strip()}] {parameter_name}"
+        existing_value = (parameter.existing_value or "").strip()
+        db.session.add(
+            CSCParameter(
+                draft_id=draft.id,
+                parameter_name=parameter_name,
+                parameter_type=normalize_parameter_type_label(parameter.parameter_type or "Desirable"),
+                unit_of_measure="",
+                existing_value=existing_value,
+                required_value_type="text",
+                required_value_text=existing_value,
+                parameter_conditions=(parameter.unit_condition or "").strip(),
+                test_procedure_type="",
+                test_procedure_text="",
+                test_method="",
+                sort_order=index,
+            )
+        )
+
+
+def _build_ingest_preview_spec(spec: SpecDocument) -> dict[str, object]:
+    """Serialize an extracted spec for the committee ingest review screen."""
+    return {
+        "chemical_name": (spec.chemical_name or "").strip(),
+        "spec_number": (spec.spec_number or "").strip(),
+        "material_code": (spec.material_code or "").strip(),
+        "test_procedure": (spec.test_procedure or "").strip(),
+        "parse_warnings": list(spec.parse_warnings or []),
+        "parameters": [
+            {
+                "number": parameter.number,
+                "name": (parameter.name or "").strip(),
+                "parameter_type": normalize_parameter_type_label(
+                    parameter.parameter_type or "Desirable"
+                ),
+                "unit_condition": (parameter.unit_condition or "").strip(),
+                "existing_value": (parameter.existing_value or "").strip(),
+                "group": (parameter.group or "").strip(),
+            }
+            for parameter in spec.parameters
+        ],
+    }
+
+
+def _spec_document_from_ingest_form() -> SpecDocument:
+    """Rebuild an extracted spec from the committee review form."""
+    spec = SpecDocument(
+        chemical_name=(request.form.get("chemical_name") or "").strip(),
+        spec_number=(request.form.get("spec_number") or "").strip(),
+        material_code=(request.form.get("material_code") or "").strip(),
+        test_procedure=(request.form.get("test_procedure") or "").strip(),
+    )
+
+    numbers = request.form.getlist("parameter_number[]")
+    names = request.form.getlist("parameter_name[]")
+    types = request.form.getlist("parameter_type[]")
+    conditions = request.form.getlist("parameter_condition[]")
+    values = request.form.getlist("parameter_value[]")
+    groups = request.form.getlist("parameter_group[]")
+
+    row_count = max(
+        len(numbers),
+        len(names),
+        len(types),
+        len(conditions),
+        len(values),
+        len(groups),
+    )
+    for index in range(row_count):
+        number_raw = numbers[index] if index < len(numbers) else ""
+        name = (names[index] if index < len(names) else "").strip()
+        parameter_type = normalize_parameter_type_label(
+            (types[index] if index < len(types) else "Desirable").strip()
+        )
+        unit_condition = (conditions[index] if index < len(conditions) else "").strip()
+        existing_value = (values[index] if index < len(values) else "").strip()
+        group = (groups[index] if index < len(groups) else "").strip()
+
+        if not any([name, unit_condition, existing_value, group]):
+            continue
+
+        try:
+            number = int((number_raw or "").strip())
+        except ValueError:
+            number = len(spec.parameters) + 1
+
+        spec.parameters.append(
+            ExtractedParameter(
+                number=number,
+                name=name or f"Parameter {number}",
+                unit_condition=unit_condition,
+                existing_value=existing_value,
+                parameter_type=parameter_type,
+                group=group,
+                raw_left=name,
+                raw_right=existing_value,
+            )
+        )
+
+    return spec
+
+
+def _create_new_spec_workflow_from_extraction(spec: SpecDocument, source_label: str) -> CSCDraft:
+    """Create a committee workflow draft for a brand-new specification upload."""
+    spec_number = (spec.spec_number or "").strip()
+    chemical_name = (spec.chemical_name or "").strip()
+    material_code = (spec.material_code or "").strip()
+
+    subset_code, sequence, year = parse_spec_number(spec_number)
+    if not subset_code or not sequence or year is None:
+        raise ValueError("The uploaded file does not contain a valid CSC Format A specification number.")
+
+    conflict = _find_conflicting_root_spec(spec_number)
+    if conflict is not None:
+        raise ValueError(
+            f"Serial {subset_code}/{sequence} already exists as {conflict.spec_number}. "
+            "Use the replacement workflow for the existing specification instead."
+        )
+
+    parent_draft = CSCDraft(
+        spec_number=spec_number,
+        chemical_name=chemical_name or "New Specification",
+        committee_name="Corporate Specifiction Committee",
+        prepared_by=current_user.username,
+        reviewed_by=None,
+        material_code=material_code or None,
+        status="Drafting",
+        created_by_role=current_user.role.name if current_user.role else "User",
+        is_admin_draft=False,
+        phase1_locked=False,
+        parent_draft_id=None,
+        admin_stage=ADMIN_STAGE_DRAFTING,
+        spec_version=0,
+        created_by_id=current_user.id,
+    )
+    db.session.add(parent_draft)
+    db.session.flush()
+
+    _seed_sections_for_new_spec(parent_draft, source_label)
+    _seed_parameters_from_extracted_spec(parent_draft, spec)
+    _write_draft_origin_metadata(
+        parent_draft,
+        {
+            "draft_kind": "new_specification",
+            "source_label": source_label,
+            "ingested_by": current_user.username,
+            "spec_number": spec_number,
+        },
+    )
+
+    child_draft = _create_workflow_child_draft(
+        parent_draft,
+        created_by_id=current_user.id,
+        created_by_role=current_user.role.name if current_user.role else "User",
+        is_admin_draft=False,
+    )
+    _write_workflow_scope(child_draft, dict(WORKFLOW_SCOPE_DEFAULT))
+    _write_draft_origin_metadata(
+        child_draft,
+        {
+            "draft_kind": "new_specification",
+            "source_label": source_label,
+            "ingested_by": current_user.username,
+            "spec_number": spec_number,
+        },
+    )
+
+    db.session.add(
+        CSCRevision(
+            parent_draft_id=parent_draft.id,
+            child_draft_id=child_draft.id,
+            status=WORKFLOW_DRAFTING_OPEN,
+        )
+    )
+    parent_draft.updated_at = datetime.now(timezone.utc)
+    child_draft.updated_at = datetime.now(timezone.utc)
+    return child_draft
+
+
 def _create_audit_entry(
     draft_id: int,
     action: str,
@@ -407,6 +696,214 @@ def _display_review_value(value: object, default: str = "—") -> str:
         return "Yes" if value else "No"
     text = str(value).strip()
     return text or default
+
+
+def _format_parameter_requirement_for_review(parameter: CSCParameter) -> str:
+    """Render the current requirement text for review/export comparisons."""
+    return _display_review_value(
+        format_required_value(
+            parameter.required_value_type or "text",
+            parameter.required_value_text or parameter.existing_value or "",
+            parameter.required_value_operator_1,
+            parameter.required_value_value_1,
+            parameter.required_value_operator_2,
+            parameter.required_value_value_2,
+        )
+    )
+
+
+def _format_impact_checklist_summary_for_review(summary: object) -> str:
+    """Render checklist summary dicts as a concise human-readable line."""
+    if not isinstance(summary, dict):
+        return _display_review_value(summary)
+    flags = summary.get("flags") or []
+    flag_bits = []
+    for flag in flags:
+        if not isinstance(flag, dict):
+            continue
+        order = flag.get("order")
+        answer = flag.get("answer_label") or "—"
+        flag_bits.append(f"F{order}: {answer}")
+    parts = [
+        f"Classification: {summary.get('classification') or '—'}",
+        f"Rule: {summary.get('rule') or '—'}",
+        f"Red YES: {summary.get('red_yes_count', 0)}/3",
+        f"Amber YES: {summary.get('amber_yes_count', 0)}/3",
+    ]
+    if flag_bits:
+        parts.append("Flags: " + ", ".join(flag_bits))
+    return " | ".join(parts)
+
+
+def _build_impact_review_rows(
+    draft: CSCDraft,
+    master_values: dict[str, object] | None = None,
+) -> list[dict[str, str]]:
+    """Build impact rows from the Flask checklist model, with master fallback."""
+    impact_analysis = draft.impact_analysis
+    if impact_analysis and (impact_analysis.checklist_state_json or "").strip():
+        summary = summarize_impact_checklist_state(
+            deserialize_impact_checklist_state(
+                impact_analysis.checklist_state_json,
+                draft.chemical_name,
+            )
+        )
+        rows = [
+            {
+                "label": "Impact Classification",
+                "value": _display_review_value(summary.get("classification")),
+            },
+            {
+                "label": "Decision Rule",
+                "value": _display_review_value(summary.get("rule")),
+            },
+            {
+                "label": "Red YES Count",
+                "value": _display_review_value(summary.get("red_yes_count", 0)),
+            },
+            {
+                "label": "Amber YES Count",
+                "value": _display_review_value(summary.get("amber_yes_count", 0)),
+            },
+        ]
+        for flag in summary.get("flags") or []:
+            if not isinstance(flag, dict):
+                continue
+            rows.append(
+                {
+                    "label": _display_review_value(flag.get("dimension"), "Impact Flag"),
+                    "value": _display_review_value(flag.get("answer_label")),
+                }
+            )
+        return rows
+
+    fallback_rows = []
+    if master_values:
+        fallback_rows = [
+            row
+            for row in _build_labeled_value_rows(MASTER_IMPACT_FIELDS, master_values)
+            if row.get("value") != "—"
+        ]
+    if fallback_rows:
+        return fallback_rows
+
+    if impact_analysis:
+        return [
+            {
+                "label": "Impact Grade",
+                "value": _display_review_value(impact_analysis.impact_grade),
+            }
+        ]
+
+    return []
+
+
+def _match_parent_parameter(
+    child_parameter: CSCParameter,
+    parent_by_sort: dict[int, CSCParameter],
+    parent_by_name: dict[str, CSCParameter],
+) -> CSCParameter | None:
+    """Find the comparable parent parameter for a revision child row."""
+    parent = parent_by_sort.get(child_parameter.sort_order)
+    if parent is not None:
+        return parent
+    name_key = (child_parameter.parameter_name or "").strip().lower()
+    if not name_key:
+        return None
+    return parent_by_name.get(name_key)
+
+
+def _build_parameter_review_rows_for_draft(
+    draft: CSCDraft,
+    parent_draft: CSCDraft | None = None,
+) -> list[dict[str, str]]:
+    """Build review/export parameter rows using parent-vs-child comparisons when available."""
+    parent_by_sort: dict[int, CSCParameter] = {}
+    parent_by_name: dict[str, CSCParameter] = {}
+    if parent_draft is not None:
+        parent_parameters = parent_draft.parameters.order_by(CSCParameter.sort_order).all()
+        parent_by_sort = {parameter.sort_order: parameter for parameter in parent_parameters}
+        parent_by_name = {
+            (parameter.parameter_name or "").strip().lower(): parameter
+            for parameter in parent_parameters
+            if (parameter.parameter_name or "").strip()
+        }
+
+    rows: list[dict[str, str]] = []
+    for parameter in draft.parameters.order_by(CSCParameter.sort_order).all():
+        parent_parameter = _match_parent_parameter(parameter, parent_by_sort, parent_by_name)
+        source_requirement = (
+            _format_parameter_requirement_for_review(parent_parameter)
+            if parent_parameter is not None
+            else _format_parameter_requirement_for_review(parameter)
+        )
+        revised_requirement = _format_parameter_requirement_for_review(parameter)
+        source_type = normalize_parameter_type_label(
+            (parent_parameter.parameter_type if parent_parameter is not None else parameter.parameter_type) or ""
+        )
+        revised_type = normalize_parameter_type_label(parameter.parameter_type or "")
+        source_unit = _display_review_value(
+            parent_parameter.unit_of_measure if parent_parameter is not None else parameter.unit_of_measure
+        )
+        revised_unit = _display_review_value(parameter.unit_of_measure)
+        source_test_procedure_type = _display_review_value(
+            normalize_test_procedure_type(
+                (parent_parameter.test_procedure_type if parent_parameter is not None else parameter.test_procedure_type)
+                or ""
+            )
+        )
+        revised_test_procedure_type = _display_review_value(
+            normalize_test_procedure_type(parameter.test_procedure_type or "")
+        )
+        source_test_method = _display_review_value(
+            (parent_parameter.test_procedure_text or parent_parameter.test_method)
+            if parent_parameter is not None
+            else (parameter.test_procedure_text or parameter.test_method)
+        )
+        revised_test_method = _display_review_value(parameter.test_procedure_text or parameter.test_method)
+        source_conditions = _display_review_value(
+            parent_parameter.parameter_conditions if parent_parameter is not None else parameter.parameter_conditions
+        )
+        revised_conditions = _display_review_value(parameter.parameter_conditions)
+
+        changed = any(
+            [
+                source_requirement != revised_requirement,
+                source_type != revised_type,
+                source_unit != revised_unit,
+                source_test_procedure_type != revised_test_procedure_type,
+                source_test_method != revised_test_method,
+                source_conditions != revised_conditions,
+            ]
+        )
+
+        rows.append(
+            {
+                "parameter_name": parameter.parameter_name or "Untitled Parameter",
+                "parameter_type": revised_type or "—",
+                "source_parameter_type": source_type or "—",
+                "unit_of_measure": revised_unit,
+                "source_unit_of_measure": source_unit,
+                "existing_value": _display_review_value(
+                    (parent_parameter.existing_value if parent_parameter is not None else parameter.existing_value)
+                ),
+                "required_value": source_requirement,
+                "revised_requirement": revised_requirement,
+                "proposed_value": revised_requirement if changed else "No change submitted",
+                "proposed_value_raw": revised_requirement if changed else "",
+                "change_status": "Revised" if changed else "Retained",
+                "test_procedure_type": revised_test_procedure_type,
+                "source_test_procedure_type": source_test_procedure_type,
+                "test_method": revised_test_method,
+                "procedure_text": revised_test_method,
+                "source_test_method": source_test_method,
+                "conditions": revised_conditions,
+                "source_conditions": source_conditions,
+                "remarks": _display_review_value(parameter.remarks),
+                "final_requirement": revised_requirement,
+            }
+        )
+    return rows
 
 
 def _normalize_workflow_scope_payload(raw: object | None) -> dict[str, bool]:
@@ -627,6 +1124,7 @@ def _compose_approval_notes(
 def _build_revision_review_context(revision: CSCRevision) -> dict[str, object]:
     """Assemble a read-only snapshot for the admin review modal."""
     draft = revision.child_draft
+    parent_draft = revision.parent_draft
     master_values = get_master_form_values(draft)
     material_values = get_material_properties_values(draft)
     storage_values = get_storage_handling_values(draft)
@@ -636,6 +1134,7 @@ def _build_revision_review_context(revision: CSCRevision) -> dict[str, object]:
         {"label": "Specification", "value": _display_review_value(draft.spec_number)},
         {"label": "Chemical", "value": _display_review_value(draft.chemical_name)},
         {"label": "Subset", "value": _display_review_value(draft.subset_display)},
+        {"label": "Draft Type", "value": _draft_type_label(draft)},
         {"label": "Version", "value": f"v{draft.version}"},
         {"label": "Material Code", "value": _display_review_value(draft.material_code)},
         {
@@ -685,90 +1184,17 @@ def _build_revision_review_context(revision: CSCRevision) -> dict[str, object]:
             "text": (section.section_text or "").strip(),
         }
         for section in draft.sections.order_by(CSCSection.sort_order).all()
-        if section.section_name not in {STAGED_MASTER_SECTION_NAME, WORKFLOW_SCOPE_SECTION_NAME}
+        if section.section_name not in {STAGED_MASTER_SECTION_NAME, WORKFLOW_SCOPE_SECTION_NAME, DRAFT_ORIGIN_SECTION_NAME}
     ]
 
-    issue_lookup = {
-        flag.issue_type: flag
-        for flag in draft.issue_flags.order_by(CSCIssueFlag.sort_order).all()
-    }
-    issue_rows = []
-    for label in EDITOR_ISSUE_LABELS:
-        flag = issue_lookup.get(label)
-        issue_rows.append(
-            {
-                "label": label,
-                "flagged": bool(flag.is_present) if flag else False,
-                "notes": (flag.note or "").strip() if flag else "",
-            }
-        )
+    parameter_rows = _build_parameter_review_rows_for_draft(draft, parent_draft=parent_draft)
 
-    parameter_rows = [
-        {
-            "parameter_name": parameter.parameter_name or "Untitled Parameter",
-            "parameter_type": normalize_parameter_type_label(parameter.parameter_type or ""),
-            "existing_value": _display_review_value(parameter.existing_value),
-            "required_value": _display_review_value(format_required_value(parameter)),
-            "proposed_value": _display_review_value(parameter.proposed_value),
-            "test_method": _display_review_value(
-                parameter.test_procedure_text or parameter.test_method
-            ),
-            "conditions": _display_review_value(parameter.parameter_conditions),
-            "justification": _display_review_value(parameter.justification),
-            "remarks": _display_review_value(parameter.remarks),
-        }
-        for parameter in draft.parameters.order_by(CSCParameter.sort_order).all()
-    ]
-
-    impact_rows = []
-    impact_analysis = draft.impact_analysis
-    if impact_analysis:
-        impact_rows.extend(
-            [
-                {
-                    "label": "Operational Impact Score",
-                    "value": _display_review_value(impact_analysis.operational_impact_score),
-                },
-                {
-                    "label": "Safety / Environment Score",
-                    "value": _display_review_value(impact_analysis.safety_environment_score),
-                },
-                {
-                    "label": "Supply Risk Score",
-                    "value": _display_review_value(impact_analysis.supply_risk_score),
-                },
-                {
-                    "label": "No Substitute",
-                    "value": _display_review_value(impact_analysis.no_substitute_flag),
-                },
-                {
-                    "label": "Impact Score Total",
-                    "value": _display_review_value(impact_analysis.impact_score_total),
-                },
-                {
-                    "label": "Impact Grade",
-                    "value": _display_review_value(impact_analysis.impact_grade),
-                },
-                {
-                    "label": "Checklist Summary",
-                    "value": _display_review_value(
-                        summarize_impact_checklist_state(
-                            deserialize_impact_checklist_state(
-                                impact_analysis.checklist_state_json,
-                                draft.chemical_name,
-                            )
-                        )
-                    ),
-                },
-            ]
-        )
-    impact_rows.extend(_build_labeled_value_rows(MASTER_IMPACT_FIELDS, master_values))
+    impact_rows = _build_impact_review_rows(draft, master_values)
 
     return {
         "draft": draft,
         "summary_rows": summary_rows,
         "section_rows": sections,
-        "issue_rows": issue_rows,
         "parameter_rows": parameter_rows,
         "master_rows": _build_labeled_value_rows(
             [("material_code", "Material Code"), *MASTER_DATA_FIELDS, *MASTER_EXTRA_FIELDS],
@@ -794,6 +1220,92 @@ def _build_revision_review_context(revision: CSCRevision) -> dict[str, object]:
     }
 
 
+def _build_draft_export_review_context(draft: CSCDraft) -> dict[str, object]:
+    """Build a Flask-style review snapshot for workflow Word export."""
+    revision = _get_revision_for_child(draft.id)
+    if revision is not None:
+        context = _build_revision_review_context(revision)
+        context["revision"] = revision
+        return context
+
+    master_values = get_master_form_values(draft)
+    material_values = get_material_properties_values(draft)
+    storage_values = get_storage_handling_values(draft)
+    workflow_scope = _load_workflow_scope(draft)
+    parent_draft = db.session.get(CSCDraft, draft.parent_draft_id) if draft.parent_draft_id else None
+
+    summary_rows = [
+        {"label": "Specification", "value": _display_review_value(draft.spec_number)},
+        {"label": "Chemical", "value": _display_review_value(draft.chemical_name)},
+        {"label": "Subset", "value": _display_review_value(draft.subset_display)},
+        {"label": "Draft Type", "value": _draft_type_label(draft)},
+        {"label": "Version", "value": f"v{draft.version}"},
+        {"label": "Material Code", "value": _display_review_value(draft.material_code)},
+        {
+            "label": "Physical State",
+            "value": _display_review_value(master_values.get("physical_state")),
+        },
+        {"label": "Prepared By", "value": _display_review_value(draft.prepared_by)},
+        {"label": "Reviewed By", "value": _display_review_value(draft.reviewed_by)},
+        {"label": "Current Status", "value": _display_review_value(draft.status)},
+        {
+            "label": "Open for Revision",
+            "value": _display_review_value(", ".join(_summarize_workflow_scope(workflow_scope))),
+        },
+    ]
+
+    section_labels = {
+        "background": "Background Context",
+        "existing_spec": "Existing Specification Summary",
+        "changes": "Proposed Changes",
+        "recommendation": "Version Change Reason",
+    }
+    section_rows = [
+        {
+            "label": section_labels.get(
+                section.section_name,
+                (section.section_name or "").replace("_", " ").strip().title() or "Section",
+            ),
+            "text": (section.section_text or "").strip(),
+        }
+        for section in draft.sections.order_by(CSCSection.sort_order).all()
+        if section.section_name not in {STAGED_MASTER_SECTION_NAME, WORKFLOW_SCOPE_SECTION_NAME, DRAFT_ORIGIN_SECTION_NAME}
+    ]
+
+    parameter_rows = _build_parameter_review_rows_for_draft(draft, parent_draft=parent_draft)
+
+    impact_rows = _build_impact_review_rows(draft, master_values)
+
+    return {
+        "draft": draft,
+        "summary_rows": summary_rows,
+        "section_rows": section_rows,
+        "parameter_rows": parameter_rows,
+        "master_rows": _build_labeled_value_rows(
+            [("material_code", "Material Code"), *MASTER_DATA_FIELDS, *MASTER_EXTRA_FIELDS],
+            master_values,
+        ),
+        "material_property_rows": [
+            {
+                "label": field["label"],
+                "value": _display_review_value(material_values.get(field["field_name"])),
+            }
+            for field in get_material_properties_fields()
+            if _display_review_value(material_values.get(field["field_name"])) != "—"
+        ],
+        "storage_rows": [
+            {
+                "label": field["label"],
+                "value": _display_review_value(storage_values.get(field["field_name"])),
+            }
+            for field in get_storage_handling_fields()
+            if _display_review_value(storage_values.get(field["field_name"])) != "—"
+        ],
+        "impact_rows": impact_rows,
+        "revision": revision,
+    }
+
+
 def _get_admin_stats() -> dict:
     """Get admin dashboard statistics."""
     try:
@@ -810,18 +1322,30 @@ def _get_admin_stats() -> dict:
 def _get_export_stats() -> dict:
     """Get export page statistics."""
     try:
-        published_count = CSCDraft.query.filter_by(status="Published", parent_draft_id=None).count()
-        subset_count = db.session.query(
-            db.func.count(db.func.distinct(CSCDraft.spec_number))
-        ).filter(CSCDraft.status == "Published", CSCDraft.parent_draft_id.is_(None)).scalar() or 0
+        published_drafts = (
+            CSCDraft.query
+            .filter_by(status="Published", parent_draft_id=None)
+            .all()
+        )
+        published_count = len(published_drafts)
+        subsets = {
+            parse_spec_number(draft.spec_number or "")[0]
+            for draft in published_drafts
+            if parse_spec_number(draft.spec_number or "")[0]
+        }
         total_parameters = db.session.query(
             db.func.count(CSCParameter.id)
         ).join(CSCDraft).filter(CSCDraft.status == "Published", CSCDraft.parent_draft_id.is_(None)).scalar() or 0
+        last_export_at = (
+            db.session.query(db.func.max(CSCAudit.action_time))
+            .filter(CSCAudit.action.in_(["DOCX_EXPORT", "MASTER_DOCX_EXPORT"]))
+            .scalar()
+        )
         return {
             "published_count": published_count,
-            "subset_count": subset_count,
+            "subset_count": len(subsets),
             "total_parameters": total_parameters,
-            "last_export_at": None,  # TODO: track last export time
+            "last_export_at": last_export_at,
         }
     except Exception:
         return {
@@ -830,6 +1354,163 @@ def _get_export_stats() -> dict:
             "total_parameters": 0,
             "last_export_at": None,
         }
+
+
+def _get_export_subset_options() -> list[dict[str, object]]:
+    """Return published subset choices with counts in canonical order."""
+    published_drafts = (
+        CSCDraft.query
+        .filter_by(status="Published", parent_draft_id=None)
+        .all()
+    )
+    counts: dict[str, int] = {}
+    for draft in published_drafts:
+        subset_code, _, _ = parse_spec_number(draft.spec_number or "")
+        if not subset_code:
+            continue
+        counts[subset_code] = counts.get(subset_code, 0) + 1
+
+    options = []
+    for code in SPEC_SUBSET_ORDER:
+        if code not in counts:
+            continue
+        options.append(
+            {
+                "code": code,
+                "label": SPEC_SUBSET_LABELS.get(code, code),
+                "count": counts[code],
+            }
+        )
+    return options
+
+
+def _serialize_draft_for_export(draft: CSCDraft) -> dict[str, object]:
+    payload = draft.to_dict()
+    payload["version_display"] = f"v{format_spec_version(draft.spec_version)}"
+    return payload
+
+
+def _serialize_parameters_for_export(draft: CSCDraft) -> list[dict[str, object]]:
+    rows = []
+    for parameter in draft.parameters.order_by(CSCParameter.sort_order).all():
+        existing_value = format_required_value(
+            parameter.required_value_type or "text",
+            parameter.required_value_text or parameter.existing_value or "",
+            parameter.required_value_operator_1,
+            parameter.required_value_value_1,
+            parameter.required_value_operator_2,
+            parameter.required_value_value_2,
+        ) or (parameter.existing_value or "")
+        rows.append(
+            {
+                "id": parameter.id,
+                "parameter_name": parameter.parameter_name or "",
+                "parameter_type": normalize_parameter_type_label(parameter.parameter_type or ""),
+                "existing_value": existing_value,
+                "proposed_value": parameter.proposed_value or "",
+                "test_method": parameter.test_procedure_text or parameter.test_method or "",
+                "sort_order": parameter.sort_order,
+            }
+        )
+    return rows
+
+
+def _serialize_sections_for_export(draft: CSCDraft) -> dict[str, str]:
+    return {
+        section.section_name: section.section_text or ""
+        for section in draft.sections.order_by(CSCSection.sort_order).all()
+    }
+
+
+def _serialize_flags_for_export(draft: CSCDraft) -> list[dict[str, object]]:
+    return [
+        {
+            "issue_type": flag.issue_type,
+            "is_present": bool(flag.is_present),
+            "note": flag.note or "",
+            "sort_order": flag.sort_order,
+        }
+        for flag in draft.issue_flags.order_by(CSCIssueFlag.sort_order).all()
+    ]
+
+
+def _serialize_impact_for_export(draft: CSCDraft) -> dict[str, object] | None:
+    if not draft.impact_analysis:
+        return None
+    return draft.impact_analysis.to_dict()
+
+
+def _build_export_bundle(draft: CSCDraft) -> dict[str, object]:
+    return {
+        "draft": _serialize_draft_for_export(draft),
+        "sections": _serialize_sections_for_export(draft),
+        "parameters": _serialize_parameters_for_export(draft),
+        "flags": _serialize_flags_for_export(draft),
+        "impact_analysis": _serialize_impact_for_export(draft),
+    }
+
+
+def _get_version_changelog() -> list[dict[str, object]]:
+    rows = (
+        db.session.query(
+            CSCAudit.draft_id,
+            CSCDraft.spec_number,
+            CSCDraft.chemical_name,
+            CSCDraft.spec_version,
+            CSCAudit.new_value.label("version_label"),
+            CSCAudit.action,
+            CSCAudit.action_time,
+            CSCAudit.user_name,
+            CSCAudit.remarks,
+        )
+        .join(CSCDraft, CSCDraft.id == CSCAudit.draft_id)
+        .filter(
+            CSCAudit.action.in_(
+                [
+                    "VERSION_INCREMENT",
+                    "ADMIN_STAGE_PUBLISHED",
+                    "REVISION_APPROVED",
+                    "RESTORE_VERSION",
+                    "ADMIN_PDF_IMPORT",
+                    "CREATE_DRAFT",
+                ]
+            ),
+            CSCDraft.is_admin_draft.is_(True),
+            CSCDraft.parent_draft_id.is_(None),
+        )
+        .order_by(CSCAudit.action_time.desc())
+        .all()
+    )
+    return [
+        {
+            "draft_id": row.draft_id,
+            "spec_number": row.spec_number,
+            "chemical_name": row.chemical_name,
+            "spec_version": row.spec_version,
+            "version_label": row.version_label,
+            "action": row.action,
+            "action_time": row.action_time.isoformat() if row.action_time else "",
+            "user_name": row.user_name,
+            "remarks": row.remarks,
+        }
+        for row in rows
+    ]
+
+
+def _record_export_audit(action: str, draft_id: int | None, new_value: str) -> None:
+    try:
+        audit = CSCAudit(
+            draft_id=draft_id,
+            action=action,
+            user_name=current_user.username,
+            action_time=datetime.now(timezone.utc),
+            new_value=new_value,
+        )
+        db.session.add(audit)
+        db.session.commit()
+    except Exception as exc:
+        logger.warning("Failed to record CSC export audit: %s", exc)
+        db.session.rollback()
 
 
 def _get_spec_subsets() -> list[dict[str, str]]:
@@ -886,6 +1567,111 @@ def landing():
         committee_tree=get_committee_tree(),
         office_orders=get_office_orders(),
     )
+
+
+@csc_bp.route("/msds")
+@login_required
+@module_access_required("csc")
+def msds_page():
+    """MSDS center within Material Master Management."""
+    from app.models.inventory.material_msds_document import MaterialMSDSDocument
+
+    rows = get_all_master_data()
+    msds_documents = MaterialMSDSDocument.query.order_by(
+        MaterialMSDSDocument.material_code.asc()
+    ).all()
+    msds_by_material = {
+        document.material_code: document for document in msds_documents
+    }
+    return render_template(
+        "csc/msds.html",
+        rows=rows,
+        total=len(rows),
+        msds_by_material=msds_by_material,
+        msds_count=len(msds_documents),
+        prefill_material_code=(request.args.get("material_code") or "").strip(),
+    )
+
+
+@csc_bp.route("/msds/upload", methods=["POST"])
+@login_required
+@module_access_required("csc")
+def upload_msds():
+    """Upload or replace an MSDS PDF from Material Master Management."""
+    from app.core.services.inventory_msds import MSDSError, store_msds_document
+
+    material_code = request.form.get("material_code", "").strip()
+    file_obj = request.files.get("msds_file")
+
+    try:
+        store_msds_document(
+            material_code=material_code,
+            file_obj=file_obj,
+            uploaded_by=getattr(current_user, "id", None),
+        )
+        db.session.commit()
+    except MSDSError as exc:
+        db.session.rollback()
+        flash(str(exc), "danger")
+        return redirect(url_for("csc.msds_page", material_code=material_code))
+    except Exception:
+        db.session.rollback()
+        logger.exception("Failed to upload MSDS PDF for material=%s", material_code)
+        flash("Could not upload the MSDS PDF.", "danger")
+        return redirect(url_for("csc.msds_page", material_code=material_code))
+
+    flash(f"MSDS PDF stored for material '{material_code}'.", "success")
+    return redirect(url_for("csc.msds_page", material_code=material_code))
+
+
+@csc_bp.route("/msds/<path:material_code>")
+@login_required
+@module_access_required("csc")
+def open_msds(material_code: str):
+    """Open or download an MSDS PDF from Material Master Management."""
+    from app.core.services.inventory_msds import MSDSError, open_msds_file
+
+    download = (request.args.get("download") or "").strip().lower() in {"1", "true", "yes"}
+    try:
+        document, file_stream = open_msds_file(material_code)
+    except MSDSError as exc:
+        flash(str(exc), "warning")
+        return redirect(request.referrer or url_for("csc.msds_page"))
+
+    return send_file(
+        file_stream,
+        mimetype=document.mime_type or "application/pdf",
+        as_attachment=download,
+        download_name=document.original_filename,
+        max_age=0,
+    )
+
+
+@csc_bp.route("/msds/<path:material_code>/delete", methods=["POST"])
+@login_required
+@module_access_required("csc")
+def delete_msds(material_code: str):
+    """Delete a stored MSDS PDF from Material Master Management."""
+    from app.core.services.inventory_msds import MSDSError, delete_msds_document
+
+    try:
+        deleted = delete_msds_document(material_code)
+        if not deleted:
+            flash(f"No MSDS PDF is stored for material '{material_code}'.", "info")
+            return redirect(url_for("csc.msds_page", material_code=material_code))
+        db.session.commit()
+    except MSDSError as exc:
+        db.session.rollback()
+        flash(str(exc), "danger")
+        return redirect(url_for("csc.msds_page", material_code=material_code))
+    except Exception:
+        db.session.rollback()
+        logger.exception("Failed to delete MSDS PDF for material=%s", material_code)
+        flash("Could not delete the MSDS PDF.", "danger")
+        return redirect(url_for("csc.msds_page", material_code=material_code))
+
+    flash(f"MSDS PDF deleted for material '{material_code}'.", "success")
+    return redirect(url_for("csc.msds_page", material_code=material_code))
 
 
 @csc_bp.route("/office-orders/<slug>")
@@ -982,6 +1768,102 @@ def workspace():
         return redirect(url_for("csc.index"))
 
 
+@csc_bp.route("/ingest")
+@login_required
+@module_access_required("csc")
+def ingest():
+    """Committee-facing ingest page for brand-new specifications."""
+    return render_template("csc/ingest.html", staged_spec=None)
+
+
+@csc_bp.route("/ingest/pdf", methods=["POST"])
+@login_required
+@module_access_required("csc")
+def ingest_pdf():
+    """Extract a CSC Format A PDF and stage it for committee review."""
+    try:
+        file = request.files.get("pdf_file")
+        if file is None or file.filename == "":
+            flash("Select a PDF file to ingest.", "danger")
+            return redirect(url_for("csc.ingest"))
+
+        spec = extract_spec_from_pdf(file.read())
+        return render_template(
+            "csc/ingest.html",
+            staged_spec=_build_ingest_preview_spec(spec),
+            staged_source_label="PDF",
+            staged_filename=(file.filename or "").strip(),
+        )
+    except Exception as e:
+        logger.error(f"Error ingesting committee PDF: {e}")
+        db.session.rollback()
+        flash(
+            str(e) if isinstance(e, (ValueError, ImportError)) else "Error processing PDF file.",
+            "danger",
+        )
+        return redirect(url_for("csc.ingest"))
+
+
+@csc_bp.route("/ingest/docx", methods=["POST"])
+@login_required
+@module_access_required("csc")
+def ingest_docx():
+    """Extract a single CSC Format A DOCX and stage it for committee review."""
+    try:
+        file = request.files.get("docx_file")
+        if file is None or file.filename == "":
+            flash("Select a DOCX file to ingest.", "danger")
+            return redirect(url_for("csc.ingest"))
+
+        specs = extract_all_specs_from_docx(file.read())
+        if len(specs) != 1:
+            raise ValueError(
+                "Upload a single CSC Format A specification DOCX. Master/bulk DOCX ingestion remains an admin-only task."
+            )
+
+        return render_template(
+            "csc/ingest.html",
+            staged_spec=_build_ingest_preview_spec(specs[0]),
+            staged_source_label="DOCX",
+            staged_filename=(file.filename or "").strip(),
+        )
+    except Exception as e:
+        logger.error(f"Error ingesting committee DOCX: {e}")
+        db.session.rollback()
+        flash(str(e) if isinstance(e, ValueError) else "Error processing DOCX file.", "danger")
+        return redirect(url_for("csc.ingest"))
+
+
+@csc_bp.route("/ingest/create-draft", methods=["POST"])
+@login_required
+@module_access_required("csc")
+def create_ingested_draft():
+    """Create the workflow draft from the reviewed extraction payload."""
+    try:
+        source_label = (request.form.get("source_label") or "Upload").strip()
+        spec = _spec_document_from_ingest_form()
+        child_draft = _create_new_spec_workflow_from_extraction(spec, source_label)
+        db.session.commit()
+        _create_audit_entry(
+            child_draft.parent_draft_id,
+            "New specification draft ingested",
+            new_value=json.dumps(
+                {
+                    "child_draft_id": child_draft.id,
+                    "source_label": source_label,
+                    "draft_kind": "new_specification",
+                }
+            ),
+        )
+        flash(f"New specification draft created for {child_draft.spec_number}.", "success")
+        return redirect(url_for("csc.editor", draft_id=child_draft.id))
+    except Exception as e:
+        logger.error(f"Error creating committee draft from staged extraction: {e}")
+        db.session.rollback()
+        flash(str(e) if isinstance(e, ValueError) else "Error creating draft from extracted specification.", "danger")
+        return redirect(url_for("csc.ingest"))
+
+
 @csc_bp.route("/api/drafts")
 @login_required
 @module_access_required("csc")
@@ -1019,6 +1901,7 @@ def api_drafts():
                     "chemical_name": d.chemical_name,
                     "status": _status_db_to_ui_value(d.status),
                     "drafting_status": (_get_revision_for_child(d.id).status if _get_revision_for_child(d.id) else ""),
+                    "draft_type": _draft_type_label(d),
                     "subset": d.subset,
                     "subset_label": d.subset_label,
                     "subset_display": d.subset_display,
@@ -1139,6 +2022,7 @@ def editor(draft_id: int):
             master_impact_fields=MASTER_IMPACT_FIELDS,
             workflow_scope=workflow_scope,
             workflow_scope_summary=_summarize_workflow_scope(workflow_scope),
+            draft_type_label=_draft_type_label(draft),
         )
     except Exception as e:
         logger.error(f"Error loading editor: {e}")
@@ -1734,9 +2618,20 @@ def export_docx(draft_id: int):
             flash("You do not have permission to export this draft.", "danger")
             return redirect(url_for("csc.workspace"))
 
-        # TODO: Call csc_export service to generate DOCX
-        flash("Export functionality not yet implemented.", "info")
-        return redirect(url_for("csc.editor", draft_id=draft_id))
+        review_context = _build_draft_export_review_context(draft)
+        doc_bytes = build_flask_review_document(review_context)
+        safe_spec_number = "".join(
+            char if char.isalnum() or char in "-_" else "_"
+            for char in (draft.spec_number or f"draft_{draft.id}")
+        )
+        filename = f"CSC_REVIEW_DOSSIER_{safe_spec_number}_{datetime.now().strftime('%Y%m%d_%H%M')}.docx"
+        _record_export_audit("DOCX_EXPORT", draft.id, filename)
+        return send_file(
+            io.BytesIO(doc_bytes),
+            mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            as_attachment=True,
+            download_name=filename,
+        )
 
     except Exception as e:
         logger.error(f"Error exporting draft: {e}")
@@ -2518,8 +3413,16 @@ def admin_revisions():
             CSCRevision.submitted_at.desc(),
             CSCRevision.id.desc(),
         ).all()
+        revision_rows = [
+            {
+                "revision": revision,
+                "draft_type": _draft_type_label(revision.child_draft) if revision.child_draft else "Revision",
+                "is_new_spec": (_draft_type_label(revision.child_draft) == "New Specification") if revision.child_draft else False,
+            }
+            for revision in revisions
+        ]
 
-        return render_template("csc/admin/revisions.html", revisions=revisions)
+        return render_template("csc/admin/revisions.html", revision_rows=revision_rows)
     except Exception as e:
         logger.error(f"Error loading revisions: {e}")
         flash("Error loading revisions.", "danger")
@@ -2691,26 +3594,31 @@ def admin_reject_revision(revision_id: int):
         if not reviewer_notes:
             return jsonify({"error": "Reviewer notes are required"}), 400
 
+        is_new_spec = _draft_type_label(child_draft) == "New Specification"
         revision.status = WORKFLOW_DRAFTING_REJECTED
         revision.reviewed_at = datetime.now(timezone.utc)
         revision.reviewer_notes = reviewer_notes
-        parent_draft.status = "Published"
-        parent_draft.admin_stage = ADMIN_STAGE_PUBLISHED
-        parent_draft.updated_at = datetime.now(timezone.utc)
+        if not is_new_spec:
+            parent_draft.status = "Published"
+            parent_draft.admin_stage = ADMIN_STAGE_PUBLISHED
+            parent_draft.updated_at = datetime.now(timezone.utc)
 
         proposer_id = child_draft.created_by_id
         child_draft_id = child_draft.id
         clear_staged_master_payload(child_draft)
         db.session.delete(revision)
         db.session.delete(child_draft)
+        if is_new_spec:
+            db.session.delete(parent_draft)
         db.session.commit()
 
-        _create_audit_entry(
-            parent_draft.id,
-            "Drafting rejected and deleted",
-            new_value=json.dumps({"submitted_draft_id": child_draft_id}),
-            remarks=reviewer_notes,
-        )
+        if not is_new_spec:
+            _create_audit_entry(
+                parent_draft.id,
+                "Drafting rejected and deleted",
+                new_value=json.dumps({"submitted_draft_id": child_draft_id}),
+                remarks=reviewer_notes,
+            )
         create_notification(
             user_id=proposer_id,
             title="Draft rejected",
@@ -2914,6 +3822,7 @@ def admin_export():
     return render_template(
         "csc/admin/export.html",
         stats=stats,
+        subset_options=_get_export_subset_options(),
         export_history=[],  # TODO: track export history in a model
     )
 
@@ -2925,9 +3834,48 @@ def admin_export():
 def admin_export_master():
     """Download master spec document."""
     try:
-        # TODO: Generate comprehensive master document from all published specs
-        flash("Master export not yet implemented.", "info")
-        return redirect(url_for("csc.admin_export"))
+        selected_subsets = [
+            value.strip().upper()
+            for value in request.args.getlist("subset")
+            if value.strip()
+        ]
+        include_draft_notes = request.args.get("include_draft_notes") == "1"
+        include_changelog = request.args.get("include_changelog") == "1"
+        include_metadata = request.args.get("include_metadata") == "1"
+
+        query = CSCDraft.query.filter_by(status="Published", parent_draft_id=None)
+        published_drafts = sorted(query.all(), key=_draft_sort_key)
+
+        if selected_subsets:
+            published_drafts = [
+                draft for draft in published_drafts
+                if (parse_spec_number(draft.spec_number or "")[0] or "") in selected_subsets
+            ]
+
+        if not published_drafts:
+            flash("No published specifications matched the selected subsets.", "warning")
+            return redirect(url_for("csc.admin_export"))
+
+        all_specs = [_build_export_bundle(draft) for draft in published_drafts]
+        changelog = _get_version_changelog() if include_changelog else None
+        doc_bytes = build_master_spec_document(
+            all_specs,
+            include_draft_note=include_draft_notes,
+            changelog=changelog,
+            include_metadata=include_metadata,
+        )
+
+        subset_label = "-".join(selected_subsets) if selected_subsets else "ALL"
+        filename = (
+            f"ONGC_CSC_MasterSpec_{subset_label}_{datetime.now().strftime('%Y%m%d_%H%M')}.docx"
+        )
+        _record_export_audit("MASTER_DOCX_EXPORT", None, filename)
+        return send_file(
+            io.BytesIO(doc_bytes),
+            mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            as_attachment=True,
+            download_name=filename,
+        )
     except Exception as e:
         logger.error(f"Error exporting master: {e}")
         flash("Error exporting master document.", "danger")

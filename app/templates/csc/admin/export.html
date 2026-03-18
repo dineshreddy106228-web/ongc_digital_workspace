@@ -46,6 +46,9 @@
   gap: 1rem;
   margin-bottom: 1rem;
 }
+.csc-option-row:last-child {
+  margin-bottom: 0;
+}
 .csc-option-checkbox {
   width: 1.2rem;
   height: 1.2rem;
@@ -58,6 +61,68 @@
   cursor: pointer;
   color: var(--text);
   user-select: none;
+}
+.csc-export-note {
+  margin-top: 0.75rem;
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--primary) 18%, var(--border));
+  background: color-mix(in srgb, var(--primary) 7%, white);
+  color: var(--text);
+  font-size: 0.92rem;
+}
+.csc-subset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.85rem;
+  margin-top: 1rem;
+}
+.csc-subset-card {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 0.95rem 1rem;
+  background: color-mix(in srgb, var(--surface) 94%, white);
+}
+.csc-subset-card label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  cursor: pointer;
+}
+.csc-subset-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.csc-subset-code {
+  font-weight: 700;
+  color: var(--text);
+}
+.csc-subset-name {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+.csc-subset-count {
+  color: var(--primary);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.csc-subset-actions {
+  display: flex;
+  gap: 0.6rem;
+  margin-top: 0.85rem;
+}
+.csc-subset-link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--primary);
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.csc-subset-link:hover {
+  text-decoration: underline;
 }
 .csc-export-actions {
   display: flex;
@@ -213,11 +278,50 @@
     <h2 class="csc-options-title"><i class="bi bi-sliders"></i> Export Options</h2>
 
     <form id="exportForm" method="GET" action="{{ url_for('csc.admin_export_master') }}">
+      <div class="csc-export-note">
+        The master document always includes the CSC Format A specification sheets and the index table. Use the checks below to add the draft-note bundle, change log, and metadata appendix.
+      </div>
+
+      {% if subset_options %}
+      <div style="margin-top: 1.5rem;">
+        <h3 class="csc-options-title" style="margin-bottom: 0.5rem;"><i class="bi bi-diagram-3"></i> Subsets To Include</h3>
+        <div class="csc-subset-actions">
+          <button type="button" class="csc-subset-link" id="selectAllSubsets">Select all</button>
+          <button type="button" class="csc-subset-link" id="clearAllSubsets">Clear all</button>
+        </div>
+        <div class="csc-subset-grid">
+          {% for subset in subset_options %}
+          <div class="csc-subset-card">
+            <label for="subset-{{ subset.code }}">
+              <input
+                type="checkbox"
+                id="subset-{{ subset.code }}"
+                name="subset"
+                class="csc-option-checkbox csc-subset-checkbox"
+                value="{{ subset.code }}"
+                checked
+              >
+              <span class="csc-subset-meta">
+                <span class="csc-subset-code">{{ subset.code }}</span>
+                <span class="csc-subset-name">{{ subset.label }}</span>
+                <span class="csc-subset-count">{{ subset.count }} published specification{{ '' if subset.count == 1 else 's' }}</span>
+              </span>
+            </label>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      <div style="margin-top: 1.5rem;">
+        <h3 class="csc-options-title" style="margin-bottom: 1rem;"><i class="bi bi-ui-checks-grid"></i> Appendices &amp; Extras</h3>
+      </div>
+
       <div class="csc-option-row">
         <input type="checkbox" id="includeDraftNotes" name="include_draft_notes" class="csc-option-checkbox" value="1">
         <label for="includeDraftNotes" class="csc-option-label">
           <i class="bi bi-sticky"></i>
-          <span>Include draft revision notes &amp; comments</span>
+          <span>Include detailed draft-note bundle for each specification</span>
         </label>
       </div>
 
@@ -233,7 +337,7 @@
         <input type="checkbox" id="includeMetadata" name="include_metadata" class="csc-option-checkbox" value="1" checked>
         <label for="includeMetadata" class="csc-option-label">
           <i class="bi bi-info-circle"></i>
-          <span>Include metadata &amp; extraction source info</span>
+          <span>Include metadata appendix for the exported specifications</span>
         </label>
       </div>
 
@@ -311,8 +415,34 @@
   const exportForm = document.getElementById('exportForm');
   const generateBtn = document.getElementById('generateBtn');
   const exportStatus = document.getElementById('exportStatus');
+  const subsetCheckboxes = Array.from(document.querySelectorAll('.csc-subset-checkbox'));
+  const selectAllBtn = document.getElementById('selectAllSubsets');
+  const clearAllBtn = document.getElementById('clearAllSubsets');
+
+  function setSubsetSelection(checked) {
+    subsetCheckboxes.forEach((checkbox) => {
+      checkbox.checked = checked;
+    });
+  }
+
+  if (selectAllBtn) {
+    selectAllBtn.addEventListener('click', function() {
+      setSubsetSelection(true);
+    });
+  }
+
+  if (clearAllBtn) {
+    clearAllBtn.addEventListener('click', function() {
+      setSubsetSelection(false);
+    });
+  }
 
   exportForm.addEventListener('submit', function(e) {
+    if (subsetCheckboxes.length && !subsetCheckboxes.some((checkbox) => checkbox.checked)) {
+      e.preventDefault();
+      window.alert('Select at least one subset for the master export.');
+      return;
+    }
     generateBtn.disabled = true;
     exportStatus.style.display = 'inline';
   });

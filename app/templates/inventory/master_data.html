@@ -266,6 +266,9 @@ tr.is-saving td { opacity: 0.6; }
     <a href="{{ url_for('inventory.master_data_page') }}" class="inv-subnav-link active">
       <i class="bi bi-table"></i> Master Data
     </a>
+    <a href="{{ url_for('inventory.msds_page') }}" class="inv-subnav-link">
+      <i class="bi bi-file-earmark-pdf"></i> MSDS Center
+    </a>
   </nav>
 
   {# ── Import card ─────────────────────────────────────────────────── #}
@@ -282,10 +285,13 @@ tr.is-saving td { opacity: 0.6; }
       <a href="{{ url_for('csc.admin_drafts') }}" class="btn btn-sm btn-primary">
         <i class="bi bi-box-arrow-up-right"></i> Open CSC Manage Drafts
       </a>
+      <a href="{{ url_for('inventory.msds_page') }}" class="btn btn-sm btn-secondary">
+        <i class="bi bi-file-earmark-pdf"></i> Open MSDS Center
+      </a>
     </div>
   </div>
 
-  <div class="md-import-card msds-card">
+  <div class="md-import-card msds-card" id="msds-upload">
     <div class="md-import-header">
       <i class="bi bi-file-earmark-pdf" style="color: var(--primary); font-size: 1.1rem;"></i>
       <h2 class="md-import-title">MSDS PDF Storage</h2>
@@ -300,7 +306,7 @@ tr.is-saving td { opacity: 0.6; }
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <div>
             <label class="msds-field-label" for="material_code">Material Code</label>
-            <input class="msds-input" list="materialCodes" id="material_code" name="material_code" placeholder="Enter material code" required>
+            <input class="msds-input" list="materialCodes" id="material_code" name="material_code" placeholder="Enter material code" value="{{ prefill_material_code or '' }}" required>
             <datalist id="materialCodes">
               {% for row in rows %}
               <option value="{{ row.material }}">{{ row.short_text }}</option>

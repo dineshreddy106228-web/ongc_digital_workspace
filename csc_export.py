@@ -255,7 +255,7 @@ def build_word_document(
     doc.add_page_break()
 
     # ---- PART B: CSC Draft Note ---------------------------------------------
-    _build_csc_draft_note(doc, draft, section_map, flags, impact_analysis)
+    _build_csc_draft_note(doc, draft, section_map, parameters, flags, impact_analysis)
 
     _add_footer(doc, draft)
 
@@ -269,6 +269,7 @@ def build_master_spec_document(
     all_specs: list[dict[str, Any]],
     include_draft_note: bool = False,
     changelog: list[dict[str, Any]] | None = None,
+    include_metadata: bool = False,
 ) -> bytes:
     """Build a single Word document containing multiple ONGC spec sheets.
 
@@ -309,10 +310,16 @@ def build_master_spec_document(
         parameters = item["parameters"]
         flags      = item["flags"]
 
-        section_map = {
-            s["section_name"]: s.get("section_text", "") or ""
-            for s in sections
-        }
+        if isinstance(sections, dict):
+            section_map = {
+                str(key): str(value or "")
+                for key, value in sections.items()
+            }
+        else:
+            section_map = {
+                s["section_name"]: s.get("section_text", "") or ""
+                for s in sections
+            }
 
         if i > 0:
             doc.add_page_break()
@@ -322,12 +329,16 @@ def build_master_spec_document(
 
         if include_draft_note:
             doc.add_page_break()
-            _build_csc_draft_note(doc, draft, section_map, flags, item.get("impact_analysis"))
+            _build_csc_draft_note(doc, draft, section_map, parameters, flags, item.get("impact_analysis"))
 
     # Final page — Change Log
     if changelog is not None:
         doc.add_page_break()
         _build_change_log_page(doc, changelog)
+
+    if include_metadata and ordered_specs:
+        doc.add_page_break()
+        _build_metadata_appendix_page(doc, ordered_specs)
 
     _add_master_footer(doc, len(ordered_specs))
 
@@ -742,27 +753,296 @@ def _build_csc_draft_note(
     doc: Document,
     draft: dict[str, Any],
     section_map: dict[str, str],
+    parameters: list[dict[str, Any]],
     flags: list[dict[str, Any]],
     impact_analysis: dict[str, Any] | None = None,
 ) -> None:
     """Build the committee note section (Background, Issues, Impact, Recommendation)."""
     _add_draft_note_header(doc, draft)
+    _add_revision_summary_section(doc, draft, section_map, parameters, flags, impact_analysis)
 
-    _add_note_section(doc, "1. Background",
+    _add_note_section(doc, "1. Background Context",
                       section_map.get(SECTION_BACKGROUND, ""))
     _add_note_section(doc, "2. Existing Specification Summary",
                       section_map.get(SECTION_EXISTING_SPEC, ""))
     _add_issues_section(doc, flags)
-    _add_note_section(doc, "4. Proposed Changes",
+    _add_parameter_review_section(doc, parameters)
+    _add_note_section(doc, "5. Proposed Changes Narrative",
                       section_map.get(SECTION_PROPOSED, ""))
-    _add_note_section(doc, "5. Justification",
+    _add_note_section(doc, "6. Technical / Operational Justification",
                       section_map.get(SECTION_JUSTIFICATION, ""))
     _add_impact_section(doc, impact_analysis, section_map)
     _add_recommendation_section(doc, section_map)
 
 
+def _add_revision_summary_section(
+    doc: Document,
+    draft: dict[str, Any],
+    section_map: dict[str, str],
+    parameters: list[dict[str, Any]],
+    flags: list[dict[str, Any]],
+    impact_analysis: dict[str, Any] | None = None,
+) -> None:
+    """Add a structured summary before the detailed committee note."""
+    doc.add_heading("Executive Summary of Proposal for Revision of Corporate Specification", level=1)
+
+    total_parameters = len(parameters or [])
+    changed_parameters = _collect_changed_parameters(parameters)
+    vital_count = sum(
+        1 for parameter in (parameters or [])
+        if str(parameter.get("parameter_type", "") or "").strip().lower() == "vital"
+    )
+    desirable_count = total_parameters - vital_count
+    flagged_count = sum(1 for flag in (flags or []) if bool(flag.get("is_present")))
+    version_label = str(
+        draft.get("version_display")
+        or draft.get("version")
+        or f"v{draft.get('spec_version', 0)}"
+    )
+    impact_grade = str((impact_analysis or {}).get("impact_grade") or "—")
+
+    overview = doc.add_table(rows=3, cols=4)
+    overview.style = "Table Grid"
+    _set_table_outer_border(overview, _COPPER_HEX, sz=8)
+    _set_table_inner_borders(overview, _LGRAY_HEX, sz=4)
+
+    summary_pairs = [
+        ("Specification No.", draft.get("spec_number", "—")),
+        ("Version", version_label),
+        ("Chemical Name", draft.get("chemical_name", "—")),
+        ("Material Code", draft.get("material_code", "—")),
+        ("Total Parameters", str(total_parameters)),
+        ("Changed Parameters", str(len(changed_parameters))),
+        ("Vital Parameters", str(vital_count)),
+        ("Desirable Parameters", str(desirable_count)),
+        ("Flagged Issues", str(flagged_count)),
+        ("Impact Grade", impact_grade),
+        ("Status", draft.get("status", "—")),
+        ("Reviewed By", draft.get("reviewed_by", "—")),
+    ]
+    for row_idx, row in enumerate(overview.rows):
+        pairs = summary_pairs[row_idx * 2:(row_idx + 1) * 2]
+        cells = row.cells
+        for pair_idx, (label, value) in enumerate(pairs):
+            label_cell = cells[pair_idx * 2]
+            value_cell = cells[pair_idx * 2 + 1]
+            _shade_cell(label_cell, _LGRAY_HEX)
+            label_paragraph = label_cell.paragraphs[0]
+            label_run = label_paragraph.add_run(label)
+            label_run.bold = True
+            label_run.font.name = _FONT_MAIN
+            label_run.font.size = Pt(10)
+            value_paragraph = value_cell.paragraphs[0]
+            value_run = value_paragraph.add_run(str(value or "—"))
+            value_run.font.name = _FONT_MAIN
+            value_run.font.size = Pt(10)
+    for row in overview.rows:
+        _set_cell_widths(row.cells, [1.4, 1.8, 1.4, 1.8])
+
+    doc.add_paragraph().paragraph_format.space_after = Pt(4)
+
+    _add_summary_table(
+        doc,
+        [
+            ("Background Context", section_map.get(SECTION_BACKGROUND, "")),
+            ("Existing Specification Summary", section_map.get(SECTION_EXISTING_SPEC, "")),
+            ("Proposed Changes", section_map.get(SECTION_PROPOSED, "")),
+            ("Technical / Operational Justification", section_map.get(SECTION_JUSTIFICATION, "")),
+            ("Version Change Reason", section_map.get(REC_MAIN_KEY, "")),
+            ("Additional Remarks", section_map.get(REC_REMARKS_KEY, "")),
+        ],
+    )
+
+    doc.add_heading("Key Parameter Revisions", level=2)
+    if changed_parameters:
+        _add_parameter_change_table(doc, changed_parameters)
+    else:
+        paragraph = doc.add_paragraph(
+            "No explicit proposed value changes were captured. The export still includes the current specification sheet and detailed draft note."
+        )
+        paragraph.style.font.name = _FONT_MAIN
+    doc.add_paragraph().paragraph_format.space_after = Pt(4)
+
+
+def _add_summary_table(doc: Document, rows: list[tuple[str, str]]) -> None:
+    table = doc.add_table(rows=0, cols=2)
+    table.style = "Table Grid"
+    _set_table_outer_border(table, _COPPER_HEX, sz=8)
+    _set_table_inner_borders(table, _LGRAY_HEX, sz=4)
+
+    for label, value in rows:
+        row = table.add_row().cells
+        _shade_cell(row[0], _LGRAY_HEX)
+        label_paragraph = row[0].paragraphs[0]
+        label_run = label_paragraph.add_run(label)
+        label_run.bold = True
+        label_run.font.name = _FONT_MAIN
+        label_run.font.size = Pt(10)
+        value_paragraph = row[1].paragraphs[0]
+        value_run = value_paragraph.add_run((value or "—").strip() or "—")
+        value_run.font.name = _FONT_MAIN
+        value_run.font.size = Pt(10)
+        _set_cell_widths(row, [2.1, 4.4])
+    doc.add_paragraph().paragraph_format.space_after = Pt(2)
+
+
+def _collect_changed_parameters(parameters: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    changed: list[dict[str, Any]] = []
+    for index, parameter in enumerate(parameters or [], start=1):
+        existing = str(parameter.get("existing_value", "") or "").strip()
+        proposed = str(parameter.get("proposed_value", "") or "").strip()
+        if not proposed or proposed == existing:
+            continue
+        changed.append(
+            {
+                "index": index,
+                "parameter_name": str(parameter.get("parameter_name", "") or "—"),
+                "parameter_type": str(parameter.get("parameter_type", "") or "—"),
+                "existing_value": existing or "—",
+                "proposed_value": proposed or "—",
+            }
+        )
+    return changed
+
+
+def _add_parameter_change_table(doc: Document, changed_parameters: list[dict[str, Any]]) -> None:
+    table = doc.add_table(rows=1, cols=5)
+    table.style = "Table Grid"
+    _set_table_outer_border(table, _COPPER_HEX, sz=8)
+    _set_table_inner_borders(table, _LGRAY_HEX, sz=4)
+
+    headers = ["S. No.", "Parameter", "Type", "Existing Requirement", "Proposed Requirement"]
+    header_cells = table.rows[0].cells
+    for idx, header in enumerate(headers):
+        _shade_cell(header_cells[idx], _COPPER_HEX, font_white=True)
+        paragraph = header_cells[idx].paragraphs[0]
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = paragraph.add_run(header)
+        run.bold = True
+        run.font.name = _FONT_MAIN
+        run.font.size = Pt(10)
+        run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+    _set_cell_widths(header_cells, [0.55, 2.0, 0.9, 1.7, 1.7])
+
+    for item in changed_parameters:
+        row = table.add_row().cells
+        values = [
+            str(item["index"]),
+            item["parameter_name"],
+            item["parameter_type"],
+            item["existing_value"],
+            item["proposed_value"],
+        ]
+        for idx, value in enumerate(values):
+            paragraph = row[idx].paragraphs[0]
+            if idx == 0:
+                paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run = paragraph.add_run(value)
+            run.font.name = _FONT_MAIN
+            run.font.size = Pt(10)
+            if idx == 4:
+                run.bold = True
+                run.font.color.rgb = _COPPER
+        _set_cell_widths(row, [0.55, 2.0, 0.9, 1.7, 1.7])
+    doc.add_paragraph().paragraph_format.space_after = Pt(2)
+
+
+def _build_metadata_appendix_page(
+    doc: Document,
+    ordered_specs: list[dict[str, Any]],
+) -> None:
+    """Append a compact metadata appendix for the exported master set."""
+    logo_path = _ensure_logo()
+
+    header_table = doc.add_table(rows=1, cols=2)
+    _set_table_no_borders(header_table)
+
+    logo_cell = header_table.rows[0].cells[0]
+    title_cell = header_table.rows[0].cells[1]
+
+    if logo_path and logo_path.exists():
+        logo_paragraph = logo_cell.paragraphs[0]
+        logo_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        logo_paragraph.add_run().add_picture(str(logo_path), width=Inches(0.55))
+    else:
+        logo_cell.paragraphs[0].text = "ONGC"
+
+    title_paragraph = title_cell.paragraphs[0]
+    title_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    title_paragraph.paragraph_format.space_before = Pt(4)
+    title_run = title_paragraph.add_run("CORPORATE SPECIFICATIONS — METADATA APPENDIX")
+    title_run.bold = True
+    title_run.font.name = _FONT_TITLE
+    title_run.font.size = Pt(14)
+    title_run.font.color.rgb = _BLACK
+    _set_cell_widths(header_table.rows[0].cells, [0.65, 5.85])
+
+    intro = doc.add_paragraph(
+        "Appendix generated from the current published specification records included in this export."
+    )
+    intro.paragraph_format.space_after = Pt(6)
+    intro.runs[0].font.name = _FONT_MAIN
+    intro.runs[0].font.size = Pt(10)
+    intro.runs[0].italic = True
+    intro.runs[0].font.color.rgb = RGBColor(0x6B, 0x72, 0x80)
+
+    table = doc.add_table(rows=1, cols=8)
+    table.style = "Table Grid"
+    _set_table_format_a_borders(table)
+
+    headers = [
+        "S. No.",
+        "Spec No.",
+        "Chemical",
+        "Subset",
+        "Version",
+        "Parameters",
+        "Meeting Date",
+        "Reviewed By",
+    ]
+    widths = [0.4, 1.2, 1.8, 0.8, 0.6, 0.7, 0.9, 1.1]
+
+    header_cells = table.rows[0].cells
+    for index, header in enumerate(headers):
+        _shade_cell(header_cells[index], "1F2937")
+        paragraph = header_cells[index].paragraphs[0]
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = paragraph.add_run(header)
+        run.bold = True
+        run.font.name = _FONT_MAIN
+        run.font.size = Pt(9)
+        run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+    _set_cell_widths(header_cells, widths)
+
+    for index, item in enumerate(ordered_specs, start=1):
+        draft = item.get("draft", {}) or {}
+        subset_code, _, _ = parse_spec_number(str(draft.get("spec_number", "") or ""))
+        row = table.add_row().cells
+        values = [
+            str(index),
+            str(draft.get("spec_number", "") or "—"),
+            str(draft.get("chemical_name", "") or "—"),
+            subset_code or "—",
+            str(draft.get("version_display") or draft.get("version") or f"v{draft.get('spec_version', 0)}"),
+            str(len(item.get("parameters", []) or [])),
+            str(draft.get("meeting_date", "") or "—"),
+            str(draft.get("reviewed_by", "") or "—"),
+        ]
+        for cell_index, value in enumerate(values):
+            paragraph = row[cell_index].paragraphs[0]
+            if cell_index in {0, 4, 5}:
+                paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run = paragraph.add_run(value)
+            run.font.name = _FONT_MAIN
+            run.font.size = Pt(9)
+            run.font.color.rgb = _BLACK
+        _set_cell_widths(row, widths)
+
+    doc.add_paragraph().paragraph_format.space_after = Pt(6)
+
+
 def _add_draft_note_header(doc: Document, draft: dict[str, Any]) -> None:
-    """Formal CSC Draft Note cover block."""
+    """Formal CSC export cover block aligned with the Flask workflow review language."""
     logo_path = _ensure_logo()
 
     tbl = doc.add_table(rows=1, cols=2)
@@ -780,11 +1060,22 @@ def _add_draft_note_header(doc: Document, draft: dict[str, Any]) -> None:
 
     tp = title_cell.paragraphs[0]
     tp.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    r = tp.add_run("SPECIFICATION REVIEW COMMITTEE - DRAFT NOTE")
+    r = tp.add_run("CORPORATE SPECIFICATION REVISION MEMORANDUM")
     r.bold = True
     r.font.name = _FONT_TITLE
     r.font.size = Pt(13)
     r.font.color.rgb = _COPPER
+
+    subtitle = title_cell.add_paragraph()
+    subtitle.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    subtitle.paragraph_format.space_before = Pt(2)
+    subtitle_run = subtitle.add_run(
+        "Workflow-generated review package. Read-only submission snapshot for approval, return, or archival reference."
+    )
+    subtitle_run.font.name = _FONT_MAIN
+    subtitle_run.font.size = Pt(9)
+    subtitle_run.italic = True
+    subtitle_run.font.color.rgb = RGBColor(0x6B, 0x72, 0x80)
 
     _set_cell_widths(tbl.rows[0].cells, [0.65, 5.85])
     doc.add_paragraph().paragraph_format.space_after = Pt(2)
@@ -834,8 +1125,9 @@ def _add_note_section(doc: Document, title: str, text: str) -> None:
 
 
 def _add_issues_section(doc: Document, flags: list[dict[str, Any]]) -> None:
-    doc.add_heading("3. Issues Observed", level=1)
-    flag_map = {f["issue_type"]: f for f in flags}
+    doc.add_heading("3. Issue Flag Register", level=1)
+    normalized_flags = flags or []
+    flag_map = {str(f.get("issue_type", "")): f for f in normalized_flags}
 
     tbl = doc.add_table(rows=1, cols=3)
     tbl.style = "Table Grid"
@@ -852,10 +1144,37 @@ def _add_issues_section(doc: Document, flags: list[dict[str, Any]]) -> None:
         hr.font.size = Pt(10)
         hr.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
 
+    issue_rows: list[tuple[str, bool, str]] = []
     for key, label in ISSUE_TYPES:
-        f      = flag_map.get(key, {})
-        is_yes = bool(f.get("is_present", 0))
-        note   = f.get("note", "") or ""
+        flag = flag_map.get(key)
+        if flag is None:
+            flag = next(
+                (
+                    item for item in normalized_flags
+                    if str(item.get("issue_type", "")).strip().lower() == str(label).strip().lower()
+                ),
+                None,
+            )
+        issue_rows.append(
+            (
+                label,
+                bool(flag.get("is_present", 0)) if flag else False,
+                str(flag.get("note", "") or "") if flag else "",
+            )
+        )
+
+    extra_labels = [
+        str(item.get("issue_type", "") or "").strip()
+        for item in normalized_flags
+        if str(item.get("issue_type", "") or "").strip()
+        and str(item.get("issue_type", "") or "").strip() not in {key for key, _ in ISSUE_TYPES}
+        and str(item.get("issue_type", "") or "").strip().lower() not in {label.lower() for _, label in ISSUE_TYPES}
+    ]
+    for label in extra_labels:
+        flag = flag_map.get(label, {})
+        issue_rows.append((label, bool(flag.get("is_present", 0)), str(flag.get("note", "") or "")))
+
+    for label, is_yes, note in issue_rows:
         row    = tbl.add_row().cells
         for ci, val in enumerate([label, "Yes" if is_yes else "No",
                                    note if is_yes else "—"]):
@@ -871,12 +1190,76 @@ def _add_issues_section(doc: Document, flags: list[dict[str, Any]]) -> None:
     doc.add_paragraph().paragraph_format.space_after = Pt(2)
 
 
+def _add_parameter_review_section(doc: Document, parameters: list[dict[str, Any]]) -> None:
+    doc.add_heading("4. Parameter Review and Proposed Changes", level=1)
+    if not parameters:
+        doc.add_paragraph("No parameters are present in this submission.")
+        doc.add_paragraph().paragraph_format.space_after = Pt(2)
+        return
+
+    table = doc.add_table(rows=1, cols=6)
+    table.style = "Table Grid"
+    _set_table_outer_border(table, _COPPER_HEX, sz=8)
+    _set_table_inner_borders(table, _LGRAY_HEX, sz=4)
+
+    headers = [
+        "Parameter",
+        "Type",
+        "Existing Requirement",
+        "Proposed Requirement",
+        "Change Status",
+        "Justification",
+    ]
+    widths = [1.8, 0.8, 1.2, 1.2, 0.8, 1.7]
+
+    header_cells = table.rows[0].cells
+    for idx, header in enumerate(headers):
+        _shade_cell(header_cells[idx], _COPPER_HEX, font_white=True)
+        paragraph = header_cells[idx].paragraphs[0]
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = paragraph.add_run(header)
+        run.bold = True
+        run.font.name = _FONT_MAIN
+        run.font.size = Pt(9)
+        run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+    _set_cell_widths(header_cells, widths)
+
+    for parameter in parameters:
+        existing = str(parameter.get("existing_value", "") or "").strip() or "—"
+        proposed = str(parameter.get("proposed_value", "") or "").strip()
+        justification = str(parameter.get("justification", "") or parameter.get("remarks", "") or "").strip() or "—"
+        status = "Revised" if proposed and proposed != existing else "Retained"
+        proposed_display = proposed or existing
+        row = table.add_row().cells
+        values = [
+            str(parameter.get("parameter_name", "") or "Untitled Parameter"),
+            str(parameter.get("parameter_type", "") or "—"),
+            existing,
+            proposed_display,
+            status,
+            justification,
+        ]
+        for idx, value in enumerate(values):
+            paragraph = row[idx].paragraphs[0]
+            run = paragraph.add_run(value)
+            run.font.name = _FONT_MAIN
+            run.font.size = Pt(9)
+            if idx == 3 and status == "Revised":
+                run.bold = True
+                run.font.color.rgb = _COPPER
+            if idx == 4:
+                run.bold = True
+                run.font.color.rgb = _COPPER if status == "Revised" else _DARK_GRAY
+        _set_cell_widths(row, widths)
+    doc.add_paragraph().paragraph_format.space_after = Pt(2)
+
+
 def _add_impact_section(
     doc: Document,
     impact_analysis: dict[str, Any] | None,
     section_map: dict[str, str],
 ) -> None:
-    doc.add_heading("6. Impact Analysis", level=1)
+    doc.add_heading("7. Impact Assessment", level=1)
 
     if impact_analysis:
         op_score = int(impact_analysis.get("operational_impact_score", 0) or 0)
@@ -919,7 +1302,7 @@ def _add_impact_section(
 
 
 def _add_recommendation_section(doc: Document, section_map: dict[str, str]) -> None:
-    doc.add_heading("7. Committee Recommendation", level=1)
+    doc.add_heading("8. Approval Basis and Version Change Reason", level=1)
     rec  = section_map.get(REC_MAIN_KEY, "").strip()  or "—"
     rmks = section_map.get(REC_REMARKS_KEY, "").strip() or "—"
 
@@ -929,8 +1312,8 @@ def _add_recommendation_section(doc: Document, section_map: dict[str, str]) -> N
     _set_table_inner_borders(tbl, _LGRAY_HEX, sz=4)
 
     for ri, (lbl, val) in enumerate([
-        ("Recommendation Note", rec),
-        ("Additional Remarks",  rmks),
+        ("Approval Basis / Version Change Reason", rec),
+        ("Approval Notes / Additional Remarks",  rmks),
     ]):
         cells = tbl.rows[ri].cells
         _shade_cell(cells[0], _LGRAY_HEX)

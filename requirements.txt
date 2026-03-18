@@ -10,6 +10,8 @@ Werkzeug>=3.0,<4.0
 gunicorn>=21.0,<22.0
 cryptography
 openpyxl>=3.1,<4.0
+python-docx>=1.1,<2.0
+PyMuPDF>=1.24,<2.0
 # Inventory Intelligence (optional — only needed when ENABLE_INVENTORY=true)
 pandas>=2.0,<3.0
 numpy>=1.26,<3.0

@@ -606,6 +606,32 @@ def master_data_page():
         read_only=True,
         msds_by_material=msds_by_material,
         msds_count=len(msds_documents),
+        prefill_material_code=(request.args.get("material_code") or "").strip(),
+    )
+
+
+@inventory_bp.route("/msds")
+@login_required
+@superuser_required
+def msds_page():
+    """Dedicated MSDS upload and management page for superusers."""
+    from app.core.services.master_data import get_all_master_data
+    from app.models.inventory.material_msds_document import MaterialMSDSDocument
+
+    rows = get_all_master_data()
+    msds_documents = MaterialMSDSDocument.query.order_by(
+        MaterialMSDSDocument.material_code.asc()
+    ).all()
+    msds_by_material = {
+        document.material_code: document for document in msds_documents
+    }
+    return render_template(
+        "inventory/msds.html",
+        rows=rows,
+        total=len(rows),
+        msds_by_material=msds_by_material,
+        msds_count=len(msds_documents),
+        prefill_material_code=(request.args.get("material_code") or "").strip(),
     )
 
 
@@ -637,15 +663,15 @@ def upload_msds():
     except MSDSError as exc:
         db.session.rollback()
         flash(str(exc), "danger")
-        return redirect(url_for("inventory.master_data_page"))
+        return redirect(url_for("inventory.msds_page", material_code=material_code))
     except Exception:
         db.session.rollback()
         logger.exception("Failed to upload MSDS PDF for material=%s", material_code)
         flash("Could not upload the MSDS PDF.", "danger")
-        return redirect(url_for("inventory.master_data_page"))
+        return redirect(url_for("inventory.msds_page", material_code=material_code))
 
     flash(f"MSDS PDF stored for material '{material_code}'.", "success")
-    return redirect(url_for("inventory.master_data_page"))
+    return redirect(url_for("inventory.msds_page", material_code=material_code))
 
 
 @inventory_bp.route("/master-data/msds/<path:material_code>")
@@ -680,20 +706,20 @@ def delete_msds(material_code: str):
         deleted = delete_msds_document(material_code)
         if not deleted:
             flash(f"No MSDS PDF is stored for material '{material_code}'.", "info")
-            return redirect(url_for("inventory.master_data_page"))
+            return redirect(url_for("inventory.msds_page", material_code=material_code))
         db.session.commit()
     except MSDSError as exc:
         db.session.rollback()
         flash(str(exc), "danger")
-        return redirect(url_for("inventory.master_data_page"))
+        return redirect(url_for("inventory.msds_page", material_code=material_code))
     except Exception:
         db.session.rollback()
         logger.exception("Failed to delete MSDS PDF for material=%s", material_code)
         flash("Could not delete the MSDS PDF.", "danger")
-        return redirect(url_for("inventory.master_data_page"))
+        return redirect(url_for("inventory.msds_page", material_code=material_code))
 
     flash(f"MSDS PDF deleted for material '{material_code}'.", "success")
-    return redirect(url_for("inventory.master_data_page"))
+    return redirect(url_for("inventory.msds_page", material_code=material_code))
 
 
 # ── API: Delete a single master data row (superuser only) ────────────────────

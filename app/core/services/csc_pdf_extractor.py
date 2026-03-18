@@ -90,6 +90,7 @@ def extract_spec_from_pdf(pdf_bytes: bytes) -> SpecDocument:
 
     # ---- Extract parameters --------------------------------------------------
     _extract_parameters(doc_result, all_blocks)
+    _append_parameter_review_warnings(doc_result)
 
     pdf.close()
 
@@ -435,6 +436,37 @@ def _parse_rows_into_params(result: SpecDocument, rows: list[list[dict]]) -> Non
     # Sort by number and assign to result
     params.sort(key=lambda p: p.number)
     result.parameters = params
+
+
+def _append_parameter_review_warnings(result: SpecDocument) -> None:
+    """Flag rows that likely need manual review before draft creation.
+
+    Some legacy CSC Format A PDFs wrap parameter-name fragments into the
+    required-value column. We still stage those rows, but warn the user so the
+    review screen can be used to correct them before a draft is created.
+    """
+    flagged_rows: list[str] = []
+    for parameter in result.parameters:
+        name = (parameter.name or "").strip()
+        value = (parameter.existing_value or "").strip()
+        if not name:
+            flagged_rows.append(str(parameter.number))
+            continue
+        suspicious_name = (
+            name.count("(") > name.count(")")
+            or name.endswith("%")
+            or bool(re.search(r"\bat\s+\d+$", name))
+        )
+        suspicious_value = not value
+        if suspicious_name or suspicious_value:
+            flagged_rows.append(str(parameter.number))
+
+    if flagged_rows:
+        result.parse_warnings.append(
+            "Review extracted rows "
+            + ", ".join(flagged_rows)
+            + " before creating the draft. This PDF uses wrapped table lines, so some fields may need correction."
+        )
 
 
 # ---------------------------------------------------------------------------

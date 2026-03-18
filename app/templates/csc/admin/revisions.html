@@ -36,6 +36,16 @@
   font-size: 0.78rem;
   font-weight: 600;
 }
+.csc-status-new-spec {
+  background: color-mix(in srgb, #7c3aed 12%, transparent);
+  color: #6d28d9;
+}
+.csc-spec-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
 .csc-status-submitted {
   background: color-mix(in srgb, #2563eb 12%, transparent);
   color: #1d4ed8;
@@ -68,6 +78,15 @@
   cursor: pointer;
   background: var(--surface);
   color: var(--primary);
+}
+.csc-btn-sm.is-decision {
+  background: color-mix(in srgb, var(--primary) 10%, white);
+  border-color: color-mix(in srgb, var(--primary) 30%, var(--border));
+  color: var(--primary);
+  font-weight: 700;
+}
+.csc-btn-sm.is-snapshot {
+  color: var(--text);
 }
 .csc-no-data {
   text-align: center;
@@ -299,6 +318,12 @@
   color: var(--muted);
   font-size: 0.85rem;
 }
+.csc-row-note {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
 @media (max-width: 900px) {
   .csc-review-columns,
   .csc-decision-grid {
@@ -344,7 +369,7 @@
 
   <div class="card">
     <div class="card-body">
-      {% if revisions %}
+      {% if revision_rows %}
       <div class="csc-table-wrap">
         <table class="csc-table">
           <thead>
@@ -360,10 +385,18 @@
             </tr>
           </thead>
           <tbody>
-            {% for revision in revisions %}
+            {% for row in revision_rows %}
+            {% set revision = row.revision %}
             <tr>
               <td><code>{{ revision.id }}</code></td>
-              <td><strong>{{ revision.parent_spec.spec_number }}</strong></td>
+              <td>
+                <div class="csc-spec-meta">
+                  <strong>{{ revision.parent_spec.spec_number }}</strong>
+                  {% if row.is_new_spec %}
+                  <span class="csc-status-badge csc-status-new-spec">New Specification</span>
+                  {% endif %}
+                </div>
+              </td>
               <td>{{ revision.parent_spec.chemical_name or '—' }}</td>
               <td>{{ revision.submitted_by or '—' }}</td>
               <td>{{ revision.submitted_at | datetime_ist('%d %b %Y, %H:%M') if revision.submitted_at else '—' }}</td>
@@ -376,13 +409,16 @@
               <td class="csc-actions">
                 <button
                   type="button"
-                  class="csc-btn-sm"
+                  class="csc-btn-sm {{ 'is-decision' if revision.status == 'submitted' else 'is-snapshot' }}"
                   data-review-revision-id="{{ revision.id }}"
                   data-review-title="{{ revision.parent_spec.spec_number }} — {{ revision.parent_spec.chemical_name or 'Draft Review' }}"
                 >
-                  <i class="bi bi-eye"></i>
+                  <i class="bi {{ 'bi-clipboard-check' if revision.status == 'submitted' else 'bi-eye' }}"></i>
                   {{ 'Review & Decide' if revision.status == 'submitted' else 'View Snapshot' }}
                 </button>
+                <span class="csc-row-note">
+                  {{ 'Decision pending admin action' if revision.status == 'submitted' else 'Historical read-only snapshot' }}
+                </span>
               </td>
             </tr>
             {% endfor %}
@@ -516,8 +552,8 @@
       }
       currentStatus = data.status;
       modalSubtitle.textContent = data.status === 'submitted'
-        ? 'Review the full submission below and decide from this dialog.'
-        : 'Read-only revision snapshot.';
+        ? 'Review the verified snapshot below, then approve, return, or reject without editing the committee draft.'
+        : 'Read-only revision snapshot for audit and decision history.';
       modalBody.innerHTML = data.html;
       setDecisionMode(data.status);
     })

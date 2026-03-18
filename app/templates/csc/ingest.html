@@ -1,0 +1,417 @@
+{% extends "base.html" %}
+{% block title %}New Specification Upload — Material Master Management — {{ app_name }}{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}">
+<style nonce="{{ csp_nonce() }}">
+.csc-ingest-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  margin-bottom: 2rem;
+}
+.csc-ingest-review {
+  margin-top: 2rem;
+}
+.csc-ingest-review-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+.csc-ingest-review-card {
+  border: 1px solid #d9e2f2;
+  border-radius: 16px;
+  background: #f8fbff;
+  padding: 1rem 1.1rem;
+}
+.csc-ingest-review-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #5e6c84;
+  margin-bottom: 0.35rem;
+}
+.csc-ingest-review-value {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #132238;
+}
+.csc-ingest-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.csc-ingest-field label {
+  display: block;
+  font-weight: 700;
+  margin-bottom: 0.4rem;
+  color: #24364d;
+}
+.csc-ingest-field input,
+.csc-ingest-field textarea,
+.csc-ingest-field select {
+  width: 100%;
+  border: 1px solid #ccd7e6;
+  border-radius: 10px;
+  padding: 0.7rem 0.8rem;
+  font: inherit;
+  box-sizing: border-box;
+}
+.csc-ingest-field textarea {
+  min-height: 110px;
+  height: 110px;
+  resize: none;
+  overflow-y: auto;
+}
+.csc-ingest-table-wrap {
+  overflow-x: auto;
+}
+.csc-ingest-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 980px;
+}
+.csc-ingest-table th,
+.csc-ingest-table td {
+  border: 1px solid #d9e2f2;
+  padding: 0.7rem;
+  vertical-align: top;
+}
+.csc-ingest-table th {
+  background: #eef4ff;
+  color: #20324a;
+  font-size: 0.85rem;
+}
+.csc-ingest-table td:first-child {
+  width: 60px;
+  text-align: center;
+  font-weight: 700;
+}
+.csc-ingest-table td > textarea,
+.csc-ingest-table td > select,
+.csc-ingest-table td > input {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  box-sizing: border-box;
+}
+.csc-ingest-table textarea {
+  height: 120px;
+  min-height: 120px;
+  resize: none;
+  overflow-y: auto;
+}
+.csc-ingest-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+@media (max-width: 1024px) {
+  .csc-ingest-layout {
+    grid-template-columns: 1fr;
+  }
+  .csc-ingest-review-grid,
+  .csc-ingest-meta-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+@media (max-width: 720px) {
+  .csc-ingest-review-grid,
+  .csc-ingest-meta-grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="inv-page">
+  <a href="{{ url_for('csc.landing') }}" class="csc-back-link">
+    <i class="bi bi-arrow-left"></i> Back to Material Master Management
+  </a>
+
+  <div class="inv-module-header">
+    <div>
+      <h1 class="inv-module-title"><i class="bi bi-cloud-upload"></i> New Specification Upload</h1>
+      <p class="inv-module-subtitle">Ingest a CSC Format A file and create a draft flagged as a new specification.</p>
+    </div>
+  </div>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+    <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  <div class="md-import-card" style="margin-bottom:1.5rem;">
+    <div class="md-import-header">
+      <i class="bi bi-info-circle" style="color: var(--primary); font-size: 1.1rem;"></i>
+      <h2 class="md-import-title">Rules</h2>
+    </div>
+    <p class="md-import-subtitle" style="margin-bottom:0;">
+      The uploaded file must contain a valid CSC Format A specification number. If the same subset and serial already exist,
+      upload will stop and you must use the replacement workflow for the existing specification.
+      Upload now stages extracted fields for review first; the draft is created only after confirmation.
+    </p>
+  </div>
+
+  <div class="csc-ingest-layout">
+    <div class="card">
+      <div class="card-body">
+        <h2 class="inv-section-title"><i class="bi bi-file-pdf"></i> PDF Upload</h2>
+        <p class="inv-section-desc">Upload one CSC Format A PDF and create a new-spec workflow draft.</p>
+        <form method="POST" action="{{ url_for('csc.ingest_pdf') }}" enctype="multipart/form-data" id="pdfUploadForm">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="inv-drop-zone" id="pdfDropZone">
+            <input type="file" name="pdf_file" id="pdfFile" accept=".pdf" class="inv-file-input" required>
+            <div class="inv-drop-content" id="pdfDropContent">
+              <i class="bi bi-file-pdf inv-drop-icon"></i>
+              <p class="inv-drop-title">Drop your PDF here</p>
+              <p class="inv-drop-sub">or <span class="inv-drop-link">click to browse</span></p>
+              <p class="inv-drop-hint">Single CSC Format A spec only</p>
+            </div>
+            <div class="inv-file-chosen" id="pdfFileChosen" style="display:none;">
+              <i class="bi bi-file-check inv-file-chosen-icon"></i>
+              <span id="pdfFileChosenName"></span>
+              <span class="inv-file-clear" id="pdfFileClear" title="Remove">×</span>
+            </div>
+          </div>
+          <div class="inv-upload-actions">
+            <button type="submit" class="btn btn-primary" id="pdfSubmitBtn" disabled>
+              <i class="bi bi-cloud-upload"></i>
+              <span>Create New-Spec Draft</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <h2 class="inv-section-title"><i class="bi bi-file-word"></i> DOCX Upload</h2>
+        <p class="inv-section-desc">Upload one CSC Format A DOCX and create a new-spec workflow draft.</p>
+        <form method="POST" action="{{ url_for('csc.ingest_docx') }}" enctype="multipart/form-data" id="docxUploadForm">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="inv-drop-zone" id="docxDropZone">
+            <input type="file" name="docx_file" id="docxFile" accept=".docx" class="inv-file-input" required>
+            <div class="inv-drop-content" id="docxDropContent">
+              <i class="bi bi-file-word inv-drop-icon"></i>
+              <p class="inv-drop-title">Drop your DOCX here</p>
+              <p class="inv-drop-sub">or <span class="inv-drop-link">click to browse</span></p>
+              <p class="inv-drop-hint">Single CSC Format A spec only</p>
+            </div>
+            <div class="inv-file-chosen" id="docxFileChosen" style="display:none;">
+              <i class="bi bi-file-check inv-file-chosen-icon"></i>
+              <span id="docxFileChosenName"></span>
+              <span class="inv-file-clear" id="docxFileClear" title="Remove">×</span>
+            </div>
+          </div>
+          <div class="inv-upload-actions">
+            <button type="submit" class="btn btn-primary" id="docxSubmitBtn" disabled>
+              <i class="bi bi-cloud-upload"></i>
+              <span>Create New-Spec Draft</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  {% if staged_spec %}
+  <div class="card csc-ingest-review">
+    <div class="card-body">
+      <div class="inv-module-header" style="margin-bottom:1.25rem;">
+        <div>
+          <h2 class="inv-module-title" style="font-size:1.35rem;"><i class="bi bi-clipboard-check"></i> Review Extracted Specification</h2>
+          <p class="inv-module-subtitle">
+            {% if staged_filename %}<strong>{{ staged_filename }}</strong> {% endif %}
+            has been parsed. Review and correct the extracted fields before creating the draft.
+          </p>
+        </div>
+      </div>
+
+      {% if staged_spec.parse_warnings %}
+      <div class="alert alert-warning">
+        <strong>Review required.</strong>
+        <ul style="margin:0.5rem 0 0 1rem;">
+          {% for warning in staged_spec.parse_warnings %}
+          <li>{{ warning }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      <div class="csc-ingest-review-grid">
+        <div class="csc-ingest-review-card">
+          <div class="csc-ingest-review-label">Source</div>
+          <div class="csc-ingest-review-value">{{ staged_source_label or 'Upload' }}</div>
+        </div>
+        <div class="csc-ingest-review-card">
+          <div class="csc-ingest-review-label">Specification</div>
+          <div class="csc-ingest-review-value">{{ staged_spec.spec_number or 'Not found' }}</div>
+        </div>
+        <div class="csc-ingest-review-card">
+          <div class="csc-ingest-review-label">Chemical</div>
+          <div class="csc-ingest-review-value">{{ staged_spec.chemical_name or 'Not found' }}</div>
+        </div>
+        <div class="csc-ingest-review-card">
+          <div class="csc-ingest-review-label">Parameters Found</div>
+          <div class="csc-ingest-review-value">{{ staged_spec.parameters|length }}</div>
+        </div>
+      </div>
+
+      <form method="POST" action="{{ url_for('csc.create_ingested_draft') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="source_label" value="{{ staged_source_label or 'Upload' }}">
+
+        <div class="csc-ingest-meta-grid">
+          <div class="csc-ingest-field">
+            <label for="stagedSpecNumber">Specification Number</label>
+            <input id="stagedSpecNumber" type="text" name="spec_number" value="{{ staged_spec.spec_number }}">
+          </div>
+          <div class="csc-ingest-field">
+            <label for="stagedChemicalName">Chemical Name</label>
+            <input id="stagedChemicalName" type="text" name="chemical_name" value="{{ staged_spec.chemical_name }}">
+          </div>
+          <div class="csc-ingest-field">
+            <label for="stagedMaterialCode">Material Code</label>
+            <input id="stagedMaterialCode" type="text" name="material_code" value="{{ staged_spec.material_code }}">
+          </div>
+        </div>
+
+        <div class="csc-ingest-field" style="margin-bottom:1rem;">
+          <label for="stagedTestProcedure">Test Procedure</label>
+          <input id="stagedTestProcedure" type="text" name="test_procedure" value="{{ staged_spec.test_procedure }}">
+        </div>
+
+        <div class="csc-ingest-table-wrap">
+          <table class="csc-ingest-table">
+            <thead>
+              <tr>
+                <th>No.</th>
+                <th>Parameter</th>
+                <th>Category</th>
+                <th>Condition / Unit</th>
+                <th>Required Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for parameter in staged_spec.parameters %}
+              <tr>
+                <td>
+                  {{ parameter.number }}
+                  <input type="hidden" name="parameter_number[]" value="{{ parameter.number }}">
+                  <input type="hidden" name="parameter_group[]" value="{{ parameter.group }}">
+                </td>
+                <td>
+                  <textarea name="parameter_name[]" rows="4">{{ parameter.name }}</textarea>
+                </td>
+                <td>
+                  <select name="parameter_type[]">
+                    <option value="Desirable" {{ 'selected' if parameter.parameter_type == 'Desirable' else '' }}>Desirable</option>
+                    <option value="Vital" {{ 'selected' if parameter.parameter_type == 'Vital' else '' }}>Vital</option>
+                  </select>
+                </td>
+                <td>
+                  <textarea name="parameter_condition[]" rows="4">{{ parameter.unit_condition }}</textarea>
+                </td>
+                <td>
+                  <textarea name="parameter_value[]" rows="4">{{ parameter.existing_value }}</textarea>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="csc-ingest-actions">
+          <a href="{{ url_for('csc.ingest') }}" class="btn btn-outline-secondary">Discard Preview</a>
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-file-earmark-plus"></i>
+            <span>Create New-Spec Draft</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts_extra %}
+<script nonce="{{ csp_nonce() }}">
+(function () {
+  'use strict';
+
+  function wireUpload(prefix) {
+    const fileInput = document.getElementById(prefix + 'File');
+    const dropZone = document.getElementById(prefix + 'DropZone');
+    const dropContent = document.getElementById(prefix + 'DropContent');
+    const fileChosen = document.getElementById(prefix + 'FileChosen');
+    const fileChosenName = document.getElementById(prefix + 'FileChosenName');
+    const fileClear = document.getElementById(prefix + 'FileClear');
+    const submitBtn = document.getElementById(prefix + 'SubmitBtn');
+
+    function showFile(name) {
+      dropContent.style.display = 'none';
+      fileChosen.style.display = 'flex';
+      fileChosenName.textContent = name;
+      submitBtn.disabled = false;
+    }
+
+    function clearFile() {
+      fileInput.value = '';
+      dropContent.style.display = 'flex';
+      fileChosen.style.display = 'none';
+      fileChosenName.textContent = '';
+      submitBtn.disabled = true;
+    }
+
+    fileInput?.addEventListener('change', function () {
+      if (this.files.length > 0) showFile(this.files[0].name);
+      else clearFile();
+    });
+
+    fileClear?.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      clearFile();
+    });
+
+    dropZone?.addEventListener('click', function (e) {
+      if (e.target === fileInput) return;
+      if (e.target === fileClear || fileClear.contains(e.target)) return;
+      fileInput.click();
+    });
+
+    dropZone?.addEventListener('dragover', function (e) {
+      e.preventDefault();
+      dropZone.classList.add('inv-drop-zone--active');
+    });
+
+    dropZone?.addEventListener('dragleave', function (e) {
+      if (!dropZone.contains(e.relatedTarget)) {
+        dropZone.classList.remove('inv-drop-zone--active');
+      }
+    });
+
+    dropZone?.addEventListener('drop', function (e) {
+      e.preventDefault();
+      dropZone.classList.remove('inv-drop-zone--active');
+      const files = e.dataTransfer.files;
+      if (!files.length) return;
+      fileInput.files = files;
+      showFile(files[0].name);
+    });
+  }
+
+  wireUpload('pdf');
+  wireUpload('docx');
+})();
+</script>
+{% endblock %}

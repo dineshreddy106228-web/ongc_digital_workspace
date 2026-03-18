@@ -18,6 +18,11 @@
         <div class="inv-header-actions">
             <span class="inv-badge inv-badge-info" id="recordBadge">Loading…</span>
             <span class="inv-badge inv-badge-muted" id="monthBadge">Loading…</span>
+            {% if current_user.is_authenticated and current_user.is_super_user() %}
+            <a href="{{ url_for('inventory.msds_page') }}" class="btn btn-sm btn-primary">
+                <i class="bi bi-file-earmark-pdf"></i> Upload MSDS
+            </a>
+            {% endif %}
             <a href="{{ url_for('inventory.seed_files') }}" class="btn btn-sm btn-secondary">
                 <i class="bi bi-upload"></i> Update Seed Files
             </a>
@@ -35,6 +40,11 @@
         <a href="{{ url_for('inventory.seed_files') }}" class="inv-subnav-link">
             <i class="bi bi-database-gear"></i> Data Management
         </a>
+        {% if current_user.is_authenticated and current_user.is_super_user() %}
+        <a href="{{ url_for('inventory.msds_page') }}" class="inv-subnav-link">
+            <i class="bi bi-file-earmark-pdf"></i> MSDS Upload
+        </a>
+        {% endif %}
     </nav>
 
     <div class="inv-kpi-row">
@@ -113,6 +123,20 @@
             </button>
         </div>
     </div>
+
+    {% if current_user.is_authenticated and current_user.is_super_user() %}
+    <div class="inv-card" style="margin-bottom: 1rem;">
+        <div class="inv-card-body" style="display:flex; gap:0.9rem; justify-content:space-between; align-items:center; flex-wrap:wrap;">
+            <div>
+                <strong>MSDS administration</strong>
+                <div class="inv-card-subtitle" style="margin-top:0.2rem;">Upload or replace a material-specific MSDS PDF from the Master Data screen. Materials without an MSDS now show a direct upload link.</div>
+            </div>
+            <a href="{{ url_for('inventory.msds_page') }}" class="btn btn-sm btn-primary">
+                <i class="bi bi-upload"></i> Open MSDS Upload
+            </a>
+        </div>
+    </div>
+    {% endif %}
 
     <div class="inv-table-wrap" id="tableWrap">
         <table class="inv-data-table" id="materialsTable">
@@ -232,6 +256,7 @@
     var activeAnalyticsTab = 'trend';
     var analyticsRequestId = 0;
     var analyticsSectionRequests = {};
+    var canUploadMsds = {{ 'true' if current_user.is_authenticated and current_user.is_super_user() else 'false' }};
 
     function fmtNum(value, digits) {
         if (value == null || isNaN(value)) return '\u2014';
@@ -497,7 +522,12 @@
                     '<a href="/inventory/master-data/msds/' + encodeURIComponent(material.msds_material_code) + '" class="btn btn-sm btn-secondary" target="_blank" rel="noopener">View</a>' +
                     '<a href="/inventory/master-data/msds/' + encodeURIComponent(material.msds_material_code) + '?download=1" class="btn btn-sm btn-outline">Download</a>' +
                   '</div>'
-                : '<span class="inv-muted">\u2014</span>';
+                : (canUploadMsds
+                    ? '<div style="display:flex; gap:0.35rem; flex-wrap:wrap; align-items:center;">' +
+                        '<span class="inv-muted">Not uploaded</span>' +
+                        '<a href="/inventory/msds?material_code=' + encodeURIComponent(material.material_code || material.material || '') + '" class="btn btn-sm btn-outline">Upload</a>' +
+                      '</div>'
+                    : '<span class="inv-muted">\u2014</span>');
 
             tr.innerHTML =
                 '<td class="inv-rank-col"><span class="inv-rank-badge">' + (index + 1) + '</span></td>' +

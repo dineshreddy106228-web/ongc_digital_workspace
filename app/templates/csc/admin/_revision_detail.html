@@ -34,23 +34,6 @@
     <p class="csc-review-empty">No section content captured in this draft.</p>
     {% endif %}
   </div>
-
-  <div class="csc-review-card">
-    <h3>Issue Flags</h3>
-    <div class="csc-review-list">
-      {% for issue in issue_rows %}
-      <div class="csc-review-list-item">
-        <div class="csc-review-list-head">
-          <strong>{{ issue.label }}</strong>
-          <span class="csc-review-flag {{ 'is-flagged' if issue.flagged else '' }}">
-            {{ 'Flagged' if issue.flagged else 'Clear' }}
-          </span>
-        </div>
-        <p>{{ issue.notes or 'No review note entered.' }}</p>
-      </div>
-      {% endfor %}
-    </div>
-  </div>
 </div>
 
 <div class="csc-review-card">
@@ -62,12 +45,14 @@
         <tr>
           <th>Parameter</th>
           <th>Type</th>
-          <th>Existing</th>
-          <th>Required</th>
-          <th>Proposed</th>
-          <th>Test Method</th>
+          <th>Unit</th>
+          <th>Existing Source</th>
+          <th>Current Requirement</th>
+          <th>Proposed Requirement</th>
+          <th>Change Status</th>
+          <th>Test Procedure</th>
+          <th>Procedure Text</th>
           <th>Conditions</th>
-          <th>Justification</th>
         </tr>
       </thead>
       <tbody>
@@ -75,12 +60,14 @@
         <tr>
           <td>{{ parameter.parameter_name }}</td>
           <td>{{ parameter.parameter_type or '—' }}</td>
+          <td>{{ parameter.unit_of_measure or '—' }}</td>
           <td>{{ parameter.existing_value }}</td>
           <td>{{ parameter.required_value }}</td>
           <td>{{ parameter.proposed_value }}</td>
-          <td>{{ parameter.test_method }}</td>
+          <td>{{ parameter.change_status }}</td>
+          <td>{{ parameter.test_procedure_type }}</td>
+          <td>{{ parameter.procedure_text }}</td>
           <td>{{ parameter.conditions }}</td>
-          <td>{{ parameter.justification }}</td>
         </tr>
         {% endfor %}
       </tbody>
