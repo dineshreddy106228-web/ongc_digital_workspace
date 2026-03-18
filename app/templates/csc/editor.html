@@ -281,7 +281,8 @@
 
 .csc-param-table input[type="text"],
 .csc-param-table input[type="number"],
-.csc-param-table select {
+.csc-param-table select,
+.csc-param-table textarea {
     width: 100%;
     padding: 0.4rem;
     border: 1px solid var(--border);
@@ -289,12 +290,41 @@
     font-size: 0.85rem;
     background: var(--surface);
     color: var(--text);
+    font-family: inherit;
 }
 
 .csc-param-table input:focus,
-.csc-param-table select:focus {
+.csc-param-table select:focus,
+.csc-param-table textarea:focus {
     outline: none;
     border-color: var(--primary);
+}
+
+.csc-param-table textarea {
+    min-height: 72px;
+    resize: vertical;
+}
+
+.csc-param-required-mode {
+    display: grid;
+    gap: 0.45rem;
+}
+
+.csc-param-required-comparison {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.45rem;
+}
+
+.csc-param-required-row {
+    display: grid;
+    grid-template-columns: minmax(110px, 1fr) minmax(110px, 1fr);
+    gap: 0.4rem;
+}
+
+.csc-param-inline-note {
+    font-size: 0.73rem;
+    color: var(--muted);
 }
 
 .csc-param-readonly {
@@ -1437,11 +1467,14 @@
             <table class="csc-param-table" id="paramTablePhase1">
                 <thead>
                     <tr>
-                        <th style="width: 30%;">Parameter Name</th>
-                        <th style="width: 20%;">Unit of Measure</th>
-                        <th style="width: 25%;">Min/Typical/Max</th>
-                        <th style="width: 15%;">Test Method</th>
-                        <th style="width: 10%; text-align: center;">Actions</th>
+                        <th style="min-width: 220px;">Parameter Name</th>
+                        <th style="min-width: 140px;">Parameter Type</th>
+                        <th style="min-width: 120px;">Unit of Measure</th>
+                        <th style="min-width: 300px;">Required Value</th>
+                        <th style="min-width: 260px;">Parameter Conditions</th>
+                        <th style="min-width: 190px;">Test Procedure</th>
+                        <th style="min-width: 220px;">Test Procedure Text</th>
+                        <th style="width: 90px; text-align: center;">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="paramBodyPhase1">
@@ -1453,10 +1486,13 @@
             <table class="csc-param-table" id="paramTablePhase2">
                 <thead>
                     <tr>
-                        <th style="width: 25%;">Parameter Name</th>
-                        <th style="width: 15%;">Unit</th>
-                        <th style="width: 25%;">Current Value</th>
-                        <th style="width: 25%;">Proposed Value</th>
+                        <th style="width: 18%;">Parameter Name</th>
+                        <th style="width: 10%;">Type</th>
+                        <th style="width: 10%;">Unit</th>
+                        <th style="width: 16%;">Required Value</th>
+                        <th style="width: 16%;">Conditions</th>
+                        <th style="width: 15%;">Test Procedure</th>
+                        <th style="width: 15%;">Proposed Value</th>
                         <th style="width: 10%; text-align: center;">Action</th>
                     </tr>
                 </thead>
@@ -1884,6 +1920,8 @@
     var submitStep = 1;
     var visitedTabs = { background: true };
     var initialEditorState = null;
+    var parameterTypeOptions = {{ parameter_type_options|tojson }};
+    var testProcedureOptions = {{ test_procedure_options|tojson }};
     var impactChecklistConfig = {{ impact_checklist_flags|tojson }};
     var impactChecklistState = {{ (impact.get('checklist_state', {}) if impact else {})|tojson }};
     var impactExpandedFlags = {};
@@ -2023,9 +2061,17 @@
             } else {
                 rows.push({
                     parameter_name: normalizedValue(row.querySelector('.param-name')?.value || ''),
+                    parameter_type: normalizedValue(row.querySelector('.param-type')?.value || 'Essential'),
                     unit_of_measure: normalizedValue(row.querySelector('.param-unit')?.value || ''),
-                    specification: normalizedValue(row.querySelector('.param-spec')?.value || ''),
-                    test_method: normalizedValue(row.querySelector('.param-test')?.value || '')
+                    required_value_type: normalizedValue(row.querySelector('.param-required-type')?.value || 'text'),
+                    required_value_text: normalizedValue(row.querySelector('.param-required-text')?.value || ''),
+                    required_value_operator_1: normalizedValue(row.querySelector('.param-required-operator-1')?.value || ''),
+                    required_value_value_1: normalizedValue(row.querySelector('.param-required-value-1')?.value || ''),
+                    required_value_operator_2: normalizedValue(row.querySelector('.param-required-operator-2')?.value || ''),
+                    required_value_value_2: normalizedValue(row.querySelector('.param-required-value-2')?.value || ''),
+                    parameter_conditions: normalizedValue(row.querySelector('.param-conditions')?.value || ''),
+                    test_procedure_type: normalizedValue(row.querySelector('.param-procedure-type')?.value || ''),
+                    test_procedure_text: normalizedValue(row.querySelector('.param-procedure-text')?.value || '')
                 });
             }
         });
@@ -2779,6 +2825,132 @@
     // Section 4: Parameters (Phase 1 & 2)
     // ═══════════════════════════════════════════════════════════════════════════
 
+    function buildRequiredValueDisplay(param) {
+        var mode = normalizedValue(param.required_value_type || 'text').toLowerCase();
+        if (mode !== 'comparison') {
+            return normalizedValue(param.required_value_text || param.specification || '');
+        }
+        var parts = [];
+        var op1 = normalizedValue(param.required_value_operator_1 || '');
+        var val1 = normalizedValue(param.required_value_value_1 || '');
+        var op2 = normalizedValue(param.required_value_operator_2 || '');
+        var val2 = normalizedValue(param.required_value_value_2 || '');
+        if (op1 && val1) parts.push(op1 + ' ' + val1);
+        if (op2 && val2) parts.push(op2 + ' ' + val2);
+        return parts.join(' and ');
+    }
+
+    function normalizedParameterType(value) {
+        var token = normalizedValue(value || '').toLowerCase();
+        if (token === 'vital') return 'Vital';
+        return 'Essential';
+    }
+
+    function normalizedTestProcedureType(value) {
+        var token = normalizedValue(value || '').toLowerCase();
+        if (token === 'astm' || token === 'astim') return 'ASTIM';
+        if (token.indexOf('astm') === 0 || token.indexOf('astim') === 0) return 'ASTIM';
+        if (token === 'api') return 'API';
+        if (token.indexOf('api') === 0) return 'API';
+        if (token === 'is') return 'IS';
+        if (token.indexOf('is ') === 0) return 'IS';
+        if (token === 'in-house' || token === 'inhouse') return 'Inhouse';
+        if (token.indexOf('other national') !== -1 || token.indexOf('international') !== -1) {
+            return 'Any other National / International Standard';
+        }
+        return normalizedValue(value || '');
+    }
+
+    function normalizeParameterRowData(param) {
+        var normalized = Object.assign({}, param || {});
+        normalized.parameter_name = normalizedValue(normalized.parameter_name || '');
+        normalized.parameter_type = normalizedParameterType(normalized.parameter_type || 'Essential');
+        normalized.unit_of_measure = normalizedValue(normalized.unit_of_measure || '');
+        normalized.required_value_type = normalizedValue(normalized.required_value_type || '').toLowerCase() === 'comparison' ? 'comparison' : 'text';
+        normalized.required_value_text = normalizedValue(normalized.required_value_text || normalized.specification || normalized.existing_value || '');
+        normalized.required_value_operator_1 = normalizedValue(normalized.required_value_operator_1 || '');
+        normalized.required_value_value_1 = normalizedValue(normalized.required_value_value_1 || '');
+        normalized.required_value_operator_2 = normalizedValue(normalized.required_value_operator_2 || '');
+        normalized.required_value_value_2 = normalizedValue(normalized.required_value_value_2 || '');
+        normalized.parameter_conditions = normalizedValue(normalized.parameter_conditions || '');
+        normalized.test_procedure_type = normalizedTestProcedureType(
+            normalized.test_procedure_type || normalized.test_method || ''
+        );
+        normalized.test_procedure_text = normalizedValue(normalized.test_procedure_text || normalized.test_method || '');
+        normalized.specification = buildRequiredValueDisplay(normalized);
+        return normalized;
+    }
+
+    parametersData = (parametersData || []).map(normalizeParameterRowData);
+
+    function selectOptionsHtml(options, selectedValue) {
+        return options.map(function(option) {
+            var selected = option === selectedValue ? ' selected' : '';
+            return '<option value="' + escapeHtml(option) + '"' + selected + '>' + escapeHtml(option) + '</option>';
+        }).join('');
+    }
+
+    function wireParameterRow(tr) {
+        tr.querySelector('.deleteParamBtn')?.addEventListener('click', function() {
+            tr.remove();
+            updateChangesChecklist();
+        });
+
+        tr.querySelector('.param-required-type')?.addEventListener('change', function() {
+            var mode = this.value === 'comparison' ? 'comparison' : 'text';
+            tr.querySelectorAll('[data-required-mode]').forEach(function(block) {
+                block.style.display = block.getAttribute('data-required-mode') === mode ? '' : 'none';
+            });
+            updateChangesChecklist();
+        });
+
+        tr.querySelectorAll('input, select, textarea').forEach(function(field) {
+            field.addEventListener('input', updateChangesChecklist);
+            field.addEventListener('change', updateChangesChecklist);
+        });
+    }
+
+    function renderParameterPhase1Row(param, idx) {
+        var p = normalizeParameterRowData(param);
+        return '<tr data-param-id="' + escapeHtml(p.id || '') + '">' +
+            '<td><textarea class="param-name" placeholder="Parameter name">' + escapeHtml(p.parameter_name) + '</textarea></td>' +
+            '<td><select class="param-type">' + selectOptionsHtml(parameterTypeOptions, p.parameter_type || 'Essential') + '</select></td>' +
+            '<td><input type="text" class="param-unit" value="' + escapeHtml(p.unit_of_measure) + '" placeholder="Unit"></td>' +
+            '<td>' +
+                '<div class="csc-param-required-mode">' +
+                    '<select class="param-required-type">' +
+                        '<option value="text"' + (p.required_value_type !== 'comparison' ? ' selected' : '') + '>Text</option>' +
+                        '<option value="comparison"' + (p.required_value_type === 'comparison' ? ' selected' : '') + '>Comparison</option>' +
+                    '</select>' +
+                    '<div data-required-mode="text" style="' + (p.required_value_type === 'comparison' ? 'display:none;' : '') + '">' +
+                        '<textarea class="param-required-text" placeholder="Enter required value text">' + escapeHtml(p.required_value_text) + '</textarea>' +
+                        '<div class="csc-param-inline-note">Paste or structure legacy required-value text here.</div>' +
+                    '</div>' +
+                    '<div class="csc-param-required-comparison" data-required-mode="comparison" style="' + (p.required_value_type === 'comparison' ? '' : 'display:none;') + '">' +
+                        '<div class="csc-param-required-row">' +
+                            '<select class="param-required-operator-1">' +
+                                '<option value="">Operator</option>' +
+                                selectOptionsHtml(['>', '<', '>=', '<='], p.required_value_operator_1) +
+                            '</select>' +
+                            '<input type="text" class="param-required-value-1" value="' + escapeHtml(p.required_value_value_1) + '" placeholder="Value 1">' +
+                        '</div>' +
+                        '<div class="csc-param-required-row">' +
+                            '<select class="param-required-operator-2">' +
+                                '<option value="">Operator</option>' +
+                                selectOptionsHtml(['>', '<', '>=', '<='], p.required_value_operator_2) +
+                            '</select>' +
+                            '<input type="text" class="param-required-value-2" value="' + escapeHtml(p.required_value_value_2) + '" placeholder="Value 2">' +
+                        '</div>' +
+                    '</div>' +
+                '</div>' +
+            '</td>' +
+            '<td><textarea class="param-conditions" placeholder="Enter parameter conditions">' + escapeHtml(p.parameter_conditions) + '</textarea></td>' +
+            '<td><select class="param-procedure-type"><option value="">Select</option>' + selectOptionsHtml(testProcedureOptions, p.test_procedure_type) + '</select></td>' +
+            '<td><textarea class="param-procedure-text" placeholder="Enter standard number / text">' + escapeHtml(p.test_procedure_text) + '</textarea></td>' +
+            '<td style="text-align: center;"><button type="button" class="btn btn-sm btn-danger deleteParamBtn" data-idx="' + idx + '"><i class="bi bi-trash"></i></button></td>' +
+            '</tr>';
+    }
+
     function initParametersTable() {
         if (phase1Locked) {
             // Phase 2: Read-only + proposed editable
@@ -2793,26 +2965,11 @@
         var tbody = document.getElementById('paramBodyPhase1');
         if (!tbody) return;
         tbody.innerHTML = parametersData.map(function(p, idx) {
-            return '<tr data-param-id="' + p.id + '">' +
-                '<td><input type="text" class="param-name" value="' + (p.parameter_name || '') + '" placeholder="Parameter name"></td>' +
-                '<td><input type="text" class="param-unit" value="' + (p.unit_of_measure || '') + '" placeholder="Unit"></td>' +
-                '<td><input type="text" class="param-spec" value="' + (p.specification || '') + '" placeholder="Min/Typ/Max"></td>' +
-                '<td><input type="text" class="param-test" value="' + (p.test_method || '') + '" placeholder="Test method"></td>' +
-                '<td style="text-align: center;"><button type="button" class="btn btn-sm btn-danger deleteParamBtn" data-idx="' + idx + '"><i class="bi bi-trash"></i></button></td>' +
-                '</tr>';
+            return renderParameterPhase1Row(p, idx);
         }).join('');
 
-        document.querySelectorAll('.deleteParamBtn').forEach(function(btn) {
-            btn.addEventListener('click', function() {
-                var row = this.closest('tr');
-                row.remove();
-                updateChangesChecklist();
-            });
-        });
-
-        tbody.querySelectorAll('input').forEach(function(input) {
-            input.addEventListener('input', updateChangesChecklist);
-            input.addEventListener('change', updateChangesChecklist);
+        tbody.querySelectorAll('tr').forEach(function(row) {
+            wireParameterRow(row);
         });
     }
 
@@ -2820,16 +2977,20 @@
         var tbody = document.getElementById('paramBodyPhase2');
         if (!tbody) return;
         tbody.innerHTML = parametersData.map(function(p, idx) {
+            var normalized = normalizeParameterRowData(p);
             return '<tr data-param-id="' + p.id + '">' +
-                '<td class="csc-param-readonly">' + (p.parameter_name || '—') + '</td>' +
-                '<td class="csc-param-readonly">' + (p.unit_of_measure || '—') + '</td>' +
-                '<td class="csc-param-readonly">' + (p.specification || '—') + '</td>' +
-                '<td><input type="text" class="param-proposed" value="' + (p.proposed_value || '') + '" placeholder="Proposed value"></td>' +
+                '<td class="csc-param-readonly">' + escapeHtml(normalized.parameter_name || '—') + '</td>' +
+                '<td class="csc-param-readonly">' + escapeHtml(normalized.parameter_type || '—') + '</td>' +
+                '<td class="csc-param-readonly">' + escapeHtml(normalized.unit_of_measure || '—') + '</td>' +
+                '<td class="csc-param-readonly">' + escapeHtml(normalized.specification || '—') + '</td>' +
+                '<td class="csc-param-readonly">' + escapeHtml(normalized.parameter_conditions || '—') + '</td>' +
+                '<td class="csc-param-readonly">' + escapeHtml((normalized.test_procedure_type ? normalized.test_procedure_type + (normalized.test_procedure_text ? ' - ' + normalized.test_procedure_text : '') : '—')) + '</td>' +
+                '<td><textarea class="param-proposed" placeholder="Proposed value">' + escapeHtml(normalized.proposed_value || '') + '</textarea></td>' +
                 '<td style="text-align: center;"><input type="checkbox" class="param-approved" ' + (p.approved ? 'checked' : '') + '></td>' +
                 '</tr>';
         }).join('');
 
-        tbody.querySelectorAll('input').forEach(function(input) {
+        tbody.querySelectorAll('input, textarea').forEach(function(input) {
             input.addEventListener('input', updateChangesChecklist);
             input.addEventListener('change', updateChangesChecklist);
         });
@@ -2838,20 +2999,22 @@
     document.getElementById('addParamBtn')?.addEventListener('click', function() {
         var tbody = document.getElementById('paramBodyPhase1');
         var tr = document.createElement('tr');
-        tr.innerHTML = '<td><input type="text" class="param-name" placeholder="Parameter name"></td>' +
-                      '<td><input type="text" class="param-unit" placeholder="Unit"></td>' +
-                      '<td><input type="text" class="param-spec" placeholder="Min/Typ/Max"></td>' +
-                      '<td><input type="text" class="param-test" placeholder="Test method"></td>' +
-                      '<td style="text-align: center;"><button type="button" class="btn btn-sm btn-danger deleteParamBtn"><i class="bi bi-trash"></i></button></td>';
+        tr.innerHTML = renderParameterPhase1Row({
+            parameter_name: '',
+            parameter_type: 'Essential',
+            unit_of_measure: '',
+            required_value_type: 'text',
+            required_value_text: '',
+            required_value_operator_1: '',
+            required_value_value_1: '',
+            required_value_operator_2: '',
+            required_value_value_2: '',
+            parameter_conditions: '',
+            test_procedure_type: '',
+            test_procedure_text: ''
+        }, tbody.querySelectorAll('tr').length);
         tbody.appendChild(tr);
-        tr.querySelector('.deleteParamBtn').addEventListener('click', function() {
-            tr.remove();
-            updateChangesChecklist();
-        });
-        tr.querySelectorAll('input').forEach(function(input) {
-            input.addEventListener('input', updateChangesChecklist);
-            input.addEventListener('change', updateChangesChecklist);
-        });
+        wireParameterRow(tr);
         updateChangesChecklist();
     });
 
@@ -2869,10 +3032,19 @@
                 // Phase 1
                 params.push({
                     parameter_name: row.querySelector('.param-name')?.value || '',
-                    parameter_type: 'Essential',
-                    existing_value: row.querySelector('.param-spec')?.value || '',
+                    parameter_type: row.querySelector('.param-type')?.value || 'Essential',
+                    unit_of_measure: row.querySelector('.param-unit')?.value || '',
+                    required_value_type: row.querySelector('.param-required-type')?.value || 'text',
+                    required_value_text: row.querySelector('.param-required-text')?.value || '',
+                    required_value_operator_1: row.querySelector('.param-required-operator-1')?.value || '',
+                    required_value_value_1: row.querySelector('.param-required-value-1')?.value || '',
+                    required_value_operator_2: row.querySelector('.param-required-operator-2')?.value || '',
+                    required_value_value_2: row.querySelector('.param-required-value-2')?.value || '',
+                    parameter_conditions: row.querySelector('.param-conditions')?.value || '',
+                    existing_value: '',
                     proposed_value: '',
-                    test_method: row.querySelector('.param-test')?.value || ''
+                    test_procedure_type: row.querySelector('.param-procedure-type')?.value || '',
+                    test_procedure_text: row.querySelector('.param-procedure-text')?.value || ''
                 });
             }
         });
@@ -3244,8 +3416,8 @@
                     return data;
                 });
             })
-            .then(function() {
-                window.location.href = '{{ url_for("csc.workspace") }}';
+            .then(function(data) {
+                window.location.replace((data && data.redirect) || '{{ url_for("csc.workspace") }}');
             })
             .catch(function(error) {
                 errorElement.textContent = error.message;

@@ -45,7 +45,14 @@ IMPACT_SUBTYPES = [
 REC_MAIN_KEY = "Recommendation::main"
 REC_REMARKS_KEY = "Recommendation::remarks"
 
-PARAMETER_TYPES = ["Essential", "Desirable"]
+PARAMETER_TYPES = ["Vital", "Essential"]
+TEST_PROCEDURE_OPTIONS = [
+    "ASTIM",
+    "API",
+    "IS",
+    "Inhouse",
+    "Any other National / International Standard",
+]
 DRAFT_STATUS_OPTIONS = ["Drafting", "Published"]
 WORKFLOW_DRAFTING_OPEN = "open"
 WORKFLOW_DRAFTING_SUBMITTED = "submitted"
@@ -84,21 +91,22 @@ ADMIN_PUBLISHED_STATUS = "Published"
 # Type normalization aliases
 TYPE_CLASS_ALIASES = {
     "essential": "Essential",
-    "desirable": "Desirable",
-    "vital": "Desirable",
-    "essential-informational": "Desirable",
-    "essential informational": "Desirable",
-    "essential / informational": "Desirable",
-    "essential - informational": "Desirable",
-    "essential/informational": "Desirable",
+    "desirable": "Essential",
+    "vital": "Vital",
+    "essential-informational": "Essential",
+    "essential informational": "Essential",
+    "essential / informational": "Essential",
+    "essential - informational": "Essential",
+    "essential/informational": "Essential",
 }
 
 TEST_PROCEDURE_TYPE_ALIASES = {
-    "astm": "ASTM", "api": "API", "is": "IS",
+    "astm": "ASTIM", "astim": "ASTIM", "api": "API", "is": "IS",
     "inhouse": "Inhouse", "in-house": "Inhouse",
-    "other national / international": "Other National / International",
-    "other national/international": "Other National / International",
-    "other national international": "Other National / International",
+    "other national / international": "Any other National / International Standard",
+    "other national/international": "Any other National / International Standard",
+    "other national international": "Any other National / International Standard",
+    "any other national / international standard": "Any other National / International Standard",
 }
 
 IMPACT_CHECKLIST_VERSION = 1
@@ -228,7 +236,22 @@ def normalize_parameter_type_label(raw: str) -> str:
 
 def normalize_test_procedure_type(raw: str) -> str:
     txt = str(raw or "").strip()
-    return TEST_PROCEDURE_TYPE_ALIASES.get(txt.lower(), txt) if txt else ""
+    lowered = txt.lower()
+    if not txt:
+        return ""
+    if lowered in TEST_PROCEDURE_TYPE_ALIASES:
+        return TEST_PROCEDURE_TYPE_ALIASES[lowered]
+    if lowered.startswith("astm") or lowered.startswith("astim"):
+        return "ASTIM"
+    if lowered.startswith("api"):
+        return "API"
+    if lowered.startswith("is"):
+        return "IS"
+    if lowered.startswith("inhouse") or lowered.startswith("in-house"):
+        return "Inhouse"
+    if "national" in lowered or "international" in lowered:
+        return "Any other National / International Standard"
+    return txt
 
 
 def calculate_impact_score(operational: int, safety: int, supply: int) -> float:
@@ -261,6 +284,27 @@ def sanitize_multiline_text(text: str, max_length: int = 20000) -> str:
     txt = str(text or "").strip()
     txt = _re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", txt)
     return txt[:max_length]
+
+
+def format_required_value(
+    required_value_type: str | None,
+    required_value_text: str | None = None,
+    operator_1: str | None = None,
+    value_1: str | None = None,
+    operator_2: str | None = None,
+    value_2: str | None = None,
+) -> str:
+    """Build a display string for structured required-value fields."""
+    mode = str(required_value_type or "text").strip().lower()
+    if mode != "comparison":
+        return sanitize_multiline_text(required_value_text or "", max_length=2000)
+
+    parts = []
+    if str(operator_1 or "").strip() and str(value_1 or "").strip():
+        parts.append(f"{str(operator_1).strip()} {str(value_1).strip()}")
+    if str(operator_2 or "").strip() and str(value_2 or "").strip():
+        parts.append(f"{str(operator_2).strip()} {str(value_2).strip()}")
+    return " and ".join(parts)
 
 
 def normalize_spec_version(raw_value) -> int:

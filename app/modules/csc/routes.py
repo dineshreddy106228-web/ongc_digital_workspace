@@ -84,12 +84,17 @@ from app.core.services.csc_utils import (
     build_default_impact_checklist_state,
     build_impact_legacy_payload,
     deserialize_impact_checklist_state,
+    format_required_value,
     format_spec_version,
     increment_spec_version,
     normalize_spec_version,
+    normalize_parameter_type_label,
+    normalize_test_procedure_type,
     parse_spec_number,
     spec_sort_key,
     summarize_impact_checklist_state,
+    PARAMETER_TYPES,
+    TEST_PROCEDURE_OPTIONS,
     WORKFLOW_DRAFTING_APPROVED,
     WORKFLOW_DRAFTING_OPEN,
     WORKFLOW_DRAFTING_REJECTED,
@@ -210,11 +215,19 @@ def _copy_draft_content(source: CSCDraft, target: CSCDraft) -> None:
                 draft_id=target.id,
                 parameter_name=parameter.parameter_name,
                 parameter_type=parameter.parameter_type,
+                unit_of_measure=parameter.unit_of_measure,
                 existing_value=parameter.existing_value,
                 proposed_value=parameter.proposed_value,
                 test_method=parameter.test_method,
                 test_procedure_type=parameter.test_procedure_type,
                 test_procedure_text=parameter.test_procedure_text,
+                parameter_conditions=parameter.parameter_conditions,
+                required_value_type=parameter.required_value_type,
+                required_value_text=parameter.required_value_text,
+                required_value_operator_1=parameter.required_value_operator_1,
+                required_value_value_1=parameter.required_value_value_1,
+                required_value_operator_2=parameter.required_value_operator_2,
+                required_value_value_2=parameter.required_value_value_2,
                 justification=parameter.justification,
                 remarks=parameter.remarks,
                 sort_order=parameter.sort_order,
@@ -638,9 +651,21 @@ def editor(draft_id: int):
             {
                 "id": parameter.id,
                 "parameter_name": parameter.parameter_name,
-                "unit_of_measure": "",
+                "parameter_type": parameter.parameter_type or "Essential",
+                "unit_of_measure": parameter.unit_of_measure or "",
                 "specification": parameter.existing_value or "",
+                "required_value_type": parameter.required_value_type or "text",
+                "required_value_text": parameter.required_value_text or parameter.existing_value or "",
+                "required_value_operator_1": parameter.required_value_operator_1 or "",
+                "required_value_value_1": parameter.required_value_value_1 or "",
+                "required_value_operator_2": parameter.required_value_operator_2 or "",
+                "required_value_value_2": parameter.required_value_value_2 or "",
+                "parameter_conditions": parameter.parameter_conditions or "",
                 "test_method": parameter.test_method or "",
+                "test_procedure_type": normalize_test_procedure_type(
+                    parameter.test_procedure_type or parameter.test_method or ""
+                ),
+                "test_procedure_text": parameter.test_procedure_text or parameter.test_method or "",
                 "proposed_value": parameter.proposed_value or "",
                 "approved": False,
             }
@@ -676,6 +701,8 @@ def editor(draft_id: int):
             sections=sections,
             issues=issues,
             parameters=parameters,
+            parameter_type_options=PARAMETER_TYPES,
+            test_procedure_options=TEST_PROCEDURE_OPTIONS,
             impact=impact,
             impact_checklist_flags=IMPACT_CHECKLIST_FLAGS,
             master_data=get_master_form_values(draft),
@@ -964,12 +991,37 @@ def save_parameters(draft_id: int):
             param = CSCParameter(
                 draft_id=draft_id,
                 parameter_name=param_data.get("parameter_name", ""),
-                parameter_type=param_data.get("parameter_type", "Essential"),
-                existing_value=param_data.get("existing_value", ""),
+                parameter_type=normalize_parameter_type_label(
+                    param_data.get("parameter_type", "Essential")
+                ),
+                unit_of_measure=(param_data.get("unit_of_measure", "") or "").strip() or None,
+                existing_value=format_required_value(
+                    param_data.get("required_value_type", "text"),
+                    param_data.get("required_value_text", param_data.get("existing_value", "")),
+                    param_data.get("required_value_operator_1", ""),
+                    param_data.get("required_value_value_1", ""),
+                    param_data.get("required_value_operator_2", ""),
+                    param_data.get("required_value_value_2", ""),
+                ),
                 proposed_value=param_data.get("proposed_value", ""),
-                test_method=param_data.get("test_method", ""),
-                test_procedure_type=param_data.get("test_procedure_type", ""),
+                test_method=normalize_test_procedure_type(
+                    param_data.get("test_procedure_type", param_data.get("test_method", ""))
+                ),
+                test_procedure_type=normalize_test_procedure_type(
+                    param_data.get("test_procedure_type", param_data.get("test_method", ""))
+                ),
                 test_procedure_text=param_data.get("test_procedure_text", ""),
+                parameter_conditions=param_data.get("parameter_conditions", ""),
+                required_value_type=(
+                    "comparison"
+                    if str(param_data.get("required_value_type", "text")).strip().lower() == "comparison"
+                    else "text"
+                ),
+                required_value_text=param_data.get("required_value_text", ""),
+                required_value_operator_1=param_data.get("required_value_operator_1", ""),
+                required_value_value_1=param_data.get("required_value_value_1", ""),
+                required_value_operator_2=param_data.get("required_value_operator_2", ""),
+                required_value_value_2=param_data.get("required_value_value_2", ""),
                 justification=param_data.get("justification", ""),
                 remarks=param_data.get("remarks", ""),
                 sort_order=idx,
@@ -1137,28 +1189,34 @@ def submit_revision(draft_id: int):
         revision.authorization_confirmed = authorization_confirmed
         revision.authorized_by_name = authorized_by_name
         revision.subcommittee_head_name = subcommittee_head_name
+        db.session.add(
+            CSCAudit(
+                draft_id=draft_id,
+                action="Revision submitted for approval",
+                user_name=current_user.username,
+                action_time=datetime.now(timezone.utc),
+                new_value=json.dumps(
+                    {
+                        "authorization_confirmed": authorization_confirmed,
+                        "authorized_by_name": authorized_by_name,
+                        "subcommittee_head_name": subcommittee_head_name,
+                        "subset": draft.subset,
+                    }
+                ),
+            )
+        )
+        for user in User.query.all():
+            if user.is_super_user():
+                create_notification(
+                    user_id=user.id,
+                    title="Draft submitted for review",
+                    message=f"{draft.spec_number} — {draft.chemical_name} was submitted for admin review.",
+                    severity="info",
+                    link=url_for("csc.admin_revisions"),
+                )
+
         db.session.commit()
-
-        _create_audit_entry(
-            draft_id,
-            "Revision submitted for approval",
-            new_value=json.dumps(
-                {
-                    "authorization_confirmed": authorization_confirmed,
-                    "authorized_by_name": authorized_by_name,
-                    "subcommittee_head_name": subcommittee_head_name,
-                    "subset": draft.subset,
-                }
-            ),
-        )
-        _notify_superusers(
-            title="Draft submitted for review",
-            message=f"{draft.spec_number} — {draft.chemical_name} was submitted for admin review.",
-            severity="info",
-            link=url_for("csc.admin_revisions"),
-        )
-
-        return jsonify({"success": True})
+        return jsonify({"success": True, "redirect": url_for("csc.workspace")})
     except Exception as e:
         logger.error(f"Error submitting revision: {e}")
         db.session.rollback()
@@ -1258,11 +1316,19 @@ def create_revision(parent_id: int):
                 draft_id=child_draft.id,
                 parameter_name=param.parameter_name,
                 parameter_type=param.parameter_type,
+                unit_of_measure=param.unit_of_measure,
                 existing_value=param.existing_value,
                 proposed_value=param.proposed_value,
                 test_method=param.test_method,
                 test_procedure_type=param.test_procedure_type,
                 test_procedure_text=param.test_procedure_text,
+                parameter_conditions=param.parameter_conditions,
+                required_value_type=param.required_value_type,
+                required_value_text=param.required_value_text,
+                required_value_operator_1=param.required_value_operator_1,
+                required_value_value_1=param.required_value_value_1,
+                required_value_operator_2=param.required_value_operator_2,
+                required_value_value_2=param.required_value_value_2,
                 justification=param.justification,
                 remarks=param.remarks,
                 sort_order=param.sort_order,
