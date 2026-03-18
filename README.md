@@ -1,7 +1,7 @@
 # ONGC Digital Workspace
 
-A modular institutional web application for ONGC offices.  
-**Phase-1** delivers the foundation: authentication, role-based access, audit logging, and a dashboard shell.
+A modular institutional web application for ONGC offices.
+**Current version: 1.1** — Includes authentication, role-based access, audit logging, workspace-wide announcements & polls, and the CSC Workflow module under Material Master Management.
 
 ## Stack
 
@@ -153,3 +153,32 @@ flask db current
 # Apply pending migrations (if current != head)
 flask db upgrade
 ```
+
+---
+
+## Changelog
+
+### v1.1 — 2026-03-18
+
+**New Features**
+
+- **Announcements & Polling** — Superusers can now create and publish workspace-wide announcements or polls. On publication, every active user receives a modal popup alert on their next page load, and a background polling mechanism surfaces new broadcasts to users already on a loaded page without requiring a refresh. Users can dismiss or open the full announcement; poll responses are recorded and results are visible to superusers in real time.
+
+- **CSC Workflow (Material Master Management Module)** — A structured digital workflow for the Corporate Specification Committees (CSC) has been introduced. This enables the Specification Review Committees and the Material Handling Committee to submit, route, and track structured inputs within the platform.
+
+**Processes Digitized**
+
+- Review Committee Workflow — The end-to-end review cycle for specification committees is now tracked within the system, replacing manual paper-based or email-driven coordination.
+
+**Processes Automated**
+
+- Compilation of Specifications for the 12th Edition of Corporate Specifications of Oil Field Chemicals — The aggregation and compilation step for the 12th Edition is now handled by the platform, eliminating manual data collation across committee inputs.
+
+---
+
+### v1.0 — Initial Release
+
+- Foundation platform: authentication, role-based access control, audit logging, and dashboard shell.
+- Admin module: user management, office/module configuration, role assignment.
+- Notification system: per-user alerts for assignment and access changes.
+- Security hardening: CSRF protection, security response headers, PBKDF2 password hashing, session management.

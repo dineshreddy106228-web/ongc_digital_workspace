@@ -108,7 +108,7 @@ class Config:
     )
     ENABLE_CSC = _as_bool(
         os.environ.get("ENABLE_CSC"),
-        default=False,
+        default=True,
     )
     ENABLE_REPORTS = _as_bool(
         os.environ.get("ENABLE_REPORTS"),
