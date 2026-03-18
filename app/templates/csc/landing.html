@@ -1,0 +1,899 @@
+{% extends "base.html" %}
+{% block title %}Material Master Management — {{ app_name }}{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}">
+<style nonce="{{ csp_nonce() }}">
+:root {
+    --mmm-indigo: #4f46e5;
+    --mmm-blue: #2563eb;
+    --mmm-green: #15803d;
+    --mmm-teal: #0f766e;
+    --mmm-amber: #b45309;
+    --mmm-rose: #be123c;
+}
+
+.mmm-section {
+    margin-top: 2rem;
+}
+
+.mmm-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+}
+
+.mmm-section-title {
+    margin: 0;
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.mmm-section-subtitle {
+    margin: 0.25rem 0 0;
+    color: var(--muted);
+    font-size: 0.9rem;
+}
+
+.mmm-directory-meta {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.mmm-order-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1rem;
+}
+
+.mmm-tree-shell {
+    background:
+        radial-gradient(circle at top, color-mix(in srgb, var(--primary) 6%, transparent), transparent 45%),
+        linear-gradient(180deg, color-mix(in srgb, var(--primary) 4%, transparent), transparent 35%),
+        var(--surface);
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) + 4px);
+    box-shadow: var(--shadow-sm);
+    padding: 1.35rem;
+}
+
+.mmm-tree-board {
+    position: relative;
+    padding: 0.55rem 0 0.2rem;
+    margin-bottom: 1.5rem;
+}
+
+.mmm-tree-row {
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+    position: relative;
+}
+
+.mmm-tree-row-root {
+    margin-bottom: 1rem;
+}
+
+.mmm-tree-row-level-one {
+    margin-bottom: 1rem;
+}
+
+.mmm-tree-row-level-two {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.9rem;
+    align-items: start;
+}
+
+.mmm-tree-root {
+    min-width: min(100%, 360px);
+}
+
+.mmm-tree-link-vertical {
+    width: 2px;
+    height: 1rem;
+    margin: 0.15rem auto;
+    background: linear-gradient(180deg, rgba(100, 116, 139, 0.75), rgba(100, 116, 139, 0.15));
+}
+
+.mmm-tree-link-horizontal {
+    width: min(92%, 1120px);
+    height: 2px;
+    margin: 0 auto 0.65rem;
+    background: linear-gradient(90deg, rgba(100, 116, 139, 0.15), rgba(100, 116, 139, 0.75) 12%, rgba(100, 116, 139, 0.75) 88%, rgba(100, 116, 139, 0.15));
+}
+
+.mmm-tree-node-wrap {
+    position: relative;
+    padding-top: 0.9rem;
+}
+
+.mmm-tree-node-wrap::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 0;
+    width: 2px;
+    height: 0.9rem;
+    transform: translateX(-50%);
+    background: linear-gradient(180deg, rgba(100, 116, 139, 0.7), rgba(100, 116, 139, 0.15));
+}
+
+.mmm-tree-node {
+    width: 100%;
+    border: 1px solid color-mix(in srgb, var(--node-accent, var(--primary)) 35%, transparent);
+    border-radius: 18px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--node-accent, var(--primary)) 11%, white), color-mix(in srgb, var(--node-accent, var(--primary)) 6%, white));
+    color: var(--text);
+    padding: 0.8rem 0.85rem 0.78rem;
+    text-align: left;
+    cursor: pointer;
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.mmm-tree-node:hover,
+.mmm-tree-node:focus-visible {
+    transform: translateY(-2px);
+    box-shadow: 0 18px 36px rgba(15, 23, 42, 0.12);
+    outline: none;
+}
+
+.mmm-tree-node.is-active {
+    border-color: var(--node-accent, var(--primary));
+    box-shadow: 0 18px 40px color-mix(in srgb, var(--node-accent, var(--primary)) 18%, transparent);
+}
+
+.mmm-tree-node-kind {
+    display: inline-flex;
+    margin-bottom: 0.45rem;
+    padding: 0.14rem 0.48rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--node-accent, var(--primary)) 12%, transparent);
+    color: var(--node-accent, var(--primary));
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+
+.mmm-tree-node-title {
+    margin: 0 0 0.35rem;
+    font-size: 0.98rem;
+    line-height: 1.22;
+    font-weight: 800;
+    color: color-mix(in srgb, var(--node-accent, var(--primary)) 78%, #111827);
+}
+
+.mmm-tree-node-meta {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.78rem;
+    line-height: 1.45;
+}
+
+.mmm-tree-node-root {
+    text-align: center;
+    border-radius: 22px;
+    padding: 1rem 1.15rem 0.95rem;
+}
+
+.mmm-tree-node-root .mmm-tree-node-title {
+    font-size: 1.22rem;
+}
+
+.mmm-tree-node-root .mmm-tree-node-meta {
+    font-size: 0.9rem;
+}
+
+.mmm-tree-detail {
+    border: 2px solid color-mix(in srgb, var(--detail-accent, var(--primary)) 20%, var(--border));
+    border-radius: 24px;
+    background:
+        linear-gradient(180deg, color-mix(in srgb, var(--detail-accent, var(--primary)) 8%, white), rgba(255,255,255,0.98) 28%),
+        var(--surface);
+    box-shadow:
+        0 24px 50px rgba(15, 23, 42, 0.12),
+        0 0 0 1px rgba(255,255,255,0.7) inset;
+    overflow: hidden;
+    position: relative;
+}
+
+.mmm-tree-detail-head {
+    padding: 1.2rem 1.25rem 1rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--detail-accent, var(--primary)) 14%, var(--border));
+    background:
+        linear-gradient(90deg, color-mix(in srgb, var(--detail-accent, var(--primary)) 14%, white), transparent 28%),
+        linear-gradient(180deg, color-mix(in srgb, var(--detail-accent, var(--primary)) 10%, white), transparent);
+    position: relative;
+}
+
+.mmm-tree-detail-head::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 7px;
+    background: linear-gradient(180deg, var(--detail-accent, var(--primary)), color-mix(in srgb, var(--detail-accent, var(--primary)) 50%, white));
+}
+
+.mmm-tree-detail-title-row {
+    display: flex;
+    gap: 0.8rem;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+}
+
+.mmm-tree-detail-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin: 0 0 0.7rem;
+    padding: 0.28rem 0.65rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--detail-accent, var(--primary)) 14%, white);
+    color: var(--detail-accent, var(--primary));
+    font-size: 0.75rem;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+
+.mmm-tree-detail-title {
+    margin: 0;
+    font-size: 1.3rem;
+    font-weight: 800;
+    color: var(--text);
+}
+
+.mmm-tree-detail-kind {
+    display: inline-flex;
+    padding: 0.25rem 0.65rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--detail-accent, var(--primary)) 12%, transparent);
+    color: var(--detail-accent, var(--primary));
+    font-size: 0.76rem;
+    font-weight: 700;
+}
+
+.mmm-tree-detail-summary {
+    margin: 0.55rem 0 0;
+    color: var(--muted);
+    line-height: 1.6;
+    font-size: 0.92rem;
+}
+
+.mmm-tree-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+    padding: 1.2rem 1.25rem 1.3rem;
+}
+
+.mmm-detail-block {
+    background: white;
+    border: 1px solid color-mix(in srgb, var(--detail-accent, var(--primary)) 16%, var(--border));
+    border-radius: 18px;
+    padding: 1rem;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+}
+
+.mmm-detail-label {
+    margin: 0 0 0.55rem;
+    font-size: 0.76rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    font-weight: 800;
+    color: var(--muted);
+}
+
+.mmm-detail-list {
+    margin: 0;
+    padding-left: 1rem;
+    color: var(--text);
+}
+
+.mmm-detail-list li {
+    margin-bottom: 0.45rem;
+}
+
+.mmm-detail-list li::marker {
+    color: var(--detail-accent, var(--primary));
+}
+
+.mmm-detail-empty {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.9rem;
+    line-height: 1.55;
+}
+
+.mmm-detail-orders {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.mmm-detail-order {
+    border: 1px solid color-mix(in srgb, var(--detail-accent, var(--primary)) 12%, var(--border));
+    background: color-mix(in srgb, var(--detail-accent, var(--primary)) 4%, white);
+    border-radius: 16px;
+    padding: 0.85rem;
+}
+
+.mmm-detail-order-title {
+    margin: 0 0 0.25rem;
+    font-size: 0.94rem;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.mmm-detail-order-meta {
+    margin: 0 0 0.55rem;
+    font-size: 0.78rem;
+    color: var(--muted);
+}
+
+.mmm-order-grid {
+    margin-top: 1.5rem;
+}
+
+.mmm-order-grid {
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.mmm-order-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
+    padding: 1.25rem;
+}
+
+.mmm-order-title {
+    margin: 0 0 0.35rem;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.mmm-order-issued {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--primary);
+    margin-bottom: 0.75rem;
+}
+
+.mmm-order-summary {
+    margin: 0 0 0.85rem;
+    color: var(--muted);
+    line-height: 1.6;
+    font-size: 0.9rem;
+}
+
+.mmm-order-file {
+    font-size: 0.82rem;
+    color: var(--muted);
+    margin-bottom: 1rem;
+    font-family: var(--font-mono, monospace);
+    word-break: break-all;
+}
+
+.mmm-order-actions {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+}
+
+.mmm-pdf-modal-body {
+    padding: 0;
+    min-height: 68vh;
+}
+
+.mmm-pdf-frame {
+    width: 100%;
+    height: 68vh;
+    border: 0;
+    display: block;
+    background: #f8fafc;
+}
+
+@media (max-width: 1024px) {
+    .mmm-tree-row-level-two {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .mmm-tree-detail-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 768px) {
+    .mmm-tree-shell {
+        padding: 1rem;
+    }
+
+    .mmm-tree-row-level-two,
+    .mmm-tree-detail-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .mmm-tree-node-wrap {
+        padding-top: 0;
+    }
+
+    .mmm-tree-node-wrap::before {
+        display: none;
+    }
+
+    .mmm-tree-root {
+        min-width: 0;
+    }
+
+    .mmm-tree-link-horizontal {
+        display: none;
+    }
+
+    .mmm-tree-link-vertical {
+        height: 0.7rem;
+    }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="inv-page">
+
+    {# ── Page header ───────────────────────────────────────────────── #}
+    <div class="inv-module-header">
+        <div>
+            <h1 class="inv-module-title"><i class="bi bi-file-earmark-medical"></i> Material Master Management</h1>
+            <p class="inv-module-subtitle">
+                CSC &amp; Subcommittees Workflow for material master drafting, review, and publication
+            </p>
+        </div>
+        <div class="inv-header-actions">
+            <span class="inv-badge inv-badge-info" id="cscTotalBadge">Loading…</span>
+        </div>
+    </div>
+
+    {# ── KPI row with 4 cards ───────────────────────────────────────── #}
+    <div class="inv-kpi-row" style="margin-bottom: 2rem;">
+        {# Total Specs card #}
+        <div class="inv-kpi-card">
+            <div class="inv-kpi-icon inv-kpi-blue"><i class="bi bi-file-earmark-text"></i></div>
+            <div>
+                <div class="inv-kpi-value" id="kpiTotalSpecs">—</div>
+                <div class="inv-kpi-label">Total Specifications</div>
+                <div class="inv-kpi-hint">Published corporate specs</div>
+            </div>
+        </div>
+        {# Submitted #}
+        <div class="inv-kpi-card">
+            <div class="inv-kpi-icon inv-kpi-amber"><i class="bi bi-pencil-square"></i></div>
+            <div>
+                <div class="inv-kpi-value" id="kpiUnderReview">—</div>
+                <div class="inv-kpi-label">Submitted</div>
+                <div class="inv-kpi-hint">Drafts in admin workbench</div>
+            </div>
+        </div>
+        {# Open Drafting #}
+        <div class="inv-kpi-card">
+            <div class="inv-kpi-icon inv-kpi-green"><i class="bi bi-arrow-repeat"></i></div>
+            <div>
+                <div class="inv-kpi-value" id="kpiPendingRevisions">—</div>
+                <div class="inv-kpi-label">Drafting Open</div>
+                <div class="inv-kpi-hint">Open drafting copies</div>
+            </div>
+        </div>
+        {# Published #}
+        <div class="inv-kpi-card">
+            <div class="inv-kpi-icon inv-kpi-purple"><i class="bi bi-check-circle"></i></div>
+            <div>
+                <div class="inv-kpi-value" id="kpiPublished">—</div>
+                <div class="inv-kpi-label">Published</div>
+                <div class="inv-kpi-hint">Active master specifications</div>
+            </div>
+        </div>
+    </div>
+
+    {# ── Module navigation cards ──────────────────────────────────────── #}
+    <div class="inv-landing-grid">
+        {# Spec Drafting Workspace card #}
+        <a href="{{ url_for('csc.workspace') }}" class="inv-landing-card inv-landing-card-blue">
+            <div class="inv-landing-icon"><i class="bi bi-pencil-square"></i></div>
+            <div class="inv-landing-card-body">
+                <h2 class="inv-landing-card-title">Material Master Drafting Workspace</h2>
+                <p class="inv-landing-card-desc">Open published specifications, propose revisions through the 9-section workflow, and track committee inputs.</p>
+                <ul class="inv-landing-features">
+                    <li><i class="bi bi-check2"></i> 9-section guided workflow</li>
+                    <li><i class="bi bi-check2"></i> Parameter comparison &amp; proposal</li>
+                    <li><i class="bi bi-check2"></i> Impact analysis scoring</li>
+                    <li><i class="bi bi-check2"></i> Word document export</li>
+                </ul>
+            </div>
+            <div class="inv-landing-card-footer">
+                <span class="inv-landing-enter">Open Workspace <i class="bi bi-arrow-right"></i></span>
+            </div>
+        </a>
+
+        {# Admin Dashboard - superuser only #}
+        {% if current_user.is_super_user() %}
+        <a href="{{ url_for('csc.admin_index') }}" class="inv-landing-card inv-landing-card-amber">
+            <div class="inv-landing-icon"><i class="bi bi-gear"></i></div>
+            <div class="inv-landing-card-body">
+                <h2 class="inv-landing-card-title">
+                    Admin Dashboard
+                    <span style="font-size:0.7rem; font-weight:600; padding:0.2rem 0.5rem; border-radius:10px;
+                                 background:color-mix(in srgb,#7c3aed 12%,transparent); color:#7c3aed;
+                                 vertical-align:middle; margin-left:0.4rem;">
+                        <i class="bi bi-shield-lock"></i> Superuser
+                    </span>
+                </h2>
+                <p class="inv-landing-card-desc">Ingest PDF/DOCX specs, structure parameters, manage committee revisions, and publish master specifications.</p>
+                <ul class="inv-landing-features">
+                    <li><i class="bi bi-check2"></i> PDF &amp; DOCX spec ingestion</li>
+                    <li><i class="bi bi-check2"></i> Parameter structuring</li>
+                    <li><i class="bi bi-check2"></i> Revision approval queue</li>
+                    <li><i class="bi bi-check2"></i> Master export &amp; versioning</li>
+                </ul>
+            </div>
+            <div class="inv-landing-card-footer">
+                <span class="inv-landing-enter">Open Admin Dashboard <i class="bi bi-arrow-right"></i></span>
+            </div>
+        </a>
+        {% endif %}
+    </div>
+
+    <section class="mmm-section">
+        <div class="mmm-section-header">
+            <div>
+                <h2 class="mmm-section-title">Committee Governance Tree</h2>
+                <p class="mmm-section-subtitle">Click any committee node to inspect subset coverage, members, and linked office orders.</p>
+            </div>
+            <div class="mmm-directory-meta">
+                <span class="inv-badge inv-badge-info">{{ committee_directory|length }} committees</span>
+                <span class="inv-badge inv-badge-muted">{{ office_orders|length }} office orders</span>
+            </div>
+        </div>
+
+        <div class="mmm-tree-shell">
+            <div class="mmm-tree-board">
+                <div class="mmm-tree-row mmm-tree-row-root">
+                    {% set root_committee = committee_tree.root %}
+                    <button
+                        type="button"
+                        class="mmm-tree-node mmm-tree-root mmm-tree-node-root"
+                        data-committee-slug="{{ root_committee.slug }}"
+                        data-tone="{{ root_committee.tone }}"
+                        style="--node-accent: var(--mmm-{{ root_committee.tone }}, var(--primary));"
+                    >
+                        <span class="mmm-tree-node-kind">{{ root_committee.kind }}</span>
+                        <h3 class="mmm-tree-node-title">{{ root_committee.title }}</h3>
+                        <p class="mmm-tree-node-meta">Apex committee for oil field chemicals governance</p>
+                    </button>
+                </div>
+                <div class="mmm-tree-link-vertical" aria-hidden="true"></div>
+                <div class="mmm-tree-row mmm-tree-row-level-one">
+                    {% for committee in committee_tree.level_one %}
+                    <button
+                        type="button"
+                        class="mmm-tree-node"
+                        data-committee-slug="{{ committee.slug }}"
+                        data-tone="{{ committee.tone }}"
+                        style="--node-accent: var(--mmm-{{ committee.tone }}, var(--primary)); max-width: 320px;"
+                    >
+                        <span class="mmm-tree-node-kind">{{ committee.kind }}</span>
+                        <h3 class="mmm-tree-node-title">{{ committee.title }}</h3>
+                        <p class="mmm-tree-node-meta">One level below CSC</p>
+                    </button>
+                    {% endfor %}
+                </div>
+                <div class="mmm-tree-link-vertical" aria-hidden="true"></div>
+                <div class="mmm-tree-link-horizontal" aria-hidden="true"></div>
+                <div class="mmm-tree-row mmm-tree-row-level-two">
+                    {% for committee in committee_tree.level_two %}
+                    <div class="mmm-tree-node-wrap">
+                        <button
+                            type="button"
+                            class="mmm-tree-node"
+                            data-committee-slug="{{ committee.slug }}"
+                            data-tone="{{ committee.tone }}"
+                            style="--node-accent: var(--mmm-{{ committee.tone }}, var(--primary));"
+                        >
+                            <span class="mmm-tree-node-kind">{{ committee.kind }}</span>
+                            <h3 class="mmm-tree-node-title">{{ committee.title }}</h3>
+                            <p class="mmm-tree-node-meta">
+                                {% if committee.subsets %}
+                                {{ committee.subsets|length }} subset{% if committee.subsets|length != 1 %}s{% endif %}
+                                {% else %}
+                                Committee-wide mandate
+                                {% endif %}
+                            </p>
+                        </button>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="mmm-tree-detail" id="committeeDetail" style="--detail-accent: var(--mmm-indigo, var(--primary));">
+                <div class="mmm-tree-detail-head">
+                    <div class="mmm-tree-detail-kicker">
+                        <i class="bi bi-layout-text-window-reverse"></i> Selected Committee Details
+                    </div>
+                    <div class="mmm-tree-detail-title-row">
+                        <h3 class="mmm-tree-detail-title" id="committeeDetailTitle"></h3>
+                        <span class="mmm-tree-detail-kind" id="committeeDetailKind"></span>
+                    </div>
+                    <p class="mmm-tree-detail-summary" id="committeeDetailSummary"></p>
+                </div>
+                <div class="mmm-tree-detail-grid">
+                    <section class="mmm-detail-block">
+                        <h4 class="mmm-detail-label">Subset Coverage</h4>
+                        <ul class="mmm-detail-list" id="committeeDetailSubsets"></ul>
+                        <p class="mmm-detail-empty" id="committeeDetailSubsetsEmpty" hidden>Committee-wide coordination or support role.</p>
+                    </section>
+                    <section class="mmm-detail-block">
+                        <h4 class="mmm-detail-label">Members</h4>
+                        <ul class="mmm-detail-list" id="committeeDetailMembers"></ul>
+                        <p class="mmm-detail-empty" id="committeeDetailMembersEmpty"></p>
+                    </section>
+                    <section class="mmm-detail-block">
+                        <h4 class="mmm-detail-label">Office Orders</h4>
+                        <div id="committeeDetailOrders"></div>
+                    </section>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="mmm-section">
+        <div class="mmm-section-header">
+            <div>
+                <h2 class="mmm-section-title">Office Orders</h2>
+                <p class="mmm-section-subtitle">Reference orders issued for constitution of the current committees.</p>
+            </div>
+        </div>
+
+        <div class="mmm-order-grid">
+            {% for order in office_orders %}
+            <article class="mmm-order-card">
+                <h3 class="mmm-order-title">{{ order.title }}</h3>
+                <div class="mmm-order-issued">{{ order.issued_label }}</div>
+                <p class="mmm-order-summary">{{ order.summary }}</p>
+                <div class="mmm-order-file">{{ order.filename }}</div>
+                <div class="mmm-order-actions">
+                    {% if order.available %}
+                    <button
+                        type="button"
+                        class="btn btn-primary btn-sm js-office-order-open"
+                        data-order-url="{{ url_for('csc.office_order', slug=order.slug) }}"
+                        data-order-download-url="{{ url_for('csc.office_order', slug=order.slug) }}?download=1"
+                        data-order-title="{{ order.title }}"
+                    >
+                        <i class="bi bi-file-earmark-pdf"></i> Open Office Order
+                    </button>
+                    {% else %}
+                    <span class="btn btn-secondary btn-sm disabled" aria-disabled="true">
+                        <i class="bi bi-file-earmark-x"></i> File Not Found
+                    </span>
+                    {% endif %}
+                </div>
+            </article>
+            {% endfor %}
+        </div>
+    </section>
+</div>
+
+<div class="inv-modal-backdrop" id="officeOrderModal" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="officeOrderModalTitle">
+    <div class="inv-modal inv-modal-wide">
+        <div class="inv-modal-header">
+            <div>
+                <h3 class="inv-modal-title" id="officeOrderModalTitle">Office Order</h3>
+                <div class="inv-modal-meta">Preview the office order inside the workspace. Download is optional.</div>
+            </div>
+            <button type="button" class="inv-modal-close" id="officeOrderModalClose" aria-label="Close">&times;</button>
+        </div>
+        <div class="inv-modal-body mmm-pdf-modal-body">
+            <iframe id="officeOrderModalFrame" class="mmm-pdf-frame" title="Office order preview"></iframe>
+        </div>
+        <div class="inv-modal-footer" style="display:flex; justify-content:space-between; gap:0.75rem; flex-wrap:wrap;">
+            <div class="inv-modal-meta" id="officeOrderModalMeta">Office order preview</div>
+            <div style="display:flex; gap:0.6rem; flex-wrap:wrap;">
+                <a href="#" class="btn btn-secondary btn-sm" id="officeOrderDownloadBtn" download>
+                    <i class="bi bi-download"></i> Download PDF
+                </a>
+                <button type="button" class="btn btn-primary btn-sm" id="officeOrderModalDone">Done</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts_extra %}
+<script nonce="{{ csp_nonce() }}">
+(function() {
+    'use strict';
+
+    var committeeDirectory = {{ committee_directory|tojson }};
+    var officeOrders = {{ office_orders|tojson }};
+    var officeOrderUrlTemplate = '{{ url_for("csc.office_order", slug="__SLUG__") }}';
+    var committeeMap = Object.fromEntries(committeeDirectory.map(function(item) {
+        return [item.slug, item];
+    }));
+    var officeOrderMap = Object.fromEntries(officeOrders.map(function(item) {
+        return [item.slug, item];
+    }));
+
+    var detailCard = document.getElementById('committeeDetail');
+    var detailTitle = document.getElementById('committeeDetailTitle');
+    var detailKind = document.getElementById('committeeDetailKind');
+    var detailSummary = document.getElementById('committeeDetailSummary');
+    var detailSubsets = document.getElementById('committeeDetailSubsets');
+    var detailSubsetsEmpty = document.getElementById('committeeDetailSubsetsEmpty');
+    var detailMembers = document.getElementById('committeeDetailMembers');
+    var detailMembersEmpty = document.getElementById('committeeDetailMembersEmpty');
+    var detailOrders = document.getElementById('committeeDetailOrders');
+    var committeeButtons = Array.from(document.querySelectorAll('.mmm-tree-node'));
+    var officeOrderModal = document.getElementById('officeOrderModal');
+    var officeOrderModalFrame = document.getElementById('officeOrderModalFrame');
+    var officeOrderModalTitle = document.getElementById('officeOrderModalTitle');
+    var officeOrderModalMeta = document.getElementById('officeOrderModalMeta');
+    var officeOrderDownloadBtn = document.getElementById('officeOrderDownloadBtn');
+    var officeOrderModalClose = document.getElementById('officeOrderModalClose');
+    var officeOrderModalDone = document.getElementById('officeOrderModalDone');
+
+    function renderList(target, items) {
+        target.innerHTML = items.map(function(item) {
+            return '<li>' + item + '</li>';
+        }).join('');
+    }
+
+    function openOfficeOrderModal(url, downloadUrl, titleText) {
+        if (!officeOrderModal || !officeOrderModalFrame) return;
+        officeOrderModalTitle.textContent = titleText || 'Office Order';
+        officeOrderModalMeta.textContent = 'Previewing the office order inside the workspace. Download is optional.';
+        officeOrderModalFrame.src = url || '';
+        officeOrderDownloadBtn.href = downloadUrl || url || '#';
+        officeOrderModal.style.display = 'flex';
+        document.body.classList.add('modal-open');
+    }
+
+    function closeOfficeOrderModal() {
+        if (!officeOrderModal || !officeOrderModalFrame) return;
+        officeOrderModal.style.display = 'none';
+        officeOrderModalFrame.src = '';
+        document.body.classList.remove('modal-open');
+    }
+
+    function renderCommitteeDetail(slug) {
+        var committee = committeeMap[slug];
+        if (!committee || !detailCard) return;
+
+        detailCard.style.setProperty('--detail-accent', 'var(--mmm-' + committee.tone + ', var(--primary))');
+        detailTitle.textContent = committee.title;
+        detailKind.textContent = committee.kind;
+        detailSummary.textContent = committee.summary;
+
+        if (committee.subsets && committee.subsets.length) {
+            renderList(detailSubsets, committee.subsets.map(function(subset) {
+                return '<code>' + subset.code + '</code> — ' + subset.label;
+            }));
+            detailSubsets.hidden = false;
+            detailSubsetsEmpty.hidden = true;
+        } else {
+            detailSubsets.innerHTML = '';
+            detailSubsets.hidden = true;
+            detailSubsetsEmpty.hidden = false;
+        }
+
+        if (committee.members && committee.members.length) {
+            renderList(detailMembers, committee.members);
+            detailMembers.hidden = false;
+            detailMembersEmpty.textContent = '';
+            detailMembersEmpty.hidden = true;
+        } else {
+            detailMembers.innerHTML = '';
+            detailMembers.hidden = true;
+            detailMembersEmpty.textContent = committee.members_note || 'Members not loaded.';
+            detailMembersEmpty.hidden = false;
+        }
+
+        var relatedOrders = (committee.office_orders || []).map(function(orderSlug) {
+            return officeOrderMap[orderSlug];
+        }).filter(Boolean);
+
+        detailOrders.className = 'mmm-detail-orders';
+        detailOrders.innerHTML = relatedOrders.map(function(order) {
+            var action = order.available
+                ? '<button type="button" class="btn btn-primary btn-sm js-office-order-open" data-order-url="' + officeOrderUrlTemplate.replace('__SLUG__', order.slug) + '" data-order-download-url="' + officeOrderUrlTemplate.replace('__SLUG__', order.slug) + '?download=1" data-order-title="' + order.title.replace(/"/g, '&quot;') + '"><i class="bi bi-file-earmark-pdf"></i> Open Office Order</button>'
+                : '<span class="btn btn-secondary btn-sm disabled" aria-disabled="true"><i class="bi bi-file-earmark-x"></i> File Not Found</span>';
+            return [
+                '<article class="mmm-detail-order">',
+                '<h5 class="mmm-detail-order-title">' + order.title + '</h5>',
+                '<p class="mmm-detail-order-meta">' + order.issued_label + '</p>',
+                '<p class="mmm-order-summary">' + order.summary + '</p>',
+                action,
+                '</article>'
+            ].join('');
+        }).join('');
+
+        if (!relatedOrders.length) {
+            detailOrders.className = '';
+            detailOrders.innerHTML = '<p class="mmm-detail-empty">No office orders mapped to this committee.</p>';
+        }
+
+        committeeButtons.forEach(function(button) {
+            button.classList.toggle('is-active', button.getAttribute('data-committee-slug') === slug);
+        });
+    }
+
+    function fmtNum(value, digits) {
+        if (value == null || isNaN(value)) return '—';
+        return Number(value).toLocaleString('en-IN', {
+            minimumFractionDigits: digits == null ? 0 : digits,
+            maximumFractionDigits: digits == null ? 0 : digits
+        });
+    }
+
+    committeeButtons.forEach(function(button) {
+        button.addEventListener('click', function() {
+            renderCommitteeDetail(button.getAttribute('data-committee-slug'));
+        });
+    });
+
+    document.addEventListener('click', function(event) {
+        var trigger = event.target.closest('.js-office-order-open');
+        if (!trigger) return;
+        event.preventDefault();
+        openOfficeOrderModal(
+            trigger.getAttribute('data-order-url'),
+            trigger.getAttribute('data-order-download-url'),
+            trigger.getAttribute('data-order-title')
+        );
+    });
+
+    officeOrderModalClose?.addEventListener('click', closeOfficeOrderModal);
+    officeOrderModalDone?.addEventListener('click', closeOfficeOrderModal);
+    officeOrderModal?.addEventListener('click', function(event) {
+        if (event.target === officeOrderModal) {
+            closeOfficeOrderModal();
+        }
+    });
+
+    document.addEventListener('keydown', function(event) {
+        if (event.key === 'Escape' && officeOrderModal && officeOrderModal.style.display !== 'none') {
+            closeOfficeOrderModal();
+        }
+    });
+
+    if (committeeDirectory.length) {
+        renderCommitteeDetail(committeeDirectory[0].slug);
+    }
+
+    fetch('{{ url_for("csc.api_overview") }}')
+        .then(function(r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+        })
+        .then(function(d) {
+            document.getElementById('kpiTotalSpecs').textContent = fmtNum(d.total_specs || 0, 0);
+            document.getElementById('kpiUnderReview').textContent = fmtNum(d.under_review || 0, 0);
+            document.getElementById('kpiPendingRevisions').textContent = fmtNum(d.pending_revisions || 0, 0);
+            document.getElementById('kpiPublished').textContent = fmtNum(d.published || 0, 0);
+            document.getElementById('cscTotalBadge').textContent = fmtNum(d.total_specs || 0, 0) + ' specifications';
+        })
+        .catch(function(err) {
+            console.error('CSC overview fetch failed:', err);
+            document.getElementById('cscTotalBadge').textContent = 'Load failed';
+        });
+})();
+</script>
+{% endblock %}

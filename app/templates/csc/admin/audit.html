@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}CSC Audit Log — {{ app_name }}{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}">
+<style nonce="{{ csp_nonce() }}">
+.csc-audit-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.csc-audit-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.csc-audit-table thead {
+  background: var(--background);
+  border-bottom: 2px solid var(--border);
+}
+.csc-audit-table th,
+.csc-audit-table td {
+  padding: 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.csc-audit-table tbody tr:hover {
+  background: color-mix(in srgb, var(--primary) 5%, transparent);
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="inv-page">
+  <div class="inv-module-header">
+    <div>
+      <div class="page-kicker"><a href="{{ url_for('csc.admin_index') }}">Material Master Admin</a></div>
+      <h1 class="inv-module-title"><i class="bi bi-clock-history"></i> CSC Audit Log</h1>
+      <p class="inv-module-subtitle">Latest workflow events across drafting, review, rejection, return, and publication</p>
+    </div>
+    <div class="inv-header-actions">
+      <a href="{{ url_for('csc.admin_audit_log_download') }}" class="btn btn-primary">
+        <i class="bi bi-download"></i> Download CSV
+      </a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      {% if entries %}
+      <div class="csc-audit-wrap">
+        <table class="csc-audit-table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>User</th>
+              <th>Specification</th>
+              <th>Action</th>
+              <th>Remarks</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for entry in entries %}
+            <tr>
+              <td>{{ entry.action_time | datetime_ist('%d %b %Y, %H:%M') if entry.action_time else '—' }}</td>
+              <td>{{ entry.user_name or '—' }}</td>
+              <td>
+                {% if entry.draft %}
+                <strong>{{ entry.draft.spec_number }}</strong><br>
+                <span style="color: var(--muted);">{{ entry.draft.chemical_name or '—' }}</span>
+                {% else %}
+                —
+                {% endif %}
+              </td>
+              <td>{{ entry.action }}</td>
+              <td>{{ entry.remarks or '—' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div style="text-align: center; padding: 3rem 1rem; color: var(--muted);">
+        <i class="bi bi-inbox" style="font-size: 2.5rem; display: block; margin-bottom: 0.75rem;"></i>
+        No audit entries available.
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

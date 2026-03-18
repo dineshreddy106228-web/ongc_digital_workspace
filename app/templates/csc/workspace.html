@@ -1,0 +1,285 @@
+{% extends "base.html" %}
+{% block title %}Material Master Drafting Workspace — {{ app_name }}{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}">
+<style nonce="{{ csp_nonce() }}">
+.csc-workspace-header {
+    margin-bottom: 1.75rem;
+}
+.csc-workspace-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.csc-back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.9rem;
+    color: var(--primary);
+    text-decoration: none;
+    margin-bottom: 0.75rem;
+}
+.csc-filter-bar,
+.csc-results-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
+}
+.csc-filter-bar {
+    padding: 1.25rem;
+    margin-bottom: 1.5rem;
+}
+.csc-filter-row {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    align-items: flex-end;
+}
+.csc-filter-group {
+    flex: 1;
+    min-width: 180px;
+}
+.csc-filter-group label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 0.4rem;
+}
+.csc-filter-input,
+.csc-filter-select {
+    width: 100%;
+    padding: 0.55rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text);
+}
+.csc-results-header {
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-alt);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.9rem;
+    color: var(--muted);
+}
+.csc-table-wrapper {
+    overflow-x: auto;
+}
+.csc-data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+.csc-data-table th,
+.csc-data-table td {
+    padding: 0.8rem 1rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+}
+.csc-data-table thead {
+    background: var(--surface-alt);
+}
+.csc-data-table tbody tr:hover {
+    background: var(--surface-alt);
+}
+.csc-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.76rem;
+    font-weight: 600;
+}
+.csc-badge-open {
+    background: color-mix(in srgb, #2563eb 12%, transparent);
+    color: #1d4ed8;
+}
+.csc-badge-returned {
+    background: color-mix(in srgb, #f59e0b 15%, transparent);
+    color: #b45309;
+}
+.csc-action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.4rem 0.8rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--primary);
+    text-decoration: none;
+}
+.csc-empty-state {
+    padding: 3rem 1.5rem;
+    text-align: center;
+    color: var(--muted);
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="inv-page">
+    <a href="{{ url_for('csc.landing') }}" class="csc-back-link">
+        <i class="bi bi-arrow-left"></i> Back to Material Master Management
+    </a>
+
+    <div class="csc-workspace-header">
+        <h1 class="csc-workspace-title">
+            <i class="bi bi-pencil-square"></i> Material Master Drafting Workspace
+        </h1>
+        <p class="inv-module-subtitle" style="margin: 0.5rem 0 0;">Only chemicals in open drafting status are available here for subcommittee work.</p>
+    </div>
+
+    <div class="csc-filter-bar">
+        <form method="get" action="{{ url_for('csc.workspace') }}" class="csc-filter-row" id="filterForm">
+            <div class="csc-filter-group" style="flex: 2;">
+                <label for="f-search">Search</label>
+                <input type="text" name="q" id="f-search" value="{{ q or '' }}" placeholder="Spec number or chemical name..." class="csc-filter-input">
+            </div>
+            <div class="csc-filter-group">
+                <label for="f-subset">Subset</label>
+                <select name="subset" id="f-subset" class="csc-filter-select">
+                    <option value="">All Subsets</option>
+                    {% for subset in subset_options %}
+                    <option value="{{ subset.code }}" {{ 'selected' if subset_filter == subset.code }}>{{ subset.display }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="csc-filter-group" style="flex: 0 0 auto;">
+                <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-search"></i> Filter</button>
+            </div>
+            <div class="csc-filter-group" style="flex: 0 0 auto;">
+                <a href="{{ url_for('csc.workspace') }}" class="btn btn-secondary btn-sm"><i class="bi bi-x"></i> Clear</a>
+            </div>
+        </form>
+    </div>
+
+    <div class="csc-results-section">
+        <div class="csc-results-header">
+            <span id="resultCount">Drafts loading…</span>
+        </div>
+        <div class="csc-table-wrapper">
+            <table class="csc-data-table">
+                <thead>
+                    <tr>
+                        <th>Spec Number</th>
+                        <th>Chemical Name</th>
+                        <th>Subset</th>
+                        <th>Version</th>
+                        <th>Drafting Status</th>
+                        <th>Updated</th>
+                        <th style="text-align: right;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="draftsBody">
+                    <tr>
+                        <td colspan="7" style="padding: 2rem; text-align: center; color: var(--muted);">
+                            <i class="bi bi-hourglass-split" style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"></i>
+                            Loading drafts…
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <div id="emptyState" class="csc-empty-state" style="display: none;">
+            <div style="font-size: 2.5rem; margin-bottom: 0.75rem;"><i class="bi bi-inbox"></i></div>
+            <div style="font-size: 1.1rem; font-weight: 600; color: var(--text);">No Open Drafts</div>
+            <p>No chemicals are currently available in open drafting status.</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts_extra %}
+<script nonce="{{ csp_nonce() }}">
+(function() {
+    'use strict';
+
+    const tableBody = document.getElementById('draftsBody');
+    const emptyState = document.getElementById('emptyState');
+    const resultCount = document.getElementById('resultCount');
+    const filterForm = document.getElementById('filterForm');
+    const editorUrlBase = '{{ url_for("csc.workspace") }}/';
+
+    function draftingBadge(status) {
+        const key = (status || 'open').toLowerCase();
+        const labels = {
+            open: 'Open',
+            returned: 'Returned'
+        };
+        const css = key === 'returned' ? 'csc-badge-returned' : 'csc-badge-open';
+        return '<span class="csc-badge ' + css + '">' + (labels[key] || 'Open') + '</span>';
+    }
+
+    function formatDate(isoString) {
+        if (!isoString) return '—';
+        return new Date(isoString).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+
+    function renderDrafts(drafts) {
+        if (!drafts.length) {
+            tableBody.innerHTML = '';
+            emptyState.style.display = 'block';
+            return;
+        }
+        emptyState.style.display = 'none';
+        tableBody.innerHTML = drafts.map(function(draft) {
+            return '' +
+                '<tr>' +
+                '<td><strong>' + (draft.spec_number || '—') + '</strong></td>' +
+                '<td>' + (draft.chemical_name || '—') + '</td>' +
+                '<td>' + (draft.subset_display || draft.subset || '—') + '</td>' +
+                '<td>v' + (draft.version || '0') + '</td>' +
+                '<td>' + draftingBadge(draft.drafting_status) + '</td>' +
+                '<td>' + formatDate(draft.updated_at) + '</td>' +
+                '<td style="text-align: right;"><a href="' + editorUrlBase + draft.id + '" class="csc-action-btn"><i class="bi bi-pencil"></i> Edit</a></td>' +
+                '</tr>';
+        }).join('');
+    }
+
+    function loadDrafts(params) {
+        let url = '{{ url_for("csc.api_drafts") }}';
+        const qs = new URLSearchParams(params);
+        if ([...qs.keys()].length) {
+            url += '?' + qs.toString();
+        }
+        fetch(url)
+            .then(function(response) {
+                if (!response.ok) throw new Error('HTTP ' + response.status);
+                return response.json();
+            })
+            .then(function(data) {
+                const drafts = data.drafts || [];
+                renderDrafts(drafts);
+                resultCount.textContent = String(data.total || drafts.length) + ' open drafting item(s)';
+            })
+            .catch(function(error) {
+                tableBody.innerHTML = '<tr><td colspan="7" style="padding: 1rem; text-align: center; color: var(--text-error);">Error loading drafts: ' + error.message + '</td></tr>';
+            });
+    }
+
+    const initialParams = {};
+    if (document.getElementById('f-search').value) initialParams.q = document.getElementById('f-search').value;
+    if (document.getElementById('f-subset').value) initialParams.subset = document.getElementById('f-subset').value;
+    loadDrafts(initialParams);
+
+    filterForm.addEventListener('submit', function(event) {
+        event.preventDefault();
+        const params = {};
+        const q = document.getElementById('f-search').value;
+        const subset = document.getElementById('f-subset').value;
+        if (q) params.q = q;
+        if (subset) params.subset = subset;
+        loadDrafts(params);
+    });
+})();
+</script>
+{% endblock %}

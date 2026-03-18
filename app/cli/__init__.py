@@ -2,6 +2,12 @@
 
 from app.cli.backups import restore_db, validate_backup
 from app.cli.cache import clear_cache
+from app.cli.csc import (
+    backfill_csc_material_codes_command,
+    import_csc_legacy,
+    resequence_csc_draft_ids_command,
+    sync_csc_master_data_command,
+)
 from app.cli.seed import (
     fix_password_hashes,
     list_users,
@@ -19,6 +25,10 @@ def register_cli(app):
     app.cli.add_command(restore_db)
     app.cli.add_command(validate_backup)
     app.cli.add_command(clear_cache)
+    app.cli.add_command(import_csc_legacy)
+    app.cli.add_command(backfill_csc_material_codes_command)
+    app.cli.add_command(resequence_csc_draft_ids_command)
+    app.cli.add_command(sync_csc_master_data_command)
     app.cli.add_command(seed_initial_data)
     app.cli.add_command(seed_module_permissions)
     app.cli.add_command(seed_admin)

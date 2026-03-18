@@ -1,0 +1,313 @@
+{% extends "base.html" %}
+{% block title %}Committee Workbench — Material Master Admin — {{ app_name }}{% endblock %}
+
+{% block head_extra %}
+<meta name="csrf-token" content="{{ csrf_token() }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}">
+<style nonce="{{ csp_nonce() }}">
+.csc-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.csc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.csc-table thead {
+  background: var(--background);
+  border-bottom: 2px solid var(--border);
+}
+.csc-table th,
+.csc-table td {
+  padding: 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.csc-table tbody tr:hover {
+  background: color-mix(in srgb, var(--primary) 5%, transparent);
+}
+.csc-status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.csc-status-submitted {
+  background: color-mix(in srgb, #2563eb 12%, transparent);
+  color: #1d4ed8;
+}
+.csc-status-returned {
+  background: color-mix(in srgb, #f59e0b 15%, transparent);
+  color: #b45309;
+}
+.csc-status-open {
+  background: color-mix(in srgb, #10b981 15%, transparent);
+  color: #047857;
+}
+.csc-actions {
+  white-space: nowrap;
+  text-align: right;
+}
+.csc-btn-sm {
+  padding: 0.35rem 0.65rem;
+  font-size: 0.8rem;
+  border: none;
+  border-radius: var(--radius-sm, 5px);
+  cursor: pointer;
+  margin-left: 0.25rem;
+}
+.csc-btn-review {
+  color: var(--primary);
+  background: none;
+}
+.csc-btn-approve {
+  color: #fff;
+  background: var(--success, #10b981);
+}
+.csc-btn-return {
+  color: #fff;
+  background: #f59e0b;
+}
+.csc-btn-reject {
+  color: #fff;
+  background: var(--danger, #dc3545);
+}
+.csc-no-data {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: var(--muted);
+}
+.csc-modal-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+}
+.csc-modal-backdrop.active {
+  display: flex;
+}
+.csc-modal-content {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 1.75rem;
+  max-width: 520px;
+  width: calc(100% - 2rem);
+  box-shadow: var(--shadow-lg);
+}
+.csc-modal-title {
+  margin: 0 0 0.75rem;
+}
+.csc-modal-field {
+  margin-bottom: 1rem;
+}
+.csc-modal-field label {
+  display: block;
+  margin-bottom: 0.4rem;
+  font-weight: 600;
+}
+.csc-modal-field select,
+.csc-modal-field textarea {
+  width: 100%;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+}
+.csc-modal-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="inv-page">
+  <div class="inv-module-header">
+    <div>
+      <div class="page-kicker"><a href="{{ url_for('csc.admin_index') }}">Material Master Admin</a></div>
+      <h1 class="inv-module-title"><i class="bi bi-clipboard-check"></i> Committee Workbench</h1>
+      <p class="inv-module-subtitle">Review drafts submitted from the drafting workspace and either approve, return, or reject them</p>
+    </div>
+  </div>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+    <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  <div class="card">
+    <div class="card-body">
+      {% if revisions %}
+      <div class="csc-table-wrap">
+        <table class="csc-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Specification</th>
+              <th>Chemical</th>
+              <th>Submitted By</th>
+              <th>Submitted At</th>
+              <th>Status</th>
+              <th>Notes</th>
+              <th style="width: 280px; text-align: right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for revision in revisions %}
+            <tr>
+              <td><code>{{ revision.id }}</code></td>
+              <td><strong>{{ revision.parent_spec.spec_number }}</strong></td>
+              <td>{{ revision.parent_spec.chemical_name or '—' }}</td>
+              <td>{{ revision.submitted_by or '—' }}</td>
+              <td>{{ revision.submitted_at | datetime_ist('%d %b %Y, %H:%M') if revision.submitted_at else '—' }}</td>
+              <td>
+                <span class="csc-status-badge csc-status-{{ revision.status or 'open' }}">
+                  {{ (revision.status or 'open')|replace('_', ' ')|title }}
+                </span>
+              </td>
+              <td>{{ revision.reviewer_notes or '—' }}</td>
+              <td class="csc-actions">
+                <a href="{{ url_for('csc.admin_review_revision', revision_id=revision.id) }}" class="csc-btn-sm csc-btn-review">
+                  <i class="bi bi-eye"></i> Review
+                </a>
+                {% if revision.status == 'submitted' %}
+                <button type="button" class="csc-btn-sm csc-btn-approve" data-action="approve" data-revision-id="{{ revision.id }}">
+                  <i class="bi bi-check-lg"></i> Approve
+                </button>
+                <button type="button" class="csc-btn-sm csc-btn-return" data-action="return" data-revision-id="{{ revision.id }}">
+                  <i class="bi bi-arrow-return-left"></i> Return
+                </button>
+                <button type="button" class="csc-btn-sm csc-btn-reject" data-action="reject" data-revision-id="{{ revision.id }}">
+                  <i class="bi bi-x-lg"></i> Reject
+                </button>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="csc-no-data">
+        <i class="bi bi-inbox"></i>
+        <p>No drafting requests are in the workbench.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div id="reviewActionModal" class="csc-modal-backdrop">
+  <div class="csc-modal-content">
+    <h3 class="csc-modal-title" id="reviewActionTitle">Review Draft</h3>
+    <div class="csc-modal-field" id="versionField">
+      <label for="versionIncrement">Version Increment</label>
+      <select id="versionIncrement">
+        <option value="whole">Whole Number</option>
+        <option value="decimal">Decimal</option>
+      </select>
+    </div>
+    <div class="csc-modal-field">
+      <label for="reviewerNotes">Reviewer Notes</label>
+      <textarea id="reviewerNotes" rows="5" placeholder="Enter approval, return, or rejection note..."></textarea>
+    </div>
+    <div class="csc-modal-actions">
+      <button type="button" id="cancelReviewAction" class="btn btn-secondary">Cancel</button>
+      <button type="button" id="confirmReviewAction" class="btn btn-primary">Continue</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts_extra %}
+<script nonce="{{ csp_nonce() }}">
+(function() {
+  'use strict';
+
+  const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+  const modal = document.getElementById('reviewActionModal');
+  const notesInput = document.getElementById('reviewerNotes');
+  const versionField = document.getElementById('versionField');
+  const confirmButton = document.getElementById('confirmReviewAction');
+  const title = document.getElementById('reviewActionTitle');
+  let currentAction = null;
+  let currentRevisionId = null;
+
+  function openModal(action, revisionId) {
+    currentAction = action;
+    currentRevisionId = revisionId;
+    notesInput.value = '';
+    versionField.style.display = action === 'approve' ? 'block' : 'none';
+    title.textContent = action === 'approve'
+      ? 'Approve Draft'
+      : action === 'return'
+        ? 'Return Draft'
+        : 'Reject Draft';
+    confirmButton.textContent = action === 'approve'
+      ? 'Approve and Publish'
+      : action === 'return'
+        ? 'Return Draft'
+        : 'Reject Draft';
+    modal.classList.add('active');
+  }
+
+  function closeModal() {
+    modal.classList.remove('active');
+    currentAction = null;
+    currentRevisionId = null;
+  }
+
+  document.querySelectorAll('[data-action]').forEach(button => {
+    button.addEventListener('click', function() {
+      openModal(this.dataset.action, this.dataset.revisionId);
+    });
+  });
+
+  document.getElementById('cancelReviewAction').addEventListener('click', closeModal);
+  modal.addEventListener('click', function(event) {
+    if (event.target === modal) closeModal();
+  });
+
+  confirmButton.addEventListener('click', function() {
+    if (!currentAction || !currentRevisionId) return;
+    const reviewerNotes = notesInput.value.trim();
+    if (!reviewerNotes) {
+      alert('Reviewer notes are required.');
+      return;
+    }
+    const payload = { reviewer_notes: reviewerNotes };
+    if (currentAction === 'approve') {
+      payload.version_increment = document.getElementById('versionIncrement').value;
+    }
+    fetch(`/csc/admin/revision/${currentRevisionId}/${currentAction}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrfToken
+      },
+      body: JSON.stringify(payload)
+    })
+    .then(response => response.json().then(data => ({ ok: response.ok, data })))
+    .then(({ ok, data }) => {
+      if (!ok || !data.success) {
+        throw new Error(data.error || 'Request failed');
+      }
+      window.location.reload();
+    })
+    .catch(error => {
+      alert(error.message);
+    });
+  });
+})();
+</script>
+{% endblock %}

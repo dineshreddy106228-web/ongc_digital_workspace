@@ -119,4 +119,26 @@ document.addEventListener("DOMContentLoaded", function () {
         tickISTClock();
         setInterval(tickISTClock, 1000);
     }
+
+    document.querySelectorAll(".js-page-back").forEach(function (button) {
+        button.addEventListener("click", function () {
+            var fallbackUrl = button.getAttribute("data-fallback-url") || "/";
+            var hasSameOriginReferrer = false;
+
+            if (document.referrer) {
+                try {
+                    hasSameOriginReferrer = new URL(document.referrer).origin === window.location.origin;
+                } catch (error) {
+                    hasSameOriginReferrer = false;
+                }
+            }
+
+            if (hasSameOriginReferrer && window.history.length > 1) {
+                window.history.back();
+                return;
+            }
+
+            window.location.href = fallbackUrl;
+        });
+    });
 });

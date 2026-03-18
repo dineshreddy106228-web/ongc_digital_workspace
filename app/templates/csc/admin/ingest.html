@@ -1,0 +1,340 @@
+{% extends "base.html" %}
+{% block title %}Ingest Specifications — Material Master Admin — {{ app_name }}{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}">
+<style nonce="{{ csp_nonce() }}">
+.csc-ingest-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  margin-bottom: 2rem;
+}
+@media (max-width: 1024px) {
+  .csc-ingest-layout {
+    grid-template-columns: 1fr;
+  }
+}
+.csc-extraction-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-top: 1.5rem;
+}
+.csc-extraction-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.csc-extraction-table thead {
+  background: var(--background);
+  border-bottom: 2px solid var(--border);
+}
+.csc-extraction-table th {
+  padding: 0.75rem;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text);
+}
+.csc-extraction-table td {
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+.csc-extraction-table tbody tr:hover {
+  background: color-mix(in srgb, var(--primary) 5%, transparent);
+}
+.csc-extraction-action {
+  white-space: nowrap;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="inv-page">
+  <div class="inv-module-header">
+    <div>
+      <div class="page-kicker"><a href="{{ url_for('csc.admin_index') }}">Material Master Admin</a></div>
+      <h1 class="inv-module-title"><i class="bi bi-upload"></i> Ingest Specifications</h1>
+      <p class="inv-module-subtitle">Upload PDF or DOCX documents to auto-extract specification metadata and parameters</p>
+    </div>
+  </div>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+    <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  <div class="csc-ingest-layout">
+    {# Left: PDF Upload #}
+    <div class="card">
+      <div class="card-body">
+        <h2 class="inv-section-title"><i class="bi bi-file-pdf"></i> PDF Upload</h2>
+        <p class="inv-section-desc">Upload individual specification PDFs. Metadata and parameter values will be extracted automatically.</p>
+
+        <form method="POST" action="{{ url_for('csc.admin_ingest_pdf') }}"
+              enctype="multipart/form-data" id="pdfUploadForm">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+          <div class="inv-drop-zone" id="pdfDropZone">
+            <input type="file" name="pdf_file" id="pdfFile"
+                   accept=".pdf"
+                   class="inv-file-input"
+                   required>
+            <div class="inv-drop-content" id="pdfDropContent">
+              <i class="bi bi-file-pdf inv-drop-icon"></i>
+              <p class="inv-drop-title">Drop your PDF here</p>
+              <p class="inv-drop-sub">or <span class="inv-drop-link">click to browse</span></p>
+              <p class="inv-drop-hint">Accepts .pdf — max 50 MB</p>
+            </div>
+            <div class="inv-file-chosen" id="pdfFileChosen" style="display:none;">
+              <i class="bi bi-file-check inv-file-chosen-icon"></i>
+              <span id="pdfFileChosenName"></span>
+              <span class="inv-file-clear" id="pdfFileClear" title="Remove">×</span>
+            </div>
+          </div>
+
+          <div class="inv-upload-actions">
+            <button type="submit" class="btn btn-primary" id="pdfSubmitBtn" disabled>
+              <i class="bi bi-cloud-upload"></i>
+              <span>Upload PDF</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    {# Right: DOCX Master Upload #}
+    <div class="card">
+      <div class="card-body">
+        <h2 class="inv-section-title"><i class="bi bi-file-word"></i> Master Document Upload</h2>
+        <p class="inv-section-desc">Upload a master DOCX workbook containing all specifications for bulk extraction.</p>
+
+        <form method="POST" action="{{ url_for('csc.admin_ingest_docx') }}"
+              enctype="multipart/form-data" id="docxUploadForm">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+          <div class="inv-drop-zone" id="docxDropZone">
+            <input type="file" name="docx_file" id="docxFile"
+                   accept=".docx"
+                   class="inv-file-input"
+                   required>
+            <div class="inv-drop-content" id="docxDropContent">
+              <i class="bi bi-file-word inv-drop-icon"></i>
+              <p class="inv-drop-title">Drop your DOCX here</p>
+              <p class="inv-drop-sub">or <span class="inv-drop-link">click to browse</span></p>
+              <p class="inv-drop-hint">Accepts .docx — max 100 MB</p>
+            </div>
+            <div class="inv-file-chosen" id="docxFileChosen" style="display:none;">
+              <i class="bi bi-file-check inv-file-chosen-icon"></i>
+              <span id="docxFileChosenName"></span>
+              <span class="inv-file-clear" id="docxFileClear" title="Remove">×</span>
+            </div>
+          </div>
+
+          <div class="inv-upload-actions">
+            <button type="submit" class="btn btn-primary" id="docxSubmitBtn" disabled>
+              <i class="bi bi-cloud-upload"></i>
+              <span>Upload DOCX</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  {# Extraction Preview #}
+  {% if extraction_result %}
+  <div class="card" style="margin-top: 2rem;">
+    <div class="card-body">
+      <h2 class="inv-section-title"><i class="bi bi-table"></i> Extracted Specifications</h2>
+      <p class="inv-section-desc">Review extracted metadata before creating drafts.</p>
+
+      {% if extraction_result.specs %}
+      <div class="csc-extraction-table-wrap">
+        <table class="csc-extraction-table">
+          <thead>
+            <tr>
+              <th>Spec Number</th>
+              <th>Chemical Name</th>
+              <th>Parameters Count</th>
+              <th style="text-align:right;">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for spec in extraction_result.specs %}
+            <tr>
+              <td><strong>{{ spec.spec_number }}</strong></td>
+              <td>{{ spec.chemical_name or '—' }}</td>
+              <td><span class="inv-badge inv-badge-info">{{ spec.parameters_count or 0 }}</span></td>
+              <td style="text-align:right;">
+                <form method="POST" action="{{ url_for('csc.admin_create_draft_from_extraction') }}"
+                      style="display:inline;">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="extraction_id" value="{{ extraction_result.extraction_id }}">
+                  <input type="hidden" name="spec_index" value="{{ loop.index0 }}">
+                  <button type="submit" class="btn btn-sm btn-primary csc-extraction-action">
+                    <i class="bi bi-plus-circle"></i> Create Draft
+                  </button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div style="text-align: center; padding: 2rem; color: var(--muted);">
+        <p>No specifications could be extracted from the uploaded file.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts_extra %}
+<script nonce="{{ csp_nonce() }}">
+(function () {
+  'use strict';
+
+  // PDF Upload Handler
+  {
+    const fileInput      = document.getElementById('pdfFile');
+    const dropZone       = document.getElementById('pdfDropZone');
+    const dropContent    = document.getElementById('pdfDropContent');
+    const fileChosen     = document.getElementById('pdfFileChosen');
+    const fileChosenName = document.getElementById('pdfFileChosenName');
+    const fileClear      = document.getElementById('pdfFileClear');
+    const submitBtn      = document.getElementById('pdfSubmitBtn');
+
+    function showFile(name) {
+      dropContent.style.display = 'none';
+      fileChosen.style.display  = 'flex';
+      fileChosenName.textContent = name;
+      submitBtn.disabled = false;
+    }
+
+    function clearFile() {
+      fileInput.value = '';
+      dropContent.style.display = 'flex';
+      fileChosen.style.display  = 'none';
+      fileChosenName.textContent = '';
+      submitBtn.disabled = true;
+    }
+
+    fileInput.addEventListener('change', function () {
+      if (this.files.length > 0) showFile(this.files[0].name);
+      else clearFile();
+    });
+
+    fileClear.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      clearFile();
+    });
+
+    dropZone.addEventListener('click', function (e) {
+      if (e.target === fileInput) return;
+      if (e.target === fileClear || fileClear.contains(e.target)) return;
+      fileInput.click();
+    });
+
+    dropZone.addEventListener('dragover', function (e) {
+      e.preventDefault();
+      dropZone.classList.add('inv-drop-zone--active');
+    });
+
+    dropZone.addEventListener('dragleave', function (e) {
+      if (!dropZone.contains(e.relatedTarget)) {
+        dropZone.classList.remove('inv-drop-zone--active');
+      }
+    });
+
+    dropZone.addEventListener('drop', function (e) {
+      e.preventDefault();
+      dropZone.classList.remove('inv-drop-zone--active');
+      const files = e.dataTransfer.files;
+      if (files.length === 0) return;
+
+      try {
+        const dt = new DataTransfer();
+        dt.items.add(files[0]);
+        fileInput.files = dt.files;
+      } catch (_) {}
+      showFile(files[0].name);
+    });
+  }
+
+  // DOCX Upload Handler
+  {
+    const fileInput      = document.getElementById('docxFile');
+    const dropZone       = document.getElementById('docxDropZone');
+    const dropContent    = document.getElementById('docxDropContent');
+    const fileChosen     = document.getElementById('docxFileChosen');
+    const fileChosenName = document.getElementById('docxFileChosenName');
+    const fileClear      = document.getElementById('docxFileClear');
+    const submitBtn      = document.getElementById('docxSubmitBtn');
+
+    function showFile(name) {
+      dropContent.style.display = 'none';
+      fileChosen.style.display  = 'flex';
+      fileChosenName.textContent = name;
+      submitBtn.disabled = false;
+    }
+
+    function clearFile() {
+      fileInput.value = '';
+      dropContent.style.display = 'flex';
+      fileChosen.style.display  = 'none';
+      fileChosenName.textContent = '';
+      submitBtn.disabled = true;
+    }
+
+    fileInput.addEventListener('change', function () {
+      if (this.files.length > 0) showFile(this.files[0].name);
+      else clearFile();
+    });
+
+    fileClear.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      clearFile();
+    });
+
+    dropZone.addEventListener('click', function (e) {
+      if (e.target === fileInput) return;
+      if (e.target === fileClear || fileClear.contains(e.target)) return;
+      fileInput.click();
+    });
+
+    dropZone.addEventListener('dragover', function (e) {
+      e.preventDefault();
+      dropZone.classList.add('inv-drop-zone--active');
+    });
+
+    dropZone.addEventListener('dragleave', function (e) {
+      if (!dropZone.contains(e.relatedTarget)) {
+        dropZone.classList.remove('inv-drop-zone--active');
+      }
+    });
+
+    dropZone.addEventListener('drop', function (e) {
+      e.preventDefault();
+      dropZone.classList.remove('inv-drop-zone--active');
+      const files = e.dataTransfer.files;
+      if (files.length === 0) return;
+
+      try {
+        const dt = new DataTransfer();
+        dt.items.add(files[0]);
+        fileInput.files = dt.files;
+      } catch (_) {}
+      showFile(files[0].name);
+    });
+  }
+})();
+</script>
+{% endblock %}

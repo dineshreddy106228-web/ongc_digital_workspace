@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Material Master Admin — {{ app_name }}{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="inv-page">
+    <div class="inv-module-header">
+        <div>
+            <div class="page-kicker"><a href="{{ url_for('csc.index') }}">Material Master Management</a></div>
+            <h1 class="inv-module-title"><i class="bi bi-gear"></i> Material Master Admin</h1>
+            <p class="inv-module-subtitle">Open drafting, review submitted changes, and publish approved specifications</p>
+        </div>
+    </div>
+
+    <div class="inv-kpi-row" style="margin-bottom: 2rem;">
+        <div class="inv-kpi-card">
+            <div class="inv-kpi-icon inv-kpi-green"><i class="bi bi-check-circle"></i></div>
+            <div>
+                <div class="inv-kpi-value">{{ stats.published or 0 }}</div>
+                <div class="inv-kpi-label">Published Specs</div>
+            </div>
+        </div>
+        <div class="inv-kpi-card">
+            <div class="inv-kpi-icon inv-kpi-amber"><i class="bi bi-pencil-square"></i></div>
+            <div>
+                <div class="inv-kpi-value">{{ stats.drafting or 0 }}</div>
+                <div class="inv-kpi-label">Drafting Open</div>
+            </div>
+        </div>
+        <div class="inv-kpi-card">
+            <div class="inv-kpi-icon inv-kpi-blue"><i class="bi bi-send-check"></i></div>
+            <div>
+                <div class="inv-kpi-value">{{ stats.submitted or 0 }}</div>
+                <div class="inv-kpi-label">Submitted</div>
+            </div>
+        </div>
+        <div class="inv-kpi-card">
+            <div class="inv-kpi-icon inv-kpi-purple"><i class="bi bi-arrow-counterclockwise"></i></div>
+            <div>
+                <div class="inv-kpi-value">{{ stats.returned or 0 }}</div>
+                <div class="inv-kpi-label">Returned</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="inv-landing-grid">
+        <a href="{{ url_for('csc.admin_drafts') }}" class="inv-landing-card inv-landing-card-amber">
+            <div class="inv-landing-icon"><i class="bi bi-list-task"></i></div>
+            <div class="inv-landing-card-body">
+                <h2 class="inv-landing-card-title">Manage Drafts</h2>
+                <p class="inv-landing-card-desc">Open drafting for published materials, edit non-workflow master data, and monitor open drafting status.</p>
+            </div>
+            <div class="inv-landing-card-footer">
+                <span class="inv-landing-enter">Open Drafts <i class="bi bi-arrow-right"></i></span>
+            </div>
+        </a>
+
+        <a href="{{ url_for('csc.admin_revisions') }}" class="inv-landing-card inv-landing-card-green">
+            <div class="inv-landing-icon"><i class="bi bi-clipboard-check"></i></div>
+            <div class="inv-landing-card-body">
+                <h2 class="inv-landing-card-title">Committee Workbench</h2>
+                <p class="inv-landing-card-desc">Approve, return, or reject drafts submitted by subcommittee users and choose the publish version increment.</p>
+            </div>
+            <div class="inv-landing-card-footer">
+                <span class="inv-landing-enter">Open Workbench <i class="bi bi-arrow-right"></i></span>
+            </div>
+        </a>
+
+        <a href="{{ url_for('csc.admin_audit_log') }}" class="inv-landing-card inv-landing-card-blue">
+            <div class="inv-landing-icon"><i class="bi bi-clock-history"></i></div>
+            <div class="inv-landing-card-body">
+                <h2 class="inv-landing-card-title">Audit Log</h2>
+                <p class="inv-landing-card-desc">Review the workflow trail for draft opening, submission, return, rejection, approval, and publication.</p>
+            </div>
+            <div class="inv-landing-card-footer">
+                <span class="inv-landing-enter">Open Audit Log <i class="bi bi-arrow-right"></i></span>
+            </div>
+        </a>
+
+        <a href="{{ url_for('csc.admin_export') }}" class="inv-landing-card inv-landing-card-purple">
+            <div class="inv-landing-icon"><i class="bi bi-file-earmark-word"></i></div>
+            <div class="inv-landing-card-body">
+                <h2 class="inv-landing-card-title">Master Export</h2>
+                <p class="inv-landing-card-desc">Generate the consolidated output from the published master specifications only.</p>
+            </div>
+            <div class="inv-landing-card-footer">
+                <span class="inv-landing-enter">Open Export <i class="bi bi-arrow-right"></i></span>
+            </div>
+        </a>
+    </div>
+</div>
+{% endblock %}

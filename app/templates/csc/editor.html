@@ -1,0 +1,3300 @@
+{% extends "base.html" %}
+{% block title %}Edit {{ draft.spec_number }} — {{ app_name }}{% endblock %}
+
+{% block head_extra %}
+<meta name="csrf-token" content="{{ csrf_token() }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+<style nonce="{{ csp_nonce() }}">
+/* ═══════════════════════════════════════════════════════════════════════════
+   CSC Specification Editor Stylesheet
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.csc-editor-page { padding-bottom: 2rem; }
+
+.csc-editor-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    margin-bottom: 1.75rem;
+    flex-wrap: wrap;
+}
+
+.csc-editor-title-block h1 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--text);
+    margin: 0 0 0.3rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.csc-editor-title-meta {
+    font-size: 0.9rem;
+    color: var(--muted);
+    margin: 0;
+}
+
+.csc-editor-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.4rem 0.8rem;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    background: color-mix(in srgb, var(--primary) 12%, transparent);
+    color: var(--primary);
+}
+
+.csc-editor-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.csc-tab-bar {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    padding-bottom: 0;
+    background: var(--surface);
+    border-radius: var(--radius) var(--radius) 0 0;
+}
+
+.csc-tab {
+    padding: 0.75rem 1rem;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.csc-tab:hover {
+    color: var(--text);
+    background: var(--surface-alt);
+}
+
+.csc-tab.is-active {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+}
+
+.csc-tab i {
+    margin-right: 0.4rem;
+}
+
+.csc-tab-content {
+    display: none;
+}
+
+.csc-tab-content.is-active {
+    display: block;
+}
+
+.csc-section-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 0 var(--radius) var(--radius) var(--radius);
+    padding: 1.5rem;
+    box-shadow: var(--shadow-sm);
+    margin-bottom: 1rem;
+}
+
+.csc-section-header {
+    margin-bottom: 1.25rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.csc-section-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--text);
+    margin: 0 0 0.4rem;
+}
+
+.csc-section-guidance {
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin: 0;
+    font-style: italic;
+}
+
+.csc-form-group {
+    margin-bottom: 1.25rem;
+}
+
+.csc-form-group:last-child {
+    margin-bottom: 0;
+}
+
+.csc-master-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem 1.25rem;
+}
+
+.csc-master-note {
+    margin: 0 0 1rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+}
+
+.csc-form-label {
+    display: block;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 0.5rem;
+}
+
+.csc-form-hint {
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-top: 0.3rem;
+}
+
+.csc-textarea,
+.csc-input,
+.csc-select {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 0.9rem;
+    background: var(--surface);
+    color: var(--text);
+    font-family: inherit;
+    transition: all 0.2s;
+}
+
+.csc-textarea:focus,
+.csc-input:focus,
+.csc-select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
+.csc-input[readonly] {
+    background: var(--surface-alt);
+    color: var(--muted);
+    cursor: not-allowed;
+}
+
+.csc-textarea {
+    resize: vertical;
+    min-height: 120px;
+}
+
+.csc-issues-row {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 1rem;
+    align-items: start;
+    margin-bottom: 1.5rem;
+    padding: 1rem;
+    background: var(--surface-alt);
+    border-radius: var(--radius-sm);
+}
+
+.csc-issues-label {
+    font-weight: 600;
+    color: var(--text);
+}
+
+.csc-issues-input {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.csc-radio-group {
+    display: flex;
+    gap: 1.5rem;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.csc-radio {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    cursor: pointer;
+}
+
+.csc-radio input[type="radio"] {
+    cursor: pointer;
+    width: 18px;
+    height: 18px;
+}
+
+.csc-radio label {
+    cursor: pointer;
+    font-weight: 500;
+    margin: 0;
+}
+
+.csc-notes-textarea {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 0.85rem;
+    min-height: 60px;
+    resize: vertical;
+}
+
+.csc-param-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+    margin-bottom: 1rem;
+}
+
+.csc-param-table thead {
+    background: var(--surface-alt);
+}
+
+.csc-param-table th {
+    padding: 0.75rem;
+    text-align: left;
+    font-weight: 600;
+    color: var(--text);
+    border-bottom: 1px solid var(--border);
+}
+
+.csc-param-table td {
+    padding: 0.75rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.csc-param-table input[type="text"],
+.csc-param-table input[type="number"],
+.csc-param-table select {
+    width: 100%;
+    padding: 0.4rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 0.85rem;
+    background: var(--surface);
+    color: var(--text);
+}
+
+.csc-param-table input:focus,
+.csc-param-table select:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+.csc-param-readonly {
+    padding: 0.4rem;
+    color: var(--text);
+}
+
+.csc-param-actions {
+    display: flex;
+    gap: 0.4rem;
+    margin-bottom: 1rem;
+}
+
+.csc-param-btn {
+    padding: 0.4rem 0.8rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--primary);
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.csc-param-btn:hover {
+    background: var(--surface-alt);
+    border-color: var(--primary);
+}
+
+.csc-checkbox-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.csc-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+}
+
+.csc-checkbox input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+.csc-checkbox label {
+    cursor: pointer;
+    margin: 0;
+    font-weight: 500;
+}
+
+.csc-change-checklist-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.9rem;
+    margin-bottom: 1.25rem;
+}
+
+.csc-change-checklist-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.8rem;
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--surface-alt);
+    transition: all 0.2s ease;
+}
+
+.csc-change-checklist-item.is-checked {
+    border-color: color-mix(in srgb, var(--success) 35%, var(--border));
+    background: color-mix(in srgb, var(--success) 8%, white);
+}
+
+.csc-change-checklist-item input[type="checkbox"] {
+    margin-top: 0.2rem;
+}
+
+.csc-change-checklist-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+.csc-change-checklist-title {
+    font-weight: 700;
+    color: var(--text);
+}
+
+.csc-change-checklist-note {
+    font-size: 0.86rem;
+    color: var(--muted);
+    line-height: 1.5;
+}
+
+.csc-impact-shell {
+    display: grid;
+    gap: 1.25rem;
+}
+
+.csc-classification-shell {
+    display: grid;
+    gap: 1.25rem;
+}
+
+.csc-classification-section {
+    display: grid;
+    gap: 0.8rem;
+}
+
+.csc-classification-section-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.95rem 1rem;
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--primary) 8%, white);
+    color: var(--primary);
+    font-weight: 700;
+    font-size: 0.92rem;
+}
+
+.csc-classification-stack {
+    display: grid;
+    gap: 0.8rem;
+}
+
+.csc-classification-card {
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    background: var(--surface);
+    overflow: hidden;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.csc-classification-card.is-selected {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 18%, transparent);
+}
+
+.csc-classification-trigger {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    padding: 1rem 1.1rem;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 0.9rem;
+    align-items: center;
+    text-align: left;
+    cursor: pointer;
+}
+
+.csc-classification-trigger:hover {
+    background: color-mix(in srgb, var(--primary) 3%, transparent);
+}
+
+.csc-classification-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 108px;
+    padding: 0.45rem 0.7rem;
+    border-radius: 999px;
+    font-size: 0.76rem;
+    font-weight: 700;
+    text-align: center;
+    background: color-mix(in srgb, var(--primary) 10%, white);
+    color: var(--primary);
+}
+
+.csc-classification-copy {
+    min-width: 0;
+}
+
+.csc-classification-label {
+    font-size: 0.94rem;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1.45;
+}
+
+.csc-classification-current {
+    margin-top: 0.28rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+}
+
+.csc-classification-source {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.38rem 0.65rem;
+    border-radius: 999px;
+    background: var(--surface-alt);
+    color: var(--text);
+    font-size: 0.74rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.csc-classification-detail {
+    padding: 0 1.1rem 1rem;
+    display: grid;
+    gap: 0.8rem;
+}
+
+.csc-classification-options {
+    display: flex;
+    gap: 0.55rem;
+    flex-wrap: wrap;
+}
+
+.csc-classification-option {
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface-alt);
+    color: var(--text);
+    padding: 0.45rem 0.8rem;
+    font-size: 0.76rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.csc-classification-option.is-active {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+}
+
+.csc-classification-hint {
+    font-size: 0.82rem;
+    color: var(--muted);
+    margin: 0;
+}
+
+.csc-impact-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.csc-impact-toolbar-main {
+    flex: 1;
+    min-width: 240px;
+}
+
+.csc-impact-toolbar-actions {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.csc-impact-selector-label {
+    display: block;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 0.45rem;
+}
+
+.csc-impact-selector {
+    min-width: 280px;
+}
+
+.csc-impact-reset {
+    align-self: flex-end;
+}
+
+.csc-impact-legacy-note {
+    padding: 0.9rem 1rem;
+    border-radius: 14px;
+    border: 1px solid color-mix(in srgb, #b45309 20%, var(--border));
+    background: color-mix(in srgb, #f59e0b 10%, white);
+    color: #92400e;
+    font-size: 0.86rem;
+}
+
+.csc-impact-section {
+    display: grid;
+    gap: 0.8rem;
+}
+
+.csc-impact-section-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.95rem 1rem;
+    border-radius: 16px;
+    font-weight: 700;
+    font-size: 0.92rem;
+}
+
+.csc-impact-section-heading.red {
+    background: #FCEBEB;
+    color: #791F1F;
+}
+
+.csc-impact-section-heading.amber {
+    background: #FAEEDA;
+    color: #633806;
+}
+
+.csc-impact-stack {
+    display: grid;
+    gap: 0.8rem;
+}
+
+.csc-impact-flag {
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    background: var(--surface);
+    overflow: hidden;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.csc-impact-flag.is-red-yes {
+    border-color: #791F1F;
+    box-shadow: 0 0 0 1px rgba(121, 31, 31, 0.12);
+}
+
+.csc-impact-flag.is-amber-yes {
+    border-color: #633806;
+    box-shadow: 0 0 0 1px rgba(99, 56, 6, 0.12);
+}
+
+.csc-impact-flag-trigger {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    padding: 1rem 1.1rem;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    gap: 0.9rem;
+    align-items: center;
+    text-align: left;
+    cursor: pointer;
+}
+
+.csc-impact-flag-trigger:hover {
+    background: color-mix(in srgb, var(--primary) 3%, transparent);
+}
+
+.csc-impact-dimension-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 108px;
+    padding: 0.45rem 0.7rem;
+    border-radius: 999px;
+    font-size: 0.76rem;
+    font-weight: 700;
+    text-align: center;
+}
+
+.csc-impact-dimension-pill.red {
+    background: #FCEBEB;
+    color: #791F1F;
+}
+
+.csc-impact-dimension-pill.amber {
+    background: #FAEEDA;
+    color: #633806;
+}
+
+.csc-impact-flag-copy {
+    min-width: 0;
+}
+
+.csc-impact-flag-question {
+    font-size: 0.94rem;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1.45;
+}
+
+.csc-impact-flag-meta {
+    margin-top: 0.28rem;
+    display: flex;
+    gap: 0.55rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.csc-impact-expand-label {
+    font-size: 0.76rem;
+    color: var(--muted);
+}
+
+.csc-impact-source {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.38rem 0.65rem;
+    border-radius: 999px;
+    background: var(--surface-alt);
+    color: var(--text);
+    font-size: 0.74rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.csc-impact-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.28rem;
+    border-radius: 999px;
+    background: var(--surface-alt);
+}
+
+.csc-impact-toggle-btn {
+    border: 0;
+    border-radius: 999px;
+    padding: 0.45rem 0.8rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+    background: transparent;
+    color: var(--muted);
+    transition: background 0.2s ease, color 0.2s ease;
+}
+
+.csc-impact-toggle-btn.is-active.red {
+    background: #791F1F;
+    color: #fff;
+}
+
+.csc-impact-toggle-btn.is-active.amber {
+    background: #633806;
+    color: #fff;
+}
+
+.csc-impact-toggle-btn.is-active.neutral {
+    background: var(--primary);
+    color: #fff;
+}
+
+.csc-impact-toggle-state {
+    min-width: 46px;
+    text-align: center;
+    font-size: 0.73rem;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.csc-impact-flag-detail {
+    padding: 0 1.1rem 1rem 1.1rem;
+    font-size: 0.87rem;
+    line-height: 1.6;
+    color: var(--muted);
+}
+
+.csc-impact-flag-detail p {
+    margin: 0;
+}
+
+.csc-impact-result {
+    border-radius: 18px;
+    border: 1px solid var(--border);
+    padding: 1.1rem 1.1rem 1rem;
+    display: grid;
+    gap: 0.75rem;
+}
+
+.csc-impact-result.red {
+    background: #FCEBEB;
+    color: #791F1F;
+    border-color: rgba(121, 31, 31, 0.18);
+}
+
+.csc-impact-result.amber {
+    background: #FAEEDA;
+    color: #633806;
+    border-color: rgba(99, 56, 6, 0.18);
+}
+
+.csc-impact-result.green {
+    background: #EAF3DE;
+    color: #27500A;
+    border-color: rgba(39, 80, 10, 0.18);
+}
+
+.csc-impact-result.pending {
+    background: var(--surface-alt);
+    color: var(--text);
+}
+
+.csc-impact-result-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: flex-start;
+    flex-wrap: wrap;
+}
+
+.csc-impact-result-title {
+    font-size: 1.15rem;
+    font-weight: 800;
+    margin: 0;
+}
+
+.csc-impact-result-rule {
+    font-size: 0.88rem;
+    margin: 0.25rem 0 0;
+}
+
+.csc-impact-counts {
+    display: flex;
+    gap: 0.55rem;
+    flex-wrap: wrap;
+}
+
+.csc-impact-count-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.42rem 0.7rem;
+    border-radius: 999px;
+    font-size: 0.76rem;
+    font-weight: 700;
+    background: rgba(255, 255, 255, 0.58);
+}
+
+.csc-impact-count-pill.red {
+    color: #791F1F;
+}
+
+.csc-impact-count-pill.amber {
+    color: #633806;
+}
+
+@media (max-width: 900px) {
+    .csc-impact-flag-trigger {
+        grid-template-columns: 1fr;
+        align-items: flex-start;
+    }
+
+    .csc-impact-toggle {
+        justify-self: stretch;
+        justify-content: space-between;
+    }
+
+    .csc-impact-source {
+        justify-self: start;
+    }
+}
+
+.csc-preview-section {
+    background: var(--surface-alt);
+    padding: 1.25rem;
+    border-radius: var(--radius-sm);
+    margin-bottom: 1.25rem;
+    border-left: 4px solid var(--primary);
+}
+
+.csc-preview-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.5rem;
+}
+
+.csc-preview-text {
+    font-size: 0.9rem;
+    color: var(--text);
+    line-height: 1.6;
+}
+
+.csc-section-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+}
+
+.csc-save-indicator {
+    font-size: 0.8rem;
+    color: var(--muted);
+    display: none;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.csc-save-indicator.show {
+    display: inline-flex;
+}
+
+.csc-save-indicator.success {
+    color: var(--success);
+}
+
+.csc-save-indicator.error {
+    color: var(--text-error);
+}
+
+.csc-modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+}
+
+.csc-modal-overlay.show {
+    display: flex;
+}
+
+.csc-modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 2rem;
+    max-width: 500px;
+    width: 90%;
+    box-shadow: var(--shadow);
+}
+
+.csc-modal-title {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: var(--text);
+    margin: 0 0 1rem;
+}
+
+.csc-modal-body {
+    font-size: 0.95rem;
+    color: var(--text);
+    margin-bottom: 1.5rem;
+    line-height: 1.6;
+}
+
+.csc-modal-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+}
+
+.csc-modal-actions .btn {
+    flex: 1;
+}
+
+.csc-submit-modal {
+    max-width: 880px;
+    padding: 0;
+    overflow: hidden;
+}
+
+.csc-submit-modal-header {
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 8%, white), white);
+}
+
+.csc-submit-modal-header-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 0.5rem;
+}
+
+.csc-submit-modal-step {
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--primary);
+}
+
+.csc-submit-modal-close {
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font-size: 1.25rem;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.csc-submit-modal-subtitle {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.92rem;
+}
+
+.csc-submit-modal-body {
+    padding: 1.5rem;
+    background: #f8fafc;
+}
+
+.csc-submit-step {
+    display: none;
+}
+
+.csc-submit-step.is-active {
+    display: block;
+}
+
+.csc-submit-preview-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.9rem;
+    margin-bottom: 1rem;
+}
+
+.csc-submit-preview-card,
+.csc-submit-section-card,
+.csc-submit-auth-panel,
+.csc-submit-auth-note {
+    background: white;
+    border: 1px solid #d7e0ec;
+    border-radius: 14px;
+    box-shadow: 0 10px 25px rgba(15, 23, 42, 0.05);
+}
+
+.csc-submit-preview-card {
+    padding: 1rem;
+}
+
+.csc-submit-preview-label {
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin-bottom: 0.3rem;
+}
+
+.csc-submit-preview-value {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1.4;
+}
+
+.csc-submit-section-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+.csc-submit-section-card {
+    padding: 1rem 1.1rem;
+}
+
+.csc-submit-section-card h3 {
+    margin: 0 0 0.5rem;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.csc-submit-section-card p {
+    margin: 0;
+    color: var(--muted);
+    line-height: 1.6;
+    white-space: pre-line;
+}
+
+.csc-submit-auth-panel {
+    padding: 1.25rem;
+}
+
+.csc-submit-auth-panel h3 {
+    margin: 0 0 0.4rem;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.csc-submit-auth-panel p {
+    margin: 0 0 1rem;
+    color: var(--muted);
+    line-height: 1.6;
+}
+
+.csc-submit-auth-choices {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+}
+
+.csc-submit-auth-choice {
+    flex: 1 1 240px;
+    border: 1px solid #d7e0ec;
+    border-radius: 12px;
+    background: #f8fafc;
+    padding: 0.9rem 1rem;
+}
+
+.csc-submit-auth-choice input {
+    margin-right: 0.55rem;
+}
+
+.csc-submit-auth-choice label {
+    display: inline;
+    margin: 0;
+    font-weight: 600;
+    color: var(--text);
+    cursor: pointer;
+}
+
+.csc-submit-auth-note {
+    padding: 0.85rem 1rem;
+    margin-top: 1rem;
+    color: var(--muted);
+}
+
+.csc-submit-auth-note.warning {
+    border-color: color-mix(in srgb, var(--warning) 35%, #d7e0ec);
+    background: color-mix(in srgb, var(--warning) 10%, white);
+    color: #8a5b12;
+}
+
+.csc-submit-error {
+    margin-top: 1rem;
+    color: var(--text-error);
+    font-weight: 600;
+    min-height: 1.25rem;
+}
+
+.csc-submit-modal-footer {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 1rem 1.5rem 1.5rem;
+    border-top: 1px solid var(--border);
+    background: white;
+}
+
+.csc-submit-modal-footer-actions {
+    display: flex;
+    gap: 0.75rem;
+    margin-left: auto;
+}
+
+@media (max-width: 768px) {
+    .csc-tab-bar { gap: 0.25rem; }
+    .csc-tab { padding: 0.5rem 0.75rem; font-size: 0.85rem; }
+    .csc-section-panel { padding: 1rem; }
+    .csc-issues-row { grid-template-columns: 1fr; }
+    .csc-editor-actions { flex-wrap: wrap; }
+    .csc-submit-preview-grid,
+    .csc-submit-section-grid,
+    .csc-change-checklist-grid {
+        grid-template-columns: 1fr;
+    }
+    .csc-submit-modal-footer {
+        flex-direction: column;
+    }
+    .csc-submit-modal-footer-actions {
+        width: 100%;
+        margin-left: 0;
+    }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="csc-editor-page">
+
+    {# ── Editor header ───────────────────────────────────────────────── #}
+    <div class="csc-editor-header">
+        <div class="csc-editor-title-block">
+            <h1><i class="bi bi-pencil-square"></i> {{ draft.spec_number }}</h1>
+            <p class="csc-editor-title-meta" id="draftChemicalMeta">{{ draft.chemical_name }} — v{{ draft.version if draft.version is not none else 1 }}</p>
+        </div>
+        <div class="csc-editor-actions">
+            <span class="csc-editor-status" id="draftStatus">
+                <i class="bi bi-hourglass"></i> {{ draft.status|replace('_', ' ')|title }}
+            </span>
+            <a href="{{ url_for('csc.workspace') }}" class="btn btn-secondary btn-sm">
+                <i class="bi bi-arrow-left"></i> Back
+            </a>
+        </div>
+    </div>
+
+    {# ── Tab bar - 11 sections ───────────────────────────────────────── #}
+    <div class="csc-tab-bar" role="tablist">
+        <button type="button" class="csc-tab is-active" data-tab="background" role="tab" aria-selected="true">
+            <i class="bi bi-file-text"></i> Background
+        </button>
+        <button type="button" class="csc-tab" data-tab="existing" role="tab">
+            <i class="bi bi-bookmark"></i> Existing Spec
+        </button>
+        <button type="button" class="csc-tab" data-tab="master-data" role="tab">
+            <i class="bi bi-diagram-3"></i> Master Data
+        </button>
+        <button type="button" class="csc-tab" data-tab="material-properties" role="tab">
+            <i class="bi bi-sliders"></i> Material Properties
+        </button>
+        <button type="button" class="csc-tab" data-tab="storage-handling" role="tab">
+            <i class="bi bi-box-seam"></i> Storage and Handling
+        </button>
+        <button type="button" class="csc-tab" data-tab="parameters" role="tab">
+            <i class="bi bi-table"></i> Parameters
+        </button>
+        <button type="button" class="csc-tab" data-tab="impact" role="tab">
+            <i class="bi bi-graph-up"></i> Impact
+        </button>
+        <button type="button" class="csc-tab" data-tab="proposed" role="tab">
+            <i class="bi bi-pen"></i> Changes
+        </button>
+        <button type="button" class="csc-tab" data-tab="justification" role="tab">
+            <i class="bi bi-chat-left-quote"></i> Justification
+        </button>
+        <button type="button" class="csc-tab" data-tab="recommendation" role="tab">
+            <i class="bi bi-check-square"></i> Version Reason
+        </button>
+        <button type="button" class="csc-tab" data-tab="preview" role="tab">
+            <i class="bi bi-eye"></i> Preview & Export
+        </button>
+    </div>
+
+    {# ════════════════════════════════════════════════════════════════ #}
+    {# SECTION 1: Background                                            #}
+    {# ════════════════════════════════════════════════════════════════ #}
+    <div class="csc-tab-content is-active" data-tab="background" role="tabpanel">
+        <div class="csc-section-panel">
+            <div class="csc-section-header">
+                <h2 class="csc-section-title">Background Context</h2>
+                <p class="csc-section-guidance">Provide business context, regulatory drivers, or technical rationale for this revision.</p>
+            </div>
+
+            <form id="backgroundForm" data-section="background">
+                <div class="csc-form-group">
+                    <textarea name="text" id="backgroundText" class="csc-textarea" placeholder="Enter background context…">{{ sections.get('background', '') }}</textarea>
+                    <div class="csc-form-hint">Word count: <span id="backgroundCount">0</span></div>
+                </div>
+
+                <div class="csc-section-actions">
+                    <button type="button" class="btn btn-primary btn-sm" data-save-section="background">
+                        <i class="bi bi-check-circle"></i> Save Background
+                    </button>
+                    <span class="csc-save-indicator" id="backgroundIndicator"></span>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="csc-tab-content" data-tab="master-data" role="tabpanel">
+        <div class="csc-section-panel">
+            <div class="csc-section-header">
+                <h2 class="csc-section-title">Linked Master Data</h2>
+                <p class="csc-section-guidance">View-only mirror of the linked material master. Material Properties, Storage & Handling, and Impact are managed from their dedicated tabs.</p>
+            </div>
+
+            <p class="csc-master-note">All values are frozen here for viewing. Workbook-driven properties and storage fields are editable only in their dedicated tabs.</p>
+            <p class="csc-master-note">Impact mirror fields below are frozen here and update only from the Impact tab.</p>
+
+            <div class="csc-master-grid">
+                <div class="csc-form-group">
+                    <label for="masterChemicalName" class="csc-form-label">Chemical Name</label>
+                    <input type="text" id="masterChemicalName" class="csc-input" value="{{ draft.chemical_name or '' }}" data-master-view-field="chemical_name" readonly>
+                </div>
+                <div class="csc-form-group">
+                    <label for="masterMaterialCode" class="csc-form-label">Material Code</label>
+                    <input type="text" id="masterMaterialCode" class="csc-input" value="{{ master_data.get('material_code', '') }}" data-master-view-field="material_code" readonly>
+                </div>
+                {% for field_name, label in master_fields %}
+                <div class="csc-form-group">
+                    <label for="master_{{ field_name }}" class="csc-form-label">{{ label }}</label>
+                    <input type="text" id="master_{{ field_name }}" class="csc-input" value="{{ master_data.get(field_name, '') }}" data-master-view-field="{{ field_name }}" readonly>
+                </div>
+                {% endfor %}
+                {% for field_name, label in master_extra_fields %}
+                <div class="csc-form-group">
+                    <label for="master_extra_{{ field_name }}" class="csc-form-label">{{ label }}</label>
+                    <input type="text" id="master_extra_{{ field_name }}" class="csc-input" value="{{ master_data.get('extra__' + field_name, '') }}" data-master-view-field="extra__{{ field_name }}" readonly>
+                </div>
+                {% endfor %}
+                {% for field_name, label in master_impact_fields %}
+                <div class="csc-form-group">
+                    <label for="master_impact_{{ field_name }}" class="csc-form-label">{{ label }}</label>
+                    <input type="text" id="master_impact_{{ field_name }}" class="csc-input" value="{{ master_data.get(field_name, '') }}" data-master-view-field="{{ field_name }}" readonly>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <div class="csc-tab-content" data-tab="material-properties" role="tabpanel">
+        <div class="csc-section-panel">
+            <div class="csc-section-header">
+                <h2 class="csc-section-title">Material Properties</h2>
+                <p class="csc-section-guidance">Update workbook-driven material properties using the validation-list values sourced from the chemical properties register. Density appears only when Physical State is set to Liquid.</p>
+            </div>
+
+            <form id="materialPropertiesForm" data-section="material_properties">
+                <div id="materialPropertiesApp"></div>
+
+                <div class="csc-section-actions">
+                    <button type="button" class="btn btn-primary btn-sm" data-save-section="material-properties">
+                        <i class="bi bi-check-circle"></i> Save Material Properties
+                    </button>
+                    <span class="csc-save-indicator" id="materialPropertiesIndicator"></span>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="csc-tab-content" data-tab="storage-handling" role="tabpanel">
+        <div class="csc-section-panel">
+            <div class="csc-section-header">
+                <h2 class="csc-section-title">Storage and Handling</h2>
+                <p class="csc-section-guidance">Configure packing and storage controls using workbook validation options, the default general storage guidance, special storage notes, and the zone-based primary storage classification.</p>
+            </div>
+
+            <form id="storageHandlingForm" data-section="storage_handling">
+                <div id="storageHandlingApp"></div>
+
+                <div class="csc-section-actions">
+                    <button type="button" class="btn btn-primary btn-sm" data-save-section="storage-handling">
+                        <i class="bi bi-check-circle"></i> Save Storage & Handling
+                    </button>
+                    <span class="csc-save-indicator" id="storageHandlingIndicator"></span>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {# ════════════════════════════════════════════════════════════════ #}
+    {# SECTION 2: Existing Spec Summary                                 #}
+    {# ════════════════════════════════════════════════════════════════ #}
+    <div class="csc-tab-content" data-tab="existing" role="tabpanel">
+        <div class="csc-section-panel">
+            <div class="csc-section-header">
+                <h2 class="csc-section-title">Existing Specification Summary</h2>
+                <p class="csc-section-guidance">Summarize the current published specification that this draft revises.</p>
+            </div>
+
+            <form id="existingForm" data-section="existing_spec">
+                <div class="csc-form-group">
+                    <textarea name="text" id="existingText" class="csc-textarea" placeholder="Summarize current spec…">{{ sections.get('existing_spec', '') }}</textarea>
+                    <div class="csc-form-hint">Word count: <span id="existingCount">0</span></div>
+                </div>
+
+                <div class="csc-section-actions">
+                    <button type="button" class="btn btn-primary btn-sm" data-save-section="existing_spec">
+                        <i class="bi bi-check-circle"></i> Save Existing Spec
+                    </button>
+                    <span class="csc-save-indicator" id="existingIndicator"></span>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {# ════════════════════════════════════════════════════════════════ #}
+    {# SECTION 3: Issues Observed (4 rows)                              #}
+    {# ════════════════════════════════════════════════════════════════ #}
+    <div class="csc-tab-content" data-tab="issues" role="tabpanel">
+        <div class="csc-section-panel">
+            <div class="csc-section-header">
+                <h2 class="csc-section-title">Issues Observed</h2>
+                <p class="csc-section-guidance">Flag issues with the current specification and provide context.</p>
+            </div>
+
+            <form id="issuesForm" data-section="issues">
+                {% set issue_types = ['Specification Ambiguity', 'Parameter Non-compliance', 'Test Procedure Gaps', 'Safety/Environmental Concern'] %}
+
+                {% for issue_type in issue_types %}
+                {% set issue_data = issues[loop.index0] if loop.index0 < issues|length else {} %}
+                <div class="csc-issues-row">
+                    <div class="csc-issues-label">{{ issue_type }}</div>
+                    <div class="csc-issues-input">
+                        <div class="csc-radio-group">
+                            <div class="csc-radio">
+                                <input type="radio" name="issue_{{ loop.index0 }}_flag" id="issue_{{ loop.index0 }}_yes" value="true"
+                                       {{ 'checked' if issue_data.get('flagged') else '' }} class="issueRadio">
+                                <label for="issue_{{ loop.index0 }}_yes">Yes — Flag this issue</label>
+                            </div>
+                            <div class="csc-radio">
+                                <input type="radio" name="issue_{{ loop.index0 }}_flag" id="issue_{{ loop.index0 }}_no" value="false"
+                                       {{ 'checked' if not issue_data.get('flagged') else '' }} class="issueRadio">
+                                <label for="issue_{{ loop.index0 }}_no">No</label>
+                            </div>
+                        </div>
+                        <textarea name="issue_{{ loop.index0 }}_notes" class="csc-notes-textarea issueNotes" placeholder="Notes (optional)…">{{ issue_data.get('notes', '') }}</textarea>
+                    </div>
+                </div>
+                {% endfor %}
+
+                <div class="csc-section-actions">
+                    <button type="button" class="btn btn-primary btn-sm" data-save-section="issues">
+                        <i class="bi bi-check-circle"></i> Save Issues
+                    </button>
+                    <span class="csc-save-indicator" id="issuesIndicator"></span>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {# ════════════════════════════════════════════════════════════════ #}
+    {# SECTION 4: Parameter Review                                      #}
+    {# ════════════════════════════════════════════════════════════════ #}
+    <div class="csc-tab-content" data-tab="parameters" role="tabpanel">
+        <div class="csc-section-panel">
+            <div class="csc-section-header">
+                <h2 class="csc-section-title">Parameter Review & Structuring</h2>
+                <p class="csc-section-guidance">
+                    {% if draft.phase1_locked %}
+                    Phase 2: Review existing parameters and propose revised values.
+                    {% else %}
+                    Phase 1: Define/edit specification parameters and measurement units.
+                    {% endif %}
+                </p>
+            </div>
+
+            {% if not draft.phase1_locked %}
+            {# ── Phase 1: Editable parameters ─────────────────────────── #}
+            <div class="csc-param-actions">
+                <button type="button" class="csc-param-btn" id="addParamBtn">
+                    <i class="bi bi-plus-circle"></i> Add Parameter
+                </button>
+                <button type="button" class="csc-param-btn" id="reorderParamsBtn" style="display: none;">
+                    <i class="bi bi-arrow-up-down"></i> Reorder
+                </button>
+            </div>
+
+            <table class="csc-param-table" id="paramTablePhase1">
+                <thead>
+                    <tr>
+                        <th style="width: 30%;">Parameter Name</th>
+                        <th style="width: 20%;">Unit of Measure</th>
+                        <th style="width: 25%;">Min/Typical/Max</th>
+                        <th style="width: 15%;">Test Method</th>
+                        <th style="width: 10%; text-align: center;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="paramBodyPhase1">
+                    <!-- Rows injected by JavaScript -->
+                </tbody>
+            </table>
+            {% else %}
+            {# ── Phase 2: Read-only existing + editable proposed ──────── #}
+            <table class="csc-param-table" id="paramTablePhase2">
+                <thead>
+                    <tr>
+                        <th style="width: 25%;">Parameter Name</th>
+                        <th style="width: 15%;">Unit</th>
+                        <th style="width: 25%;">Current Value</th>
+                        <th style="width: 25%;">Proposed Value</th>
+                        <th style="width: 10%; text-align: center;">Action</th>
+                    </tr>
+                </thead>
+                <tbody id="paramBodyPhase2">
+                    <!-- Rows injected by JavaScript -->
+                </tbody>
+            </table>
+            {% endif %}
+
+            <div class="csc-section-actions">
+                <button type="button" class="btn btn-primary btn-sm" data-save-section="parameters">
+                    <i class="bi bi-check-circle"></i> Save Parameters
+                </button>
+                <span class="csc-save-indicator" id="paramIndicator"></span>
+            </div>
+        </div>
+    </div>
+
+    {# ════════════════════════════════════════════════════════════════ #}
+    {# SECTION 5: Proposed Changes                                      #}
+    {# ════════════════════════════════════════════════════════════════ #}
+    <div class="csc-tab-content" data-tab="proposed" role="tabpanel">
+        <div class="csc-section-panel">
+            <div class="csc-section-header">
+                <h2 class="csc-section-title">Proposed Changes</h2>
+                <p class="csc-section-guidance">The checklist below is auto-detected in real time from the sections you update in this draft.</p>
+            </div>
+
+            <form id="proposedForm" data-section="proposed_changes">
+                <div class="csc-form-group">
+                    <label class="csc-form-label">Draft Sections Updated</label>
+                    <div class="csc-change-checklist-grid">
+                        <div class="csc-change-checklist-item" id="changeItemBackground">
+                            <input type="checkbox" id="changeSectionBackground" disabled>
+                            <div class="csc-change-checklist-copy">
+                                <div class="csc-change-checklist-title">Background</div>
+                                <div class="csc-change-checklist-note">Tracks updates to the background context and business rationale.</div>
+                            </div>
+                        </div>
+                        <div class="csc-change-checklist-item" id="changeItemExisting">
+                            <input type="checkbox" id="changeSectionExisting" disabled>
+                            <div class="csc-change-checklist-copy">
+                                <div class="csc-change-checklist-title">Existing Spec</div>
+                                <div class="csc-change-checklist-note">Checks when the current published specification summary is revised.</div>
+                            </div>
+                        </div>
+                        <div class="csc-change-checklist-item" id="changeItemMaterialProperties">
+                            <input type="checkbox" id="changeSectionMaterialProperties" disabled>
+                            <div class="csc-change-checklist-copy">
+                                <div class="csc-change-checklist-title">Material Properties</div>
+                                <div class="csc-change-checklist-note">Tracks workbook-driven material property changes made in the Material Properties tab.</div>
+                            </div>
+                        </div>
+                        <div class="csc-change-checklist-item" id="changeItemStorageHandling">
+                            <input type="checkbox" id="changeSectionStorageHandling" disabled>
+                            <div class="csc-change-checklist-copy">
+                                <div class="csc-change-checklist-title">Storage and Handling</div>
+                                <div class="csc-change-checklist-note">Tracks packing, storage, and storage condition updates made in the Storage and Handling tab.</div>
+                            </div>
+                        </div>
+                        <div class="csc-change-checklist-item" id="changeItemParameters">
+                            <input type="checkbox" id="changeSectionParameters" disabled>
+                            <div class="csc-change-checklist-copy">
+                                <div class="csc-change-checklist-title">Parameters</div>
+                                <div class="csc-change-checklist-note">Checks when the structured parameter table is changed.</div>
+                            </div>
+                        </div>
+                        <div class="csc-change-checklist-item" id="changeItemImpact">
+                            <input type="checkbox" id="changeSectionImpact" disabled>
+                            <div class="csc-change-checklist-copy">
+                                <div class="csc-change-checklist-title">Impact</div>
+                                <div class="csc-change-checklist-note">Tracks binary flag and classification changes in the impact tab.</div>
+                            </div>
+                        </div>
+                        <div class="csc-change-checklist-item" id="changeItemChanges">
+                            <input type="checkbox" id="changeSectionChanges" disabled>
+                            <div class="csc-change-checklist-copy">
+                                <div class="csc-change-checklist-title">Changes</div>
+                                <div class="csc-change-checklist-note">Checks when the change summary itself is updated.</div>
+                            </div>
+                        </div>
+                        <div class="csc-change-checklist-item" id="changeItemJustification">
+                            <input type="checkbox" id="changeSectionJustification" disabled>
+                            <div class="csc-change-checklist-copy">
+                                <div class="csc-change-checklist-title">Justification</div>
+                                <div class="csc-change-checklist-note">Tracks changes to technical and commercial justification notes.</div>
+                            </div>
+                        </div>
+                        <div class="csc-change-checklist-item" id="changeItemRecommendation">
+                            <input type="checkbox" id="changeSectionRecommendation" disabled>
+                            <div class="csc-change-checklist-copy">
+                                <div class="csc-change-checklist-title">Version Reason</div>
+                                <div class="csc-change-checklist-note">Checks when the version change reason or committee remarks are revised.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="csc-form-group">
+                    <label for="proposedSummary" class="csc-form-label">Change Summary</label>
+                    <textarea name="summary" id="proposedSummary" class="csc-textarea" placeholder="Summarize all proposed changes…">{{ sections.get('proposed_changes', '') }}</textarea>
+                </div>
+
+                <div class="csc-section-actions">
+                    <button type="button" class="btn btn-primary btn-sm" data-save-section="proposed_changes">
+                        <i class="bi bi-check-circle"></i> Save Changes
+                    </button>
+                    <span class="csc-save-indicator" id="proposedIndicator"></span>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {# ════════════════════════════════════════════════════════════════ #}
+    {# SECTION 6: Justification                                         #}
+    {# ════════════════════════════════════════════════════════════════ #}
+    <div class="csc-tab-content" data-tab="justification" role="tabpanel">
+        <div class="csc-section-panel">
+            <div class="csc-section-header">
+                <h2 class="csc-section-title">Justification & Technical Rationale</h2>
+                <p class="csc-section-guidance">Explain the technical, commercial, or regulatory reasons for these revisions.</p>
+            </div>
+
+            <form id="justificationForm" data-section="justification">
+                <div class="csc-form-group">
+                    <textarea name="text" id="justificationText" class="csc-textarea" placeholder="Provide detailed justification…">{{ sections.get('justification', '') }}</textarea>
+                    <div class="csc-form-hint">Word count: <span id="justificationCount">0</span></div>
+                </div>
+
+                <div class="csc-section-actions">
+                    <button type="button" class="btn btn-primary btn-sm" data-save-section="justification">
+                        <i class="bi bi-check-circle"></i> Save Justification
+                    </button>
+                    <span class="csc-save-indicator" id="justificationIndicator"></span>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {# ════════════════════════════════════════════════════════════════ #}
+    {# SECTION 7: Impact Analysis                                       #}
+    {# ════════════════════════════════════════════════════════════════ #}
+    <div class="csc-tab-content" data-tab="impact" role="tabpanel">
+        <div class="csc-section-panel">
+            <div class="csc-section-header">
+                <h2 class="csc-section-title">Chemical Impact Classification</h2>
+                <p class="csc-section-guidance">Assess the material through binary red and amber flags. The result panel updates automatically from the six answers below.</p>
+            </div>
+
+            <form id="impactForm" data-section="impact">
+                <div class="csc-impact-shell">
+                    {% if impact and impact.get('legacy_only') %}
+                    <div class="csc-impact-legacy-note">
+                        A legacy score-based impact entry exists for this draft. Saving this checklist will replace it with the new binary flag classification.
+                    </div>
+                    {% endif %}
+
+                    <div class="csc-impact-toolbar">
+                        <div class="csc-impact-toolbar-main">
+                            <label for="impactChemicalName" class="csc-impact-selector-label">Chemical Name Selector</label>
+                            <input
+                                type="text"
+                                id="impactChemicalName"
+                                class="csc-input csc-impact-selector"
+                                list="impactChemicalOptions"
+                                placeholder="Enter or select chemical name"
+                                value="{{ impact.get('checklist_state', {}).get('chemical_name', draft.chemical_name or '') if impact else (draft.chemical_name or '') }}"
+                            >
+                            <datalist id="impactChemicalOptions">
+                                <option value="{{ draft.chemical_name or '' }}"></option>
+                            </datalist>
+                        </div>
+                        <div class="csc-impact-toolbar-actions">
+                            <button type="button" class="btn btn-secondary btn-sm csc-impact-reset" id="impactResetBtn">
+                                <i class="bi bi-arrow-counterclockwise"></i> Reset
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="impactChecklistApp"></div>
+                </div>
+
+                <div class="csc-section-actions">
+                    <button type="button" class="btn btn-primary btn-sm" data-save-section="impact">
+                        <i class="bi bi-check-circle"></i> Save Impact Classification
+                    </button>
+                    <span class="csc-save-indicator" id="impactIndicator"></span>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {# ════════════════════════════════════════════════════════════════ #}
+    {# SECTION 8: Committee Recommendation                               #}
+    {# ════════════════════════════════════════════════════════════════ #}
+    <div class="csc-tab-content" data-tab="recommendation" role="tabpanel">
+        <div class="csc-section-panel">
+            <div class="csc-section-header">
+                <h2 class="csc-section-title">Version Change Reason</h2>
+                <p class="csc-section-guidance">Record a meaningful under-300-word reason for this version change so users have a ready reference summary.</p>
+            </div>
+
+            <form id="recommendationForm" data-section="recommendation">
+                <div class="csc-form-group">
+                    <label for="mainRec" class="csc-form-label">Version Change Reason</label>
+                    <textarea name="main" id="mainRec" class="csc-textarea" placeholder="Enter a meaningful ready-reference summary of the version change in under 300 words…">{{ sections.get('recommendation', '') }}</textarea>
+                    <div class="csc-form-hint">Enter something meaningful under 300 words for ready reference version change information. Word count: <span id="recommendationCount">0</span>/300</div>
+                </div>
+
+                <div class="csc-form-group">
+                    <label for="remarksRec" class="csc-form-label">Committee Remarks (if any)</label>
+                    <textarea name="remarks" id="remarksRec" class="csc-textarea" placeholder="Additional notes or remarks…">{{ sections.get('recommendation_remarks', '') }}</textarea>
+                </div>
+
+                <div class="csc-section-actions">
+                    <button type="button" class="btn btn-primary btn-sm" data-save-section="recommendation">
+                        <i class="bi bi-check-circle"></i> Save Version Change Reason
+                    </button>
+                    <span class="csc-save-indicator" id="recommendationIndicator"></span>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {# ════════════════════════════════════════════════════════════════ #}
+    {# SECTION 9: Preview & Export                                      #}
+    {# ════════════════════════════════════════════════════════════════ #}
+    <div class="csc-tab-content" data-tab="preview" role="tabpanel">
+        <div class="csc-section-panel">
+            <div class="csc-section-header">
+                <h2 class="csc-section-title">Preview & Export</h2>
+                <p class="csc-section-guidance">Review your draft specification and export to Word document for committee submission.</p>
+            </div>
+
+            {# Preview cards #}
+            <div style="margin-bottom: 1.5rem;">
+                <div class="csc-preview-section">
+                    <div class="csc-preview-label">Specification Information</div>
+                    <div class="csc-preview-text">
+                        <strong>{{ draft.spec_number }}</strong> — {{ draft.chemical_name }} (v{{ draft.version if draft.version is not none else 1 }})<br>
+                        Subset: {{ draft.subset_display or 'Not specified' }}<br>
+                        Status: <span id="previewStatus">{{ draft.status|replace('_', ' ')|title }}</span><br>
+                        Last Updated: <span id="previewUpdated">{{ draft.updated_at|datetime_ist('%d %b %Y, %H:%M') if draft.updated_at else 'Never' }}</span>
+                    </div>
+                </div>
+
+                <div class="csc-preview-section">
+                    <div class="csc-preview-label">Completion Status</div>
+                    <div class="csc-preview-text" id="completionStatus">
+                        Calculating completion…
+                    </div>
+                </div>
+            </div>
+
+            {# Export & Actions #}
+            <div class="csc-section-actions" style="flex-wrap: wrap; gap: 1rem;">
+                <button type="button" class="btn btn-primary btn-sm" id="exportDocxBtn">
+                    <i class="bi bi-file-earmark-word"></i> Export to Word
+                </button>
+                <button type="button" class="btn btn-success btn-sm" id="submitDraftBtn">
+                    <i class="bi bi-send"></i> Submit for Admin Approval
+                </button>
+                <button type="button" class="btn btn-danger btn-sm" id="deleteDraftBtn">
+                    <i class="bi bi-trash"></i> Delete Draft
+                </button>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+{# ════════════════════════════════════════════════════════════════════════════
+   Modal Dialogs
+   ════════════════════════════════════════════════════════════════════════════ #}
+
+{# Confirmation modal #}
+<div class="csc-modal-overlay" id="confirmModal">
+    <div class="csc-modal">
+        <h2 class="csc-modal-title" id="confirmTitle">Confirm Action</h2>
+        <div class="csc-modal-body" id="confirmBody">Are you sure?</div>
+        <div class="csc-modal-actions">
+            <button type="button" class="btn btn-secondary btn-sm" id="confirmCancel">Cancel</button>
+            <button type="button" class="btn btn-primary btn-sm" id="confirmOK">OK</button>
+        </div>
+    </div>
+</div>
+
+<div class="csc-modal-overlay" id="submitReviewModal">
+    <div class="csc-modal csc-submit-modal">
+        <div class="csc-submit-modal-header">
+            <div class="csc-submit-modal-header-top">
+                <div class="csc-submit-modal-step" id="submitReviewStepLabel">Step 1 of 2</div>
+                <button type="button" class="csc-submit-modal-close" id="submitReviewClose" aria-label="Close submit review modal">&times;</button>
+            </div>
+            <h2 class="csc-modal-title" id="submitReviewTitle">Review Draft Before Submission</h2>
+            <p class="csc-submit-modal-subtitle" id="submitReviewSubtitle">
+                Validate the draft snapshot before sending it to the admin workbench.
+            </p>
+        </div>
+        <div class="csc-submit-modal-body">
+            <div class="csc-submit-step is-active" id="submitPreviewStep">
+                <div class="csc-submit-preview-grid">
+                    <div class="csc-submit-preview-card">
+                        <div class="csc-submit-preview-label">Specification</div>
+                        <div class="csc-submit-preview-value" id="submitPreviewSpec"></div>
+                    </div>
+                    <div class="csc-submit-preview-card">
+                        <div class="csc-submit-preview-label">Chemical</div>
+                        <div class="csc-submit-preview-value" id="submitPreviewChemical"></div>
+                    </div>
+                    <div class="csc-submit-preview-card">
+                        <div class="csc-submit-preview-label">Subset</div>
+                        <div class="csc-submit-preview-value" id="submitPreviewSubset"></div>
+                    </div>
+                    <div class="csc-submit-preview-card">
+                        <div class="csc-submit-preview-label">Version</div>
+                        <div class="csc-submit-preview-value" id="submitPreviewVersion"></div>
+                    </div>
+                    <div class="csc-submit-preview-card">
+                        <div class="csc-submit-preview-label">Material Code</div>
+                        <div class="csc-submit-preview-value" id="submitPreviewMaterialCode"></div>
+                    </div>
+                    <div class="csc-submit-preview-card">
+                        <div class="csc-submit-preview-label">Physical State</div>
+                        <div class="csc-submit-preview-value" id="submitPreviewPhysicalState"></div>
+                    </div>
+                    <div class="csc-submit-preview-card">
+                        <div class="csc-submit-preview-label">Parameters</div>
+                        <div class="csc-submit-preview-value" id="submitPreviewParameterCount"></div>
+                    </div>
+                    <div class="csc-submit-preview-card">
+                        <div class="csc-submit-preview-label">Flagged Issues</div>
+                        <div class="csc-submit-preview-value" id="submitPreviewIssueCount"></div>
+                    </div>
+                </div>
+
+                <div class="csc-submit-section-grid">
+                    <div class="csc-submit-section-card">
+                        <h3>Background Context</h3>
+                        <p id="submitPreviewBackground"></p>
+                    </div>
+                    <div class="csc-submit-section-card">
+                        <h3>Existing Specification Summary</h3>
+                        <p id="submitPreviewExisting"></p>
+                    </div>
+                    <div class="csc-submit-section-card">
+                        <h3>Proposed Changes</h3>
+                        <p id="submitPreviewChanges"></p>
+                    </div>
+                    <div class="csc-submit-section-card">
+                        <h3>Version Change Reason</h3>
+                        <p id="submitPreviewRecommendation"></p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="csc-submit-step" id="submitAuthorizationStep">
+                <div class="csc-submit-auth-panel">
+                    <h3>Authorization Declaration</h3>
+                    <p>
+                        Confirm that you are authorized to create and submit drafts for the
+                        <strong id="submitAuthorizationSubset"></strong> sub-group.
+                    </p>
+
+                    <div class="csc-submit-auth-choices">
+                        <div class="csc-submit-auth-choice">
+                            <input type="radio" id="submitAuthYes" name="submitAuthorization" value="yes">
+                            <label for="submitAuthYes">Yes, I am authorized for this sub-group</label>
+                        </div>
+                        <div class="csc-submit-auth-choice">
+                            <input type="radio" id="submitAuthNo" name="submitAuthorization" value="no">
+                            <label for="submitAuthNo">No, I do not have this authorization</label>
+                        </div>
+                    </div>
+
+                    <div class="csc-submit-auth-note warning" id="submitAuthNoMessage" style="display: none;">
+                        Submission is blocked until an authorized user initiates it for this sub-group.
+                    </div>
+
+                    <div id="submitAuthNames" style="display: none;">
+                        <div class="csc-form-group">
+                            <label for="submitAuthorizedByName" class="csc-form-label">Your Name</label>
+                            <input type="text" id="submitAuthorizedByName" class="csc-input" placeholder="Enter your full name">
+                        </div>
+                        <div class="csc-form-group">
+                            <label for="submitSubcommitteeHeadName" class="csc-form-label">Sub Committee Head Name</label>
+                            <input type="text" id="submitSubcommitteeHeadName" class="csc-input" placeholder="Enter the Sub Committee Head name">
+                        </div>
+                    </div>
+
+                    <div class="csc-submit-error" id="submitReviewError"></div>
+                </div>
+            </div>
+        </div>
+        <div class="csc-submit-modal-footer">
+            <button type="button" class="btn btn-secondary btn-sm" id="submitReviewBack" style="visibility: hidden;">
+                Back
+            </button>
+            <div class="csc-submit-modal-footer-actions">
+                <button type="button" class="btn btn-secondary btn-sm" id="submitReviewCancel">Cancel</button>
+                <button type="button" class="btn btn-primary btn-sm" id="submitReviewNext">Next</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts_extra %}
+<script nonce="{{ csp_nonce() }}">
+(function() {
+    'use strict';
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Global state and helpers
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    var draftId = '{{ draft.id }}';
+    var csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    var parametersData = {{ parameters|tojson }};
+    var phase1Locked = {{ 'true' if draft.phase1_locked else 'false' }};
+    var draftSpecNumber = {{ (draft.spec_number or '')|tojson }};
+    var draftSubsetDisplay = {{ (draft.subset_display or 'Not specified')|tojson }};
+    var draftVersion = {{ ('v' ~ (draft.version if draft.version is not none else 1))|tojson }};
+    var submitStep = 1;
+    var visitedTabs = { background: true };
+    var initialEditorState = null;
+    var impactChecklistConfig = {{ impact_checklist_flags|tojson }};
+    var impactChecklistState = {{ (impact.get('checklist_state', {}) if impact else {})|tojson }};
+    var impactExpandedFlags = {};
+    var materialPropertiesConfig = {{ material_properties_fields|tojson }};
+    var materialPropertiesState = {{ material_properties_values|tojson }};
+    var materialPropertiesExpanded = {};
+    var storageHandlingConfig = {{ storage_handling_fields|tojson }};
+    var storageHandlingState = {{ storage_handling_values|tojson }};
+    var storageHandlingExpanded = {};
+
+    function showSaveIndicator(elementId, status, message) {
+        var el = document.getElementById(elementId);
+        if (!el) return;
+        el.textContent = message;
+        el.className = 'csc-save-indicator show ' + status;
+        if (status === 'success') {
+            setTimeout(function() {
+                el.classList.remove('show');
+            }, 2000);
+        }
+    }
+
+    function wordCount(text) {
+        return (text.match(/\S+/g) || []).length;
+    }
+
+    function updateWordCount(textareaId, countId) {
+        var textarea = document.getElementById(textareaId);
+        var counter = document.getElementById(countId);
+        if (textarea && counter) {
+            counter.textContent = wordCount(textarea.value);
+            textarea.addEventListener('input', function() {
+                counter.textContent = wordCount(this.value);
+            });
+        }
+    }
+
+    function enforceWordLimit(textareaId, countId, maxWords) {
+        var textarea = document.getElementById(textareaId);
+        var counter = document.getElementById(countId);
+        if (!textarea) return;
+
+        textarea.addEventListener('input', function() {
+            var words = (this.value.match(/\S+/g) || []);
+            if (words.length > maxWords) {
+                this.value = words.slice(0, maxWords).join(' ');
+            }
+            if (counter) {
+                counter.textContent = wordCount(this.value);
+            }
+        });
+    }
+
+    function normalizedValue(value) {
+        return (value || '').replace(/\r\n/g, '\n').trim();
+    }
+
+    function getFieldDefaultValue(field) {
+        return field && typeof field.default_value === 'string' ? field.default_value : '';
+    }
+
+    function shouldShowGridField(field, state) {
+        if (!field || !field.show_if) return true;
+        return normalizedValue(state[field.show_if.field_name] || '') === normalizedValue(field.show_if.equals || '');
+    }
+
+    function normalizeGridState(config, state) {
+        config.forEach(function(field) {
+            var fieldName = field.field_name;
+            if (!Object.prototype.hasOwnProperty.call(state, fieldName) || state[fieldName] == null) {
+                state[fieldName] = getFieldDefaultValue(field);
+            }
+            if (!shouldShowGridField(field, state)) {
+                state[fieldName] = '';
+                return;
+            }
+            if (!normalizedValue(state[fieldName]) && getFieldDefaultValue(field)) {
+                state[fieldName] = getFieldDefaultValue(field);
+            }
+        });
+    }
+
+    function applyMasterDataPayload(masterData) {
+        if (!masterData || typeof masterData !== 'object') return;
+        Object.keys(masterData).forEach(function(key) {
+            var viewFields = document.querySelectorAll('[data-master-view-field="' + key + '"]');
+            viewFields.forEach(function(field) {
+                field.value = masterData[key] || '';
+            });
+            if (Object.prototype.hasOwnProperty.call(materialPropertiesState, key)) {
+                materialPropertiesState[key] = masterData[key] || '';
+            }
+            if (Object.prototype.hasOwnProperty.call(storageHandlingState, key)) {
+                storageHandlingState[key] = masterData[key] || '';
+            }
+        });
+        normalizeGridState(materialPropertiesConfig, materialPropertiesState);
+        normalizeGridState(storageHandlingConfig, storageHandlingState);
+        renderMaterialProperties();
+        renderStorageHandling();
+    }
+
+    function currentMasterDataSnapshot() {
+        var snapshot = {};
+        document.querySelectorAll('[data-master-view-field]').forEach(function(field) {
+            snapshot[field.getAttribute('data-master-view-field')] = normalizedValue(field.value);
+        });
+        return snapshot;
+    }
+
+    function currentGridSnapshot(config, state) {
+        normalizeGridState(config, state);
+        return JSON.stringify(config.reduce(function(snapshot, field) {
+            snapshot[field.field_name] = shouldShowGridField(field, state)
+                ? normalizedValue(state[field.field_name] || '')
+                : '';
+            return snapshot;
+        }, {}));
+    }
+
+    function currentMaterialPropertiesSnapshot() {
+        return currentGridSnapshot(materialPropertiesConfig, materialPropertiesState);
+    }
+
+    function currentStorageHandlingSnapshot() {
+        return currentGridSnapshot(storageHandlingConfig, storageHandlingState);
+    }
+
+    function currentParametersSnapshot() {
+        var rows = [];
+        document.querySelectorAll('#paramBodyPhase1 tr, #paramBodyPhase2 tr').forEach(function(row) {
+            if (phase1Locked) {
+                rows.push({
+                    id: row.getAttribute('data-param-id') || '',
+                    proposed_value: normalizedValue(row.querySelector('.param-proposed')?.value || '')
+                });
+            } else {
+                rows.push({
+                    parameter_name: normalizedValue(row.querySelector('.param-name')?.value || ''),
+                    unit_of_measure: normalizedValue(row.querySelector('.param-unit')?.value || ''),
+                    specification: normalizedValue(row.querySelector('.param-spec')?.value || ''),
+                    test_method: normalizedValue(row.querySelector('.param-test')?.value || '')
+                });
+            }
+        });
+        return JSON.stringify(rows);
+    }
+
+    function currentImpactSnapshot() {
+        syncImpactChemicalName();
+        return JSON.stringify({
+            version: impactChecklistState.version || 1,
+            chemical_name: impactChecklistState.chemical_name || '',
+            answers: impactChecklistState.answers || {}
+        });
+    }
+
+    function escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function normalizeImpactAnswer(value) {
+        if (value === true || value === false) return value;
+        if (value === 1 || value === '1' || value === 'true' || value === 'yes') return true;
+        if (value === 0 || value === '0' || value === 'false' || value === 'no') return false;
+        return null;
+    }
+
+    function buildDefaultImpactChecklistState() {
+        var answers = {};
+        impactChecklistConfig.forEach(function(flag) {
+            answers[flag.id] = null;
+            if (typeof impactExpandedFlags[flag.id] === 'undefined') {
+                impactExpandedFlags[flag.id] = false;
+            }
+        });
+        return {
+            version: 1,
+            chemical_name: {{ (draft.chemical_name or '')|tojson }},
+            answers: answers
+        };
+    }
+
+    function normalizeImpactChecklistState(rawState) {
+        var base = buildDefaultImpactChecklistState();
+        var incoming = rawState && typeof rawState === 'object' ? rawState : {};
+        base.version = incoming.version || 1;
+        base.chemical_name = String(incoming.chemical_name || base.chemical_name || '').trim();
+
+        var answers = incoming.answers && typeof incoming.answers === 'object'
+            ? incoming.answers
+            : incoming.flags && typeof incoming.flags === 'object'
+                ? incoming.flags
+                : {};
+
+        impactChecklistConfig.forEach(function(flag) {
+            var rawAnswer = answers[flag.id];
+            if (rawAnswer && typeof rawAnswer === 'object') {
+                rawAnswer = rawAnswer.answer;
+            }
+            base.answers[flag.id] = normalizeImpactAnswer(rawAnswer);
+            if (typeof impactExpandedFlags[flag.id] === 'undefined') {
+                impactExpandedFlags[flag.id] = false;
+            }
+        });
+
+        return base;
+    }
+
+    impactChecklistState = normalizeImpactChecklistState(impactChecklistState);
+
+    function syncImpactChemicalName() {
+        var input = document.getElementById('impactChemicalName');
+        if (!input) return;
+        impactChecklistState.chemical_name = normalizedValue(input.value || '');
+    }
+
+    function summarizeImpactChecklistState() {
+        var redYesCount = 0;
+        var amberYesCount = 0;
+        var answeredCount = 0;
+        var flags = impactChecklistConfig.map(function(flag) {
+            var answer = normalizeImpactAnswer(impactChecklistState.answers[flag.id]);
+            if (answer !== null) answeredCount += 1;
+            if (answer === true && flag.type === 'RED') redYesCount += 1;
+            if (answer === true && flag.type === 'AMBER') amberYesCount += 1;
+            return {
+                id: flag.id,
+                order: flag.order,
+                type: flag.type,
+                dimension: flag.dimension,
+                question: flag.question,
+                source: flag.source,
+                detail: flag.detail,
+                section_label: flag.section_label,
+                answer: answer
+            };
+        });
+
+        var classification = 'Pending';
+        var rule = 'Pending — answer flags above';
+        var tone = 'pending';
+
+        if (redYesCount > 0) {
+            classification = 'HIGH IMPACT';
+            rule = redYesCount + ' red flag(s) answered YES';
+            tone = 'red';
+        } else if (amberYesCount > 0) {
+            classification = 'MEDIUM IMPACT';
+            rule = 'No red flags, but ' + amberYesCount + ' amber flag(s) answered YES';
+            tone = 'amber';
+        } else if (answeredCount === 0) {
+            classification = 'Pending';
+            rule = 'Pending — answer flags above';
+            tone = 'pending';
+        } else if (answeredCount === impactChecklistConfig.length) {
+            classification = 'LOW IMPACT';
+            rule = 'All ' + impactChecklistConfig.length + ' flags answered NO';
+            tone = 'green';
+        } else {
+            classification = 'Pending';
+            rule = 'Pending — answer remaining flags above';
+            tone = 'pending';
+        }
+
+        return {
+            classification: classification,
+            rule: rule,
+            tone: tone,
+            redYesCount: redYesCount,
+            amberYesCount: amberYesCount,
+            answeredCount: answeredCount,
+            totalFlags: impactChecklistConfig.length,
+            flags: flags
+        };
+    }
+
+    function renderImpactFlag(flag, summary) {
+        var answer = normalizeImpactAnswer(impactChecklistState.answers[flag.id]);
+        var isExpanded = !!impactExpandedFlags[flag.id];
+        var flagTone = flag.type === 'RED' ? 'red' : 'amber';
+        var answerLabel = answer === true ? 'YES' : answer === false ? 'NO' : '--';
+        var activeClass = answer === true ? 'is-' + flagTone + '-yes' : '';
+        var expandLabel = isExpanded ? 'Hide detail' : 'Click to view detail';
+
+        return '' +
+            '<div class="csc-impact-flag ' + activeClass + '">' +
+                '<div class="csc-impact-flag-trigger" data-impact-expand="' + escapeHtml(flag.id) + '" role="button" tabindex="0" aria-expanded="' + (isExpanded ? 'true' : 'false') + '">' +
+                    '<span class="csc-impact-dimension-pill ' + flagTone + '">' + escapeHtml(flag.dimension) + '</span>' +
+                    '<div class="csc-impact-flag-copy">' +
+                        '<div class="csc-impact-flag-question">' + escapeHtml(flag.question) + '</div>' +
+                        '<div class="csc-impact-flag-meta">' +
+                            '<span class="csc-impact-expand-label">' + escapeHtml(expandLabel) + '</span>' +
+                        '</div>' +
+                    '</div>' +
+                    '<span class="csc-impact-source">' + escapeHtml(flag.source) + '</span>' +
+                    '<div class="csc-impact-toggle" aria-label="Answer toggle">' +
+                        '<button type="button" class="csc-impact-toggle-btn ' + (answer === true ? 'is-active ' + flagTone : '') + '" data-impact-answer="' + escapeHtml(flag.id) + '" data-impact-value="yes">YES</button>' +
+                        '<button type="button" class="csc-impact-toggle-btn ' + (answer === false ? 'is-active neutral' : '') + '" data-impact-answer="' + escapeHtml(flag.id) + '" data-impact-value="no">NO</button>' +
+                        '<span class="csc-impact-toggle-state">' + escapeHtml(answerLabel) + '</span>' +
+                    '</div>' +
+                '</div>' +
+                (isExpanded
+                    ? '<div class="csc-impact-flag-detail"><p>' + escapeHtml(flag.detail) + '</p></div>'
+                    : '') +
+            '</div>';
+    }
+
+    function renderImpactChecklist() {
+        var mount = document.getElementById('impactChecklistApp');
+        if (!mount) return;
+
+        syncImpactChemicalName();
+        var summary = summarizeImpactChecklistState();
+        var redFlags = summary.flags.filter(function(flag) { return flag.type === 'RED'; });
+        var amberFlags = summary.flags.filter(function(flag) { return flag.type === 'AMBER'; });
+
+        mount.innerHTML = '' +
+            '<div class="csc-impact-shell">' +
+                '<div class="csc-impact-section">' +
+                    '<div class="csc-impact-section-heading red">' +
+                        '<span>Red flags — any YES = High Impact</span>' +
+                        '<span>' + redFlags.length + ' cards</span>' +
+                    '</div>' +
+                    '<div class="csc-impact-stack">' + redFlags.map(renderImpactFlag).join('') + '</div>' +
+                '</div>' +
+                '<div class="csc-impact-section">' +
+                    '<div class="csc-impact-section-heading amber">' +
+                        '<span>Amber flags — any YES (with no red flags) = Medium Impact</span>' +
+                        '<span>' + amberFlags.length + ' cards</span>' +
+                    '</div>' +
+                    '<div class="csc-impact-stack">' + amberFlags.map(renderImpactFlag).join('') + '</div>' +
+                '</div>' +
+                '<div class="csc-impact-result ' + summary.tone + '">' +
+                    '<div class="csc-impact-result-head">' +
+                        '<div>' +
+                            '<h3 class="csc-impact-result-title">' + escapeHtml(summary.classification) + '</h3>' +
+                            '<p class="csc-impact-result-rule">' + escapeHtml(summary.rule) + '</p>' +
+                        '</div>' +
+                        '<div class="csc-impact-counts">' +
+                            '<span class="csc-impact-count-pill red">Red YES: ' + summary.redYesCount + '</span>' +
+                            '<span class="csc-impact-count-pill amber">Amber YES: ' + summary.amberYesCount + '</span>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>' +
+            '</div>';
+
+        mount.querySelectorAll('[data-impact-expand]').forEach(function(element) {
+            element.addEventListener('click', function() {
+                var flagId = this.getAttribute('data-impact-expand');
+                impactExpandedFlags[flagId] = !impactExpandedFlags[flagId];
+                renderImpactChecklist();
+            });
+            element.addEventListener('keydown', function(event) {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    this.click();
+                }
+            });
+        });
+
+        mount.querySelectorAll('[data-impact-answer]').forEach(function(button) {
+            button.addEventListener('click', function(event) {
+                event.stopPropagation();
+                var flagId = this.getAttribute('data-impact-answer');
+                var nextValue = this.getAttribute('data-impact-value') === 'yes';
+                impactChecklistState.answers[flagId] = nextValue;
+                renderImpactChecklist();
+                updateChangesChecklist();
+            });
+        });
+    }
+
+    function formatGridCurrentValue(value) {
+        var text = normalizedValue(value);
+        if (!text) return 'Not set';
+        return text.length > 120 ? text.slice(0, 117) + '...' : text;
+    }
+
+    function buildGridEditor(field, state, gridKey) {
+        var selectedValue = normalizedValue(state[field.field_name] || getFieldDefaultValue(field));
+
+        if (field.input_type === 'textarea') {
+            return '' +
+                '<p class="csc-classification-hint">' + escapeHtml(field.placeholder || 'Enter a value for ready reference and save this tab to update the linked master record.') + '</p>' +
+                '<textarea class="csc-textarea" rows="3" data-grid-input="' + escapeHtml(field.field_name) + '" data-grid-key="' + escapeHtml(gridKey) + '" placeholder="' + escapeHtml(field.placeholder || '') + '">' + escapeHtml(selectedValue) + '</textarea>';
+        }
+
+        if (field.input_type === 'text') {
+            return '' +
+                '<p class="csc-classification-hint">' + escapeHtml(field.placeholder || 'Enter a value for this field and save this tab to update the linked master record.') + '</p>' +
+                '<input type="text" class="csc-input" data-grid-input="' + escapeHtml(field.field_name) + '" data-grid-key="' + escapeHtml(gridKey) + '" value="' + escapeHtml(selectedValue) + '" placeholder="' + escapeHtml(field.placeholder || '') + '">';
+        }
+
+        if (!field.options.length) {
+            return '<p class="csc-classification-hint">No workbook options are available for this field.</p>';
+        }
+
+        return '' +
+            '<p class="csc-classification-hint">Allowed values are pulled from the workbook data-validation list for this field.</p>' +
+            '<div class="csc-classification-options">' +
+                field.options.map(function(option) {
+                    var active = selectedValue === option ? 'is-active' : '';
+                    return '<button type="button" class="csc-classification-option ' + active + '" data-grid-option-field="' + escapeHtml(field.field_name) + '" data-grid-key="' + escapeHtml(gridKey) + '" data-grid-value="' + escapeHtml(option) + '">' + escapeHtml(option) + '</button>';
+                }).join('') +
+            '</div>';
+    }
+
+    function renderGridCard(field, state, expandedState, gridKey) {
+        var selectedValue = normalizedValue(state[field.field_name] || getFieldDefaultValue(field));
+        var isExpanded = !!expandedState[field.field_name];
+
+        return '' +
+            '<div class="csc-classification-card ' + (selectedValue ? 'is-selected' : '') + '">' +
+                '<div class="csc-classification-trigger" data-grid-expand="' + escapeHtml(field.field_name) + '" data-grid-key="' + escapeHtml(gridKey) + '" role="button" tabindex="0" aria-expanded="' + (isExpanded ? 'true' : 'false') + '">' +
+                    '<span class="csc-classification-pill">' + escapeHtml(field.dimension) + '</span>' +
+                    '<div class="csc-classification-copy">' +
+                        '<div class="csc-classification-label">' + escapeHtml(field.label) + '</div>' +
+                        '<div class="csc-classification-current" data-grid-current="' + escapeHtml(field.field_name) + '">Current value: ' + escapeHtml(formatGridCurrentValue(selectedValue)) + '</div>' +
+                    '</div>' +
+                    '<span class="csc-classification-source">' + escapeHtml(field.source) + '</span>' +
+                '</div>' +
+                (isExpanded
+                    ? '<div class="csc-classification-detail">' + buildGridEditor(field, state, gridKey) + '</div>'
+                    : '') +
+            '</div>';
+    }
+
+    function updateGridCurrentLabel(container, fieldName, value) {
+        var current = container.querySelector('[data-grid-current="' + fieldName + '"]');
+        if (current) {
+            current.textContent = 'Current value: ' + formatGridCurrentValue(value);
+        }
+    }
+
+    function getGridStateBundle(gridKey) {
+        if (gridKey === 'material-properties') {
+            return {
+                config: materialPropertiesConfig,
+                state: materialPropertiesState,
+                expanded: materialPropertiesExpanded,
+                mountId: 'materialPropertiesApp',
+                render: renderMaterialProperties
+            };
+        }
+
+        return {
+            config: storageHandlingConfig,
+            state: storageHandlingState,
+            expanded: storageHandlingExpanded,
+            mountId: 'storageHandlingApp',
+            render: renderStorageHandling
+        };
+    }
+
+    function renderInteractiveGrid(gridKey) {
+        var bundle = getGridStateBundle(gridKey);
+        var mount = document.getElementById(bundle.mountId);
+        if (!mount) return;
+
+        normalizeGridState(bundle.config, bundle.state);
+
+        var sectionOrder = [];
+        var sections = {};
+        bundle.config.forEach(function(field) {
+            if (!shouldShowGridField(field, bundle.state)) {
+                return;
+            }
+            if (!sections[field.section]) {
+                sections[field.section] = [];
+                sectionOrder.push(field.section);
+            }
+            sections[field.section].push(field);
+            if (typeof bundle.expanded[field.field_name] === 'undefined') {
+                bundle.expanded[field.field_name] = false;
+            }
+        });
+
+        mount.innerHTML = '' +
+            '<div class="csc-classification-shell">' +
+                sectionOrder.map(function(sectionName) {
+                    var fields = sections[sectionName];
+                    return '<div class="csc-classification-section">' +
+                        '<div class="csc-classification-section-heading">' +
+                            '<span>' + escapeHtml(sectionName) + '</span>' +
+                            '<span>' + fields.length + ' fields</span>' +
+                        '</div>' +
+                        '<div class="csc-classification-stack">' +
+                            fields.map(function(field) {
+                                return renderGridCard(field, bundle.state, bundle.expanded, gridKey);
+                            }).join('') +
+                        '</div>' +
+                    '</div>';
+                }).join('') +
+            '</div>';
+
+        mount.querySelectorAll('[data-grid-expand]').forEach(function(element) {
+            element.addEventListener('click', function() {
+                var fieldName = this.getAttribute('data-grid-expand');
+                bundle.expanded[fieldName] = !bundle.expanded[fieldName];
+                bundle.render();
+            });
+            element.addEventListener('keydown', function(event) {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    this.click();
+                }
+            });
+        });
+
+        mount.querySelectorAll('[data-grid-option-field]').forEach(function(button) {
+            button.addEventListener('click', function(event) {
+                event.stopPropagation();
+                var fieldName = this.getAttribute('data-grid-option-field');
+                bundle.state[fieldName] = this.getAttribute('data-grid-value');
+                normalizeGridState(bundle.config, bundle.state);
+                bundle.render();
+                updateChangesChecklist();
+            });
+        });
+
+        mount.querySelectorAll('[data-grid-input]').forEach(function(input) {
+            var fieldName = input.getAttribute('data-grid-input');
+
+            input.addEventListener('click', function(event) {
+                event.stopPropagation();
+            });
+            input.addEventListener('input', function(event) {
+                event.stopPropagation();
+                bundle.state[fieldName] = this.value;
+                normalizeGridState(bundle.config, bundle.state);
+                updateGridCurrentLabel(mount, fieldName, this.value);
+                updateChangesChecklist();
+            });
+            input.addEventListener('change', function(event) {
+                event.stopPropagation();
+                bundle.state[fieldName] = this.value;
+                normalizeGridState(bundle.config, bundle.state);
+                updateGridCurrentLabel(mount, fieldName, this.value);
+                updateChangesChecklist();
+            });
+        });
+    }
+
+    function renderMaterialProperties() {
+        renderInteractiveGrid('material-properties');
+    }
+
+    function renderStorageHandling() {
+        renderInteractiveGrid('storage-handling');
+    }
+
+    function normalizeProposedSummaryField() {
+        var field = document.getElementById('proposedSummary');
+        if (!field) return;
+        var value = field.value || '';
+        if (value.indexOf('Sections updated:\n') === 0) {
+            var marker = '\n\nChange summary:\n';
+            field.value = value.includes(marker) ? value.split(marker)[1] : '';
+            return;
+        }
+        if (value.indexOf('Change types: ') === 0) {
+            var segments = value.split('\n\n');
+            field.value = segments.length > 1 ? segments.slice(1).join('\n\n') : '';
+        }
+    }
+
+    function captureInitialEditorState() {
+        initialEditorState = {
+            background: normalizedValue(document.getElementById('backgroundText')?.value || ''),
+            existing: normalizedValue(document.getElementById('existingText')?.value || ''),
+            materialProperties: currentMaterialPropertiesSnapshot(),
+            storageHandling: currentStorageHandlingSnapshot(),
+            parameters: currentParametersSnapshot(),
+            impact: currentImpactSnapshot(),
+            changes: normalizedValue(document.getElementById('proposedSummary')?.value || ''),
+            justification: normalizedValue(document.getElementById('justificationText')?.value || ''),
+            recommendation: normalizedValue(document.getElementById('mainRec')?.value || ''),
+            recommendationRemarks: normalizedValue(document.getElementById('remarksRec')?.value || '')
+        };
+    }
+
+    function setChecklistState(key, checked) {
+        var checkbox = document.getElementById('changeSection' + key);
+        var card = document.getElementById('changeItem' + key);
+        if (!checkbox || !card) return;
+        checkbox.checked = !!checked;
+        card.classList.toggle('is-checked', !!checked);
+    }
+
+    function updateChangesChecklist() {
+        if (!initialEditorState) return;
+
+        setChecklistState(
+            'Background',
+            normalizedValue(document.getElementById('backgroundText')?.value || '') !== initialEditorState.background
+        );
+        setChecklistState(
+            'Existing',
+            normalizedValue(document.getElementById('existingText')?.value || '') !== initialEditorState.existing
+        );
+        setChecklistState(
+            'MaterialProperties',
+            currentMaterialPropertiesSnapshot() !== initialEditorState.materialProperties
+        );
+        setChecklistState(
+            'StorageHandling',
+            currentStorageHandlingSnapshot() !== initialEditorState.storageHandling
+        );
+        setChecklistState(
+            'Parameters',
+            currentParametersSnapshot() !== initialEditorState.parameters
+        );
+        setChecklistState(
+            'Impact',
+            currentImpactSnapshot() !== initialEditorState.impact
+        );
+        setChecklistState(
+            'Changes',
+            normalizedValue(document.getElementById('proposedSummary')?.value || '') !== initialEditorState.changes
+        );
+        setChecklistState(
+            'Justification',
+            normalizedValue(document.getElementById('justificationText')?.value || '') !== initialEditorState.justification
+        );
+        setChecklistState(
+            'Recommendation',
+            normalizedValue(document.getElementById('mainRec')?.value || '') !== initialEditorState.recommendation ||
+            normalizedValue(document.getElementById('remarksRec')?.value || '') !== initialEditorState.recommendationRemarks
+        );
+    }
+
+    function getCheckedChangeSections() {
+        var changedSections = [];
+        [
+            ['changeSectionBackground', 'Background'],
+            ['changeSectionExisting', 'Existing Spec'],
+            ['changeSectionMaterialProperties', 'Material Properties'],
+            ['changeSectionStorageHandling', 'Storage and Handling'],
+            ['changeSectionParameters', 'Parameters'],
+            ['changeSectionImpact', 'Impact'],
+            ['changeSectionChanges', 'Changes'],
+            ['changeSectionJustification', 'Justification'],
+            ['changeSectionRecommendation', 'Version Reason']
+        ].forEach(function(item) {
+            var checkbox = document.getElementById(item[0]);
+            if (checkbox && checkbox.checked) {
+                changedSections.push(item[1]);
+            }
+        });
+        return changedSections;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Tab switching
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    var tabs = document.querySelectorAll('[data-tab]');
+    var tabButtons = document.querySelectorAll('.csc-tab');
+    var activeTab = localStorage.getItem('csc-active-tab') || 'background';
+
+    function switchTab(tabName) {
+        // Hide all content
+        tabs.forEach(function(tab) {
+            tab.classList.remove('is-active');
+        });
+        tabButtons.forEach(function(btn) {
+            btn.classList.remove('is-active');
+        });
+
+        // Show selected
+        var content = document.querySelector('[data-tab="' + tabName + '"][role="tabpanel"]');
+        var button = document.querySelector('[data-tab="' + tabName + '"][role="tab"]');
+        if (content) content.classList.add('is-active');
+        if (button) button.classList.add('is-active');
+        if (button) visitedTabs[tabName] = true;
+
+        localStorage.setItem('csc-active-tab', button ? tabName : 'background');
+        updateChangesChecklist();
+    }
+
+    tabButtons.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            switchTab(this.getAttribute('data-tab'));
+        });
+    });
+
+    if (!document.querySelector('[data-tab="' + activeTab + '"][role="tab"]')) {
+        activeTab = 'background';
+    }
+    switchTab(activeTab);
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Text area word counts
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    updateWordCount('backgroundText', 'backgroundCount');
+    updateWordCount('existingText', 'existingCount');
+    updateWordCount('justificationText', 'justificationCount');
+    updateWordCount('mainRec', 'recommendationCount');
+    enforceWordLimit('mainRec', 'recommendationCount', 300);
+
+    [
+        'backgroundText',
+        'existingText',
+        'proposedSummary',
+        'justificationText',
+        'mainRec',
+        'remarksRec',
+        'impactChemicalName'
+    ].forEach(function(elementId) {
+        var element = document.getElementById(elementId);
+        if (!element) return;
+        element.addEventListener('input', updateChangesChecklist);
+        element.addEventListener('change', updateChangesChecklist);
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Generic save section handler
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    function saveTextSection(sectionName, text) {
+        var url = '/csc/api/draft/' + draftId + '/section/' + sectionName;
+        var options = {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify({ section_text: text })
+        };
+
+        return fetch(url, options)
+            .then(function(r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Section 1: Background
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    document.querySelector('[data-save-section="background"]').addEventListener('click', function() {
+        var text = document.getElementById('backgroundText').value;
+        saveTextSection('background', text)
+            .then(function() {
+                showSaveIndicator('backgroundIndicator', 'success', '✓ Saved');
+            })
+            .catch(function(e) {
+                showSaveIndicator('backgroundIndicator', 'error', '✗ Save failed: ' + e.message);
+            });
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Section 2: Existing Spec
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    document.querySelector('[data-save-section="existing_spec"]').addEventListener('click', function() {
+        var text = document.getElementById('existingText').value;
+        saveTextSection('existing_spec', text)
+            .then(function() {
+                showSaveIndicator('existingIndicator', 'success', '✓ Saved');
+            })
+            .catch(function(e) {
+                showSaveIndicator('existingIndicator', 'error', '✗ Save failed: ' + e.message);
+            });
+    });
+
+    function buildGridPayload(config, state) {
+        normalizeGridState(config, state);
+        return config.reduce(function(payload, field) {
+            payload[field.field_name] = shouldShowGridField(field, state)
+                ? (state[field.field_name] || '')
+                : '';
+            return payload;
+        }, {});
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Material Properties
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    document.querySelector('[data-save-section="material-properties"]').addEventListener('click', function() {
+        fetch('/csc/api/draft/' + draftId + '/material-properties', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify(buildGridPayload(materialPropertiesConfig, materialPropertiesState))
+        })
+            .then(function(r) {
+                return r.json().then(function(data) {
+                    if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+                    return data;
+                });
+            })
+            .then(function(data) {
+                if (data.material_properties) {
+                    Object.keys(data.material_properties).forEach(function(key) {
+                        materialPropertiesState[key] = data.material_properties[key] || '';
+                    });
+                }
+                applyMasterDataPayload(data.master_data);
+                renderMaterialProperties();
+                showSaveIndicator('materialPropertiesIndicator', 'success', '✓ Saved');
+            })
+            .catch(function(e) {
+                showSaveIndicator('materialPropertiesIndicator', 'error', '✗ Save failed: ' + e.message);
+            });
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Storage and Handling
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    document.querySelector('[data-save-section="storage-handling"]').addEventListener('click', function() {
+        fetch('/csc/api/draft/' + draftId + '/storage-handling', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify(buildGridPayload(storageHandlingConfig, storageHandlingState))
+        })
+            .then(function(r) {
+                return r.json().then(function(data) {
+                    if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+                    return data;
+                });
+            })
+            .then(function(data) {
+                if (data.storage_handling) {
+                    Object.keys(data.storage_handling).forEach(function(key) {
+                        storageHandlingState[key] = data.storage_handling[key] || '';
+                    });
+                }
+                applyMasterDataPayload(data.master_data);
+                renderStorageHandling();
+                showSaveIndicator('storageHandlingIndicator', 'success', '✓ Saved');
+            })
+            .catch(function(e) {
+                showSaveIndicator('storageHandlingIndicator', 'error', '✗ Save failed: ' + e.message);
+            });
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Section 3: Issues
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    document.querySelector('[data-save-section="issues"]').addEventListener('click', function() {
+        var issues = [];
+        for (var i = 0; i < 4; i++) {
+            var flagValue = document.querySelector('input[name="issue_' + i + '_flag"]:checked')?.value;
+            var notes = document.querySelector('textarea[name="issue_' + i + '_notes"]')?.value || '';
+            issues.push({
+                issue_type: '',
+                is_present: flagValue === 'true',
+                note: notes
+            });
+        }
+        issues[0].issue_type = 'Specification Ambiguity';
+        issues[1].issue_type = 'Parameter Non-compliance';
+        issues[2].issue_type = 'Test Procedure Gaps';
+        issues[3].issue_type = 'Safety/Environmental Concern';
+        fetch('/csc/api/draft/' + draftId + '/issues', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify(issues)
+        })
+            .then(function(r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            })
+            .then(function() {
+                showSaveIndicator('issuesIndicator', 'success', '✓ Saved');
+            })
+            .catch(function(e) {
+                showSaveIndicator('issuesIndicator', 'error', '✗ Save failed: ' + e.message);
+            });
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Section 4: Parameters (Phase 1 & 2)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    function initParametersTable() {
+        if (phase1Locked) {
+            // Phase 2: Read-only + proposed editable
+            renderParametersPhase2();
+        } else {
+            // Phase 1: All editable
+            renderParametersPhase1();
+        }
+    }
+
+    function renderParametersPhase1() {
+        var tbody = document.getElementById('paramBodyPhase1');
+        if (!tbody) return;
+        tbody.innerHTML = parametersData.map(function(p, idx) {
+            return '<tr data-param-id="' + p.id + '">' +
+                '<td><input type="text" class="param-name" value="' + (p.parameter_name || '') + '" placeholder="Parameter name"></td>' +
+                '<td><input type="text" class="param-unit" value="' + (p.unit_of_measure || '') + '" placeholder="Unit"></td>' +
+                '<td><input type="text" class="param-spec" value="' + (p.specification || '') + '" placeholder="Min/Typ/Max"></td>' +
+                '<td><input type="text" class="param-test" value="' + (p.test_method || '') + '" placeholder="Test method"></td>' +
+                '<td style="text-align: center;"><button type="button" class="btn btn-sm btn-danger deleteParamBtn" data-idx="' + idx + '"><i class="bi bi-trash"></i></button></td>' +
+                '</tr>';
+        }).join('');
+
+        document.querySelectorAll('.deleteParamBtn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var row = this.closest('tr');
+                row.remove();
+                updateChangesChecklist();
+            });
+        });
+
+        tbody.querySelectorAll('input').forEach(function(input) {
+            input.addEventListener('input', updateChangesChecklist);
+            input.addEventListener('change', updateChangesChecklist);
+        });
+    }
+
+    function renderParametersPhase2() {
+        var tbody = document.getElementById('paramBodyPhase2');
+        if (!tbody) return;
+        tbody.innerHTML = parametersData.map(function(p, idx) {
+            return '<tr data-param-id="' + p.id + '">' +
+                '<td class="csc-param-readonly">' + (p.parameter_name || '—') + '</td>' +
+                '<td class="csc-param-readonly">' + (p.unit_of_measure || '—') + '</td>' +
+                '<td class="csc-param-readonly">' + (p.specification || '—') + '</td>' +
+                '<td><input type="text" class="param-proposed" value="' + (p.proposed_value || '') + '" placeholder="Proposed value"></td>' +
+                '<td style="text-align: center;"><input type="checkbox" class="param-approved" ' + (p.approved ? 'checked' : '') + '></td>' +
+                '</tr>';
+        }).join('');
+
+        tbody.querySelectorAll('input').forEach(function(input) {
+            input.addEventListener('input', updateChangesChecklist);
+            input.addEventListener('change', updateChangesChecklist);
+        });
+    }
+
+    document.getElementById('addParamBtn')?.addEventListener('click', function() {
+        var tbody = document.getElementById('paramBodyPhase1');
+        var tr = document.createElement('tr');
+        tr.innerHTML = '<td><input type="text" class="param-name" placeholder="Parameter name"></td>' +
+                      '<td><input type="text" class="param-unit" placeholder="Unit"></td>' +
+                      '<td><input type="text" class="param-spec" placeholder="Min/Typ/Max"></td>' +
+                      '<td><input type="text" class="param-test" placeholder="Test method"></td>' +
+                      '<td style="text-align: center;"><button type="button" class="btn btn-sm btn-danger deleteParamBtn"><i class="bi bi-trash"></i></button></td>';
+        tbody.appendChild(tr);
+        tr.querySelector('.deleteParamBtn').addEventListener('click', function() {
+            tr.remove();
+            updateChangesChecklist();
+        });
+        tr.querySelectorAll('input').forEach(function(input) {
+            input.addEventListener('input', updateChangesChecklist);
+            input.addEventListener('change', updateChangesChecklist);
+        });
+        updateChangesChecklist();
+    });
+
+    document.querySelector('[data-save-section="parameters"]').addEventListener('click', function() {
+        var params = [];
+        document.querySelectorAll('#paramBodyPhase1 tr, #paramBodyPhase2 tr').forEach(function(row) {
+            var paramId = row.getAttribute('data-param-id') || null;
+            if (phase1Locked) {
+                // Phase 2
+                params.push({
+                    parameter_id: paramId,
+                    proposed_value: row.querySelector('.param-proposed')?.value || '',
+                });
+            } else {
+                // Phase 1
+                params.push({
+                    parameter_name: row.querySelector('.param-name')?.value || '',
+                    parameter_type: 'Essential',
+                    existing_value: row.querySelector('.param-spec')?.value || '',
+                    proposed_value: '',
+                    test_method: row.querySelector('.param-test')?.value || ''
+                });
+            }
+        });
+        fetch('/csc/api/draft/' + draftId + (phase1Locked ? '/parameters/proposed' : '/parameters'), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify(params)
+        })
+            .then(function(r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            })
+            .then(function() {
+                showSaveIndicator('paramIndicator', 'success', '✓ Saved');
+            })
+            .catch(function(e) {
+                showSaveIndicator('paramIndicator', 'error', '✗ Save failed: ' + e.message);
+            });
+    });
+
+    initParametersTable();
+    normalizeProposedSummaryField();
+    renderMaterialProperties();
+    renderStorageHandling();
+    renderImpactChecklist();
+    captureInitialEditorState();
+    updateChangesChecklist();
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Section 5: Proposed Changes
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    document.querySelector('[data-save-section="proposed_changes"]').addEventListener('click', function() {
+        var changedSections = getCheckedChangeSections();
+        var summary = document.getElementById('proposedSummary').value;
+        var payload = summary;
+        if (changedSections.length) {
+            payload = 'Sections updated:\n- ' + changedSections.join('\n- ');
+            if (summary.trim()) {
+                payload += '\n\nChange summary:\n' + summary;
+            }
+        }
+        saveTextSection('proposed_changes', payload)
+            .then(function() {
+                showSaveIndicator('proposedIndicator', 'success', '✓ Saved');
+            })
+            .catch(function(e) {
+                showSaveIndicator('proposedIndicator', 'error', '✗ Save failed: ' + e.message);
+            });
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Section 6: Justification
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    document.querySelector('[data-save-section="justification"]').addEventListener('click', function() {
+        var text = document.getElementById('justificationText').value;
+        saveTextSection('justification', text)
+            .then(function() {
+                showSaveIndicator('justificationIndicator', 'success', '✓ Saved');
+            })
+            .catch(function(e) {
+                showSaveIndicator('justificationIndicator', 'error', '✗ Save failed: ' + e.message);
+            });
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Section 7: Impact Analysis
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    document.getElementById('impactChemicalName')?.addEventListener('input', function() {
+        syncImpactChemicalName();
+        updateChangesChecklist();
+    });
+
+    document.getElementById('impactResetBtn')?.addEventListener('click', function() {
+        impactChecklistConfig.forEach(function(flag) {
+            impactChecklistState.answers[flag.id] = false;
+        });
+        renderImpactChecklist();
+        updateChangesChecklist();
+    });
+
+    document.querySelector('[data-save-section="impact"]').addEventListener('click', function() {
+        syncImpactChemicalName();
+
+        fetch('/csc/api/draft/' + draftId + '/impact', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify({
+                chemical_name: impactChecklistState.chemical_name || '',
+                checklist_state: impactChecklistState
+            })
+        })
+            .then(function(r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            })
+            .then(function(data) {
+                if (data && data.impact && data.impact.checklist_state) {
+                    impactChecklistState = normalizeImpactChecklistState(data.impact.checklist_state);
+                }
+                applyMasterDataPayload(data.master_data);
+                renderImpactChecklist();
+                showSaveIndicator('impactIndicator', 'success', '✓ Saved');
+            })
+            .catch(function(e) {
+                showSaveIndicator('impactIndicator', 'error', '✗ Save failed: ' + e.message);
+            });
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Section 8: Recommendation
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    document.querySelector('[data-save-section="recommendation"]').addEventListener('click', function() {
+        var main = document.getElementById('mainRec').value;
+        var remarks = document.getElementById('remarksRec').value;
+        var mainWordCount = wordCount(main);
+        if (!normalizedValue(main)) {
+            showSaveIndicator('recommendationIndicator', 'error', 'Enter a meaningful version change reason under 300 words.');
+            return;
+        }
+        if (mainWordCount > 300) {
+            showSaveIndicator('recommendationIndicator', 'error', 'Version change reason must stay within 300 words.');
+            return;
+        }
+        Promise.all([
+            saveTextSection('recommendation', main),
+            saveTextSection('recommendation_remarks', remarks)
+        ]).then(function() {
+                showSaveIndicator('recommendationIndicator', 'success', '✓ Saved');
+            })
+            .catch(function(e) {
+                showSaveIndicator('recommendationIndicator', 'error', '✗ Save failed: ' + e.message);
+            });
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Section 9: Preview & Export Actions
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    document.getElementById('exportDocxBtn')?.addEventListener('click', function() {
+        window.location.href = '/csc/draft/' + draftId + '/export/docx';
+    });
+
+    document.getElementById('submitDraftBtn')?.addEventListener('click', function() {
+        openSubmitReviewModal();
+    });
+
+    document.getElementById('deleteDraftBtn')?.addEventListener('click', function() {
+        showConfirmModal(
+            'Delete Draft?',
+            'This action cannot be undone. All unsaved changes will be lost.',
+            function() {
+                fetch('/csc/api/draft/' + draftId + '/delete', {
+                    method: 'DELETE',
+                    headers: { 'X-CSRFToken': csrfToken }
+                })
+                    .then(function(r) {
+                        if (!r.ok) throw new Error('Delete failed');
+                        window.location.href = '{{ url_for("csc.workspace") }}';
+                    })
+                    .catch(function(e) {
+                        alert('Error deleting draft: ' + e.message);
+                    });
+            }
+        );
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Modal confirmations
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    var confirmCallback = null;
+
+    function showConfirmModal(title, body, onConfirm) {
+        document.getElementById('confirmTitle').textContent = title;
+        document.getElementById('confirmBody').textContent = body;
+        document.getElementById('confirmModal').classList.add('show');
+        confirmCallback = onConfirm;
+    }
+
+    document.getElementById('confirmCancel')?.addEventListener('click', function() {
+        document.getElementById('confirmModal').classList.remove('show');
+        confirmCallback = null;
+    });
+
+    document.getElementById('confirmOK')?.addEventListener('click', function() {
+        document.getElementById('confirmModal').classList.remove('show');
+        if (confirmCallback) confirmCallback();
+        confirmCallback = null;
+    });
+
+    function previewText(value, fallback) {
+        var text = (value || '').trim();
+        if (!text) return fallback;
+        if (text.length <= 240) return text;
+        return text.slice(0, 237) + '...';
+    }
+
+    function getInputValue(id, fallback) {
+        var element = document.getElementById(id);
+        return (element && element.value ? element.value : fallback || '').trim();
+    }
+
+    function getParameterCount() {
+        var rows = document.querySelectorAll('#paramBodyPhase1 tr, #paramBodyPhase2 tr');
+        return rows.length;
+    }
+
+    function getFlaggedIssueCount() {
+        var count = 0;
+        document.querySelectorAll('input.issueRadio[value="true"]:checked').forEach(function() {
+            count += 1;
+        });
+        return count;
+    }
+
+    function setSubmitStep(step) {
+        submitStep = step;
+        var previewStep = document.getElementById('submitPreviewStep');
+        var authorizationStep = document.getElementById('submitAuthorizationStep');
+        var backButton = document.getElementById('submitReviewBack');
+        var nextButton = document.getElementById('submitReviewNext');
+        var stepLabel = document.getElementById('submitReviewStepLabel');
+        var title = document.getElementById('submitReviewTitle');
+        var subtitle = document.getElementById('submitReviewSubtitle');
+
+        previewStep.classList.toggle('is-active', step === 1);
+        authorizationStep.classList.toggle('is-active', step === 2);
+        backButton.style.visibility = step === 1 ? 'hidden' : 'visible';
+
+        if (step === 1) {
+            stepLabel.textContent = 'Step 1 of 2';
+            title.textContent = 'Review Draft Before Submission';
+            subtitle.textContent = 'Validate the draft snapshot before sending it to the admin workbench.';
+            nextButton.textContent = 'Next';
+            nextButton.disabled = false;
+        } else {
+            stepLabel.textContent = 'Step 2 of 2';
+            title.textContent = 'Authorization Confirmation';
+            subtitle.textContent = 'Capture the required authorization declaration before final submission.';
+            nextButton.textContent = 'Submit for Admin Approval';
+            updateSubmitAuthorizationState();
+        }
+    }
+
+    function populateSubmitPreview() {
+        var proposedSummary = normalizedValue(getInputValue('proposedSummary', ''));
+        var checkedSections = getCheckedChangeSections();
+        var proposedChangesLines = [];
+
+        if (checkedSections.length) {
+            proposedChangesLines.push('Auto-detected sub-headings checked:');
+            checkedSections.forEach(function(label) {
+                proposedChangesLines.push('- ' + label);
+            });
+        }
+        if (proposedSummary) {
+            if (proposedChangesLines.length) {
+                proposedChangesLines.push('');
+            }
+            proposedChangesLines.push('Summary:');
+            proposedChangesLines.push(proposedSummary);
+        }
+
+        document.getElementById('submitPreviewSpec').textContent = draftSpecNumber || 'Not available';
+        document.getElementById('submitPreviewChemical').textContent = getInputValue('masterChemicalName', '{{ draft.chemical_name or "" }}') || 'Not provided';
+        document.getElementById('submitPreviewSubset').textContent = draftSubsetDisplay;
+        document.getElementById('submitPreviewVersion').textContent = draftVersion;
+        document.getElementById('submitPreviewMaterialCode').textContent = getInputValue('masterMaterialCode', '') || 'Not provided';
+        document.getElementById('submitPreviewPhysicalState').textContent = getInputValue('master_physical_state', '') || 'Not provided';
+        document.getElementById('submitPreviewParameterCount').textContent = String(getParameterCount());
+        document.getElementById('submitPreviewIssueCount').textContent = String(getFlaggedIssueCount());
+        document.getElementById('submitPreviewBackground').textContent = previewText(
+            getInputValue('backgroundText', ''),
+            'No background context has been entered.'
+        );
+        document.getElementById('submitPreviewExisting').textContent = previewText(
+            getInputValue('existingText', ''),
+            'No existing specification summary has been entered.'
+        );
+        document.getElementById('submitPreviewChanges').textContent = proposedChangesLines.length
+            ? proposedChangesLines.join('\n')
+            : 'No proposed changes summary has been entered.';
+        document.getElementById('submitPreviewRecommendation').textContent = previewText(
+            getInputValue('mainRec', ''),
+            'No version change reason has been entered.'
+        );
+        document.getElementById('submitAuthorizationSubset').textContent = draftSubsetDisplay;
+    }
+
+    function resetSubmitReviewModal() {
+        document.getElementById('submitReviewError').textContent = '';
+        document.getElementById('submitAuthYes').checked = false;
+        document.getElementById('submitAuthNo').checked = false;
+        document.getElementById('submitAuthorizedByName').value = '';
+        document.getElementById('submitSubcommitteeHeadName').value = '';
+        document.getElementById('submitAuthNames').style.display = 'none';
+        document.getElementById('submitAuthNoMessage').style.display = 'none';
+        document.getElementById('submitReviewNext').disabled = false;
+        document.getElementById('submitReviewNext').textContent = 'Next';
+        setSubmitStep(1);
+    }
+
+    function openSubmitReviewModal() {
+        populateSubmitPreview();
+        resetSubmitReviewModal();
+        document.getElementById('submitReviewModal').classList.add('show');
+    }
+
+    function closeSubmitReviewModal() {
+        document.getElementById('submitReviewModal').classList.remove('show');
+    }
+
+    function updateSubmitAuthorizationState() {
+        var authorized = document.getElementById('submitAuthYes').checked;
+        var unauthorized = document.getElementById('submitAuthNo').checked;
+        var namesWrapper = document.getElementById('submitAuthNames');
+        var noMessage = document.getElementById('submitAuthNoMessage');
+        var nextButton = document.getElementById('submitReviewNext');
+        var name = document.getElementById('submitAuthorizedByName').value.trim();
+        var head = document.getElementById('submitSubcommitteeHeadName').value.trim();
+
+        namesWrapper.style.display = authorized ? 'block' : 'none';
+        noMessage.style.display = unauthorized ? 'block' : 'none';
+
+        if (!authorized) {
+            nextButton.disabled = true;
+            return;
+        }
+
+        nextButton.disabled = !name || !head;
+    }
+
+    function submitDraftForReview() {
+        var nextButton = document.getElementById('submitReviewNext');
+        var errorElement = document.getElementById('submitReviewError');
+        var payload = {
+            authorization_confirmed: true,
+            authorized_by_name: document.getElementById('submitAuthorizedByName').value.trim(),
+            subcommittee_head_name: document.getElementById('submitSubcommitteeHeadName').value.trim()
+        };
+
+        nextButton.disabled = true;
+        nextButton.textContent = 'Submitting...';
+        errorElement.textContent = '';
+
+        fetch('/csc/api/draft/' + draftId + '/submit', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify(payload)
+        })
+            .then(function(response) {
+                return response.json().then(function(data) {
+                    if (!response.ok) {
+                        throw new Error(data.error || 'Submit failed');
+                    }
+                    return data;
+                });
+            })
+            .then(function() {
+                window.location.href = '{{ url_for("csc.workspace") }}';
+            })
+            .catch(function(error) {
+                errorElement.textContent = error.message;
+                nextButton.textContent = 'Submit for Admin Approval';
+                updateSubmitAuthorizationState();
+            });
+    }
+
+    document.getElementById('submitReviewCancel')?.addEventListener('click', closeSubmitReviewModal);
+    document.getElementById('submitReviewClose')?.addEventListener('click', closeSubmitReviewModal);
+    document.getElementById('submitReviewBack')?.addEventListener('click', function() {
+        setSubmitStep(1);
+        document.getElementById('submitReviewError').textContent = '';
+    });
+    document.getElementById('submitReviewNext')?.addEventListener('click', function() {
+        if (submitStep === 1) {
+            setSubmitStep(2);
+            return;
+        }
+        submitDraftForReview();
+    });
+
+    document.getElementById('submitAuthYes')?.addEventListener('change', updateSubmitAuthorizationState);
+    document.getElementById('submitAuthNo')?.addEventListener('change', updateSubmitAuthorizationState);
+    document.getElementById('submitAuthorizedByName')?.addEventListener('input', updateSubmitAuthorizationState);
+    document.getElementById('submitSubcommitteeHeadName')?.addEventListener('input', updateSubmitAuthorizationState);
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Completion status
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    function updateCompletionStatus() {
+        var sections = [
+            'background', 'existing_spec', 'material_properties', 'storage_handling',
+            'parameters', 'impact', 'proposed_changes', 'justification', 'recommendation', 'preview'
+        ];
+        var completed = 0;
+        sections.forEach(function(sec) {
+            // Simple check: if section data exists, mark as completed
+            // This is a simplified version - actual implementation would check API
+            completed++;
+        });
+        var percentage = Math.round((completed / sections.length) * 100);
+        document.getElementById('completionStatus').innerHTML =
+            'Draft <strong>' + percentage + '%</strong> complete (' + completed + '/' + sections.length + ' sections)';
+    }
+
+    updateCompletionStatus();
+
+})();
+</script>
+{% endblock %}

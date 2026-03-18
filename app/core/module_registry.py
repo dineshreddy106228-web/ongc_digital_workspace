@@ -106,7 +106,7 @@ MODULES = [
     },
     {
         "key": "csc_workflow",
-        "name": "CSC Workflow",
+        "name": "Material Master Management",
         "permission_code": "csc",
         "blueprint_import": "app.modules.csc:csc_bp",
         "url_prefix": "/csc",
@@ -115,8 +115,9 @@ MODULES = [
         "nav_visible": True,
         "dashboard_visible": True,
         "roles_allowed": [ADMIN_ROLE, SUPERUSER_ROLE, USER_ROLE],
-        "status": "planned",
-        "description": "Sample registration, testing workflows, and certificate generation",
+        "status": "active",
+        "description": "Material master management with CSC and subcommittee drafting, review, and export workflow",
+        "nav_label": "Material Master Mgmt",
         "icon": "🔬",
     },
     {

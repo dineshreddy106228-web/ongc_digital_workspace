@@ -1,0 +1,315 @@
+{% extends "base.html" %}
+{% block title %}Manage Drafts — Material Master Admin — {{ app_name }}{% endblock %}
+
+{% block head_extra %}
+<meta name="csrf-token" content="{{ csrf_token() }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}">
+<style nonce="{{ csp_nonce() }}">
+.csc-filter-bar {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.csc-filter-group {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.csc-filter-label {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text);
+}
+.csc-filter-select,
+.csc-filter-input {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.9rem;
+}
+.csc-filter-input {
+  min-width: 240px;
+}
+.csc-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.csc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.csc-table thead {
+  background: var(--background);
+  border-bottom: 2px solid var(--border);
+}
+.csc-table th,
+.csc-table td {
+  padding: 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.csc-table tbody tr:hover {
+  background: color-mix(in srgb, var(--primary) 5%, transparent);
+}
+.csc-status-pill,
+.csc-drafting-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.csc-status-published {
+  background: color-mix(in srgb, #10b981 15%, transparent);
+  color: #047857;
+}
+.csc-status-drafting {
+  background: color-mix(in srgb, #f59e0b 15%, transparent);
+  color: #b45309;
+}
+.csc-drafting-open {
+  background: color-mix(in srgb, #2563eb 12%, transparent);
+  color: #1d4ed8;
+}
+.csc-drafting-submitted {
+  background: color-mix(in srgb, #7c3aed 12%, transparent);
+  color: #6d28d9;
+}
+.csc-drafting-returned {
+  background: color-mix(in srgb, #f59e0b 15%, transparent);
+  color: #b45309;
+}
+.csc-actions {
+  white-space: nowrap;
+  text-align: right;
+}
+.csc-action-link,
+.csc-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: var(--radius-sm, 6px);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--primary);
+  text-decoration: none;
+  cursor: pointer;
+  margin-left: 0.35rem;
+}
+.csc-action-btn-primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+.csc-no-data {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: var(--muted);
+}
+.csc-no-data i {
+  font-size: 2.5rem;
+  display: block;
+  margin-bottom: 0.75rem;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="inv-page">
+  <div class="inv-module-header">
+    <div>
+      <div class="page-kicker"><a href="{{ url_for('csc.admin_index') }}">Material Master Admin</a></div>
+      <h1 class="inv-module-title"><i class="bi bi-list-task"></i> Manage Drafts</h1>
+      <p class="inv-module-subtitle">Open drafting for published materials and route open drafts into workflow editing</p>
+    </div>
+  </div>
+
+  <div class="alert alert-info">
+    `Open Drafting` creates the working copy used by subcommittee users. `Material Master Data` only edits the non-workflow fields that are not managed from Material Properties, Storage and Handling, or Impact.
+  </div>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+    <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  <div class="csc-filter-bar">
+    <div class="csc-filter-group">
+      <label class="csc-filter-label">Status:</label>
+      <select id="filterStatus" class="csc-filter-select">
+        <option value="">All</option>
+        <option value="published">Published</option>
+        <option value="drafting">Drafting</option>
+      </select>
+    </div>
+
+    <div class="csc-filter-group">
+      <label class="csc-filter-label">Subset:</label>
+      <select id="filterSubset" class="csc-filter-select">
+        <option value="">All Subsets</option>
+        {% for subset in subsets %}
+        <option value="{{ subset.code }}">{{ subset.display }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="csc-filter-group" style="flex: 1;">
+      <input type="text" id="filterSearch" class="csc-filter-input" placeholder="Search by spec number, chemical name, material code...">
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      {% if workflow_rows %}
+      <div class="csc-table-wrap">
+        <table class="csc-table">
+          <thead>
+            <tr>
+              <th style="width: 60px;">S. No.</th>
+              <th>Spec Number</th>
+              <th>Chemical Name</th>
+              <th>Material Code</th>
+              <th>Physical State</th>
+              <th>Status</th>
+              <th>Drafting Status</th>
+              <th>Version</th>
+              <th>Submitted At</th>
+              <th style="width: 280px; text-align: right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="draftsTableBody">
+            {% for row in workflow_rows %}
+            {% set draft = row.draft %}
+            {% set revision = row.active_revision %}
+            <tr
+              data-status="{{ (row.display_status or '').lower() }}"
+              data-subset="{{ draft.subset or '' }}"
+              data-search="{{ draft.spec_number }} {{ draft.chemical_name or '' }} {{ draft.material_code or '' }}"
+            >
+              <td class="csc-row-serial"><code>{{ loop.index }}</code></td>
+              <td><strong>{{ draft.spec_number }}</strong></td>
+              <td>{{ draft.chemical_name or '—' }}</td>
+              <td>{{ draft.material_code or '—' }}</td>
+              <td>{{ row.physical_state or '—' }}</td>
+              <td>
+                <span class="csc-status-pill csc-status-{{ (row.display_status or 'published')|lower }}">
+                  {{ row.display_status or 'Published' }}
+                </span>
+              </td>
+              <td>
+                {% if revision %}
+                <span class="csc-drafting-pill csc-drafting-{{ revision.status }}">
+                  {{ revision.status|replace('_', ' ')|title }}
+                </span>
+                {% else %}
+                —
+                {% endif %}
+              </td>
+              <td>v{{ draft.version if draft.version is not none else '0' }}</td>
+              <td>{{ row.submitted_at | datetime_ist('%d %b %Y, %H:%M') if row.submitted_at else '—' }}</td>
+              <td class="csc-actions">
+                {% if revision %}
+                <a href="{{ url_for('csc.editor', draft_id=row.workflow_draft.id) }}" class="csc-action-link">
+                  <i class="bi bi-box-arrow-up-right"></i> Workflow
+                </a>
+                {% else %}
+                <button type="button" class="csc-action-btn csc-action-btn-primary csc-open-drafting" data-parent-id="{{ draft.id }}">
+                  <i class="bi bi-pencil-square"></i> Open Drafting
+                </button>
+                {% endif %}
+                <a href="{{ url_for('csc.admin_edit_draft', draft_id=draft.id) }}" class="csc-action-link">
+                  <i class="bi bi-pencil"></i> Material Master Data
+                </a>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="csc-no-data">
+        <i class="bi bi-inbox"></i>
+        <p>No specifications are available.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts_extra %}
+<script nonce="{{ csp_nonce() }}">
+(function() {
+  'use strict';
+
+  const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+  const rows = Array.from(document.querySelectorAll('#draftsTableBody tr'));
+  const statusFilter = document.getElementById('filterStatus');
+  const subsetFilter = document.getElementById('filterSubset');
+  const searchFilter = document.getElementById('filterSearch');
+
+  function renumberVisibleRows() {
+    let serial = 1;
+    rows.forEach(row => {
+      const cell = row.querySelector('.csc-row-serial code');
+      if (!cell || row.style.display === 'none') return;
+      cell.textContent = serial;
+      serial += 1;
+    });
+  }
+
+  function applyFilters() {
+    const status = (statusFilter.value || '').toLowerCase();
+    const subset = (subsetFilter.value || '').toLowerCase();
+    const search = (searchFilter.value || '').toLowerCase();
+    rows.forEach(row => {
+      const matchStatus = !status || (row.dataset.status || '') === status;
+      const matchSubset = !subset || (row.dataset.subset || '').toLowerCase() === subset;
+      const matchSearch = !search || (row.dataset.search || '').toLowerCase().includes(search);
+      row.style.display = matchStatus && matchSubset && matchSearch ? '' : 'none';
+    });
+    renumberVisibleRows();
+  }
+
+  statusFilter?.addEventListener('change', applyFilters);
+  subsetFilter?.addEventListener('change', applyFilters);
+  searchFilter?.addEventListener('input', applyFilters);
+  renumberVisibleRows();
+
+  document.querySelectorAll('.csc-open-drafting').forEach(button => {
+    button.addEventListener('click', function() {
+      const parentId = this.dataset.parentId;
+      this.disabled = true;
+      fetch(`/csc/workspace/new-revision/${parentId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({})
+      })
+      .then(r => r.json().then(data => ({ ok: r.ok, data })))
+      .then(({ ok, data }) => {
+        if (!ok || !data.success) {
+          throw new Error(data.error || 'Failed to open drafting');
+        }
+        window.location.href = data.redirect;
+      })
+      .catch(error => {
+        this.disabled = false;
+        alert(error.message);
+      });
+    });
+  });
+})();
+</script>
+{% endblock %}

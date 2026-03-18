@@ -143,7 +143,7 @@ tr.is-saving td { opacity: 0.6; }
   <div class="inv-module-header">
     <div>
       <h1 class="inv-module-title"><i class="bi bi-box-seam"></i> Inventory Intelligence</h1>
-      <p class="inv-module-subtitle">Material Master Data — parameter reference for analytics</p>
+      <p class="inv-module-subtitle">Material Master Data — read-only view sourced directly from the master table</p>
     </div>
     <div class="inv-header-actions">
       <span class="md-superuser-badge"><i class="bi bi-shield-lock"></i> Superuser only</span>
@@ -173,26 +173,18 @@ tr.is-saving td { opacity: 0.6; }
   {# ── Import card ─────────────────────────────────────────────────── #}
   <div class="md-import-card">
     <div class="md-import-header">
-      <i class="bi bi-cloud-upload" style="color: var(--primary); font-size: 1.1rem;"></i>
-      <h2 class="md-import-title">Import / Update Master Data</h2>
+      <i class="bi bi-arrow-repeat" style="color: var(--primary); font-size: 1.1rem;"></i>
+      <h2 class="md-import-title">CSC is the Edit Surface</h2>
     </div>
     <p class="md-import-subtitle">
-      Upload a <strong>Master_data.xlsx</strong> workbook to add new materials or update existing ones.
-      The <em>Material</em> column is used as the unique key — existing records are updated, new ones are inserted.
-      Any columns beyond the defined schema are automatically stored as extra attributes (no schema changes needed).
+      This table remains available for Inventory Intelligence reads, but edits and imports are now managed from
+      <strong>CSC Manage Drafts</strong>. Changes saved there update the material master record used by inventory analytics.
     </p>
-    <form method="post" action="{{ url_for('inventory.master_data_import') }}" enctype="multipart/form-data">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <div class="md-import-row">
-        <div class="md-file-input-wrap">
-          <input class="md-file-input" type="file" name="master_data_file"
-                 accept=".xlsx,.xls" id="masterDataFile">
-        </div>
-        <button type="submit" class="btn btn-sm btn-primary">
-          <i class="bi bi-upload"></i> Upload &amp; Import
-        </button>
-      </div>
-    </form>
+    <div class="md-import-row">
+      <a href="{{ url_for('csc.admin_drafts') }}" class="btn btn-sm btn-primary">
+        <i class="bi bi-box-arrow-up-right"></i> Open CSC Manage Drafts
+      </a>
+    </div>
   </div>
 
   {# ── Master Data table card ──────────────────────────────────────── #}
@@ -200,7 +192,7 @@ tr.is-saving td { opacity: 0.6; }
     <div class="inv-card-header">
       <div>
         <h2 class="inv-card-title">Material Master Records</h2>
-        <p class="inv-card-subtitle">Click <strong>Edit</strong> on any row to update its parameters inline. Changes are saved to the database immediately.</p>
+        <p class="inv-card-subtitle">Read-only inventory view of the material master table.</p>
       </div>
       <div style="display:flex; gap:0.6rem; align-items:center; flex-shrink:0;">
         <div class="inv-search-wrap">
@@ -241,7 +233,6 @@ tr.is-saving td { opacity: 0.6; }
               {% endfor %}
               <th class="md-col-sm">Updated By</th>
               <th class="md-col-sm">Updated Date</th>
-              <th class="md-col-actions">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -389,21 +380,6 @@ tr.is-saving td { opacity: 0.6; }
                 <span class="md-cell-edit" style="display:none;">—</span>
               </td>
 
-              {# Actions #}
-              <td class="md-col-actions">
-                <button class="btn-edit-row js-edit-row" title="Edit this row">
-                  <i class="bi bi-pencil"></i> Edit
-                </button>
-                <button class="btn-save-row js-save-row" title="Save changes">
-                  <i class="bi bi-check-lg"></i> Save
-                </button>
-                <button class="btn-cancel-row js-cancel-row" title="Cancel editing">
-                  <i class="bi bi-x"></i>
-                </button>
-                <button class="btn-delete-row js-delete-row" title="Delete this row">
-                  <i class="bi bi-trash"></i>
-                </button>
-              </td>
             </tr>
             {% endfor %}
           </tbody>
@@ -418,8 +394,8 @@ tr.is-saving td { opacity: 0.6; }
       {% else %}
       <div class="md-no-data">
         <i class="bi bi-inbox"></i>
-        <p>No master data loaded yet.</p>
-        <p style="font-size:0.85rem;">Upload a <strong>Master_data.xlsx</strong> file above to get started.</p>
+        <p>No material master rows are available yet.</p>
+        <p style="font-size:0.85rem;">Records will appear here once they exist in the material master table.</p>
       </div>
       {% endif %}
     </div>
@@ -447,9 +423,6 @@ tr.is-saving td { opacity: 0.6; }
 (function () {
   'use strict';
 
-  // ── CSRF token (required for all POST requests) ──────────────────
-  const csrfToken = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
-
   // ── Search / filter ─────────────────────────────────────────────
   const searchInput   = document.getElementById('mdSearch');
   const table         = document.getElementById('mdTable');
@@ -468,130 +441,6 @@ tr.is-saving td { opacity: 0.6; }
       if (visibleCount) visibleCount.textContent = visible;
     });
   }
-
-  // ── Inline editing ───────────────────────────────────────────────
-  // Store original values so cancel can restore them
-  const originals = new Map();
-
-  document.querySelectorAll('.js-edit-row').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      const tr = btn.closest('tr');
-      // Save original values for cancel
-      const snapshot = {};
-      tr.querySelectorAll('.md-edit-input').forEach(function (inp) {
-        snapshot[inp.dataset.field] = inp.value;
-      });
-      originals.set(tr, snapshot);
-      tr.classList.add('is-editing');
-    });
-  });
-
-  document.querySelectorAll('.js-cancel-row').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      const tr = btn.closest('tr');
-      const snapshot = originals.get(tr) || {};
-      // Restore input values
-      tr.querySelectorAll('.md-edit-input').forEach(function (inp) {
-        if (snapshot[inp.dataset.field] !== undefined) {
-          inp.value = snapshot[inp.dataset.field];
-        }
-      });
-      tr.classList.remove('is-editing');
-      originals.delete(tr);
-    });
-  });
-
-  // ── Delete row ──────────────────────────────────────────────────
-  document.querySelectorAll('.js-delete-row').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      const tr = btn.closest('tr');
-      const code = tr.dataset.code;
-      if (!code) return;
-      if (!confirm('Permanently delete material "' + code + '"? This cannot be undone.')) return;
-
-      fetch('/inventory/api/master-data/' + encodeURIComponent(code) + '/delete', {
-        method: 'POST',
-        headers: { 'X-CSRFToken': csrfToken },
-      })
-      .then(function (res) { return res.json(); })
-      .then(function (data) {
-        if (data.ok) {
-          tr.remove();
-          const countEl = document.getElementById('mdVisibleCount');
-          if (countEl) countEl.textContent = parseInt(countEl.textContent || '0', 10) - 1;
-        } else {
-          alert('Delete failed: ' + (data.error || 'Unknown error'));
-        }
-      })
-      .catch(function (err) { alert('Network error: ' + err.message); });
-    });
-  });
-
-  document.querySelectorAll('.js-save-row').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      const tr = btn.closest('tr');
-      const code = tr.dataset.code;
-      if (!code) return;
-
-      // Collect field values
-      const payload = { extra_data: {} };
-      tr.querySelectorAll('.md-edit-input').forEach(function (inp) {
-        const field = inp.dataset.field;
-        if (field.startsWith('extra__')) {
-          const extraKey = field.slice('extra__'.length);
-          payload.extra_data[extraKey] = inp.value;
-        } else {
-          payload[field] = inp.value;
-        }
-      });
-
-      // Visual saving state
-      tr.classList.add('is-saving');
-
-      fetch('/inventory/api/master-data/' + encodeURIComponent(code), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRFToken': csrfToken,
-        },
-        body: JSON.stringify(payload),
-      })
-      .then(function (res) { return res.json(); })
-      .then(function (data) {
-        tr.classList.remove('is-saving');
-        if (data.ok) {
-          // Update view spans
-          tr.querySelectorAll('.md-edit-input').forEach(function (inp) {
-            const field = inp.dataset.field;
-            const viewSpan = inp.closest('td').querySelector('.md-cell-view');
-            if (viewSpan) viewSpan.textContent = inp.value;
-          });
-          // Update audit cells (last two before actions)
-          const rec = data.record;
-          const allCells = tr.querySelectorAll('td');
-          const actionOffset = 1;
-          const atCell = allCells[allCells.length - 1 - actionOffset - 1];
-          const byCell = allCells[allCells.length - 1 - actionOffset - 2];
-          if (byCell) byCell.querySelector('.md-cell-view').textContent = rec.updated_by || '';
-          if (atCell) atCell.querySelector('.md-cell-view').textContent = rec.updated_at || '';
-
-          tr.classList.remove('is-editing');
-          originals.delete(tr);
-
-          // Brief success flash on the row
-          tr.style.background = 'color-mix(in srgb, var(--success, #198754) 10%, transparent)';
-          setTimeout(function () { tr.style.background = ''; }, 1400);
-        } else {
-          alert('Save failed: ' + (data.error || 'Unknown error'));
-        }
-      })
-      .catch(function (err) {
-        tr.classList.remove('is-saving');
-        alert('Network error: ' + err.message);
-      });
-    });
-  });
-
 })();
 </script>
 {% endblock %}

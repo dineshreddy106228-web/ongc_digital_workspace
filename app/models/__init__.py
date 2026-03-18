@@ -18,3 +18,11 @@ from app.models.inventory.inventory_record import InventoryRecord            # n
 from app.models.inventory.inventory_consumption_seed import InventoryConsumptionSeed  # noqa: F401
 from app.models.inventory.inventory_procurement_seed import InventoryProcurementSeed  # noqa: F401
 from app.models.inventory.material_master import MaterialMaster              # noqa: F401
+from app.models.csc.draft import CSCDraft                                    # noqa: F401
+from app.models.csc.parameter import CSCParameter                            # noqa: F401
+from app.models.csc.section import CSCSection                                # noqa: F401
+from app.models.csc.issue_flag import CSCIssueFlag                           # noqa: F401
+from app.models.csc.impact_analysis import CSCImpactAnalysis                 # noqa: F401
+from app.models.csc.audit import CSCAudit                                    # noqa: F401
+from app.models.csc.revision import CSCRevision                              # noqa: F401
+from app.models.csc.spec_version import CSCSpecVersion                       # noqa: F401

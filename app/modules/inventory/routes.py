@@ -567,6 +567,7 @@ def master_data_page():
         rows=rows,
         extra_keys=extra_keys,
         total=len(rows),
+        read_only=True,
     )
 
 
@@ -575,45 +576,7 @@ def master_data_page():
 @superuser_required
 def master_data_import():
     """Upload a Master_data.xlsx workbook and upsert all rows."""
-    from flask_login import current_user
-    from app.core.services.master_data import import_master_data_xlsx
-
-    file = request.files.get("master_data_file")
-    if not file or not file.filename:
-        flash("Please select a Master Data Excel file before uploading.", "danger")
-        return redirect(url_for("inventory.master_data_page"))
-
-    if not file.filename.lower().endswith((".xlsx", ".xls")):
-        flash("Only .xlsx / .xls files are supported.", "danger")
-        return redirect(url_for("inventory.master_data_page"))
-
-    try:
-        result = import_master_data_xlsx(
-            file_bytes=file.read(),
-            user_id=current_user.id,
-        )
-    except ValueError as exc:
-        flash(str(exc), "danger")
-        return redirect(url_for("inventory.master_data_page"))
-    except Exception:
-        logger.exception("Unexpected error importing master data")
-        flash("Could not import the file. Check the format and try again.", "danger")
-        return redirect(url_for("inventory.master_data_page"))
-
-    parts = [f"{result['inserted']} inserted, {result['updated']} updated"]
-    if result["skipped"]:
-        parts.append(f"{result['skipped']} skipped (no material code)")
-    if result["extra_columns"]:
-        parts.append(
-            f"Extra columns stored: {', '.join(result['extra_columns'])}"
-        )
-    if result["errors"]:
-        flash(
-            f"Import completed with {len(result['errors'])} error(s): "
-            + "; ".join(result["errors"][:3]),
-            "warning",
-        )
-    flash(f"Master data imported — {'; '.join(parts)}.", "success")
+    flash("Inventory Master Data import is disabled. Edit master data from CSC Manage Drafts.", "warning")
     return redirect(url_for("inventory.master_data_page"))
 
 
@@ -624,22 +587,9 @@ def master_data_import():
 @superuser_required
 def api_master_data_delete(material: str):
     """Permanently delete a MaterialMaster row. Returns {ok: true} on success."""
-    from app.extensions import db
-    from app.models.inventory.material_master import MaterialMaster
-
-    record = MaterialMaster.query.get(material)
-    if not record:
-        return jsonify({"error": f"Material {material!r} not found."}), 404
-
-    try:
-        db.session.delete(record)
-        db.session.commit()
-    except Exception as exc:
-        db.session.rollback()
-        logger.exception("Failed to delete master data record %s", material)
-        return jsonify({"error": str(exc)}), 500
-
-    return jsonify({"ok": True, "deleted": material})
+    return jsonify({
+        "error": "Inventory Master Data is read-only. Delete or edit from CSC Manage Drafts."
+    }), 403
 
 
 # ── API: Master data list (all inventory users) ───────────────────────────────
@@ -663,39 +613,9 @@ def api_master_data():
 @superuser_required
 def api_master_data_update(material: str):
     """Update an existing MaterialMaster row.  Returns updated record as JSON."""
-    from flask_login import current_user
-    from app.extensions import db
-    from app.models.inventory.material_master import MaterialMaster, CORE_FIELDS
-
-    record = MaterialMaster.query.get(material)
-    if not record:
-        return jsonify({"error": f"Material {material!r} not found."}), 404
-
-    data = request.get_json(silent=True) or {}
-
-    # Update all core fields (CORE_FIELDS = all model fields except the PK)
-    for field in CORE_FIELDS:
-        if field in data:
-            setattr(record, field, data[field] or None)
-
-    # Update extra_data fields (JSON bucket for any non-schema columns)
-    if "extra_data" in data and isinstance(data["extra_data"], dict):
-        merged = dict(record.extra_data or {})
-        merged.update(data["extra_data"])
-        record.extra_data = merged
-
-    from datetime import datetime, timezone
-    record.updated_at = datetime.now(timezone.utc)
-    record.updated_by = current_user.id
-
-    try:
-        db.session.commit()
-    except Exception as exc:
-        db.session.rollback()
-        logger.exception("Failed to update master data record %s", material)
-        return jsonify({"error": str(exc)}), 500
-
-    return jsonify({"ok": True, "record": record.to_dict()})
+    return jsonify({
+        "error": "Inventory Master Data is read-only. Update master data from CSC Manage Drafts."
+    }), 403
 
 
 # ── API: Plant Grouping ───────────────────────────────────────────────────────

@@ -1,0 +1,321 @@
+{% extends "base.html" %}
+{% block title %}Master Export — Material Master Admin — {{ app_name }}{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}">
+<style nonce="{{ csp_nonce() }}">
+.csc-export-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+.csc-export-stat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  text-align: center;
+}
+.csc-export-stat-value {
+  font-size: 2.2rem;
+  font-weight: 700;
+  color: var(--primary);
+  margin-bottom: 0.5rem;
+}
+.csc-export-stat-label {
+  font-size: 0.95rem;
+  color: var(--muted);
+}
+.csc-options-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+}
+.csc-options-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 1rem;
+}
+.csc-option-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.csc-option-checkbox {
+  width: 1.2rem;
+  height: 1.2rem;
+  cursor: pointer;
+}
+.csc-option-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  color: var(--text);
+  user-select: none;
+}
+.csc-export-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+  align-items: center;
+}
+.csc-export-btn {
+  padding: 0.65rem 1.5rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  border: none;
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.csc-export-primary {
+  color: #fff;
+  background: var(--primary);
+}
+.csc-export-primary:hover {
+  opacity: 0.9;
+}
+.csc-export-secondary {
+  color: var(--text);
+  background: var(--background);
+  border: 1px solid var(--border);
+}
+.csc-export-secondary:hover {
+  background: color-mix(in srgb, var(--border) 50%, transparent);
+}
+
+.csc-export-files {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  margin-top: 2rem;
+}
+.csc-export-files-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.csc-export-files-list {
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+}
+.csc-export-file-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+.csc-export-file-item:last-child {
+  border-bottom: none;
+}
+.csc-export-file-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.csc-export-file-icon {
+  font-size: 1.5rem;
+  color: #2563eb;
+}
+.csc-export-file-details {
+  display: flex;
+  flex-direction: column;
+}
+.csc-export-file-name {
+  font-weight: 500;
+  color: var(--text);
+  text-decoration: none;
+}
+.csc-export-file-name:hover {
+  text-decoration: underline;
+}
+.csc-export-file-meta {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.csc-export-file-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+.csc-export-file-btn {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.8rem;
+  border: none;
+  border-radius: var(--radius-sm, 5px);
+  background: var(--background);
+  color: var(--text);
+  cursor: pointer;
+  border: 1px solid var(--border);
+}
+.csc-export-file-btn:hover {
+  background: color-mix(in srgb, var(--border) 50%, transparent);
+}
+.csc-no-files {
+  text-align: center;
+  padding: 2rem;
+  color: var(--muted);
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="inv-page">
+  <div class="inv-module-header">
+    <div>
+      <div class="page-kicker"><a href="{{ url_for('csc.admin_index') }}">Material Master Admin</a></div>
+      <h1 class="inv-module-title"><i class="bi bi-file-earmark-word"></i> Master Export</h1>
+      <p class="inv-module-subtitle">Generate comprehensive Word document with all published specifications and changelog</p>
+    </div>
+  </div>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+    <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  {# Summary stats #}
+  <div class="csc-export-summary">
+    <div class="csc-export-stat">
+      <div class="csc-export-stat-value">{{ stats.published_count or 0 }}</div>
+      <div class="csc-export-stat-label">Published Specs</div>
+    </div>
+    <div class="csc-export-stat">
+      <div class="csc-export-stat-value">{{ stats.subset_count or 0 }}</div>
+      <div class="csc-export-stat-label">Unique Subsets</div>
+    </div>
+    <div class="csc-export-stat">
+      <div class="csc-export-stat-value">{{ stats.total_parameters or 0 }}</div>
+      <div class="csc-export-stat-label">Total Parameters</div>
+    </div>
+    <div class="csc-export-stat">
+      <div class="csc-export-stat-value">{{ stats.last_export_at | datetime_ist('%d %b') if stats.last_export_at else 'Never' }}</div>
+      <div class="csc-export-stat-label">Last Export</div>
+    </div>
+  </div>
+
+  {# Export options #}
+  <div class="csc-options-card">
+    <h2 class="csc-options-title"><i class="bi bi-sliders"></i> Export Options</h2>
+
+    <form id="exportForm" method="GET" action="{{ url_for('csc.admin_export_master') }}">
+      <div class="csc-option-row">
+        <input type="checkbox" id="includeDraftNotes" name="include_draft_notes" class="csc-option-checkbox" value="1">
+        <label for="includeDraftNotes" class="csc-option-label">
+          <i class="bi bi-sticky"></i>
+          <span>Include draft revision notes &amp; comments</span>
+        </label>
+      </div>
+
+      <div class="csc-option-row">
+        <input type="checkbox" id="includeChangelog" name="include_changelog" class="csc-option-checkbox" value="1" checked>
+        <label for="includeChangelog" class="csc-option-label">
+          <i class="bi bi-clock-history"></i>
+          <span>Include full changelog &amp; version history</span>
+        </label>
+      </div>
+
+      <div class="csc-option-row">
+        <input type="checkbox" id="includeMetadata" name="include_metadata" class="csc-option-checkbox" value="1" checked>
+        <label for="includeMetadata" class="csc-option-label">
+          <i class="bi bi-info-circle"></i>
+          <span>Include metadata &amp; extraction source info</span>
+        </label>
+      </div>
+
+      <div class="csc-export-actions">
+        <button type="submit" class="csc-export-btn csc-export-primary" id="generateBtn">
+          <i class="bi bi-file-earmark-word"></i>
+          <span>Generate Master Document</span>
+        </button>
+        <span id="exportStatus" style="color: var(--muted); font-size: 0.9rem; display:none;">Generating...</span>
+      </div>
+    </form>
+  </div>
+
+  {# Recently exported files #}
+  {% if export_history %}
+  <div class="csc-export-files">
+    <h2 class="csc-export-files-title">
+      <i class="bi bi-file-earmark-pdf"></i>
+      Recently Exported Files
+    </h2>
+
+    <div class="csc-export-files-list">
+      {% for export_file in export_history %}
+      <div class="csc-export-file-item">
+        <div class="csc-export-file-info">
+          <div class="csc-export-file-icon">
+            {% if export_file.file_type == 'docx' %}
+            <i class="bi bi-file-earmark-word"></i>
+            {% elif export_file.file_type == 'pdf' %}
+            <i class="bi bi-file-earmark-pdf"></i>
+            {% else %}
+            <i class="bi bi-file-earmark"></i>
+            {% endif %}
+          </div>
+          <div class="csc-export-file-details">
+            <a href="{{ url_for('csc.admin_download_export', export_id=export_file.id) }}" class="csc-export-file-name" title="Download file">
+              {{ export_file.filename }}
+            </a>
+            <span class="csc-export-file-meta">
+              Generated {{ export_file.created_at | datetime_ist('%d %b %Y, %H:%M') }}
+              {% if export_file.file_size %}
+              — {{ (export_file.file_size / 1024 / 1024) | round(2) }} MB
+              {% endif %}
+            </span>
+          </div>
+        </div>
+        <div class="csc-export-file-actions">
+          <a href="{{ url_for('csc.admin_download_export', export_id=export_file.id) }}" class="csc-export-file-btn" title="Download">
+            <i class="bi bi-download"></i> Download
+          </a>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% else %}
+  <div class="csc-export-files">
+    <h2 class="csc-export-files-title">
+      <i class="bi bi-file-earmark-pdf"></i>
+      Recently Exported Files
+    </h2>
+    <div class="csc-no-files">
+      <p>No exports generated yet. Use the form above to create one.</p>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts_extra %}
+<script nonce="{{ csp_nonce() }}">
+(function() {
+  'use strict';
+
+  const exportForm = document.getElementById('exportForm');
+  const generateBtn = document.getElementById('generateBtn');
+  const exportStatus = document.getElementById('exportStatus');
+
+  exportForm.addEventListener('submit', function(e) {
+    generateBtn.disabled = true;
+    exportStatus.style.display = 'inline';
+  });
+})();
+</script>
+{% endblock %}

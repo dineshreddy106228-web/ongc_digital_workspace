@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}Edit Master Data — {{ draft.spec_number }} — {{ app_name }}{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}">
+<style nonce="{{ csp_nonce() }}">
+.csc-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1rem 1.25rem;
+}
+.csc-edit-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+.csc-edit-card h2 {
+  margin: 0 0 0.9rem;
+  font-size: 1.05rem;
+}
+.csc-edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.csc-edit-field label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.csc-edit-field small {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.csc-edit-field input,
+.csc-edit-field select,
+.csc-edit-field textarea {
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+}
+.csc-edit-field input:focus,
+.csc-edit-field select:focus,
+.csc-edit-field textarea:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.csc-edit-field input[readonly],
+.csc-edit-field textarea[readonly] {
+  background: var(--surface-alt, #f7f7f7);
+  color: var(--muted);
+}
+.csc-edit-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+}
+.csc-edit-note {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin: 0;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="inv-page">
+  <div class="inv-module-header">
+    <div>
+      <div class="page-kicker"><a href="{{ url_for('csc.admin_drafts') }}">Manage Drafts</a></div>
+      <h1 class="inv-module-title"><i class="bi bi-pencil-square"></i> Edit Material Master Data</h1>
+      <p class="inv-module-subtitle">{{ draft.spec_number }} — {{ draft.chemical_name }}</p>
+    </div>
+    <div class="inv-header-actions">
+      <span class="inv-badge inv-badge-info">{{ draft.subset_display or 'No subset' }}</span>
+      {% if form_values.material_code %}
+      <span class="inv-badge inv-badge-muted">Material {{ form_values.material_code }}</span>
+      {% endif %}
+    </div>
+  </div>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+    <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  <form method="post" action="{{ url_for('csc.admin_update_draft', draft_id=draft.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <div class="csc-edit-card">
+      <h2>CSC Draft</h2>
+      <p class="csc-edit-note">Only reference draft metadata is shown here. Workflow-controlled fields such as status, workflow stage, drafting state, and version are read-only. `Draft ID` is the CSC primary key. `Material Code` is the material master primary key and is locked once set.</p>
+      <div class="csc-edit-grid">
+        {% for field in csc_fields %}
+        {% set field_name = field.field_name %}
+        <div class="csc-edit-field">
+          <label for="{{ field_name }}">{{ field.label }}</label>
+          {% if field.input_type == 'display' %}
+          <input id="{{ field_name }}" name="{{ field_name }}" type="text" value="{{ draft_values.get(field_name, '') or '' }}" readonly>
+          {% elif field.input_type == 'select' %}
+          <select id="{{ field_name }}" name="{{ field_name }}">
+            {% for option in field.options %}
+            <option value="{{ option }}" {% if option == draft_values.get(field_name) %}selected{% endif %}>{{ option }}</option>
+            {% endfor %}
+          </select>
+          {% elif field.input_type == 'boolean' %}
+          <select id="{{ field_name }}" name="{{ field_name }}">
+            <option value="true" {% if draft_values.get(field_name) %}selected{% endif %}>Yes</option>
+            <option value="false" {% if not draft_values.get(field_name) %}selected{% endif %}>No</option>
+          </select>
+          {% elif field.input_type == 'number' %}
+          <input id="{{ field_name }}" name="{{ field_name }}" type="number" value="{{ draft_values.get(field_name, '') if draft_values.get(field_name) is not none else '' }}">
+          {% else %}
+          <input
+            id="{{ field_name }}"
+            name="{{ field_name }}"
+            type="text"
+            value="{{ draft_values.get(field_name, '') or '' }}"
+            {% if field.readonly or (field.readonly_when_present and draft_values.get(field_name)) %}readonly{% endif %}
+          >
+          {% endif %}
+          {% if field.help_text %}
+          <small>{{ field.help_text }}</small>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="csc-edit-card">
+      <h2>Material Master Table</h2>
+      <p class="csc-edit-note">Only fields that are not managed from the workflow `Material Properties`, `Storage and Handling`, or `Impact` tabs are editable here. Inventory Intelligence reads directly from this master table.</p>
+      <div class="csc-edit-grid">
+        {% for field_name, label in master_fields %}
+        <div class="csc-edit-field">
+          <label for="{{ field_name }}">{{ label }}</label>
+          <input id="{{ field_name }}" name="{{ field_name }}" type="text" value="{{ form_values.get(field_name, '') }}">
+        </div>
+        {% endfor %}
+        {% for field_name, label in master_extra_fields %}
+        <div class="csc-edit-field">
+          <label for="extra__{{ field_name }}">{{ label }}</label>
+          <input id="extra__{{ field_name }}" name="extra__{{ field_name }}" type="text" value="{{ form_values.get('extra__' + field_name, '') }}">
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="csc-edit-actions">
+      <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> Save Material Master Data</button>
+      <a href="{{ url_for('csc.editor', draft_id=draft.id) }}" class="btn btn-secondary">Open Workflow Editor</a>
+      <a href="{{ url_for('csc.admin_drafts') }}" class="btn btn-secondary">Back to Manage Drafts</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
