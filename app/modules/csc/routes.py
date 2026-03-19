@@ -1576,7 +1576,12 @@ def msds_page():
     """MSDS center within Material Master Management."""
     from app.core.services.inventory_msds import MSDSError, list_msds_documents
 
-    rows = get_all_master_data()
+    rows = []
+    try:
+        rows = get_all_master_data()
+    except Exception:
+        logger.exception("Failed to load material master rows for CSC MSDS Center")
+        flash("Material master rows could not be loaded right now.", "warning")
     msds_documents = []
     try:
         msds_documents = list_msds_documents()
