@@ -44,6 +44,7 @@ import io
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional
+from sqlalchemy import text
 
 from flask import (
     abort,
@@ -3434,6 +3435,51 @@ def admin_revisions():
         logger.error(f"Error loading revisions: {e}")
         flash("Error loading revisions.", "danger")
         return redirect(url_for("csc.admin_index"))
+
+
+@csc_bp.route("/admin/msds-diagnostics")
+@login_required
+@module_access_required("csc")
+@superuser_required
+def admin_msds_diagnostics():
+    """Report live web-process MSDS diagnostics for Railway debugging."""
+    from app.core.services.inventory_msds import list_msds_documents
+
+    payload: dict[str, object] = {
+        "app_environment_name": current_app.config.get("APP_ENVIRONMENT_NAME"),
+        "db_host": current_app.config.get("DB_HOST"),
+        "db_name": current_app.config.get("DB_NAME"),
+        "db_port": current_app.config.get("DB_PORT"),
+        "migration_head": None,
+        "current_database": None,
+        "msds_table_present": False,
+        "msds_query_ok": False,
+        "msds_count": None,
+        "error": None,
+    }
+    try:
+        current_revision = db.session.execute(
+            text("SELECT version_num FROM alembic_version LIMIT 1")
+        ).scalar()
+        payload["migration_head"] = current_revision
+    except Exception as exc:
+        payload["migration_head"] = f"error: {exc}"
+
+    try:
+        payload["current_database"] = db.session.execute(text("SELECT DATABASE()")).scalar()
+        payload["msds_table_present"] = bool(
+            db.session.execute(
+                text("SHOW TABLES LIKE 'inventory_msds_documents'")
+            ).fetchone()
+        )
+        documents = list_msds_documents()
+        payload["msds_query_ok"] = True
+        payload["msds_count"] = len(documents)
+    except Exception as exc:
+        payload["error"] = str(exc)
+        return jsonify(payload), 500
+
+    return jsonify(payload)
 
 
 @csc_bp.route("/admin/revision/<int:revision_id>/review")
