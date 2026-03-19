@@ -48,6 +48,7 @@ from sqlalchemy import text
 
 from flask import (
     abort,
+    current_app,
     flash,
     jsonify,
     make_response,
