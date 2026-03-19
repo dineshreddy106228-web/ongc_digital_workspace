@@ -103,9 +103,18 @@ def _delete_file_if_present(path_value: str | None) -> None:
 
 def _msds_metadata_unavailable_error(exc: Exception) -> MSDSError:
     current_app.logger.warning("MSDS metadata query failed", exc_info=True)
+    message = str(exc).lower()
+    if (
+        "inventory_msds_documents" in message
+        and ("doesn't exist" in message or "does not exist" in message or "1146" in message)
+    ):
+        return MSDSError(
+            "MSDS metadata is not available in this environment yet. "
+            "Apply the MSDS database migration on Railway and try again."
+        )
     return MSDSError(
-        "MSDS metadata is not available in this environment yet. "
-        "Apply the MSDS database migration on Railway and try again."
+        "MSDS metadata could not be loaded right now. "
+        "Check the Railway application logs for the exact database error."
     )
 
 
