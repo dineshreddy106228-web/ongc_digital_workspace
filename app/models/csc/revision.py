@@ -28,6 +28,20 @@ class CSCRevision(db.Model):
     authorization_confirmed = db.Column(db.Boolean, nullable=True)
     authorized_by_name = db.Column(db.String(255), nullable=True)
     subcommittee_head_name = db.Column(db.String(255), nullable=True)
+    committee_head_reviewed_at = db.Column(db.DateTime, nullable=True)
+    committee_head_notes = db.Column(db.Text, nullable=True)
+    committee_head_user_id = db.Column(
+        db.BigInteger,
+        db.ForeignKey("users.id"),
+        nullable=True,
+    )
+    module_admin_reviewed_at = db.Column(db.DateTime, nullable=True)
+    module_admin_notes = db.Column(db.Text, nullable=True)
+    module_admin_user_id = db.Column(
+        db.BigInteger,
+        db.ForeignKey("users.id"),
+        nullable=True,
+    )
 
     created_at = db.Column(
         db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
@@ -49,6 +63,16 @@ class CSCRevision(db.Model):
     child_draft = db.relationship(
         "CSCDraft",
         foreign_keys=[child_draft_id],
+        lazy="joined",
+    )
+    committee_head_user = db.relationship(
+        "User",
+        foreign_keys=[committee_head_user_id],
+        lazy="joined",
+    )
+    module_admin_user = db.relationship(
+        "User",
+        foreign_keys=[module_admin_user_id],
         lazy="joined",
     )
 
@@ -78,6 +102,12 @@ class CSCRevision(db.Model):
             "authorization_confirmed": self.authorization_confirmed,
             "authorized_by_name": self.authorized_by_name,
             "subcommittee_head_name": self.subcommittee_head_name,
+            "committee_head_reviewed_at": self.committee_head_reviewed_at.isoformat() if self.committee_head_reviewed_at else None,
+            "committee_head_notes": self.committee_head_notes,
+            "committee_head_user_id": self.committee_head_user_id,
+            "module_admin_reviewed_at": self.module_admin_reviewed_at.isoformat() if self.module_admin_reviewed_at else None,
+            "module_admin_notes": self.module_admin_notes,
+            "module_admin_user_id": self.module_admin_user_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

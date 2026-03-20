@@ -62,7 +62,7 @@ from flask_login import login_required, current_user
 
 from app.modules.csc import csc_bp
 from app.extensions import db
-from app.core.utils.decorators import module_access_required, superuser_required
+from app.core.utils.decorators import module_access_required, module_admin_required
 from app.models.csc import (
     CSCDraft,
     CSCParameter,
@@ -98,6 +98,7 @@ from app.core.services.csc_utils import (
     PARAMETER_TYPES,
     TEST_PROCEDURE_OPTIONS,
     WORKFLOW_DRAFTING_APPROVED,
+    WORKFLOW_DRAFTING_HEAD_APPROVED,
     WORKFLOW_DRAFTING_OPEN,
     WORKFLOW_DRAFTING_REJECTED,
     WORKFLOW_DRAFTING_RETURNED,
@@ -126,10 +127,12 @@ from app.core.services.csc_master_data import (
     upsert_master_record_from_form,
 )
 from app.core.services.csc_committee_directory import (
+    get_committee_access_for_username,
+    get_committee_config_payload,
     get_committee_directory,
     get_committee_tree,
     get_office_orders,
-    OFFICE_ORDERS,
+    normalize_committee_config_payload,
 )
 from app.core.services.csc_pdf_extractor import (
     ExtractedParameter,
@@ -145,11 +148,15 @@ from app.core.services.master_data import get_all_master_data
 
 logger = logging.getLogger(__name__)
 WORKFLOW_SCOPE_SECTION_NAME = "__workflow_scope_json__"
+WORKFLOW_COMMITTEE_SECTION_NAME = "__workflow_committee_slug__"
 DRAFT_ORIGIN_SECTION_NAME = "__draft_origin_json__"
+WORKFLOW_TRACK_SUBSET = "subset"
+WORKFLOW_TRACK_MATERIAL_HANDLING = "material_handling"
 WORKFLOW_SCOPE_DEFAULT = {
     "material_properties": True,
     "storage_handling": True,
-    "parameters_impact": True,
+    "parameters": True,
+    "impact": True,
     "parameter_type": True,
     "parameter_other": True,
 }
@@ -179,9 +186,38 @@ def _get_active_revision_for_parent(parent_draft_id: int | None) -> CSCRevision 
         return None
     return (
         CSCRevision.query.filter_by(parent_draft_id=parent_draft_id)
-        .filter(CSCRevision.status.in_([WORKFLOW_DRAFTING_OPEN, WORKFLOW_DRAFTING_SUBMITTED, WORKFLOW_DRAFTING_RETURNED]))
+        .filter(
+            CSCRevision.status.in_(
+                [
+                    WORKFLOW_DRAFTING_OPEN,
+                    WORKFLOW_DRAFTING_SUBMITTED,
+                    WORKFLOW_DRAFTING_HEAD_APPROVED,
+                    WORKFLOW_DRAFTING_RETURNED,
+                ]
+            )
+        )
         .order_by(CSCRevision.updated_at.desc(), CSCRevision.id.desc())
         .first()
+    )
+
+
+def _get_active_revisions_for_parent(parent_draft_id: int | None) -> list[CSCRevision]:
+    if not parent_draft_id:
+        return []
+    return (
+        CSCRevision.query.filter_by(parent_draft_id=parent_draft_id)
+        .filter(
+            CSCRevision.status.in_(
+                [
+                    WORKFLOW_DRAFTING_OPEN,
+                    WORKFLOW_DRAFTING_SUBMITTED,
+                    WORKFLOW_DRAFTING_HEAD_APPROVED,
+                    WORKFLOW_DRAFTING_RETURNED,
+                ]
+            )
+        )
+        .order_by(CSCRevision.updated_at.desc(), CSCRevision.id.desc())
+        .all()
     )
 
 
@@ -210,6 +246,17 @@ def _can_user_edit_workflow_draft(draft: CSCDraft) -> bool:
     return _is_open_revision_state(revision.status)
 
 
+def _can_current_user_edit_draft_as_committee_head(draft: CSCDraft) -> bool:
+    """Allow Committee Heads to edit submitted drafts in their covered subsets."""
+    if draft.parent_draft_id is None or draft.is_admin_draft:
+        return False
+    revision = _get_revision_for_child(draft.id)
+    if revision is None or revision.status != WORKFLOW_DRAFTING_SUBMITTED:
+        return False
+    committee_slug = _get_revision_committee_slug(revision)
+    return bool(committee_slug) and committee_slug in set(_get_current_user_committee_head_slugs())
+
+
 def _notify_superusers(title: str, message: str, link: str | None = None, severity: str = "info") -> None:
     created = False
     for user in User.query.all():
@@ -222,6 +269,26 @@ def _notify_superusers(title: str, message: str, link: str | None = None, severi
                 link=link,
             )
             created = True
+    if created:
+        db.session.commit()
+
+
+def _notify_users(user_ids: list[int | None], title: str, message: str, link: str | None = None, severity: str = "info") -> None:
+    """Create notifications for the provided unique user ids."""
+    created = False
+    seen = set()
+    for user_id in user_ids:
+        if not user_id or user_id in seen:
+            continue
+        seen.add(user_id)
+        create_notification(
+            user_id=user_id,
+            title=title,
+            message=message,
+            severity=severity,
+            link=link,
+        )
+        created = True
     if created:
         db.session.commit()
 
@@ -313,26 +380,433 @@ def _copy_draft_content(source: CSCDraft, target: CSCDraft) -> None:
 
 def _can_edit_draft(draft: CSCDraft) -> bool:
     """Check if current user can edit this draft."""
+    revision = _get_revision_for_child(draft.id)
+    if _can_current_user_edit_draft_as_committee_head(draft):
+        return True
+    if (
+        draft.parent_draft_id is not None
+        and draft.is_admin_draft
+        and draft.created_by_id == current_user.id
+        and (_current_user_is_material_master_admin() or current_user.is_super_user())
+        and revision is not None
+        and _is_open_revision_state(revision.status)
+    ):
+        return True
+    if not _draft_in_current_user_committee_scope(draft):
+        return False
     if current_user.is_super_user():
-        revision = _get_revision_for_child(draft.id)
-        return (
+        if (
             draft.parent_draft_id is not None
             and draft.is_admin_draft
             and draft.created_by_id == current_user.id
             and revision is not None
             and _is_open_revision_state(revision.status)
-        )
+        ):
+            return True
     return _can_user_edit_workflow_draft(draft)
 
 
 def _can_delete_draft(draft: CSCDraft) -> bool:
     """Check if current user can delete this draft."""
+    revision = _get_revision_for_child(draft.id)
+    if draft.parent_draft_id is None or revision is None:
+        return False
+    if not (_current_user_is_material_master_admin() or current_user.is_super_user()):
+        return False
+    return (revision.status or "").strip().lower() in {
+        WORKFLOW_DRAFTING_OPEN,
+        WORKFLOW_DRAFTING_SUBMITTED,
+        WORKFLOW_DRAFTING_HEAD_APPROVED,
+        WORKFLOW_DRAFTING_RETURNED,
+    }
+
+
+def _get_current_user_committee_access() -> dict[str, object]:
+    """Return committee assignment data for the current user."""
+    explicit_access = get_committee_access_for_username(getattr(current_user, "username", None))
+    if explicit_access.get("subset_codes") or explicit_access.get("committee_slugs"):
+        return explicit_access
     if current_user.is_super_user():
+        return {"committee_slugs": [], "committee_titles": [], "subset_codes": []}
+    return explicit_access
+
+
+def _get_current_user_committee_subset_codes() -> list[str]:
+    """Return the subset codes available to the current user."""
+    return list(_get_current_user_committee_access().get("subset_codes") or [])
+
+
+def _get_effective_committee_user_subset_codes() -> list[str]:
+    """Return subset scope for the Committee User Workbench only."""
+    return _get_current_user_committee_user_subset_codes()
+
+
+def _get_committee_user_upload_subset_codes() -> list[str]:
+    """Return subset codes eligible for committee-user new specification upload."""
+    subset_codes = set()
+    for record in _get_current_user_committee_records():
+        committee = record["committee"]
+        committee_slug = str(committee.get("slug") or "").strip()
+        if "committee_user" not in record["roles"]:
+            continue
+        if committee_slug in {"coordination", "corporate-specification-committee", "material-handling"}:
+            continue
+        for subset in committee.get("subsets") or []:
+            code = str((subset or {}).get("code") or "").strip().upper()
+            if code:
+                subset_codes.add(code)
+    ordered_codes = [code for code in SPEC_SUBSET_ORDER if code in subset_codes]
+    ordered_codes.extend(sorted(code for code in subset_codes if code not in SPEC_SUBSET_ORDER))
+    return ordered_codes
+
+
+def _require_committee_user_scope() -> None:
+    """Abort when the current user has no committee-user subset assignment."""
+    if not _get_current_user_committee_user_slugs():
+        abort(403)
+
+
+def _require_committee_user_upload_scope() -> None:
+    """Abort when the current user cannot create subset-committee uploads."""
+    if not _get_committee_user_upload_subset_codes():
+        abort(403)
+
+
+def _draft_in_current_user_committee_scope(draft: CSCDraft) -> bool:
+    """Return True when the draft falls inside the current user's covered subsets."""
+    allowed_committee_slugs = set(_get_current_user_committee_user_slugs())
+    if current_user.is_super_user() and not allowed_committee_slugs:
         return True
     revision = _get_revision_for_child(draft.id)
-    if draft.created_by_id == current_user.id and _is_open_revision_state(revision.status if revision else ""):
+    committee_slug = _get_revision_committee_slug(revision) if revision else None
+    return bool(committee_slug and committee_slug in allowed_committee_slugs)
+
+
+def _ensure_current_user_can_access_subset(subset_code: str | None) -> None:
+    """Raise PermissionError when a committee-scoped user targets an uncovered subset."""
+    allowed_subsets = set(_get_effective_committee_user_subset_codes())
+    if current_user.is_super_user() and not allowed_subsets:
+        return
+    normalized_subset = (subset_code or "").strip().upper()
+    if not normalized_subset:
+        return
+    if normalized_subset and normalized_subset in allowed_subsets:
+        return
+    raise PermissionError(
+        "You are not assigned to this subset in Governance Settings."
+    )
+
+
+def _get_current_user_committee_records() -> list[dict[str, object]]:
+    """Return normalized committee records where the current user is assigned."""
+    username_key = str(getattr(current_user, "username", "") or "").strip().lower()
+    if not username_key:
+        return []
+
+    payload = get_committee_config_payload()
+    records = []
+    for committee in [payload["ROOT_COMMITTEE"], *payload["CHILD_COMMITTEES"]]:
+        roles = []
+        if str(committee.get("committee_user") or "").strip().lower() == username_key:
+            roles.append("committee_user")
+        if str(committee.get("committee_head") or "").strip().lower() == username_key:
+            roles.append("committee_head")
+        if roles:
+            records.append({"committee": committee, "roles": roles})
+    return records
+
+
+def _get_current_user_committee_slugs_for_role(role_name: str) -> list[str]:
+    """Return committee slugs where the current user is assigned for the given role."""
+    slugs = []
+    for record in _get_current_user_committee_records():
+        if role_name in record["roles"]:
+            slug = str(record["committee"].get("slug") or "").strip()
+            if slug:
+                slugs.append(slug)
+    return list(dict.fromkeys(slugs))
+
+
+def _get_current_user_committee_user_slugs() -> list[str]:
+    return _get_current_user_committee_slugs_for_role("committee_user")
+
+
+def _get_current_user_committee_head_slugs() -> list[str]:
+    return _get_current_user_committee_slugs_for_role("committee_head")
+
+
+def _get_current_user_committee_head_subset_codes() -> list[str]:
+    """Return subset codes where the current user is configured as committee head."""
+    subset_codes = set()
+    for record in _get_current_user_committee_records():
+        committee = record["committee"]
+        if "committee_head" not in record["roles"]:
+            continue
+        if committee.get("slug") == "coordination":
+            continue
+        for subset in committee.get("subsets") or []:
+            code = str((subset or {}).get("code") or "").strip().upper()
+            if code:
+                subset_codes.add(code)
+    ordered_codes = [code for code in SPEC_SUBSET_ORDER if code in subset_codes]
+    ordered_codes.extend(sorted(code for code in subset_codes if code not in SPEC_SUBSET_ORDER))
+    return ordered_codes
+
+
+def _get_current_user_committee_user_subset_codes() -> list[str]:
+    """Return subset codes where the current user is configured as committee user."""
+    subset_codes = set()
+    for record in _get_current_user_committee_records():
+        committee = record["committee"]
+        committee_slug = str(committee.get("slug") or "").strip()
+        if "committee_user" not in record["roles"]:
+            continue
+        if committee_slug in {"coordination", "corporate-specification-committee"}:
+            continue
+        for subset in committee.get("subsets") or []:
+            code = str((subset or {}).get("code") or "").strip().upper()
+            if code:
+                subset_codes.add(code)
+    ordered_codes = [code for code in SPEC_SUBSET_ORDER if code in subset_codes]
+    ordered_codes.extend(sorted(code for code in subset_codes if code not in SPEC_SUBSET_ORDER))
+    return ordered_codes
+
+
+def _resolve_subset_committee_slug_for_subset(subset_code: str | None) -> str | None:
+    """Return the configured subset committee slug responsible for the subset."""
+    normalized_subset = str(subset_code or "").strip().upper()
+    if not normalized_subset:
+        return None
+    payload = get_committee_config_payload()
+    for committee in payload.get("CHILD_COMMITTEES", []):
+        slug = str(committee.get("slug") or "").strip()
+        if slug in {"coordination", "material-handling"}:
+            continue
+        subset_codes = {
+            str((subset or {}).get("code") or "").strip().upper()
+            for subset in (committee.get("subsets") or [])
+        }
+        if normalized_subset in subset_codes:
+            return slug
+    return None
+
+
+def _committee_slug_to_track(committee_slug: str | None) -> str | None:
+    slug = str(committee_slug or "").strip()
+    if not slug:
+        return None
+    if slug == "material-handling":
+        return WORKFLOW_TRACK_MATERIAL_HANDLING
+    if slug in {"coordination", "corporate-specification-committee"}:
+        return None
+    return WORKFLOW_TRACK_SUBSET
+
+
+def _get_workflow_committee_section(draft: CSCDraft) -> CSCSection | None:
+    if not getattr(draft, "id", None) or not getattr(draft, "parent_draft_id", None):
+        return None
+    return CSCSection.query.filter_by(
+        draft_id=draft.id,
+        section_name=WORKFLOW_COMMITTEE_SECTION_NAME,
+    ).first()
+
+
+def _write_workflow_committee_slug(draft: CSCDraft, committee_slug: str | None) -> str:
+    slug = str(committee_slug or "").strip()
+    section = _get_workflow_committee_section(draft)
+    if section is None:
+        section = CSCSection(
+            draft_id=draft.id,
+            section_name=WORKFLOW_COMMITTEE_SECTION_NAME,
+            sort_order=9997,
+        )
+        db.session.add(section)
+    section.section_text = slug
+    return slug
+
+
+def _infer_workflow_committee_slug(draft: CSCDraft | None) -> str | None:
+    if not draft:
+        return None
+    section = _get_workflow_committee_section(draft)
+    if section and (section.section_text or "").strip():
+        return (section.section_text or "").strip()
+    scope = _load_workflow_scope(draft)
+    if (
+        (_scope_allows_material_properties(scope) or _scope_allows_storage_handling(scope))
+        and not _scope_allows_impact(scope)
+    ):
+        return "material-handling"
+    return _resolve_subset_committee_slug_for_subset(draft.subset)
+
+
+def _get_revision_committee_slug(revision: CSCRevision | None) -> str | None:
+    if revision is None:
+        return None
+    return _infer_workflow_committee_slug(revision.child_draft)
+
+
+def _get_committee_title_by_slug(committee_slug: str | None) -> str:
+    slug = str(committee_slug or "").strip()
+    payload = get_committee_config_payload()
+    for committee in [payload["ROOT_COMMITTEE"], *payload["CHILD_COMMITTEES"]]:
+        if str(committee.get("slug") or "").strip() == slug:
+            return str(committee.get("title") or slug or "Committee")
+    return slug or "Committee"
+
+
+def _resolve_requested_workflow_committee_slug(parent_draft: CSCDraft, requested_track: str | None) -> str | None:
+    track = str(requested_track or "").strip().lower()
+    if track == WORKFLOW_TRACK_MATERIAL_HANDLING:
+        return "material-handling"
+    if track == WORKFLOW_TRACK_SUBSET:
+        return _resolve_subset_committee_slug_for_subset(parent_draft.subset)
+    return None
+
+
+def _current_user_is_governance_committee_member() -> bool:
+    """Return True when the current user is the Governance Committee user/head."""
+    return any(
+        (record["committee"].get("slug") == "coordination")
+        for record in _get_current_user_committee_records()
+    )
+
+
+def _current_user_is_material_master_admin() -> bool:
+    """Return True when the current user is a module admin for CSC."""
+    return current_user.is_module_admin("csc")
+
+
+def _can_current_user_view_revision_snapshot(revision: CSCRevision) -> bool:
+    """Return True when the current user can open a read-only revision snapshot."""
+    if _current_user_is_material_master_admin() or current_user.is_super_user():
         return True
-    return False
+    if _current_user_is_governance_committee_member():
+        return True
+    committee_slug = _get_revision_committee_slug(revision)
+    return bool(committee_slug and committee_slug in set(_get_current_user_committee_head_slugs()))
+
+
+def _can_current_user_decide_revision_as_committee_head(revision: CSCRevision) -> bool:
+    """Return True when the current user can take committee-head decisions."""
+    committee_slug = _get_revision_committee_slug(revision)
+    return (
+        revision.status == WORKFLOW_DRAFTING_SUBMITTED
+        and bool(committee_slug)
+        and committee_slug in set(_get_current_user_committee_head_slugs())
+    )
+
+
+def _can_current_user_decide_revision_as_module_admin(revision: CSCRevision) -> bool:
+    """Return True when the current user can take module-admin decisions."""
+    return (
+        (_current_user_is_material_master_admin() or current_user.is_super_user())
+        and revision.status == WORKFLOW_DRAFTING_HEAD_APPROVED
+    )
+
+
+def _require_revision_snapshot_access(revision: CSCRevision) -> None:
+    """Abort when the current user cannot inspect the revision snapshot."""
+    if not _can_current_user_view_revision_snapshot(revision):
+        abort(403)
+
+
+def _get_material_master_admin_users() -> list[User]:
+    """Return active module admins for the CSC module."""
+    return sorted(
+        [
+        user
+        for user in User.query.filter_by(is_active=True).all()
+        if user.is_module_admin("csc")
+        ],
+        key=lambda user: ((user.full_name or "").strip().lower(), user.username.lower()),
+    )
+
+
+def _get_material_master_admin_labels() -> list[str]:
+    """Return display labels for assigned CSC module admins."""
+    return [
+        f"{user.full_name} ({user.username})"
+        if (user.full_name or "").strip()
+        else user.username
+        for user in _get_material_master_admin_users()
+    ]
+
+
+@csc_bp.context_processor
+def inject_csc_workflow_navigation():
+    """Expose CSC workflow-navigation visibility flags to templates."""
+    return {
+        "csc_can_access_committee_user_workbench": bool(_get_current_user_committee_user_slugs()),
+        "csc_can_upload_new_specs": bool(_get_committee_user_upload_subset_codes()),
+        "csc_can_access_review_workbench": (
+            _current_user_is_governance_committee_member()
+            or bool(_get_current_user_committee_head_slugs())
+        ),
+        "csc_is_material_master_admin": _current_user_is_material_master_admin(),
+    }
+
+
+def _get_committee_head_user_ids_for_subset(subset_code: str | None) -> list[int]:
+    """Return active configured committee-head user ids for the subset."""
+    normalized_subset = str(subset_code or "").strip().upper()
+    if not normalized_subset:
+        return []
+
+    user_ids: list[int] = []
+    for committee in get_committee_config_payload().get("CHILD_COMMITTEES", []):
+        if committee.get("slug") == "coordination":
+            continue
+        subset_codes = {
+            str((subset or {}).get("code") or "").strip().upper()
+            for subset in (committee.get("subsets") or [])
+        }
+        if normalized_subset not in subset_codes:
+            continue
+        username = str(committee.get("committee_head") or "").strip()
+        if not username:
+            continue
+        user = User.query.filter_by(username=username, is_active=True).first()
+        if user:
+            user_ids.append(user.id)
+
+    return list(dict.fromkeys(user_ids))
+
+
+def _get_committee_user_ids_for_committee_slug(committee_slug: str | None, role_field: str) -> list[int]:
+    """Return active configured committee user/head ids for the committee slug."""
+    slug = str(committee_slug or "").strip()
+    if role_field not in {"committee_user", "committee_head"} or not slug:
+        return []
+    for committee in get_committee_config_payload().get("CHILD_COMMITTEES", []):
+        if str(committee.get("slug") or "").strip() != slug:
+            continue
+        username = str(committee.get(role_field) or "").strip()
+        if not username:
+            return []
+        user = User.query.filter_by(username=username, is_active=True).first()
+        return [user.id] if user else []
+    return []
+
+
+def _get_committee_user_display_label_for_committee_slug(committee_slug: str | None, role_field: str) -> str:
+    """Return display label for the configured committee user/head on a committee slug."""
+    slug = str(committee_slug or "").strip()
+    if role_field not in {"committee_user", "committee_head"} or not slug:
+        return ""
+    for committee in get_committee_config_payload().get("CHILD_COMMITTEES", []):
+        if str(committee.get("slug") or "").strip() != slug:
+            continue
+        username = str(committee.get(role_field) or "").strip()
+        if not username:
+            return ""
+        user = User.query.filter_by(username=username, is_active=True).first()
+        if not user:
+            return username
+        if (user.full_name or "").strip():
+            return f"{user.full_name} ({user.username})"
+        return user.username
+    return ""
 
 
 def _load_draft_origin_metadata(draft: CSCDraft) -> dict[str, object]:
@@ -643,6 +1117,10 @@ def _create_new_spec_workflow_from_extraction(spec: SpecDocument, source_label: 
         is_admin_draft=False,
     )
     _write_workflow_scope(child_draft, dict(WORKFLOW_SCOPE_DEFAULT))
+    _write_workflow_committee_slug(
+        child_draft,
+        _resolve_subset_committee_slug_for_subset(subset_code),
+    )
     _write_draft_origin_metadata(
         child_draft,
         {
@@ -820,6 +1298,9 @@ def _build_parameter_review_rows_for_draft(
     parent_draft: CSCDraft | None = None,
 ) -> list[dict[str, str]]:
     """Build review/export parameter rows using parent-vs-child comparisons when available."""
+    if parent_draft is None and getattr(draft, "parent_draft_id", None):
+        parent_draft = db.session.get(CSCDraft, draft.parent_draft_id)
+
     parent_by_sort: dict[int, CSCParameter] = {}
     parent_by_name: dict[str, CSCParameter] = {}
     if parent_draft is not None:
@@ -912,15 +1393,33 @@ def _normalize_workflow_scope_payload(raw: object | None) -> dict[str, bool]:
     """Normalize workflow scope JSON stored on workflow drafts."""
     payload = dict(WORKFLOW_SCOPE_DEFAULT)
     data = raw if isinstance(raw, dict) else {}
+    explicit_parameter_main = False
+    explicit_parameter_suboptions = False
 
-    for key in WORKFLOW_SCOPE_DEFAULT:
+    for key in ("material_properties", "storage_handling", "parameter_type", "parameter_other"):
         if key in data:
             payload[key] = _coerce_admin_boolean(data.get(key))
+            if key in {"parameter_type", "parameter_other"}:
+                explicit_parameter_suboptions = True
 
-    if not payload["parameters_impact"]:
+    if "parameters" in data:
+        payload["parameters"] = _coerce_admin_boolean(data.get("parameters"))
+        explicit_parameter_main = True
+    elif "parameters_impact" in data:
+        payload["parameters"] = _coerce_admin_boolean(data.get("parameters_impact"))
+        explicit_parameter_main = True
+
+    if "impact" in data:
+        payload["impact"] = _coerce_admin_boolean(data.get("impact"))
+    elif "parameters_impact" in data:
+        payload["impact"] = _coerce_admin_boolean(data.get("parameters_impact"))
+
+    if explicit_parameter_main and not payload["parameters"]:
         payload["parameter_type"] = False
         payload["parameter_other"] = False
-    elif "parameter_type" not in data and "parameter_other" not in data:
+    elif explicit_parameter_suboptions:
+        payload["parameters"] = bool(payload["parameter_type"] or payload["parameter_other"])
+    elif explicit_parameter_main and payload["parameters"]:
         payload["parameter_type"] = True
         payload["parameter_other"] = True
 
@@ -964,7 +1463,7 @@ def _write_workflow_scope(draft: CSCDraft, raw_scope: object | None) -> dict[str
 
 
 def _validate_workflow_scope(scope: dict[str, bool]) -> str | None:
-    if not any(scope.get(key) for key in ("material_properties", "storage_handling", "parameters_impact")):
+    if not any(scope.get(key) for key in ("material_properties", "storage_handling", "parameters", "impact")):
         return "Select at least one revision tab before creating the workflow."
     return None
 
@@ -978,11 +1477,11 @@ def _scope_allows_storage_handling(scope: dict[str, bool]) -> bool:
 
 
 def _scope_allows_impact(scope: dict[str, bool]) -> bool:
-    return bool(scope.get("parameters_impact"))
+    return bool(scope.get("impact"))
 
 
 def _scope_allows_parameter_tab(scope: dict[str, bool]) -> bool:
-    return bool(scope.get("parameter_type") or scope.get("parameter_other"))
+    return bool(scope.get("parameters") and (scope.get("parameter_type") or scope.get("parameter_other")))
 
 
 def _summarize_workflow_scope(scope: dict[str, bool]) -> list[str]:
@@ -991,16 +1490,16 @@ def _summarize_workflow_scope(scope: dict[str, bool]) -> list[str]:
         summary.append("Material Properties")
     if _scope_allows_storage_handling(scope):
         summary.append("Storage and Handling")
-    if _scope_allows_impact(scope):
+    if _scope_allows_parameter_tab(scope):
         parameter_parts = []
         if scope.get("parameter_type"):
             parameter_parts.append("Type")
         if scope.get("parameter_other"):
             parameter_parts.append("Other than Type")
         if parameter_parts:
-            summary.append("Parameters & Impact — " + ", ".join(parameter_parts))
-        else:
-            summary.append("Impact only")
+            summary.append("Parameters — " + ", ".join(parameter_parts))
+    if _scope_allows_impact(scope):
+        summary.append("Impact")
     return summary
 
 
@@ -1057,6 +1556,89 @@ def _create_workflow_child_draft(
     return child_draft
 
 
+def _get_active_revision_for_parent_committee(
+    parent_draft_id: int | None,
+    committee_slug: str | None,
+) -> CSCRevision | None:
+    slug = str(committee_slug or "").strip()
+    if not slug:
+        return None
+    for revision in _get_active_revisions_for_parent(parent_draft_id):
+        if _get_revision_committee_slug(revision) == slug:
+            return revision
+    return None
+
+
+def _open_committee_workflow_draft_for_parent(
+    parent_draft: CSCDraft,
+    workflow_scope: dict[str, bool],
+    workflow_track: str,
+) -> tuple[CSCDraft | None, bool, str | None]:
+    """Create or reuse a committee-facing workflow draft for the selected track."""
+    committee_slug = _resolve_requested_workflow_committee_slug(parent_draft, workflow_track)
+    if not committee_slug:
+        return None, False, "No committee is configured for the selected workflow track."
+
+    active_revisions = _get_active_revisions_for_parent(parent_draft.id)
+    existing_for_committee = _get_active_revision_for_parent_committee(parent_draft.id, committee_slug)
+    if existing_for_committee and existing_for_committee.child_draft:
+        _write_workflow_scope(existing_for_committee.child_draft, workflow_scope)
+        _write_workflow_committee_slug(existing_for_committee.child_draft, committee_slug)
+        return existing_for_committee.child_draft, False, None
+
+    if len(active_revisions) >= 2:
+        return None, False, "Only two active workflow drafts are allowed per specification at a time."
+
+    child_draft = _create_workflow_child_draft(
+        parent_draft,
+        created_by_id=current_user.id,
+        created_by_role=current_user.role.name if current_user.role else "Admin",
+        is_admin_draft=True,
+    )
+    _write_workflow_scope(child_draft, workflow_scope)
+    _write_workflow_committee_slug(child_draft, committee_slug)
+
+    revision = CSCRevision(
+        parent_draft_id=parent_draft.id,
+        child_draft_id=child_draft.id,
+        status=WORKFLOW_DRAFTING_OPEN,
+    )
+    db.session.add(revision)
+    parent_draft.status = "Drafting"
+    parent_draft.admin_stage = ADMIN_STAGE_DRAFTING
+    parent_draft.updated_at = datetime.now(timezone.utc)
+    return child_draft, True, None
+
+
+def _build_workflow_meta_lines(
+    parent_draft: CSCDraft,
+    child_draft: CSCDraft | None,
+    revision: CSCRevision | None,
+) -> list[str]:
+    """Return high-signal workflow metadata lines for Secretary notifications/popups."""
+    committee_slug = _get_revision_committee_slug(revision) if revision else _infer_workflow_committee_slug(child_draft)
+    committee_title = _get_committee_title_by_slug(committee_slug)
+    committee_user_label = _get_committee_user_display_label_for_committee_slug(committee_slug, "committee_user")
+    drafting_status = (revision.status if revision else "") or "open"
+    lines = [
+        f"Specification: {parent_draft.spec_number} — {parent_draft.chemical_name}",
+        f"Committee: {committee_title}",
+        f"Draft ID: {child_draft.id if child_draft else '—'}",
+        f"Workflow Status: {drafting_status.replace('_', ' ').title()}",
+    ]
+    if committee_user_label:
+        lines.append(f"Assigned User: {committee_user_label}")
+    return lines
+
+
+def _mark_response_no_store(response):
+    """Disable browser caching for live workflow surfaces."""
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
 def _open_admin_self_draft_for_parent(
     parent_draft: CSCDraft,
     workflow_scope: dict[str, bool],
@@ -1073,10 +1655,10 @@ def _open_admin_self_draft_for_parent(
             _write_workflow_scope(child_draft, workflow_scope)
             return child_draft, False, None
 
-        if active_revision.status == WORKFLOW_DRAFTING_SUBMITTED:
+        if active_revision.status in {WORKFLOW_DRAFTING_SUBMITTED, WORKFLOW_DRAFTING_HEAD_APPROVED}:
             return None, False, (
-                "A submitted committee draft is already under admin review. "
-                "Approve, return, or reject it before creating your own admin draft."
+                "A committee workflow draft is already under review. "
+                "Close that workflow before creating your own admin draft."
             )
 
         owner_name = (
@@ -1168,6 +1750,32 @@ def _build_revision_review_context(revision: CSCRevision) -> dict[str, object]:
         {
             "label": "Open for Revision",
             "value": _display_review_value(", ".join(_summarize_workflow_scope(workflow_scope))),
+        },
+        {
+            "label": "Committee Head Review",
+            "value": _display_review_value(
+                revision.committee_head_user.username
+                if revision.committee_head_user
+                else None
+            ),
+        },
+        {
+            "label": "Committee Head Reviewed At",
+            "value": revision.committee_head_reviewed_at,
+            "is_datetime": True,
+        },
+        {
+            "label": "Material Master Admin Review",
+            "value": _display_review_value(
+                revision.module_admin_user.username
+                if revision.module_admin_user
+                else None
+            ),
+        },
+        {
+            "label": "Material Master Admin Reviewed At",
+            "value": revision.module_admin_reviewed_at,
+            "is_datetime": True,
         },
     ]
 
@@ -1305,6 +1913,9 @@ def _build_draft_export_review_context(draft: CSCDraft) -> dict[str, object]:
         ],
         "impact_rows": impact_rows,
         "revision": revision,
+        "latest_review_notes": (
+            revision.module_admin_notes or revision.committee_head_notes or revision.reviewer_notes
+        ) if revision is not None else "",
     }
 
 
@@ -1314,11 +1925,12 @@ def _get_admin_stats() -> dict:
         return {
             "published": CSCDraft.query.filter_by(status="Published", parent_draft_id=None).count(),
             "drafting": CSCDraft.query.filter_by(status="Drafting", parent_draft_id=None).count(),
-            "submitted": CSCRevision.query.filter_by(status=WORKFLOW_DRAFTING_SUBMITTED).count(),
+            "submitted_to_head": CSCRevision.query.filter_by(status=WORKFLOW_DRAFTING_SUBMITTED).count(),
+            "pending_admin": CSCRevision.query.filter_by(status=WORKFLOW_DRAFTING_HEAD_APPROVED).count(),
             "returned": CSCRevision.query.filter_by(status=WORKFLOW_DRAFTING_RETURNED).count(),
         }
     except Exception:
-        return {"published": 0, "drafting": 0, "submitted": 0, "returned": 0}
+        return {"published": 0, "drafting": 0, "submitted_to_head": 0, "pending_admin": 0, "returned": 0}
 
 
 def _get_export_stats() -> dict:
@@ -1452,6 +2064,134 @@ def _build_export_bundle(draft: CSCDraft) -> dict[str, object]:
     }
 
 
+def _serialize_review_context_for_snapshot(review_context: dict[str, object]) -> dict[str, object]:
+    """Convert a live review context into a JSON-safe payload for version snapshots."""
+    draft = review_context.get("draft") or {}
+    if hasattr(draft, "to_dict"):
+        draft_payload = draft.to_dict()
+    elif isinstance(draft, dict):
+        draft_payload = dict(draft)
+    else:
+        draft_payload = {}
+
+    summary_rows = []
+    for row in review_context.get("summary_rows", []) or []:
+        if not isinstance(row, dict):
+            continue
+        normalized_row = dict(row)
+        value = normalized_row.get("value")
+        if isinstance(value, datetime):
+            normalized_row["value"] = value.isoformat()
+        summary_rows.append(normalized_row)
+
+    return {
+        "draft": draft_payload,
+        "summary_rows": summary_rows,
+        "section_rows": list(review_context.get("section_rows", []) or []),
+        "parameter_rows": list(review_context.get("parameter_rows", []) or []),
+        "master_rows": list(review_context.get("master_rows", []) or []),
+        "material_property_rows": list(review_context.get("material_property_rows", []) or []),
+        "storage_rows": list(review_context.get("storage_rows", []) or []),
+        "impact_rows": list(review_context.get("impact_rows", []) or []),
+        "latest_review_notes": (
+            review_context.get("latest_review_notes")
+            or getattr(review_context.get("revision"), "reviewer_notes", "")
+            or ""
+        ),
+    }
+
+
+def _override_review_context_summary_value(
+    review_context: dict[str, object],
+    label: str,
+    value: object,
+) -> None:
+    """Update a summary-row value in place when capturing published snapshots."""
+    summary_rows = review_context.get("summary_rows")
+    if not isinstance(summary_rows, list):
+        return
+    for row in summary_rows:
+        if isinstance(row, dict) and row.get("label") == label:
+            row["value"] = value
+            return
+
+
+def _load_spec_version_snapshot_payload(snapshot: CSCSpecVersion | None) -> dict[str, object]:
+    """Parse a version snapshot payload safely."""
+    if snapshot is None or not (snapshot.payload_json or "").strip():
+        return {}
+    try:
+        payload = json.loads(snapshot.payload_json or "{}")
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _extract_review_context_from_snapshot_payload(payload: dict[str, object] | None) -> dict[str, object] | None:
+    """Return stored review-context payload when available."""
+    if not isinstance(payload, dict):
+        return None
+    review_context = payload.get("review_context")
+    return review_context if isinstance(review_context, dict) else None
+
+
+def _snapshot_has_exact_published_dossier(snapshot: CSCSpecVersion | None) -> bool:
+    """Return True only when the snapshot stores the original published review dossier."""
+    return _extract_review_context_from_snapshot_payload(
+        _load_spec_version_snapshot_payload(snapshot)
+    ) is not None
+
+
+def _build_published_version_map(draft: CSCDraft) -> list[dict[str, object]]:
+    """Build ordered version-history nodes for the published spec detail page."""
+    rows: list[dict[str, object]] = []
+    seen_versions: set[int] = set()
+    snapshots = draft.spec_versions.order_by(
+        CSCSpecVersion.spec_version.asc(),
+        CSCSpecVersion.created_at.asc(),
+    ).all()
+
+    for snapshot in snapshots:
+        has_review_context = _snapshot_has_exact_published_dossier(snapshot)
+        is_current = snapshot.spec_version == draft.spec_version
+        rows.append(
+            {
+                "spec_version": snapshot.spec_version,
+                "version_label": format_spec_version(snapshot.spec_version),
+                "created_at": snapshot.created_at,
+                "created_by": snapshot.created_by or "system",
+                "source_action": snapshot.source_action or "",
+                "remarks": snapshot.remarks or "",
+                "is_current": is_current,
+                "can_download_dossier": has_review_context,
+                "availability_note": (
+                    "Exact published dossier available"
+                    if has_review_context
+                    else "Legacy version snapshot does not include a dossier payload"
+                ),
+            }
+        )
+        seen_versions.add(snapshot.spec_version)
+
+    if draft.spec_version not in seen_versions:
+        rows.append(
+            {
+                "spec_version": draft.spec_version,
+                "version_label": format_spec_version(draft.spec_version),
+                "created_at": draft.updated_at,
+                "created_by": draft.reviewed_by or draft.prepared_by or "system",
+                "source_action": "current_published_state",
+                "remarks": "",
+                "is_current": True,
+                "can_download_dossier": False,
+                "availability_note": "Exact published dossier was not retained for this version",
+            }
+        )
+
+    rows.sort(key=lambda row: int(row["spec_version"]))
+    return rows
+
+
 def _get_version_changelog() -> list[dict[str, object]]:
     rows = (
         db.session.query(
@@ -1554,6 +2294,15 @@ def index():
         committee_directory=get_committee_directory(),
         committee_tree=get_committee_tree(),
         office_orders=get_office_orders(),
+        material_master_admin_labels=_get_material_master_admin_labels(),
+        can_access_committee_user_workbench=(
+            bool(_get_current_user_committee_user_slugs())
+        ),
+        can_access_review_workbench=(
+            _current_user_is_governance_committee_member()
+            or bool(_get_current_user_committee_head_slugs())
+        ),
+        is_material_master_admin=_current_user_is_material_master_admin(),
     )
 
 
@@ -1568,6 +2317,15 @@ def landing():
         committee_directory=get_committee_directory(),
         committee_tree=get_committee_tree(),
         office_orders=get_office_orders(),
+        material_master_admin_labels=_get_material_master_admin_labels(),
+        can_access_committee_user_workbench=(
+            bool(_get_current_user_committee_user_slugs())
+        ),
+        can_access_review_workbench=(
+            _current_user_is_governance_committee_member()
+            or bool(_get_current_user_committee_head_slugs())
+        ),
+        is_material_master_admin=_current_user_is_material_master_admin(),
     )
 
 
@@ -1687,7 +2445,7 @@ def delete_msds(material_code: str):
 @login_required
 @module_access_required("csc")
 def office_order(slug: str):
-    """Stream configured office-order PDFs for committee governance."""
+    """Stream office-order PDFs stored in the database for committee governance."""
     download = request.args.get("download", "").strip().lower() in {"1", "true", "yes"}
 
     try:
@@ -1702,23 +2460,11 @@ def office_order(slug: str):
                 mimetype="application/pdf",
             )
     except Exception:
-        pass
-
-    order = next((item for item in OFFICE_ORDERS if item["slug"] == slug), None)
-    if order is None:
-        abort(404)
-
-    path = Path(order["path"])
-    if not path.exists():
-        flash("Office order file is not available on this machine.", "danger")
+        logger.exception("Failed to load office order from database for slug=%s", slug)
         return redirect(url_for("csc.index"))
 
-    return send_file(
-        path,
-        as_attachment=download,
-        download_name=path.name,
-        mimetype="application/pdf",
-    )
+    flash("Office order PDF is not uploaded in Governance Settings.", "danger")
+    return redirect(url_for("csc.index"))
 
 
 @csc_bp.route("/api/overview")
@@ -1733,8 +2479,8 @@ def api_overview():
         open_drafting = CSCRevision.query.filter(
             CSCRevision.status.in_([WORKFLOW_DRAFTING_OPEN, WORKFLOW_DRAFTING_RETURNED])
         ).count()
-        submitted = CSCRevision.query.filter_by(
-            status=WORKFLOW_DRAFTING_SUBMITTED
+        submitted = CSCRevision.query.filter(
+            CSCRevision.status.in_([WORKFLOW_DRAFTING_SUBMITTED, WORKFLOW_DRAFTING_HEAD_APPROVED])
         ).count()
         published = CSCDraft.query.filter_by(
             parent_draft_id=None,
@@ -1757,24 +2503,53 @@ def api_overview():
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-@csc_bp.route("/workspace")
-@login_required
-@module_access_required("csc")
-def workspace():
-    """Draft selection/list page filtered by user's committee."""
+def _render_committee_user_workbench():
+    """Render the committee-user drafting workbench."""
     try:
-        return render_template(
-            "csc/workspace.html",
-            drafts=[],
-            q=request.args.get("q", "").strip(),
-            subset_filter=request.args.get("subset", "").strip(),
-            status_filter=request.args.get("status", "").strip().lower(),
-            subset_options=_get_spec_subsets(),
+        allowed_subset_codes = _get_effective_committee_user_subset_codes()
+        subset_options = _get_spec_subsets()
+        if allowed_subset_codes:
+            subset_options = [
+                subset for subset in subset_options
+                if subset["code"] in set(allowed_subset_codes)
+            ]
+        response = make_response(
+            render_template(
+                "csc/workspace.html",
+                drafts=[],
+                q=request.args.get("q", "").strip(),
+                subset_filter=request.args.get("subset", "").strip(),
+                status_filter=request.args.get("status", "").strip().lower(),
+                subset_options=subset_options,
+                allowed_subset_codes=allowed_subset_codes,
+                allowed_subset_labels=[
+                    _subset_display(code) or code for code in allowed_subset_codes
+                ],
+                user_committee_titles=_get_current_user_committee_access().get("committee_titles", []),
+                can_create_scoped_draft=bool(_get_committee_user_upload_subset_codes()),
+            )
         )
+        return _mark_response_no_store(response)
     except Exception as e:
         logger.error(f"Error loading workspace: {e}")
         flash("Error loading workspace.", "danger")
         return redirect(url_for("csc.index"))
+
+
+@csc_bp.route("/committee-user-workbench")
+@login_required
+@module_access_required("csc")
+def committee_user_workbench():
+    """Committee-user drafting workbench filtered by subset coverage."""
+    return _render_committee_user_workbench()
+
+
+@csc_bp.route("/workspace")
+@login_required
+@module_access_required("csc")
+def workspace():
+    """Legacy alias for the committee-user drafting workbench."""
+    return _render_committee_user_workbench()
 
 
 @csc_bp.route("/ingest")
@@ -1782,6 +2557,7 @@ def workspace():
 @module_access_required("csc")
 def ingest():
     """Committee-facing ingest page for brand-new specifications."""
+    _require_committee_user_upload_scope()
     return render_template("csc/ingest.html", staged_spec=None)
 
 
@@ -1790,6 +2566,7 @@ def ingest():
 @module_access_required("csc")
 def ingest_pdf():
     """Extract a CSC Format A PDF and stage it for committee review."""
+    _require_committee_user_upload_scope()
     try:
         file = request.files.get("pdf_file")
         if file is None or file.filename == "":
@@ -1797,12 +2574,16 @@ def ingest_pdf():
             return redirect(url_for("csc.ingest"))
 
         spec = extract_spec_from_pdf(file.read())
+        _ensure_current_user_can_access_subset(parse_spec_number(spec.spec_number or "")[0])
         return render_template(
             "csc/ingest.html",
             staged_spec=_build_ingest_preview_spec(spec),
             staged_source_label="PDF",
             staged_filename=(file.filename or "").strip(),
         )
+    except PermissionError as e:
+        flash(str(e), "danger")
+        return redirect(url_for("csc.ingest"))
     except Exception as e:
         logger.error(f"Error ingesting committee PDF: {e}")
         db.session.rollback()
@@ -1818,6 +2599,7 @@ def ingest_pdf():
 @module_access_required("csc")
 def ingest_docx():
     """Extract a single CSC Format A DOCX and stage it for committee review."""
+    _require_committee_user_upload_scope()
     try:
         file = request.files.get("docx_file")
         if file is None or file.filename == "":
@@ -1830,12 +2612,16 @@ def ingest_docx():
                 "Upload a single CSC Format A specification DOCX. Master/bulk DOCX ingestion remains an admin-only task."
             )
 
+        _ensure_current_user_can_access_subset(parse_spec_number(specs[0].spec_number or "")[0])
         return render_template(
             "csc/ingest.html",
             staged_spec=_build_ingest_preview_spec(specs[0]),
             staged_source_label="DOCX",
             staged_filename=(file.filename or "").strip(),
         )
+    except PermissionError as e:
+        flash(str(e), "danger")
+        return redirect(url_for("csc.ingest"))
     except Exception as e:
         logger.error(f"Error ingesting committee DOCX: {e}")
         db.session.rollback()
@@ -1848,9 +2634,11 @@ def ingest_docx():
 @module_access_required("csc")
 def create_ingested_draft():
     """Create the workflow draft from the reviewed extraction payload."""
+    _require_committee_user_upload_scope()
     try:
         source_label = (request.form.get("source_label") or "Upload").strip()
         spec = _spec_document_from_ingest_form()
+        _ensure_current_user_can_access_subset(parse_spec_number(spec.spec_number or "")[0])
         child_draft = _create_new_spec_workflow_from_extraction(spec, source_label)
         db.session.commit()
         _create_audit_entry(
@@ -1866,6 +2654,9 @@ def create_ingested_draft():
         )
         flash(f"New specification draft created for {child_draft.spec_number}.", "success")
         return redirect(url_for("csc.editor", draft_id=child_draft.id))
+    except PermissionError as e:
+        flash(str(e), "danger")
+        return redirect(url_for("csc.ingest"))
     except Exception as e:
         logger.error(f"Error creating committee draft from staged extraction: {e}")
         db.session.rollback()
@@ -1881,13 +2672,22 @@ def api_drafts():
     try:
         subset = request.args.get("subset", "").strip()
         search = request.args.get("search", request.args.get("q", "")).strip()
+        allowed_committee_slugs = set(_get_current_user_committee_user_slugs())
 
         query = CSCDraft.query.filter(CSCDraft.parent_draft_id.isnot(None))
         query = query.join(CSCRevision, CSCRevision.child_draft_id == CSCDraft.id)
-        if not current_user.is_super_user():
-            query = query.filter(
-                CSCRevision.status.in_([WORKFLOW_DRAFTING_OPEN, WORKFLOW_DRAFTING_RETURNED])
+        query = query.filter(
+            CSCRevision.status.in_(
+                [
+                    WORKFLOW_DRAFTING_OPEN,
+                    WORKFLOW_DRAFTING_RETURNED,
+                    WORKFLOW_DRAFTING_SUBMITTED,
+                    WORKFLOW_DRAFTING_HEAD_APPROVED,
+                ]
             )
+        )
+        if not allowed_committee_slugs and not current_user.is_super_user():
+            return _mark_response_no_store(jsonify({"drafts": [], "total": 0}))
 
         if subset and subset != "all":
             query = query.filter(CSCDraft.spec_number.ilike(f"ONGC/{subset}/%"))
@@ -1900,9 +2700,16 @@ def api_drafts():
                 )
             )
 
-        drafts = sorted(query.all(), key=_draft_sort_key)
+        drafts = []
+        for draft in query.all():
+            revision = _get_revision_for_child(draft.id)
+            committee_slug = _get_revision_committee_slug(revision)
+            if allowed_committee_slugs and committee_slug not in allowed_committee_slugs:
+                continue
+            drafts.append(draft)
+        drafts = sorted(drafts, key=_draft_sort_key)
 
-        return jsonify({
+        response = jsonify({
             "drafts": [
                 {
                     "id": d.id,
@@ -1915,6 +2722,7 @@ def api_drafts():
                     "subset_label": d.subset_label,
                     "subset_display": d.subset_display,
                     "version": d.version,
+                    "can_edit": _can_edit_draft(d),
                     "created_at": d.created_at.isoformat(),
                     "updated_at": d.updated_at.isoformat(),
                 }
@@ -1922,6 +2730,7 @@ def api_drafts():
             ],
             "total": len(drafts),
         })
+        return _mark_response_no_store(response)
     except Exception as e:
         logger.error(f"Error fetching drafts: {e}")
         return jsonify({"error": str(e)}), 500
@@ -1940,6 +2749,8 @@ def editor(draft_id: int):
         if not _can_edit_draft(draft):
             flash("You do not have permission to edit this draft.", "danger")
             return redirect(url_for("csc.workspace"))
+
+        editor_mode = "committee_head" if _can_current_user_edit_draft_as_committee_head(draft) else "committee_user"
 
         section_rows = draft.sections.order_by(CSCSection.sort_order).all()
         sections = {section.section_name: section.section_text or "" for section in section_rows}
@@ -1962,30 +2773,48 @@ def editor(draft_id: int):
                 }
             )
 
-        parameters = [
-            {
-                "id": parameter.id,
-                "parameter_name": parameter.parameter_name,
-                "parameter_type": parameter.parameter_type or "Desirable",
-                "unit_of_measure": parameter.unit_of_measure or "",
-                "specification": parameter.existing_value or "",
-                "required_value_type": parameter.required_value_type or "text",
-                "required_value_text": parameter.required_value_text or parameter.existing_value or "",
-                "required_value_operator_1": parameter.required_value_operator_1 or "",
-                "required_value_value_1": parameter.required_value_value_1 or "",
-                "required_value_operator_2": parameter.required_value_operator_2 or "",
-                "required_value_value_2": parameter.required_value_value_2 or "",
-                "parameter_conditions": parameter.parameter_conditions or "",
-                "test_method": parameter.test_method or "",
-                "test_procedure_type": normalize_test_procedure_type(
-                    parameter.test_procedure_type or parameter.test_method or ""
-                ),
-                "test_procedure_text": parameter.test_procedure_text or parameter.test_method or "",
-                "proposed_value": parameter.proposed_value or "",
-                "approved": False,
+        parent_by_sort: dict[int, CSCParameter] = {}
+        parent_by_name: dict[str, CSCParameter] = {}
+        parent_draft = db.session.get(CSCDraft, draft.parent_draft_id) if draft.parent_draft_id else None
+        if parent_draft is not None:
+            parent_parameters = parent_draft.parameters.order_by(CSCParameter.sort_order).all()
+            parent_by_sort = {parameter.sort_order: parameter for parameter in parent_parameters}
+            parent_by_name = {
+                (parameter.parameter_name or "").strip().lower(): parameter
+                for parameter in parent_parameters
+                if (parameter.parameter_name or "").strip()
             }
-            for parameter in draft.parameters.order_by(CSCParameter.sort_order).all()
-        ]
+
+        parameters = []
+        for parameter in draft.parameters.order_by(CSCParameter.sort_order).all():
+            parent_parameter = _match_parent_parameter(parameter, parent_by_sort, parent_by_name)
+            parameters.append(
+                {
+                    "id": parameter.id,
+                    "parameter_name": parameter.parameter_name,
+                    "parameter_type": parameter.parameter_type or "Desirable",
+                    "source_parameter_type": normalize_parameter_type_label(
+                        (parent_parameter.parameter_type if parent_parameter is not None else parameter.parameter_type)
+                        or "Desirable"
+                    ),
+                    "unit_of_measure": parameter.unit_of_measure or "",
+                    "specification": parameter.existing_value or "",
+                    "required_value_type": parameter.required_value_type or "text",
+                    "required_value_text": parameter.required_value_text or parameter.existing_value or "",
+                    "required_value_operator_1": parameter.required_value_operator_1 or "",
+                    "required_value_value_1": parameter.required_value_value_1 or "",
+                    "required_value_operator_2": parameter.required_value_operator_2 or "",
+                    "required_value_value_2": parameter.required_value_value_2 or "",
+                    "parameter_conditions": parameter.parameter_conditions or "",
+                    "test_method": parameter.test_method or "",
+                    "test_procedure_type": normalize_test_procedure_type(
+                        parameter.test_procedure_type or parameter.test_method or ""
+                    ),
+                    "test_procedure_text": parameter.test_procedure_text or parameter.test_method or "",
+                    "proposed_value": parameter.proposed_value or "",
+                    "approved": False,
+                }
+            )
 
         checklist_state = build_default_impact_checklist_state(draft.chemical_name)
         impact = {
@@ -2014,6 +2843,8 @@ def editor(draft_id: int):
         return render_template(
             "csc/editor.html",
             draft=draft,
+            editor_mode=editor_mode,
+            can_delete_draft=_can_delete_draft(draft),
             sections=sections,
             issues=issues,
             parameters=parameters,
@@ -2029,6 +2860,8 @@ def editor(draft_id: int):
             master_fields=MASTER_DATA_FIELDS,
             master_extra_fields=MASTER_EXTRA_FIELDS,
             master_impact_fields=MASTER_IMPACT_FIELDS,
+            editable_master_fields=ADMIN_MASTER_FIELDS,
+            editable_master_extra_fields=ADMIN_MASTER_EXTRA_FIELDS,
             workflow_scope=workflow_scope,
             workflow_scope_summary=_summarize_workflow_scope(workflow_scope),
             draft_type_label=_draft_type_label(draft),
@@ -2102,6 +2935,9 @@ def save_master_data(draft_id: int):
 
         if "chemical_name" in data:
             draft.chemical_name = (data.get("chemical_name") or "").strip()
+
+        if (draft.material_code or "").strip():
+            data["material_code"] = draft.material_code
 
         record = upsert_master_record_from_form(draft, data, user_id=current_user.id)
         if record is not None and record not in db.session:
@@ -2283,7 +3119,16 @@ def save_issues(draft_id: int):
 
         _create_audit_entry(draft_id, "Issue flags saved")
 
-        return jsonify({"success": True})
+        return jsonify(
+            {
+                "success": True,
+                "title": "Draft Forwarded to Secretary Workspace",
+                "message": (
+                    f"{revision.parent_draft.spec_number} — {revision.parent_draft.chemical_name} "
+                    "was approved and forwarded to Secretary."
+                ),
+            }
+        )
     except Exception as e:
         logger.error(f"Error saving issues: {e}")
         db.session.rollback()
@@ -2393,7 +3238,16 @@ def save_parameters(draft_id: int):
 
         _create_audit_entry(draft_id, f"Parameters saved (Phase 1): {len(data)} items")
 
-        return jsonify({"success": True})
+        return jsonify(
+            {
+                "success": True,
+                "title": "Draft Returned to Committee User",
+                "message": (
+                    f"{revision.parent_draft.spec_number} — {revision.parent_draft.chemical_name} "
+                    "was returned to the Committee User for updates."
+                ),
+            }
+        )
     except Exception as e:
         logger.error(f"Error saving parameters: {e}")
         db.session.rollback()
@@ -2434,7 +3288,17 @@ def save_proposed_values(draft_id: int):
 
         _create_audit_entry(draft_id, f"Proposed values saved (Phase 2): {len(data)} items")
 
-        return jsonify({"success": True})
+        return jsonify(
+            {
+                "success": True,
+                "title": "Draft Deleted",
+                "message": (
+                    f"{parent_draft.spec_number if parent_draft else 'Draft'} — "
+                    f"{parent_draft.chemical_name if parent_draft else ''} "
+                    "was deleted from the committee workflow."
+                ).strip(),
+            }
+        )
     except Exception as e:
         logger.error(f"Error saving proposed values: {e}")
         db.session.rollback()
@@ -2570,18 +3434,44 @@ def submit_revision(draft_id: int):
                 ),
             )
         )
-        for user in User.query.all():
-            if user.is_super_user():
-                create_notification(
-                    user_id=user.id,
-                    title="Draft submitted for review",
-                    message=f"{draft.spec_number} — {draft.chemical_name} was submitted for admin review.",
-                    severity="info",
-                    link=url_for("csc.admin_revisions"),
-                )
+        head_user_ids = []
+        governance_user_ids = []
+        committee_payload = get_committee_config_payload()
+        committee_slug = _get_revision_committee_slug(revision)
+        head_user_ids.extend(
+            _get_committee_user_ids_for_committee_slug(committee_slug, "committee_head")
+        )
+        for record in committee_payload.get("CHILD_COMMITTEES", []):
+            if record.get("slug") != "coordination":
+                continue
+            for field_name in ("committee_user", "committee_head"):
+                username = str(record.get(field_name) or "").strip()
+                if not username:
+                    continue
+                governance_user = User.query.filter_by(username=username, is_active=True).first()
+                if governance_user:
+                    governance_user_ids.append(governance_user.id)
+
+        _notify_users(
+            head_user_ids + governance_user_ids,
+            title="Draft submitted for committee-head review",
+            message=f"{draft.spec_number} — {draft.chemical_name} was submitted for committee-head review.",
+            severity="info",
+            link=url_for("csc.review_workbench"),
+        )
 
         db.session.commit()
-        return jsonify({"success": True, "redirect": url_for("csc.workspace")})
+        return jsonify(
+            {
+                "success": True,
+                "redirect": url_for("csc.workspace"),
+                "title": "Draft Submitted for Approval",
+                "message": (
+                    f"{draft.spec_number} — {draft.chemical_name} has been submitted "
+                    "to the Committee Head for review."
+                ),
+            }
+        )
     except Exception as e:
         logger.error(f"Error submitting revision: {e}")
         db.session.rollback()
@@ -2602,11 +3492,19 @@ def delete_draft(draft_id: int):
             return jsonify({"error": "Unauthorized"}), 403
 
         _create_audit_entry(draft_id, "Draft deleted")
+        spec_label = draft.spec_number or "Draft"
+        chemical_label = draft.chemical_name or "Untitled specification"
 
         db.session.delete(draft)
         db.session.commit()
 
-        return jsonify({"success": True})
+        return jsonify(
+            {
+                "success": True,
+                "title": "Draft Deleted",
+                "message": f"{spec_label} — {chemical_label} was deleted successfully.",
+            }
+        )
     except Exception as e:
         logger.error(f"Error deleting draft: {e}")
         db.session.rollback()
@@ -2651,7 +3549,7 @@ def export_docx(draft_id: int):
 @csc_bp.route("/workspace/new-revision/<int:parent_id>", methods=["POST"])
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def create_revision(parent_id: int):
     """Open a drafting copy from a published specification."""
     try:
@@ -2659,18 +3557,38 @@ def create_revision(parent_id: int):
         if not parent_draft:
             return jsonify({"error": "Parent draft not found"}), 404
 
+        request_payload = request.get_json(silent=True) or {}
         workflow_scope = _normalize_workflow_scope_payload(
-            (request.get_json(silent=True) or {}).get("workflow_scope")
+            request_payload.get("workflow_scope")
         )
+        workflow_track = str(request_payload.get("workflow_track") or "").strip().lower()
         scope_error = _validate_workflow_scope(workflow_scope)
         if scope_error:
             return jsonify({"error": scope_error}), 400
+        if workflow_track not in {WORKFLOW_TRACK_SUBSET, WORKFLOW_TRACK_MATERIAL_HANDLING}:
+            return jsonify({"error": "Choose Subset Committee or Material Handling Committee."}), 400
 
-        child_draft, _, error = _open_admin_self_draft_for_parent(parent_draft, workflow_scope)
+        child_draft, created_new, error = _open_committee_workflow_draft_for_parent(
+            parent_draft,
+            workflow_scope,
+            workflow_track,
+        )
         if error:
             return jsonify({"error": error}), 409
         if child_draft is None:
             return jsonify({"error": "Unable to open workflow draft"}), 500
+
+        committee_slug = _infer_workflow_committee_slug(child_draft)
+        revision = _get_revision_for_child(child_draft.id)
+        committee_user_ids = _get_committee_user_ids_for_committee_slug(
+            committee_slug,
+            "committee_user",
+        )
+        committee_user_label = _get_committee_user_display_label_for_committee_slug(
+            committee_slug,
+            "committee_user",
+        )
+        workflow_meta_lines = _build_workflow_meta_lines(parent_draft, child_draft, revision)
 
         db.session.commit()
 
@@ -2681,14 +3599,36 @@ def create_revision(parent_id: int):
                 {
                     "child_draft_id": child_draft.id,
                     "workflow_scope": workflow_scope,
+                    "workflow_track": workflow_track,
+                    "committee_slug": _infer_workflow_committee_slug(child_draft),
                 }
             ),
         )
+        if created_new and committee_user_ids:
+            _notify_users(
+                committee_user_ids,
+                title="Draft created for revision",
+                message=(
+                    f"{parent_draft.spec_number} — {parent_draft.chemical_name} "
+                    "has been created for revision and assigned to you."
+                ),
+                severity="info",
+                link=url_for("csc.workspace"),
+            )
 
         return jsonify({
             "success": True,
             "draft_id": child_draft.id,
             "redirect": url_for("csc.editor", draft_id=child_draft.id),
+            "created_new": created_new,
+            "workflow_meta_lines": workflow_meta_lines,
+            "title": "Draft Created for Revision" if created_new else "Workflow Already Exists",
+            "message": (
+                "Draft created for revision and sent to user - "
+                + (committee_user_label or "Committee User not assigned")
+                if created_new
+                else f"A workflow already exists for {parent_draft.spec_number}."
+            ),
         })
     except Exception as e:
         logger.error(f"Error creating revision: {e}")
@@ -2699,25 +3639,39 @@ def create_revision(parent_id: int):
 @csc_bp.route("/admin/draft/<int:parent_id>/open-self-draft", methods=["POST"])
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def admin_open_self_draft(parent_id: int):
     """Create or reopen an admin-owned workflow draft for the published spec."""
+    wants_json = request.is_json or request.headers.get("X-Requested-With") == "XMLHttpRequest"
     try:
         parent_draft = db.session.get(CSCDraft, parent_id)
         if not parent_draft or parent_draft.parent_draft_id is not None:
-            return jsonify({"error": "Published specification not found"}), 404
+            if wants_json:
+                return jsonify({"error": "Published specification not found"}), 404
+            flash("Published specification not found.", "danger")
+            return redirect(url_for("csc.admin_revision_generation"))
+        request_payload = request.get_json(silent=True) or {}
         workflow_scope = _normalize_workflow_scope_payload(
-            (request.get_json(silent=True) or {}).get("workflow_scope")
+            request_payload.get("workflow_scope") if request_payload else WORKFLOW_SCOPE_DEFAULT
         )
         scope_error = _validate_workflow_scope(workflow_scope)
         if scope_error:
-            return jsonify({"error": scope_error}), 400
+            if wants_json:
+                return jsonify({"error": scope_error}), 400
+            flash(scope_error, "danger")
+            return redirect(url_for("csc.admin_revision_generation"))
 
         child_draft, _, error = _open_admin_self_draft_for_parent(parent_draft, workflow_scope)
         if error:
-            return jsonify({"error": error}), 409
+            if wants_json:
+                return jsonify({"error": error}), 409
+            flash(error, "warning")
+            return redirect(url_for("csc.admin_revision_generation"))
         if child_draft is None:
-            return jsonify({"error": "Unable to open workflow draft"}), 500
+            if wants_json:
+                return jsonify({"error": "Unable to open workflow draft"}), 500
+            flash("Unable to open workflow draft.", "danger")
+            return redirect(url_for("csc.admin_revision_generation"))
         db.session.commit()
 
         _create_audit_entry(
@@ -2731,23 +3685,30 @@ def admin_open_self_draft(parent_id: int):
             ),
         )
 
-        return jsonify(
-            {
-                "success": True,
-                "draft_id": child_draft.id,
-                "redirect": url_for("csc.editor", draft_id=child_draft.id),
-            }
-        )
+        if wants_json:
+            return jsonify(
+                {
+                    "success": True,
+                    "draft_id": child_draft.id,
+                    "redirect": url_for("csc.editor", draft_id=child_draft.id),
+                }
+            )
+
+        flash("Admin self draft opened.", "success")
+        return redirect(url_for("csc.editor", draft_id=child_draft.id))
     except Exception as e:
         logger.error(f"Error opening admin self draft: {e}")
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+        if wants_json:
+            return jsonify({"error": str(e)}), 500
+        flash("Error opening admin self draft.", "danger")
+        return redirect(url_for("csc.admin_revision_generation"))
 
-
+@csc_bp.route("/admin/draft-generation/open-self-drafts", methods=["POST"])
 @csc_bp.route("/admin/drafts/open-self-drafts", methods=["POST"])
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def admin_open_self_drafts_bulk():
     """Create admin workflow drafts for a selected set of published specs."""
     try:
@@ -2764,29 +3725,63 @@ def admin_open_self_drafts_bulk():
             return jsonify({"error": "Select at least one specification to open for revision."}), 400
 
         workflow_scope = _normalize_workflow_scope_payload(data.get("workflow_scope"))
+        workflow_track = str(data.get("workflow_track") or "").strip().lower()
         scope_error = _validate_workflow_scope(workflow_scope)
         if scope_error:
             return jsonify({"error": scope_error}), 400
+        if workflow_track not in {WORKFLOW_TRACK_SUBSET, WORKFLOW_TRACK_MATERIAL_HANDLING}:
+            return jsonify({"error": "Choose Subset Committee or Material Handling Committee."}), 400
 
         created_rows: list[dict[str, object]] = []
         conflicts: list[str] = []
+        notified_labels: list[str] = []
         for parent_id in parent_ids:
             parent_draft = db.session.get(CSCDraft, parent_id)
             if not parent_draft or parent_draft.parent_draft_id is not None:
                 conflicts.append(f"Specification {parent_id} is not available.")
                 continue
-            child_draft, created_new, error = _open_admin_self_draft_for_parent(parent_draft, workflow_scope)
+            child_draft, created_new, error = _open_committee_workflow_draft_for_parent(
+                parent_draft,
+                workflow_scope,
+                workflow_track,
+            )
             if error:
                 conflicts.append(f"{parent_draft.spec_number}: {error}")
                 continue
             if child_draft is None:
                 conflicts.append(f"{parent_draft.spec_number}: unable to open workflow draft.")
                 continue
+            committee_slug = _infer_workflow_committee_slug(child_draft)
+            revision = _get_revision_for_child(child_draft.id)
+            committee_user_ids = _get_committee_user_ids_for_committee_slug(
+                committee_slug,
+                "committee_user",
+            )
+            committee_user_label = _get_committee_user_display_label_for_committee_slug(
+                committee_slug,
+                "committee_user",
+            )
+            if created_new and committee_user_ids:
+                _notify_users(
+                    committee_user_ids,
+                    title="Draft created for revision",
+                    message=(
+                        f"{parent_draft.spec_number} — {parent_draft.chemical_name} "
+                        "has been created for revision and assigned to you."
+                    ),
+                    severity="info",
+                    link=url_for("csc.workspace"),
+                )
+            if committee_user_label:
+                notified_labels.append(committee_user_label)
             created_rows.append(
                 {
                     "parent_id": parent_id,
                     "child_draft_id": child_draft.id,
                     "created_new": created_new,
+                    "spec_number": parent_draft.spec_number,
+                    "chemical_name": parent_draft.chemical_name,
+                    "workflow_meta_lines": _build_workflow_meta_lines(parent_draft, child_draft, revision),
                 }
             )
 
@@ -2801,24 +3796,56 @@ def admin_open_self_drafts_bulk():
                 int(row["parent_id"]),
                 "Admin self draft opened",
                 new_value=json.dumps(
-                    {
-                        "child_draft_id": row["child_draft_id"],
-                        "workflow_scope": workflow_scope,
-                    }
-                ),
-            )
+                {
+                    "child_draft_id": row["child_draft_id"],
+                    "workflow_scope": workflow_scope,
+                    "workflow_track": workflow_track,
+                }
+            ),
+        )
 
         redirect = (
             url_for("csc.editor", draft_id=created_rows[0]["child_draft_id"])
             if len(created_rows) == 1
-            else url_for("csc.admin_drafts")
+            else url_for("csc.admin_revision_generation")
         )
+        created_count = sum(1 for row in created_rows if row.get("created_new"))
+        existing_count = len(created_rows) - created_count
+        if len(created_rows) == 1:
+            title = "Draft Created for Revision" if created_count else "Workflow Already Exists"
+            if created_count:
+                message = (
+                    "Draft created for revision and sent to user - "
+                    + (notified_labels[0] if notified_labels else "Committee User not assigned")
+                )
+            else:
+                message = f"A workflow already exists for {created_rows[0]['spec_number']}."
+        elif existing_count == 0:
+            title = "Workflow Drafts Created"
+            message = (
+                f"Opened {len(created_rows)} workflow draft(s) and sent them to "
+                + (", ".join(sorted(set(notified_labels))) if notified_labels else "the assigned committee users")
+                + "."
+            )
+        elif created_count == 0:
+            title = "Workflow Drafts Already Exist"
+            message = f"All {len(created_rows)} selected specification(s) already have active workflow drafts."
+        else:
+            title = "Workflow Drafts Ready"
+            message = (
+                f"Created {created_count} new workflow draft(s). "
+                f"{existing_count} specification(s) already had active workflow drafts."
+            )
         return jsonify(
             {
                 "success": True,
                 "redirect": redirect,
                 "created_count": len(created_rows),
-                "message": f"Opened {len(created_rows)} workflow draft(s).",
+                "new_created_count": created_count,
+                "existing_count": existing_count,
+                "workflow_details": created_rows,
+                "title": title,
+                "message": message,
                 "conflicts": conflicts,
             }
         )
@@ -2836,7 +3863,7 @@ def admin_open_self_drafts_bulk():
 @csc_bp.route("/admin")
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def admin_index():
     """Admin dashboard with KPI stats."""
     stats = _get_admin_stats()
@@ -2846,7 +3873,7 @@ def admin_index():
 @csc_bp.route("/admin/ingest")
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def admin_ingest():
     """PDF/DOCX ingest page (GET only – shows upload forms)."""
     return render_template("csc/admin/ingest.html")
@@ -2855,7 +3882,7 @@ def admin_ingest():
 @csc_bp.route("/admin/ingest/pdf", methods=["POST"])
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def admin_ingest_pdf():
     """Process uploaded PDF file."""
     try:
@@ -2884,7 +3911,7 @@ def admin_ingest_pdf():
         db.session.commit()
 
         flash(f"PDF ingested – Draft created (ID: {draft.id})", "success")
-        return redirect(url_for("csc.admin_drafts"))
+        return redirect(url_for("csc.admin_revision_generation"))
     except Exception as e:
         logger.error(f"Error ingesting PDF: {e}")
         flash("Error processing PDF file.", "danger")
@@ -2894,7 +3921,7 @@ def admin_ingest_pdf():
 @csc_bp.route("/admin/ingest/docx", methods=["POST"])
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def admin_ingest_docx():
     """Process uploaded DOCX master document."""
     try:
@@ -2923,7 +3950,7 @@ def admin_ingest_docx():
         db.session.commit()
 
         flash(f"DOCX ingested – Draft created (ID: {draft.id})", "success")
-        return redirect(url_for("csc.admin_drafts"))
+        return redirect(url_for("csc.admin_revision_generation"))
     except Exception as e:
         logger.error(f"Error ingesting DOCX: {e}")
         flash("Error processing DOCX file.", "danger")
@@ -2933,7 +3960,7 @@ def admin_ingest_docx():
 @csc_bp.route("/admin/ingest/create-draft", methods=["POST"])
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def admin_create_draft_from_extraction():
     """Create draft from extraction preview."""
     try:
@@ -2956,19 +3983,133 @@ def admin_create_draft_from_extraction():
         db.session.commit()
 
         flash(f"Draft created from extraction (ID: {draft.id})", "success")
-        return redirect(url_for("csc.admin_drafts"))
+        return redirect(url_for("csc.admin_revision_generation"))
     except Exception as e:
         logger.error(f"Error creating draft from extraction: {e}")
         flash("Error creating draft from extraction.", "danger")
         return redirect(url_for("csc.admin_ingest"))
 
 
-@csc_bp.route("/admin/drafts")
+@csc_bp.route("/published-specs")
 @login_required
 @module_access_required("csc")
-@superuser_required
-def admin_drafts():
-    """Manage all drafts with filter support."""
+def published_specs():
+    """List current published specifications for all CSC module users."""
+    try:
+        drafts = sorted(
+            CSCDraft.query.filter_by(parent_draft_id=None).all(),
+            key=_draft_sort_key,
+        )
+        subsets = _get_spec_subsets()
+        published_rows = []
+        for draft in drafts:
+            active_revision = _get_active_revision_for_parent(draft.id)
+            current_snapshot = (
+                draft.spec_versions.filter_by(spec_version=draft.spec_version)
+                .order_by(CSCSpecVersion.created_at.desc())
+                .first()
+            )
+            snapshot_count = draft.spec_versions.count()
+            if current_snapshot is None:
+                snapshot_count += 1
+
+            published_rows.append(
+                {
+                    "draft": draft,
+                    "active_revision": active_revision,
+                    "current_version": format_spec_version(draft.spec_version),
+                    "version_count": snapshot_count,
+                    "latest_published_at": (
+                        current_snapshot.created_at
+                        if current_snapshot is not None
+                        else draft.updated_at
+                    ),
+                }
+            )
+        response = make_response(
+            render_template(
+                "csc/published_specs.html",
+                published_rows=published_rows,
+                subsets=subsets,
+            )
+        )
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
+    except Exception as e:
+        logger.error(f"Error loading published specs: {e}")
+        flash("Error loading published specifications.", "danger")
+        return redirect(url_for("csc.index"))
+
+
+@csc_bp.route("/published-specs/<int:draft_id>")
+@login_required
+@module_access_required("csc")
+def published_spec_detail(draft_id: int):
+    """Render a read-only published specification snapshot for all CSC users."""
+    draft = db.session.get(CSCDraft, draft_id)
+    if not draft or draft.parent_draft_id is not None:
+        abort(404)
+
+    review_context = _build_draft_export_review_context(draft)
+    return render_template(
+        "csc/published_spec.html",
+        draft=draft,
+        review_context=review_context,
+        active_revision=_get_active_revision_for_parent(draft.id),
+        version_map=_build_published_version_map(draft),
+    )
+
+
+@csc_bp.route("/published-specs/<int:draft_id>/versions/<int:spec_version>/dossier.docx")
+@login_required
+@module_access_required("csc")
+def published_spec_version_dossier(draft_id: int, spec_version: int):
+    """Download the stored published dossier for a version-map node."""
+    try:
+        draft = db.session.get(CSCDraft, draft_id)
+        if not draft or draft.parent_draft_id is not None:
+            abort(404)
+
+        snapshot = (
+            draft.spec_versions.filter_by(spec_version=spec_version)
+            .order_by(CSCSpecVersion.created_at.desc())
+            .first()
+        )
+        payload = _load_spec_version_snapshot_payload(snapshot)
+        review_context = _extract_review_context_from_snapshot_payload(payload)
+
+        if review_context is None:
+            flash(
+                "The exact published dossier is unavailable for this version because a full review snapshot was not stored at publish time.",
+                "warning",
+            )
+            return redirect(url_for("csc.published_spec_detail", draft_id=draft.id))
+
+        doc_bytes = build_flask_review_document(review_context)
+        filename = (
+            f"{draft.spec_number}_v{format_spec_version(spec_version)}_published_dossier.docx"
+        )
+        _record_export_audit("PUBLISHED_DOSSIER_EXPORT", draft.id, filename)
+        return send_file(
+            io.BytesIO(doc_bytes),
+            mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            as_attachment=True,
+            download_name=filename,
+        )
+    except Exception as e:
+        logger.error(f"Error exporting published dossier: {e}")
+        flash("Error exporting the published dossier.", "danger")
+        return redirect(url_for("csc.published_specs"))
+
+
+@csc_bp.route("/admin/draft-generation")
+@login_required
+@module_access_required("csc")
+@module_admin_required("csc")
+def admin_revision_generation():
+    """Admin-only surface to generate workflow drafts and self drafts."""
     try:
         drafts = sorted(
             CSCDraft.query.filter_by(parent_draft_id=None).all(),
@@ -2977,26 +4118,50 @@ def admin_drafts():
         subsets = _get_spec_subsets()
         workflow_rows = []
         for draft in drafts:
-            active_revision = _get_active_revision_for_parent(draft.id)
-            workflow_draft = active_revision.child_draft if active_revision and active_revision.child_draft else draft
-            master_values = get_master_form_values(workflow_draft)
             display_status = draft.status if draft.status in {"Published", "Drafting"} else "Published"
+            active_revisions = _get_active_revisions_for_parent(draft.id)
+            if active_revisions:
+                for revision in active_revisions:
+                    workflow_draft = revision.child_draft if revision.child_draft else draft
+                    master_values = get_master_form_values(workflow_draft)
+                    committee_slug = _get_revision_committee_slug(revision)
+                    workflow_rows.append(
+                        {
+                            "draft": draft,
+                            "workflow_draft": workflow_draft,
+                            "active_revision": revision,
+                            "display_status": display_status,
+                            "physical_state": master_values.get("physical_state", ""),
+                            "drafting_status": revision.status,
+                            "submitted_at": revision.submitted_at,
+                            "committee_slug": committee_slug,
+                            "committee_title": _get_committee_title_by_slug(committee_slug),
+                            "committee_track": _committee_slug_to_track(committee_slug),
+                            "active_revision_count": len(active_revisions),
+                            "can_generate_more": len(active_revisions) < 2,
+                        }
+                    )
+                continue
+
+            master_values = get_master_form_values(draft)
             workflow_rows.append(
                 {
                     "draft": draft,
-                    "workflow_draft": workflow_draft,
-                    "active_revision": active_revision,
+                    "workflow_draft": draft,
+                    "active_revision": None,
                     "display_status": display_status,
                     "physical_state": master_values.get("physical_state", ""),
-                    "drafting_status": active_revision.status if active_revision else "",
-                    "submitted_at": active_revision.submitted_at if active_revision else None,
+                    "drafting_status": "",
+                    "submitted_at": None,
+                    "committee_slug": "",
+                    "committee_title": "No active workflow",
+                    "committee_track": "",
+                    "active_revision_count": 0,
+                    "can_generate_more": True,
                 }
             )
         workflow_create_groups_map: dict[str, dict[str, object]] = {}
-        for row in workflow_rows:
-            if row["active_revision"]:
-                continue
-            draft = row["draft"]
+        for draft in drafts:
             subset_code = draft.subset or "OTHER"
             subset_display = draft.subset_display or "Other / Unmapped"
             group = workflow_create_groups_map.setdefault(
@@ -3013,6 +4178,7 @@ def admin_drafts():
                     "spec_number": draft.spec_number,
                     "chemical_name": draft.chemical_name or "—",
                     "material_code": draft.material_code or "",
+                    "active_revision_count": len(_get_active_revisions_for_parent(draft.id)),
                 }
             )
         workflow_create_groups = list(workflow_create_groups_map.values())
@@ -3037,140 +4203,54 @@ def admin_drafts():
         return redirect(url_for("csc.admin_index"))
 
 
+@csc_bp.route("/admin/drafts")
+@login_required
+@module_access_required("csc")
+@module_admin_required("csc")
+def admin_drafts():
+    """Backward-compatible alias for the revision-generation page."""
+    return redirect(url_for("csc.admin_revision_generation"))
+
+
+@csc_bp.route("/admin/draft/<int:draft_id>/published-view")
+@login_required
+@module_access_required("csc")
+@module_admin_required("csc")
+def admin_view_published_spec(draft_id: int):
+    """Legacy admin alias redirected to the shared published-spec page."""
+    return redirect(url_for("csc.published_spec_detail", draft_id=draft_id))
+
+
 @csc_bp.route("/admin/draft/<int:draft_id>/edit")
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def admin_edit_draft(draft_id: int):
-    """Render combined CSC draft + material master edit form."""
-    draft = db.session.get(CSCDraft, draft_id)
-    if not draft:
-        abort(404)
-    revision = _get_revision_for_child(draft.id) if draft.parent_draft_id else _get_active_revision_for_parent(draft.id)
-    drafting_state = "Published"
-    if revision:
-        if _is_open_revision_state(revision.status):
-            drafting_state = "Open"
-        elif revision.status == WORKFLOW_DRAFTING_SUBMITTED:
-            drafting_state = "Submitted"
-        else:
-            drafting_state = revision.status.title()
-    draft_values = {}
-    for field in CSC_ADMIN_DRAFT_FIELDS:
-        field_name = field["field_name"]
-        if field_name == "committee_name" and not getattr(draft, field_name, None):
-            draft_values[field_name] = "Corporate Specifiction Committee"
-        elif field_name == "spec_version":
-            draft_values[field_name] = format_spec_version(getattr(draft, "spec_version", 0))
-        elif field_name == "phase1_locked":
-            draft_values[field_name] = drafting_state
-        elif field_name == "admin_stage":
-            draft_values[field_name] = "Drafting" if draft.status == "Drafting" else "Published"
-        else:
-            draft_values[field_name] = getattr(draft, field_name, None)
-    return render_template(
-        "csc/admin/edit_draft.html",
-        draft=draft,
-        draft_values=draft_values,
-        form_values=get_master_form_values(draft),
-        csc_fields=CSC_ADMIN_DRAFT_FIELDS,
-        master_fields=ADMIN_MASTER_FIELDS,
-        master_extra_fields=ADMIN_MASTER_EXTRA_FIELDS,
-    )
+    """Legacy route kept only to redirect admins into the draft-generation flow."""
+    flash("Direct admin material master editing has been removed. Open a self draft from Draft Generation for Revision in Secretary Workspace to make changes.", "info")
+    return redirect(url_for("csc.admin_revision_generation"))
 
 
 @csc_bp.route("/admin/draft/<int:draft_id>/update", methods=["POST"])
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def admin_update_draft(draft_id: int):
-    """Update draft metadata and material master fields from the admin editor."""
-    try:
-        draft = db.session.get(CSCDraft, draft_id)
-        if not draft:
-            if request.is_json:
-                return jsonify({"error": "Draft not found"}), 404
-            abort(404)
-
-        raw_data = request.get_json(silent=True) or request.form.to_dict(flat=True)
-        data = dict(raw_data)
-
-        for field in CSC_ADMIN_DRAFT_FIELDS:
-            field_name = field["field_name"]
-            input_type = field.get("input_type", "text")
-
-            if field_name == "id" or field_name not in data:
-                continue
-
-            if input_type == "display":
-                continue
-
-            if field_name == "material_code" and (draft.material_code or "").strip():
-                # Keep the material master primary key immutable once established.
-                data[field_name] = draft.material_code
-                continue
-
-            raw_value = data.get(field_name)
-
-            if input_type == "boolean":
-                setattr(draft, field_name, _coerce_admin_boolean(raw_value))
-                continue
-
-            if input_type == "number":
-                text = str(raw_value or "").strip()
-                if field_name == "spec_version":
-                    setattr(draft, field_name, normalize_spec_version(text or 0))
-                else:
-                    setattr(draft, field_name, int(text) if text else None)
-                continue
-
-            if field_name in {"meeting_date", "reviewed_by", "material_code"}:
-                setattr(draft, field_name, str(raw_value or "").strip() or None)
-            else:
-                setattr(draft, field_name, str(raw_value or "").strip())
-
-        master_form_data = {}
-        for field_name, _ in ADMIN_MASTER_FIELDS:
-            if field_name in data:
-                master_form_data[field_name] = data[field_name]
-        for field_name, _ in ADMIN_MASTER_EXTRA_FIELDS:
-            form_key = f"extra__{field_name}"
-            if form_key in data:
-                master_form_data[form_key] = data[form_key]
-        if (draft.material_code or "").strip():
-            master_form_data["material_code"] = draft.material_code
-        elif "material_code" in data:
-            master_form_data["material_code"] = data["material_code"]
-        if "chemical_name" in data:
-            master_form_data["chemical_name"] = data["chemical_name"]
-
-        record = upsert_master_record_from_form(draft, master_form_data, user_id=current_user.id)
-        if record is not None and record not in db.session:
-            db.session.add(record)
-
-        draft.updated_at = datetime.now(timezone.utc)
-        db.session.commit()
-
-        _create_audit_entry(draft_id, "Draft metadata updated (admin)")
-
-        if request.is_json:
-            return jsonify({"success": True, "draft": draft.to_dict()})
-
-        flash("CSC draft and material master data updated.", "success")
-        return redirect(url_for("csc.admin_edit_draft", draft_id=draft_id))
-    except Exception as e:
-        logger.error(f"Error updating draft: {e}")
-        db.session.rollback()
-        if request.is_json:
-            return jsonify({"error": str(e)}), 500
-        flash("Failed to update the draft and material master data.", "danger")
-        return redirect(url_for("csc.admin_edit_draft", draft_id=draft_id))
+    """Legacy route kept only to block direct admin master-data edits."""
+    message = (
+        "Direct admin material master editing has been removed. "
+        "Create or open your self draft from Draft Generation for Revision in Secretary Workspace instead."
+    )
+    if request.is_json:
+        return jsonify({"error": message}), 403
+    flash(message, "warning")
+    return redirect(url_for("csc.admin_revision_generation"))
 
 
 @csc_bp.route("/admin/draft/<int:draft_id>/lock-phase1", methods=["POST"])
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def admin_lock_phase1(draft_id: int):
     """Toggle Phase 1 lock."""
     try:
@@ -3201,7 +4281,7 @@ def admin_lock_phase1(draft_id: int):
 @csc_bp.route("/admin/api/draft/<int:draft_id>/toggle-phase1-lock", methods=["POST"])
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def api_admin_toggle_phase1_lock(draft_id: int):
     """Alias for admin_lock_phase1."""
     return admin_lock_phase1(draft_id)
@@ -3210,7 +4290,7 @@ def api_admin_toggle_phase1_lock(draft_id: int):
 @csc_bp.route("/admin/draft/<int:draft_id>/set-stage", methods=["POST"])
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def admin_set_stage(draft_id: int):
     """Set workflow stage (drafting/published)."""
     try:
@@ -3240,7 +4320,16 @@ def admin_set_stage(draft_id: int):
             f"Admin stage changed: {old_stage} → {new_stage}",
         )
 
-        return jsonify({"success": True})
+        return jsonify(
+            {
+                "success": True,
+                "title": "Draft Published",
+                "message": (
+                    f"{parent_draft.spec_number} — {parent_draft.chemical_name} "
+                    f"was published as version v{applied_version}."
+                ),
+            }
+        )
     except Exception as e:
         logger.error(f"Error setting stage: {e}")
         db.session.rollback()
@@ -3251,7 +4340,7 @@ def admin_set_stage(draft_id: int):
 @csc_bp.route("/admin/api/draft/<int:draft_id>/set-stage", methods=["POST"])
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def api_admin_set_stage(draft_id: int):
     """Alias for admin_set_stage."""
     return admin_set_stage(draft_id)
@@ -3260,7 +4349,7 @@ def api_admin_set_stage(draft_id: int):
 @csc_bp.route("/admin/draft/<int:draft_id>/delete", methods=["POST", "DELETE"])
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def admin_delete_draft(draft_id: int):
     """Admin delete draft."""
     try:
@@ -3273,7 +4362,16 @@ def admin_delete_draft(draft_id: int):
         db.session.delete(draft)
         db.session.commit()
 
-        return jsonify({"success": True})
+        return jsonify(
+            {
+                "success": True,
+                "title": "Draft Deleted",
+                "message": (
+                    f"{parent_draft.spec_number} — {parent_draft.chemical_name} "
+                    "was deleted by the Material Master Management Admin."
+                ),
+            }
+        )
     except Exception as e:
         logger.error(f"Error deleting draft: {e}")
         db.session.rollback()
@@ -3284,7 +4382,7 @@ def admin_delete_draft(draft_id: int):
 @csc_bp.route("/admin/api/draft/<int:draft_id>/delete", methods=["POST", "DELETE"])
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def api_admin_delete_draft(draft_id: int):
     """Alias for admin_delete_draft."""
     return admin_delete_draft(draft_id)
@@ -3293,30 +4391,30 @@ def api_admin_delete_draft(draft_id: int):
 @csc_bp.route("/admin/settings", methods=["GET"])
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def admin_settings():
     """Settings to configure committee directory and upload office orders."""
-    from app.models.csc.governance import CSCConfig, CSCOfficeOrderFile
-    from app.core.services.csc_committee_directory import (
-        ROOT_COMMITTEE, CHILD_COMMITTEES, OFFICE_ORDERS,
-        get_committee_directory,
-    )
-
-    # ── Resolve current committee data (DB or defaults) ──────────────────
-    config = db.session.query(CSCConfig).first()
-    if config and config.directory_json:
-        try:
-            raw = json.loads(config.directory_json)
-            root_c = raw.get("ROOT_COMMITTEE", ROOT_COMMITTEE)
-            child_c = raw.get("CHILD_COMMITTEES", CHILD_COMMITTEES)
-            office_orders_raw = raw.get("OFFICE_ORDERS", OFFICE_ORDERS)
-        except Exception:
-            root_c, child_c, office_orders_raw = ROOT_COMMITTEE, CHILD_COMMITTEES, OFFICE_ORDERS
-    else:
-        root_c, child_c = ROOT_COMMITTEE, CHILD_COMMITTEES
-        office_orders_raw = [{k: str(v) if k == "path" else v for k, v in o.items()} for o in OFFICE_ORDERS]
+    from app.models.csc.governance import CSCOfficeOrderFile
+    payload = get_committee_config_payload()
+    root_c = payload["ROOT_COMMITTEE"]
+    child_c = payload["CHILD_COMMITTEES"]
+    office_orders_raw = payload["OFFICE_ORDERS"]
 
     all_committees = [root_c] + list(child_c)
+    username_options = []
+    for user in (
+        User.query.filter_by(is_active=True)
+        .order_by(User.full_name.asc(), User.username.asc())
+        .all()
+    ):
+        if not user.has_module_access("csc"):
+            continue
+        username_options.append(
+            {
+                "username": user.username,
+                "label": f"{user.full_name} ({user.username})" if (user.full_name or "").strip() else user.username,
+            }
+        )
 
     # ── Office order upload status ────────────────────────────────────────
     try:
@@ -3325,7 +4423,7 @@ def admin_settings():
         db_slugs = {}
 
     office_order_statuses = []
-    for o in OFFICE_ORDERS:
+    for o in office_orders_raw:
         slug = o["slug"]
         in_db = slug in db_slugs
         office_order_statuses.append({
@@ -3342,7 +4440,7 @@ def admin_settings():
     }
 
     # ── Master subset catalogue (from root committee defaults) ────────────
-    all_subsets = ROOT_COMMITTEE["subsets"]
+    all_subsets = root_c["subsets"]
 
     return render_template(
         "csc/settings.html",
@@ -3350,13 +4448,15 @@ def admin_settings():
         all_subsets=all_subsets,
         office_order_statuses=office_order_statuses,
         config_data=config_data,
+        username_options=username_options,
+        username_values=[option["username"] for option in username_options],
     )
 
 
 @csc_bp.route("/admin/settings/update", methods=["POST"])
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def admin_settings_update():
     from app.models.csc.governance import CSCConfig
     try:
@@ -3364,13 +4464,14 @@ def admin_settings_update():
         parsed = json.loads(data_text)
         if not isinstance(parsed, dict):
             raise ValueError("Must be a JSON object.")
+        normalized = normalize_committee_config_payload(parsed)
 
         config = db.session.query(CSCConfig).first()
         if not config:
             config = CSCConfig()
             db.session.add(config)
-        
-        config.directory_json = data_text
+
+        config.directory_json = json.dumps(normalized, indent=2)
         db.session.commit()
         flash("Committee configuration saved.", "success")
     except Exception as e:
@@ -3382,7 +4483,7 @@ def admin_settings_update():
 @csc_bp.route("/admin/office-order/upload", methods=["POST"])
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def admin_upload_office_order():
     from app.models.csc.governance import CSCOfficeOrderFile
     slug = request.form.get("slug", "").strip()
@@ -3413,13 +4514,13 @@ def admin_upload_office_order():
 @csc_bp.route("/admin/revisions")
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def admin_revisions():
-    """Committee workbench - review submitted drafting requests."""
+    """Material Master Admin workbench for committee-head-approved drafts."""
     try:
         revisions = CSCRevision.query.order_by(
-            CSCRevision.status != WORKFLOW_DRAFTING_SUBMITTED,
-            CSCRevision.submitted_at.desc(),
+            CSCRevision.status != WORKFLOW_DRAFTING_HEAD_APPROVED,
+            CSCRevision.updated_at.desc(),
             CSCRevision.id.desc(),
         ).all()
         revision_rows = [
@@ -3427,21 +4528,146 @@ def admin_revisions():
                 "revision": revision,
                 "draft_type": _draft_type_label(revision.child_draft) if revision.child_draft else "Revision",
                 "is_new_spec": (_draft_type_label(revision.child_draft) == "New Specification") if revision.child_draft else False,
+                "latest_updated_at": (
+                    revision.child_draft.updated_at if revision.child_draft and revision.child_draft.updated_at else revision.updated_at
+                ),
+                "review_url": url_for("csc.review_revision", revision_id=revision.id),
+                "can_decide": _can_current_user_decide_revision_as_module_admin(revision),
+                "can_force_delete": revision.status in {
+                    WORKFLOW_DRAFTING_OPEN,
+                    WORKFLOW_DRAFTING_SUBMITTED,
+                    WORKFLOW_DRAFTING_HEAD_APPROVED,
+                    WORKFLOW_DRAFTING_RETURNED,
+                },
+                "force_delete_url": url_for("csc.admin_reject_revision", revision_id=revision.id),
+                "decision_label": "Review & Publish" if revision.status == WORKFLOW_DRAFTING_HEAD_APPROVED else "View Snapshot",
+                "decision_note": (
+                    "Decision pending Material Master Management Admin action"
+                    if revision.status == WORKFLOW_DRAFTING_HEAD_APPROVED
+                    else "Delete remains available from the snapshot modal"
+                ),
             }
             for revision in revisions
         ]
 
-        return render_template("csc/admin/revisions.html", revision_rows=revision_rows)
+        return render_template(
+            "csc/admin/revisions.html",
+            revision_rows=revision_rows,
+            workflow_nav_active="admin",
+            workbench_title="Secretary Workbench",
+            workbench_subtitle="Review committee-head-approved drafts, then publish, return, or delete them from the snapshot modal.",
+            workbench_kicker_label="Secretary",
+            workbench_kicker_url=url_for("csc.admin_index"),
+            intro_message="Only the assigned Material Master Management Admins can access this dashboard. Publish remains limited to committee-head-approved drafts, but delete is available for all active drafts from the snapshot modal.",
+            decision_stage=WORKFLOW_DRAFTING_HEAD_APPROVED,
+            decision_mode="module_admin",
+            review_subtitle_pending="Review the verified snapshot below, then publish, return, or delete without editing the submitted draft.",
+            review_subtitle_readonly="Revision snapshot for audit history. Material Master Management Admin can still delete the active draft from this modal.",
+            decision_note="Publish updates the master specification. Return sends the draft back for committee changes. Delete removes the active workflow draft.",
+            primary_action_label="Publish",
+            return_action_label="Return",
+            reject_action_label="Delete",
+            review_endpoint_name="csc.review_revision",
+            approve_endpoint_name="csc.admin_approve_revision",
+            return_endpoint_name="csc.admin_return_revision",
+            reject_endpoint_name="csc.admin_reject_revision",
+            require_publish_fields=True,
+        )
     except Exception as e:
         logger.error(f"Error loading revisions: {e}")
         flash("Error loading revisions.", "danger")
         return redirect(url_for("csc.admin_index"))
 
 
+@csc_bp.route("/revisions")
+@login_required
+@module_access_required("csc")
+def review_workbench():
+    """Committee-head, governance, and module-admin workbench for active revisions."""
+    head_committee_slugs = set(_get_current_user_committee_head_slugs())
+    governance_member = _current_user_is_governance_committee_member()
+    if not governance_member and not head_committee_slugs:
+        abort(403)
+
+    try:
+        revisions = CSCRevision.query.order_by(
+            CSCRevision.updated_at.desc(),
+            CSCRevision.id.desc(),
+        ).all()
+        active_statuses = {
+            WORKFLOW_DRAFTING_OPEN,
+            WORKFLOW_DRAFTING_SUBMITTED,
+            WORKFLOW_DRAFTING_HEAD_APPROVED,
+            WORKFLOW_DRAFTING_RETURNED,
+        }
+        revision_rows = [
+            {
+                "revision": revision,
+                "draft_type": _draft_type_label(revision.child_draft) if revision.child_draft else "Revision",
+                "is_new_spec": (_draft_type_label(revision.child_draft) == "New Specification") if revision.child_draft else False,
+                "latest_updated_at": (
+                    revision.child_draft.updated_at if revision.child_draft and revision.child_draft.updated_at else revision.updated_at
+                ),
+                "review_url": url_for("csc.review_revision", revision_id=revision.id),
+                "can_decide": _can_current_user_decide_revision_as_committee_head(revision),
+                "can_force_delete": False,
+                "force_delete_url": "",
+                "can_edit": _can_current_user_edit_draft_as_committee_head(revision.child_draft) if revision.child_draft else False,
+                "edit_url": url_for("csc.editor", draft_id=revision.child_draft.id) if revision.child_draft else "",
+                "decision_label": (
+                    "Review & Decide"
+                    if _can_current_user_decide_revision_as_committee_head(revision)
+                    else "View Snapshot"
+                ),
+                "decision_note": (
+                    "Review and edit the submitted draft before forwarding it to Secretary"
+                    if _can_current_user_decide_revision_as_committee_head(revision)
+                    else "Read-only governance snapshot"
+                ),
+            }
+            for revision in revisions
+            if revision.status in active_statuses
+            and (
+                governance_member
+                or _get_revision_committee_slug(revision) in head_committee_slugs
+            )
+        ]
+
+        return render_template(
+            "csc/admin/revisions.html",
+            revision_rows=revision_rows,
+            workflow_nav_active="review",
+            workbench_title="Committee Head Workbench",
+            workbench_subtitle="You are the Head of the Committee / Nodal Officer for the Specifications Subset. Review submitted drafts, edit them where needed, then forward them to Secretary.",
+            workbench_kicker_label="Material Master Management",
+            workbench_kicker_url=url_for("csc.index"),
+            intro_message=(
+                "Governance Committee members can inspect all active revisions. Subset committee heads can review and edit submitted drafts within their covered subsets, then approve and forward them to Secretary. Draft deletion is reserved for Secretary Workspace."
+            ),
+            decision_stage=WORKFLOW_DRAFTING_SUBMITTED,
+            decision_mode="committee_head",
+            review_subtitle_pending="Review the revision snapshot below, then return it or approve and forward it as the Committee Head / Nodal Officer.",
+            review_subtitle_readonly="Read-only revision snapshot for governance visibility and decision history.",
+            decision_note="Approve forwards the draft to Secretary. Return reopens it for committee updates.",
+            primary_action_label="Approve & Forward",
+            return_action_label="Return",
+            reject_action_label=None,
+            review_endpoint_name="csc.review_revision",
+            approve_endpoint_name="csc.committee_head_approve_revision",
+            return_endpoint_name="csc.committee_head_return_revision",
+            reject_endpoint_name="csc.committee_head_delete_revision",
+            require_publish_fields=False,
+        )
+    except Exception as e:
+        logger.error(f"Error loading revisions: {e}")
+        flash("Error loading revisions.", "danger")
+        return redirect(url_for("csc.index"))
+
+
 @csc_bp.route("/admin/msds-diagnostics")
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def admin_msds_diagnostics():
     """Report live web-process MSDS diagnostics for Railway debugging."""
     from app.core.services.inventory_msds import list_msds_documents
@@ -3483,20 +4709,27 @@ def admin_msds_diagnostics():
     return jsonify(payload)
 
 
-@csc_bp.route("/admin/revision/<int:revision_id>/review")
+@csc_bp.route("/revision/<int:revision_id>/review")
 @login_required
 @module_access_required("csc")
-@superuser_required
-def admin_review_revision(revision_id: int):
-    """Return a read-only revision snapshot for the admin review modal."""
+def review_revision(revision_id: int):
+    """Return a read-only revision snapshot for workbench modals."""
     revision = db.session.get(CSCRevision, revision_id)
     if not revision:
         return jsonify({"error": "Revision not found"}), 404
+    _require_revision_snapshot_access(revision)
+
+    decision_mode = "read_only"
+    if _can_current_user_decide_revision_as_module_admin(revision):
+        decision_mode = "module_admin"
+    elif _can_current_user_decide_revision_as_committee_head(revision):
+        decision_mode = "committee_head"
 
     return jsonify(
         {
             "success": True,
             "status": revision.status,
+            "decision_mode": decision_mode,
             "html": render_template(
                 "csc/admin/_revision_detail.html",
                 revision=revision,
@@ -3506,10 +4739,146 @@ def admin_review_revision(revision_id: int):
     )
 
 
+@csc_bp.route("/admin/revision/<int:revision_id>/review")
+@login_required
+@module_access_required("csc")
+@module_admin_required("csc")
+def admin_review_revision(revision_id: int):
+    """Alias for module-admin snapshot review."""
+    return review_revision(revision_id)
+
+
+@csc_bp.route("/revision/<int:revision_id>/approve", methods=["POST"])
+@login_required
+@module_access_required("csc")
+def committee_head_approve_revision(revision_id: int):
+    """Approve a submitted draft as committee head and forward it to module admins."""
+    try:
+        revision = db.session.get(CSCRevision, revision_id)
+        if not revision:
+            return jsonify({"error": "Revision not found"}), 404
+        if not _can_current_user_decide_revision_as_committee_head(revision):
+            return jsonify({"error": "Unauthorized"}), 403
+
+        data = request.get_json() or {}
+        reviewer_notes = (data.get("reviewer_notes") or "").strip()
+        if not reviewer_notes:
+            return jsonify({"error": "Reviewer notes are required"}), 400
+
+        revision.status = WORKFLOW_DRAFTING_HEAD_APPROVED
+        revision.committee_head_reviewed_at = datetime.now(timezone.utc)
+        revision.committee_head_notes = reviewer_notes
+        revision.committee_head_user_id = current_user.id
+        revision.reviewer_notes = reviewer_notes
+        revision.reviewed_at = datetime.now(timezone.utc)
+        if revision.child_draft:
+            revision.child_draft.updated_at = datetime.now(timezone.utc)
+        db.session.commit()
+
+        if revision.parent_draft:
+            _create_audit_entry(
+                revision.parent_draft.id,
+                "Draft approved by committee head",
+                new_value=json.dumps({"submitted_draft_id": revision.child_draft_id}),
+                remarks=reviewer_notes,
+            )
+
+        _notify_users(
+            [user.id for user in _get_material_master_admin_users()],
+            title="Draft ready for Secretary review",
+            message=(
+                f"{revision.parent_draft.spec_number} — {revision.parent_draft.chemical_name} "
+                "was approved by the committee head and is ready for Secretary review."
+            ),
+            severity="info",
+            link=url_for("csc.admin_revisions"),
+        )
+
+        return jsonify(
+            {
+                "success": True,
+                "title": "Draft Returned to Committee User",
+                "message": (
+                    f"{parent_draft.spec_number} — {parent_draft.chemical_name} "
+                    "was returned by the Material Master Management Admin for revision."
+                ),
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error approving revision as committee head: {e}")
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+
+@csc_bp.route("/revision/<int:revision_id>/return", methods=["POST"])
+@login_required
+@module_access_required("csc")
+def committee_head_return_revision(revision_id: int):
+    """Return a submitted draft to committee user editing."""
+    try:
+        revision = db.session.get(CSCRevision, revision_id)
+        if not revision:
+            return jsonify({"error": "Revision not found"}), 404
+        if not _can_current_user_decide_revision_as_committee_head(revision):
+            return jsonify({"error": "Unauthorized"}), 403
+
+        data = request.get_json() or {}
+        reviewer_notes = (data.get("reviewer_notes") or "").strip()
+        if not reviewer_notes:
+            return jsonify({"error": "Reviewer notes are required"}), 400
+
+        revision.status = WORKFLOW_DRAFTING_RETURNED
+        revision.committee_head_reviewed_at = datetime.now(timezone.utc)
+        revision.committee_head_notes = reviewer_notes
+        revision.committee_head_user_id = current_user.id
+        revision.reviewer_notes = reviewer_notes
+        revision.reviewed_at = datetime.now(timezone.utc)
+        if revision.child_draft:
+            revision.child_draft.updated_at = datetime.now(timezone.utc)
+        if revision.parent_draft:
+            revision.parent_draft.status = "Drafting"
+            revision.parent_draft.admin_stage = ADMIN_STAGE_DRAFTING
+            revision.parent_draft.updated_at = datetime.now(timezone.utc)
+        db.session.commit()
+
+        if revision.parent_draft:
+            _create_audit_entry(
+                revision.parent_draft.id,
+                "Draft returned by committee head",
+                new_value=json.dumps({"submitted_draft_id": revision.child_draft_id}),
+                remarks=reviewer_notes,
+            )
+
+        _notify_users(
+            [revision.child_draft.created_by_id if revision.child_draft else None],
+            title="Draft returned by committee head",
+            message=(
+                f"{revision.parent_draft.spec_number} — {revision.parent_draft.chemical_name} "
+                f"was returned by the committee head. Note: {reviewer_notes}"
+            ),
+            severity="warning",
+            link=url_for("csc.workspace", q=revision.parent_draft.chemical_name if revision.parent_draft else ""),
+        )
+
+        return jsonify({"success": True})
+    except Exception as e:
+        logger.error(f"Error returning revision as committee head: {e}")
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+
+@csc_bp.route("/revision/<int:revision_id>/delete", methods=["POST"])
+@login_required
+@module_access_required("csc")
+def committee_head_delete_revision(revision_id: int):
+    """Committee Heads cannot delete workflow drafts."""
+    return jsonify({"error": "Only Secretary Workspace can delete drafts for revision."}), 403
+
+
 @csc_bp.route("/admin/revision/<int:revision_id>/approve", methods=["POST"])
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def admin_approve_revision(revision_id: int):
     """Approve a submitted drafting request."""
     try:
@@ -3518,8 +4887,8 @@ def admin_approve_revision(revision_id: int):
             return jsonify({"error": "Revision not found"}), 404
 
         data = request.get_json() or {}
-        if revision.status != WORKFLOW_DRAFTING_SUBMITTED:
-            return jsonify({"error": "Only submitted drafts can be approved"}), 400
+        if revision.status != WORKFLOW_DRAFTING_HEAD_APPROVED:
+            return jsonify({"error": "Only committee-head-approved drafts can be published"}), 400
 
         child_draft = revision.child_draft
         parent_draft = revision.parent_draft
@@ -3537,6 +4906,29 @@ def admin_approve_revision(revision_id: int):
         if not approval_disha_file_number:
             return jsonify({"error": "Enter the Disha File Number before publishing"}), 400
 
+        next_spec_version = increment_spec_version(
+            parent_draft.spec_version,
+            version_increment,
+        )
+        next_version_label = format_spec_version(next_spec_version)
+        approval_notes = _compose_approval_notes(
+            reviewer_notes,
+            approval_authorized_by,
+            approval_disha_file_number,
+        )
+        published_review_context = _build_revision_review_context(revision)
+        _override_review_context_summary_value(
+            published_review_context,
+            "Version",
+            f"v{next_version_label}",
+        )
+        _override_review_context_summary_value(
+            published_review_context,
+            "Current Status",
+            "Published",
+        )
+        published_review_context["latest_review_notes"] = approval_notes
+
         _copy_draft_content(child_draft, parent_draft)
         record = upsert_master_record_from_form(
             parent_draft,
@@ -3548,20 +4940,21 @@ def admin_approve_revision(revision_id: int):
 
         revision.status = WORKFLOW_DRAFTING_APPROVED
         revision.reviewed_at = datetime.now(timezone.utc)
-        revision.reviewer_notes = _compose_approval_notes(
-            reviewer_notes,
-            approval_authorized_by,
-            approval_disha_file_number,
-        )
+        revision.reviewer_notes = approval_notes
+        revision.module_admin_reviewed_at = datetime.now(timezone.utc)
+        revision.module_admin_notes = revision.reviewer_notes
+        revision.module_admin_user_id = current_user.id
 
         parent_draft.status = "Published"
         parent_draft.admin_stage = ADMIN_STAGE_PUBLISHED
         parent_draft.reviewed_by = current_user.username
-        parent_draft.spec_version = increment_spec_version(
-            parent_draft.spec_version,
-            version_increment,
-        )
+        parent_draft.spec_version = next_spec_version
         parent_draft.updated_at = datetime.now(timezone.utc)
+
+        published_review_context = _serialize_review_context_for_snapshot(
+            published_review_context
+        )
+        published_bundle = _build_export_bundle(parent_draft)
 
         snapshot = CSCSpecVersion(
             draft_id=parent_draft.id,
@@ -3573,6 +4966,8 @@ def admin_approve_revision(revision_id: int):
                 {
                     "draft": parent_draft.to_dict(),
                     "master_data": get_master_form_values(child_draft),
+                    "bundle": published_bundle,
+                    "review_context": published_review_context,
                 }
             ),
         )
@@ -3581,7 +4976,7 @@ def admin_approve_revision(revision_id: int):
 
         proposer_id = child_draft.created_by_id
         child_draft_id = child_draft.id
-        applied_version = format_spec_version(parent_draft.spec_version)
+        applied_version = next_version_label
         db.session.delete(revision)
         db.session.delete(child_draft)
         db.session.commit()
@@ -3598,9 +4993,9 @@ def admin_approve_revision(revision_id: int):
             ),
             remarks=revision.reviewer_notes,
         )
-        create_notification(
-            user_id=proposer_id,
-            title="Draft approved",
+        _notify_users(
+            [proposer_id, revision.committee_head_user_id],
+            title="Draft published",
             message=(
                 f"{parent_draft.spec_number} — {parent_draft.chemical_name} was approved "
                 f"and published as v{applied_version}."
@@ -3608,7 +5003,6 @@ def admin_approve_revision(revision_id: int):
             severity="success",
             link=url_for("csc.workspace"),
         )
-        db.session.commit()
 
         return jsonify({"success": True})
     except Exception as e:
@@ -3621,7 +5015,7 @@ def admin_approve_revision(revision_id: int):
 @csc_bp.route("/admin/api/revision/<int:revision_id>/approve", methods=["POST"])
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def api_admin_approve_revision(revision_id: int):
     """Alias for admin_approve_revision."""
     return admin_approve_revision(revision_id)
@@ -3630,17 +5024,22 @@ def api_admin_approve_revision(revision_id: int):
 @csc_bp.route("/admin/revision/<int:revision_id>/reject", methods=["POST"])
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def admin_reject_revision(revision_id: int):
-    """Reject and delete a submitted drafting request."""
+    """Delete an active drafting request as Material Master Management Admin."""
     try:
         revision = db.session.get(CSCRevision, revision_id)
         if not revision:
             return jsonify({"error": "Revision not found"}), 404
 
         data = request.get_json() or {}
-        if revision.status != WORKFLOW_DRAFTING_SUBMITTED:
-            return jsonify({"error": "Only submitted drafts can be rejected"}), 400
+        if revision.status not in {
+            WORKFLOW_DRAFTING_OPEN,
+            WORKFLOW_DRAFTING_SUBMITTED,
+            WORKFLOW_DRAFTING_HEAD_APPROVED,
+            WORKFLOW_DRAFTING_RETURNED,
+        }:
+            return jsonify({"error": "Only active drafts can be deleted"}), 400
 
         child_draft = revision.child_draft
         parent_draft = revision.parent_draft
@@ -3652,6 +5051,9 @@ def admin_reject_revision(revision_id: int):
         revision.status = WORKFLOW_DRAFTING_REJECTED
         revision.reviewed_at = datetime.now(timezone.utc)
         revision.reviewer_notes = reviewer_notes
+        revision.module_admin_reviewed_at = datetime.now(timezone.utc)
+        revision.module_admin_notes = reviewer_notes
+        revision.module_admin_user_id = current_user.id
         if not is_new_spec:
             parent_draft.status = "Published"
             parent_draft.admin_stage = ADMIN_STAGE_PUBLISHED
@@ -3673,17 +5075,24 @@ def admin_reject_revision(revision_id: int):
                 new_value=json.dumps({"submitted_draft_id": child_draft_id}),
                 remarks=reviewer_notes,
             )
-        create_notification(
-            user_id=proposer_id,
-            title="Draft rejected",
+
+        committee_head_user_ids = _get_committee_user_ids_for_committee_slug(
+            _get_revision_committee_slug(revision),
+            "committee_head",
+        )
+        if revision.committee_head_user_id:
+            committee_head_user_ids.append(revision.committee_head_user_id)
+
+        _notify_users(
+            [proposer_id, *committee_head_user_ids],
+            title="Draft deleted",
             message=(
-                f"{parent_draft.spec_number} — {parent_draft.chemical_name} was rejected. "
+                f"{parent_draft.spec_number} — {parent_draft.chemical_name} was deleted by the Material Master Management Admin. "
                 f"Note: {reviewer_notes}"
             ),
             severity="danger",
             link=url_for("csc.workspace"),
         )
-        db.session.commit()
 
         return jsonify({"success": True})
     except Exception as e:
@@ -3695,15 +5104,15 @@ def admin_reject_revision(revision_id: int):
 @csc_bp.route("/admin/revision/<int:revision_id>/return", methods=["POST"])
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def admin_return_revision(revision_id: int):
-    """Return a submitted drafting request to open state with notes."""
+    """Return a committee-head-approved drafting request to open state with notes."""
     try:
         revision = db.session.get(CSCRevision, revision_id)
         if not revision:
             return jsonify({"error": "Revision not found"}), 404
-        if revision.status != WORKFLOW_DRAFTING_SUBMITTED:
-            return jsonify({"error": "Only submitted drafts can be returned"}), 400
+        if revision.status != WORKFLOW_DRAFTING_HEAD_APPROVED:
+            return jsonify({"error": "Only committee-head-approved drafts can be returned"}), 400
 
         data = request.get_json() or {}
         reviewer_notes = (data.get("reviewer_notes") or "").strip()
@@ -3715,6 +5124,9 @@ def admin_return_revision(revision_id: int):
         revision.status = WORKFLOW_DRAFTING_RETURNED
         revision.reviewed_at = datetime.now(timezone.utc)
         revision.reviewer_notes = reviewer_notes
+        revision.module_admin_reviewed_at = datetime.now(timezone.utc)
+        revision.module_admin_notes = reviewer_notes
+        revision.module_admin_user_id = current_user.id
         parent_draft.status = "Drafting"
         parent_draft.admin_stage = ADMIN_STAGE_DRAFTING
         child_draft.updated_at = datetime.now(timezone.utc)
@@ -3726,17 +5138,16 @@ def admin_return_revision(revision_id: int):
             new_value=json.dumps({"submitted_draft_id": child_draft.id}),
             remarks=reviewer_notes,
         )
-        create_notification(
-            user_id=child_draft.created_by_id,
+        _notify_users(
+            [child_draft.created_by_id, revision.committee_head_user_id],
             title="Draft returned for update",
             message=(
-                f"{parent_draft.spec_number} — {parent_draft.chemical_name} was returned for revision. "
+                f"{parent_draft.spec_number} — {parent_draft.chemical_name} was returned by the Material Master Management Admin. "
                 f"Note: {reviewer_notes}"
             ),
             severity="warning",
             link=url_for("csc.workspace", q=parent_draft.chemical_name),
         )
-        db.session.commit()
 
         return jsonify({"success": True})
     except Exception as e:
@@ -3749,7 +5160,7 @@ def admin_return_revision(revision_id: int):
 @csc_bp.route("/admin/api/revision/<int:revision_id>/reject", methods=["POST"])
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def api_admin_reject_revision(revision_id: int):
     """Alias for admin_reject_revision."""
     return admin_reject_revision(revision_id)
@@ -3758,7 +5169,7 @@ def api_admin_reject_revision(revision_id: int):
 @csc_bp.route("/admin/api/revision/<int:revision_id>/return", methods=["POST"])
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def api_admin_return_revision(revision_id: int):
     """Alias for admin_return_revision."""
     return admin_return_revision(revision_id)
@@ -3767,7 +5178,7 @@ def api_admin_return_revision(revision_id: int):
 @csc_bp.route("/admin/audit")
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def admin_audit_log():
     """Audit log view for CSC workflow actions."""
     entries = (
@@ -3781,7 +5192,7 @@ def admin_audit_log():
 @csc_bp.route("/admin/audit/download")
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def admin_audit_log_download():
     """Download CSC audit log as CSV."""
     entries = CSCAudit.query.order_by(CSCAudit.action_time.desc(), CSCAudit.id.desc()).all()
@@ -3811,7 +5222,7 @@ def admin_audit_log_download():
 @csc_bp.route("/admin/classification")
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def admin_classification():
     """Type classification exercise page."""
     return render_template("csc/admin/classification.html")
@@ -3820,7 +5231,7 @@ def admin_classification():
 @csc_bp.route("/admin/classification/download")
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def admin_classification_download():
     """Download classification workbook."""
     try:
@@ -3835,7 +5246,7 @@ def admin_classification_download():
 @csc_bp.route("/admin/classification/upload", methods=["POST"])
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def admin_classification_upload():
     """Upload completed classification workbook."""
     try:
@@ -3856,7 +5267,7 @@ def admin_classification_upload():
 @csc_bp.route("/admin/classification/apply", methods=["POST"])
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def admin_classification_apply():
     """Apply classification changes."""
     try:
@@ -3869,7 +5280,7 @@ def admin_classification_apply():
 @csc_bp.route("/admin/export")
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def admin_export():
     """Export page with stats and history."""
     stats = _get_export_stats()
@@ -3884,7 +5295,7 @@ def admin_export():
 @csc_bp.route("/admin/export/master-docx")
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def admin_export_master():
     """Download master spec document."""
     try:
@@ -3939,7 +5350,7 @@ def admin_export_master():
 @csc_bp.route("/admin/export/<int:export_id>/download")
 @login_required
 @module_access_required("csc")
-@superuser_required
+@module_admin_required("csc")
 def admin_download_export(export_id: int):
     """Download a previously generated export file."""
     # TODO: Implement export file storage and retrieval

@@ -35,7 +35,6 @@ MASTER_DATA_FIELDS = [
     ("storage_conditions_general", "Storage Conditions - General"),
     ("storage_conditions_special", "Storage Conditions - Special"),
     ("container_type", "Container Type"),
-    ("container_capacity", "Container Capacity"),
     ("container_description", "Container Description"),
     ("primary_storage_classification", "Primary Storage Classification"),
 ]
@@ -53,20 +52,6 @@ MASTER_IMPACT_FIELDS = [
     ("impact_flag_6", "Impact Flag 6 — Financial"),
     ("impact_classification", "Impact Classification"),
 ]
-
-WORKFLOW_MASTER_VALUE_KEYS = {
-    "material_code",
-    "short_text",
-}
-WORKFLOW_MASTER_VALUE_KEYS.update(
-    field_name for field_name, _ in MASTER_DATA_FIELDS if field_name != "short_text"
-)
-WORKFLOW_MASTER_VALUE_KEYS.update(
-    f"extra__{field_name}" for field_name, _ in MASTER_EXTRA_FIELDS
-)
-WORKFLOW_MASTER_VALUE_KEYS.update(
-    field_name for field_name, _ in MASTER_IMPACT_FIELDS
-)
 
 MATERIAL_CLASSIFICATION_SOURCE_PATH = Path(
     "/Users/dineshreddy/Downloads/Chemical_Properties_Register_Version_1.xlsx"
@@ -162,6 +147,15 @@ STORAGE_HANDLING_FIELDS = [
         "source": "Excel Validation",
     },
     {
+        "field_name": "container_capacity",
+        "label": "Packing Capacity",
+        "section": "Packing",
+        "dimension": "Packing",
+        "source": "User Entry",
+        "input_type": "text",
+        "placeholder": "Enter packing capacity",
+    },
+    {
         "field_name": "container_description",
         "label": "Packing Description",
         "section": "Packing",
@@ -195,6 +189,43 @@ STORAGE_HANDLING_FIELDS = [
         "source": "Excel Validation",
     },
 ]
+
+
+def _collect_master_record_field_names() -> list[str]:
+    names: list[str] = []
+    seen: set[str] = set()
+
+    for field_name, _ in MASTER_DATA_FIELDS:
+        if field_name in seen:
+            continue
+        names.append(field_name)
+        seen.add(field_name)
+
+    for field in MATERIAL_PROPERTIES_FIELDS + STORAGE_HANDLING_FIELDS:
+        field_name = str(field["field_name"])
+        if field_name.startswith("extra__") or field_name in seen:
+            continue
+        names.append(field_name)
+        seen.add(field_name)
+
+    return names
+
+
+MASTER_RECORD_FIELD_NAMES = _collect_master_record_field_names()
+
+WORKFLOW_MASTER_VALUE_KEYS = {
+    "material_code",
+    "short_text",
+}
+WORKFLOW_MASTER_VALUE_KEYS.update(
+    field_name for field_name in MASTER_RECORD_FIELD_NAMES if field_name != "short_text"
+)
+WORKFLOW_MASTER_VALUE_KEYS.update(
+    f"extra__{field_name}" for field_name, _ in MASTER_EXTRA_FIELDS
+)
+WORKFLOW_MASTER_VALUE_KEYS.update(
+    field_name for field_name, _ in MASTER_IMPACT_FIELDS
+)
 
 WORKFLOW_MANAGED_MASTER_FIELD_NAMES = {
     str(field["field_name"])
@@ -500,7 +531,7 @@ def _base_master_form_values(draft: CSCDraft) -> dict[str, str]:
         "material_code": _normalize_material_code(getattr(draft, "material_code", "")),
         "short_text": _as_text(record.short_text if record else draft.chemical_name),
     }
-    for field_name, _ in MASTER_DATA_FIELDS:
+    for field_name in MASTER_RECORD_FIELD_NAMES:
         if field_name == "short_text":
             continue
         values[field_name] = _as_text(getattr(record, field_name, ""))
@@ -646,7 +677,7 @@ def upsert_master_record_from_form(
             or record.short_text
         )
 
-    for field_name, _ in MASTER_DATA_FIELDS:
+    for field_name in MASTER_RECORD_FIELD_NAMES:
         if field_name == "short_text":
             continue
         if field_name in form_data:

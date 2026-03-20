@@ -482,7 +482,7 @@ def _build_review_sections_page(doc: Document, review_context: dict[str, Any]) -
 
 
 def _build_review_parameters_page(doc: Document, review_context: dict[str, Any]) -> None:
-    doc.add_heading("7. Parameter Review and Decision Basis", level=1)
+    doc.add_heading("7. Parameter Review", level=1)
     parameter_rows = review_context.get("parameter_rows", []) or []
     if not parameter_rows:
         doc.add_paragraph("No parameters are present in this submission.")
@@ -573,6 +573,8 @@ def _build_review_appendix_page(doc: Document, review_context: dict[str, Any]) -
     doc.add_heading("9. Review Notes and Audit Context", level=1)
     revision = review_context.get("revision")
     reviewer_notes = getattr(revision, "reviewer_notes", "") if revision is not None else ""
+    if not reviewer_notes:
+        reviewer_notes = str(review_context.get("latest_review_notes", "") or "")
     if reviewer_notes:
         doc.add_paragraph(str(reviewer_notes))
     else:

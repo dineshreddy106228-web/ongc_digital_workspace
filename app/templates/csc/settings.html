@@ -96,6 +96,30 @@
     flex: 1; padding: .3rem .6rem; border: 1px solid var(--border); border-radius: 6px;
     font-size: 0.82rem; background: var(--surface-alt); color: var(--text);
 }
+.gs-select-input {
+    width: 100%;
+    padding: .45rem .6rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 0.82rem;
+    background: var(--surface-alt);
+    color: var(--text);
+}
+.gs-assignment-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.9rem;
+}
+@media (max-width: 760px) {
+    .gs-assignment-grid {
+        grid-template-columns: 1fr;
+    }
+}
+.gs-assignment-help {
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin: 0.55rem 0 0;
+}
 .gs-add-btn {
     display: inline-flex; align-items: center; gap: 0.4rem;
     font-size: 0.78rem; font-weight: 600; color: var(--primary);
@@ -195,7 +219,7 @@
         <div>
             <div class="page-kicker"><a href="{{ url_for('csc.admin_index') }}">Material Master Admin</a></div>
             <h1 class="inv-module-title"><i class="bi bi-sliders"></i> Governance Settings</h1>
-            <p class="inv-module-subtitle">Edit committee members, subset coverage, and upload office order PDFs.</p>
+            <p class="inv-module-subtitle">Edit committee members, subset coverage, and upload office order PDFs stored in the database.</p>
         </div>
     </div>
 
@@ -313,6 +337,53 @@
                                     <p class="gs-subset-hint">
                                         <i class="bi bi-info-circle"></i>
                                         Click a subset to add or remove it. Highlighted in teal = assigned.
+                                    </p>
+                                </div>
+
+                                <div class="gs-section">
+                                    <p class="gs-field-label"><i class="bi bi-person-badge-fill"></i> Drafting Access Assignment</p>
+                                    <div class="gs-assignment-grid">
+                                        <div>
+                                            <label class="gs-field-label" for="committee-user-{{ c.slug }}" style="margin-bottom:0.35rem;">Committee User</label>
+                                            <select
+                                                id="committee-user-{{ c.slug }}"
+                                                class="gs-select-input"
+                                                data-role="committee-user"
+                                            >
+                                                <option value="">Not assigned</option>
+                                                {% set selected_user = c.get('committee_user', '') %}
+                                                {% if selected_user and selected_user not in username_values %}
+                                                <option value="{{ selected_user }}" selected>{{ selected_user }} (current)</option>
+                                                {% endif %}
+                                                {% for option in username_options %}
+                                                <option value="{{ option.username }}" {{ 'selected' if selected_user == option.username else '' }}>
+                                                    {{ option.label }}
+                                                </option>
+                                                {% endfor %}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="gs-field-label" for="committee-head-{{ c.slug }}" style="margin-bottom:0.35rem;">Committee Head</label>
+                                            <select
+                                                id="committee-head-{{ c.slug }}"
+                                                class="gs-select-input"
+                                                data-role="committee-head"
+                                            >
+                                                <option value="">Not assigned</option>
+                                                {% set selected_head = c.get('committee_head', '') %}
+                                                {% if selected_head and selected_head not in username_values %}
+                                                <option value="{{ selected_head }}" selected>{{ selected_head }} (current)</option>
+                                                {% endif %}
+                                                {% for option in username_options %}
+                                                <option value="{{ option.username }}" {{ 'selected' if selected_head == option.username else '' }}>
+                                                    {{ option.label }}
+                                                </option>
+                                                {% endfor %}
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <p class="gs-assignment-help">
+                                        Assigned usernames inherit this committee's subset coverage inside the Committee User Workbench.
                                     </p>
                                 </div>
 
@@ -479,6 +550,8 @@
                 });
             });
             c.subsets = subsets;
+            c.committee_user = (panel.querySelector('#committee-user-' + c.slug) || {}).value || '';
+            c.committee_head = (panel.querySelector('#committee-head-' + c.slug) || {}).value || '';
         });
 
         var root = allCommittees.shift();

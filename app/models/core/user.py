@@ -150,6 +150,12 @@ class User(UserMixin, db.Model):
         cascade="all, delete-orphan",
         order_by="desc(Notification.created_at)",
     )
+    module_admin_assignments = db.relationship(
+        "ModuleAdminAssignment",
+        back_populates="user",
+        lazy="dynamic",
+        cascade="all, delete-orphan",
+    )
 
     # ── Password helpers ──────────────────────────────────────────
     def set_password(self, password: str) -> None:
@@ -233,6 +239,27 @@ class User(UserMixin, db.Model):
             user_id=self.id, can_access=True
         ).all()
         return [p.module_code for p in explicit if is_module_enabled(p.module_code)]
+
+    def is_module_admin(self, module_code: str) -> bool:
+        """Return True when this user is assigned as an admin for the module."""
+        from app.models.core.module_admin_assignment import ModuleAdminAssignment
+
+        return (
+            ModuleAdminAssignment.query.filter_by(
+                user_id=self.id,
+                module_code=module_code,
+            ).first()
+            is not None
+        )
+
+    def get_administered_module_codes(self) -> list[str]:
+        """Return business module codes this user administers."""
+        from app.models.core.module_admin_assignment import ModuleAdminAssignment
+
+        return [
+            assignment.module_code
+            for assignment in self.module_admin_assignments.order_by(ModuleAdminAssignment.module_code).all()
+        ]
 
     def __repr__(self):
         return f"<User {self.username}>"

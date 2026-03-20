@@ -450,6 +450,7 @@
 
 {% block content %}
 <div class="inv-page">
+    {% set csc_nav_active = 'overview' %}
 
     {# ── Page header ───────────────────────────────────────────────── #}
     <div class="inv-module-header">
@@ -458,17 +459,29 @@
             <p class="inv-module-subtitle">
                 CSC &amp; Subcommittees Workflow for material master drafting, review, and publication
             </p>
+            <p class="inv-module-subtitle" style="margin-top: 0.35rem;">
+                <strong>Module Admin{% if material_master_admin_labels|length != 1 %}s{% endif %}:</strong>
+                {% if material_master_admin_labels %}
+                {{ material_master_admin_labels|join(', ') }}
+                {% else %}
+                Not assigned
+                {% endif %}
+            </p>
         </div>
         <div class="inv-header-actions">
             <span class="inv-badge inv-badge-info" id="cscTotalBadge">Loading…</span>
             <a href="{{ url_for('csc.msds_page') }}" class="btn btn-sm btn-secondary">
                 <i class="bi bi-file-earmark-pdf"></i> MSDS Center
             </a>
+            {% if csc_can_upload_new_specs %}
             <a href="{{ url_for('csc.ingest') }}" class="btn btn-sm btn-primary">
                 <i class="bi bi-cloud-upload"></i> New Specification Upload
             </a>
+            {% endif %}
         </div>
     </div>
+
+    {% include "csc/_workflow_nav.html" %}
 
     {# ── KPI row with 4 cards ───────────────────────────────────────── #}
     <div class="inv-kpi-row" style="margin-bottom: 2rem;">
@@ -512,23 +525,24 @@
 
     {# ── Module navigation cards ──────────────────────────────────────── #}
     <div class="inv-landing-grid">
-        {# Spec Drafting Workspace card #}
+        {% if can_access_committee_user_workbench %}
         <a href="{{ url_for('csc.workspace') }}" class="inv-landing-card inv-landing-card-blue">
             <div class="inv-landing-icon"><i class="bi bi-pencil-square"></i></div>
             <div class="inv-landing-card-body">
-                <h2 class="inv-landing-card-title">Material Master Drafting Workspace</h2>
-                <p class="inv-landing-card-desc">Open published specifications, propose revisions through the 9-section workflow, and track committee inputs.</p>
+                <h2 class="inv-landing-card-title">Committee User Workbench</h2>
+                <p class="inv-landing-card-desc">Draft revisions only for the subset coverage assigned to the committee user and keep changes moving to review.</p>
                 <ul class="inv-landing-features">
-                    <li><i class="bi bi-check2"></i> 9-section guided workflow</li>
-                    <li><i class="bi bi-check2"></i> Parameter comparison &amp; proposal</li>
-                    <li><i class="bi bi-check2"></i> Impact analysis scoring</li>
-                    <li><i class="bi bi-check2"></i> Word document export</li>
+                    <li><i class="bi bi-check2"></i> Drafting-only subset workbench</li>
+                    <li><i class="bi bi-check2"></i> Open and returned drafts only</li>
+                    <li><i class="bi bi-check2"></i> 9-section guided revision flow</li>
+                    <li><i class="bi bi-check2"></i> Submit forward to Committee Head</li>
                 </ul>
             </div>
             <div class="inv-landing-card-footer">
-                <span class="inv-landing-enter">Open Workspace <i class="bi bi-arrow-right"></i></span>
+                <span class="inv-landing-enter">Open Workbench <i class="bi bi-arrow-right"></i></span>
             </div>
         </a>
+        {% endif %}
 
         <a href="{{ url_for('csc.msds_page') }}" class="inv-landing-card inv-landing-card-teal">
             <div class="inv-landing-icon"><i class="bi bi-file-earmark-pdf"></i></div>
@@ -546,6 +560,23 @@
             </div>
         </a>
 
+        <a href="{{ url_for('csc.published_specs') }}" class="inv-landing-card inv-landing-card-purple">
+            <div class="inv-landing-icon"><i class="bi bi-journal-richtext"></i></div>
+            <div class="inv-landing-card-body">
+                <h2 class="inv-landing-card-title">Published Specs</h2>
+                <p class="inv-landing-card-desc">Open the published specification library, inspect version progression, and download stored publication dossiers by release point.</p>
+                <ul class="inv-landing-features">
+                    <li><i class="bi bi-check2"></i> Available to all Material Master users</li>
+                    <li><i class="bi bi-check2"></i> Read-only published baseline view</li>
+                    <li><i class="bi bi-check2"></i> Version-chain dossier downloads</li>
+                </ul>
+            </div>
+            <div class="inv-landing-card-footer">
+                <span class="inv-landing-enter">Open Published Specs <i class="bi bi-arrow-right"></i></span>
+            </div>
+        </a>
+
+        {% if csc_can_upload_new_specs %}
         <a href="{{ url_for('csc.ingest') }}" class="inv-landing-card inv-landing-card-blue">
             <div class="inv-landing-icon"><i class="bi bi-cloud-upload"></i></div>
             <div class="inv-landing-card-body">
@@ -561,26 +592,44 @@
                 <span class="inv-landing-enter">Open Upload <i class="bi bi-arrow-right"></i></span>
             </div>
         </a>
+        {% endif %}
 
-        {# Admin Dashboard - superuser only #}
-        {% if current_user.is_super_user() %}
+        {% if can_access_review_workbench %}
+        <a href="{{ url_for('csc.review_workbench') }}" class="inv-landing-card inv-landing-card-green">
+            <div class="inv-landing-icon"><i class="bi bi-clipboard-check"></i></div>
+            <div class="inv-landing-card-body">
+                <h2 class="inv-landing-card-title">Committee Head Workbench</h2>
+                <p class="inv-landing-card-desc">Review active subset drafts, inspect the latest snapshot, and take committee-head decisions where assigned.</p>
+                <ul class="inv-landing-features">
+                    <li><i class="bi bi-check2"></i> Committee-head approval, return, and delete</li>
+                    <li><i class="bi bi-check2"></i> Governance Committee visibility across active drafts</li>
+                    <li><i class="bi bi-check2"></i> Snapshot-first review flow</li>
+                </ul>
+            </div>
+            <div class="inv-landing-card-footer">
+                <span class="inv-landing-enter">Open Review Workbench <i class="bi bi-arrow-right"></i></span>
+            </div>
+        </a>
+        {% endif %}
+
+        {% if is_material_master_admin %}
         <a href="{{ url_for('csc.admin_index') }}" class="inv-landing-card inv-landing-card-amber">
             <div class="inv-landing-icon"><i class="bi bi-gear"></i></div>
             <div class="inv-landing-card-body">
                 <h2 class="inv-landing-card-title">
-                    Admin Dashboard
+                    Secretary Workspace
                     <span style="font-size:0.7rem; font-weight:600; padding:0.2rem 0.5rem; border-radius:10px;
                                  background:color-mix(in srgb,#7c3aed 12%,transparent); color:#7c3aed;
                                  vertical-align:middle; margin-left:0.4rem;">
-                        <i class="bi bi-shield-lock"></i> Superuser
+                        <i class="bi bi-shield-lock"></i> Module Admin
                     </span>
                 </h2>
-                <p class="inv-landing-card-desc">Ingest PDF/DOCX specs, structure parameters, manage committee revisions, and publish master specifications.</p>
+                <p class="inv-landing-card-desc">Generate revision drafts, run the secretary workbench, and publish approved master specifications.</p>
                 <ul class="inv-landing-features">
                     <li><i class="bi bi-check2"></i> PDF &amp; DOCX spec ingestion</li>
-                    <li><i class="bi bi-check2"></i> Parameter structuring</li>
-                    <li><i class="bi bi-check2"></i> Revision approval queue</li>
-                    <li><i class="bi bi-check2"></i> Master export &amp; versioning</li>
+                    <li><i class="bi bi-check2"></i> Draft generation for revision</li>
+                    <li><i class="bi bi-check2"></i> Final publish / return / delete queue</li>
+                    <li><i class="bi bi-check2"></i> Master export &amp; governance controls</li>
                 </ul>
             </div>
             <div class="inv-landing-card-footer">

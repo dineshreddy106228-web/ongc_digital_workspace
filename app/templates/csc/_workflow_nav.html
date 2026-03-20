@@ -1,0 +1,209 @@
+<style nonce="{{ csp_nonce() }}">
+.csc-shell-nav {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: start;
+  margin: 1.1rem 0 1.5rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--primary) 3%, transparent), transparent 58%),
+    var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.csc-shell-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.35rem 0;
+}
+.csc-shell-kicker {
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.csc-shell-caption {
+  font-size: 0.82rem;
+  color: var(--text);
+  font-weight: 600;
+  line-height: 1.45;
+  max-width: 24rem;
+}
+.csc-shell-links {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0.8rem;
+}
+.csc-shell-link {
+  position: relative;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: center;
+  min-height: 72px;
+  padding: 0.85rem 0.95rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  text-decoration: none;
+  background: var(--surface);
+  color: var(--text);
+  transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+}
+.csc-shell-link:hover,
+.csc-shell-link:focus-visible {
+  border-color: color-mix(in srgb, var(--primary) 28%, var(--border));
+  background: color-mix(in srgb, var(--primary) 4%, var(--surface));
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.05);
+  outline: none;
+}
+.csc-shell-link.is-active {
+  border-color: color-mix(in srgb, var(--primary) 38%, var(--border));
+  background: color-mix(in srgb, var(--primary) 8%, var(--surface));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--primary) 12%, transparent),
+    0 10px 20px rgba(15, 23, 42, 0.06);
+}
+.csc-shell-link-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+  color: color-mix(in srgb, var(--primary) 70%, #1f2937);
+  font-size: 1.05rem;
+}
+.csc-shell-link.is-active .csc-shell-link-icon {
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+}
+.csc-shell-link-meta {
+  min-width: 0;
+}
+.csc-shell-link-title {
+  font-size: 0.84rem;
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--text);
+}
+.csc-shell-link-stage {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-top: 0.18rem;
+}
+@media (max-width: 720px) {
+  .csc-shell-nav {
+    grid-template-columns: 1fr;
+    padding: 0.9rem;
+  }
+  .csc-shell-label {
+    padding-bottom: 0;
+  }
+}
+</style>
+
+{% set active = csc_nav_active|default('overview') %}
+{% set committee_head_first = active == 'review' %}
+
+<div class="csc-shell-nav">
+  <div class="csc-shell-label">
+    <span class="csc-shell-kicker">Workflow Navigation</span>
+    <span class="csc-shell-caption">Navigate by role and stage instead of backtracking.</span>
+  </div>
+
+  <div class="csc-shell-links">
+    <a href="{{ url_for('csc.index') }}" class="csc-shell-link {{ 'is-active' if active == 'overview' }}">
+      <span class="csc-shell-link-icon"><i class="bi bi-grid-1x2"></i></span>
+      <span class="csc-shell-link-meta">
+        <span class="csc-shell-link-title">Overview</span>
+        <span class="csc-shell-link-stage">Entry</span>
+      </span>
+    </a>
+
+    <a href="{{ url_for('csc.published_specs') }}" class="csc-shell-link {{ 'is-active' if active == 'published_specs' }}">
+      <span class="csc-shell-link-icon"><i class="bi bi-journal-richtext"></i></span>
+      <span class="csc-shell-link-meta">
+        <span class="csc-shell-link-title">Published Specs</span>
+        <span class="csc-shell-link-stage">Library</span>
+      </span>
+    </a>
+
+    {% if csc_can_access_review_workbench %}
+    <a href="{{ url_for('csc.review_workbench') }}" class="csc-shell-link {{ 'is-active' if active == 'review' }}">
+      <span class="csc-shell-link-icon"><i class="bi bi-clipboard-check"></i></span>
+      <span class="csc-shell-link-meta">
+        <span class="csc-shell-link-title">Committee Head</span>
+        <span class="csc-shell-link-stage">Review</span>
+      </span>
+    </a>
+    {% endif %}
+
+    {% if committee_head_first %}
+    <a href="{{ url_for('csc.msds_page') }}" class="csc-shell-link {{ 'is-active' if active == 'msds' }}">
+      <span class="csc-shell-link-icon"><i class="bi bi-file-earmark-pdf"></i></span>
+      <span class="csc-shell-link-meta">
+        <span class="csc-shell-link-title">MSDS Center</span>
+        <span class="csc-shell-link-stage">Support</span>
+      </span>
+    </a>
+
+    {% if csc_can_upload_new_specs %}
+    <a href="{{ url_for('csc.ingest') }}" class="csc-shell-link {{ 'is-active' if active == 'upload' }}">
+      <span class="csc-shell-link-icon"><i class="bi bi-cloud-upload"></i></span>
+      <span class="csc-shell-link-meta">
+        <span class="csc-shell-link-title">New Spec Upload</span>
+        <span class="csc-shell-link-stage">Draft</span>
+      </span>
+    </a>
+    {% endif %}
+    {% endif %}
+
+    {% if csc_can_access_committee_user_workbench %}
+    <a href="{{ url_for('csc.workspace') }}" class="csc-shell-link {{ 'is-active' if active == 'committee_user' }}">
+      <span class="csc-shell-link-icon"><i class="bi bi-pencil-square"></i></span>
+      <span class="csc-shell-link-meta">
+        <span class="csc-shell-link-title">Committee User</span>
+        <span class="csc-shell-link-stage">Draft</span>
+      </span>
+    </a>
+    {% endif %}
+
+    {% if not committee_head_first %}
+    <a href="{{ url_for('csc.msds_page') }}" class="csc-shell-link {{ 'is-active' if active == 'msds' }}">
+      <span class="csc-shell-link-icon"><i class="bi bi-file-earmark-pdf"></i></span>
+      <span class="csc-shell-link-meta">
+        <span class="csc-shell-link-title">MSDS Center</span>
+        <span class="csc-shell-link-stage">Support</span>
+      </span>
+    </a>
+
+    {% if csc_can_upload_new_specs %}
+    <a href="{{ url_for('csc.ingest') }}" class="csc-shell-link {{ 'is-active' if active == 'upload' }}">
+      <span class="csc-shell-link-icon"><i class="bi bi-cloud-upload"></i></span>
+      <span class="csc-shell-link-meta">
+        <span class="csc-shell-link-title">New Spec Upload</span>
+        <span class="csc-shell-link-stage">Draft</span>
+      </span>
+    </a>
+    {% endif %}
+    {% endif %}
+
+    {% if csc_is_material_master_admin %}
+    <a href="{{ url_for('csc.admin_index') }}" class="csc-shell-link {{ 'is-active' if active == 'admin' }}">
+      <span class="csc-shell-link-icon"><i class="bi bi-shield-lock"></i></span>
+      <span class="csc-shell-link-meta">
+        <span class="csc-shell-link-title">Secretary</span>
+        <span class="csc-shell-link-stage">Publish</span>
+      </span>
+    </a>
+    {% endif %}
+  </div>
+</div>

@@ -4,6 +4,7 @@ from app.models.core.role import Role                                    # noqa:
 from app.models.office.office import Office                                # noqa: F401
 from app.models.core.user import User                                    # noqa: F401
 from app.models.core.user_module_permission import UserModulePermission  # noqa: F401
+from app.models.core.module_admin_assignment import ModuleAdminAssignment  # noqa: F401
 from app.models.core.audit_log import AuditLog                          # noqa: F401
 from app.models.tasks.task import Task                                    # noqa: F401
 from app.models.tasks.task_collaborator import TaskCollaborator          # noqa: F401

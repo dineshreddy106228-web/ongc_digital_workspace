@@ -74,7 +74,7 @@
 <div class="inv-page">
   <div class="inv-module-header">
     <div>
-      <div class="page-kicker"><a href="{{ url_for('csc.admin_drafts') }}">Manage Drafts</a></div>
+      <div class="page-kicker"><a href="{{ url_for('csc.admin_revision_generation') }}">Draft Generation for Revision</a></div>
       <h1 class="inv-module-title"><i class="bi bi-pencil-square"></i> Edit Material Master Data</h1>
       <p class="inv-module-subtitle">{{ draft.spec_number }} — {{ draft.chemical_name }}</p>
     </div>
@@ -156,8 +156,8 @@
 
     <div class="csc-edit-actions">
       <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> Save Material Master Data</button>
-      <a href="{{ url_for('csc.admin_drafts') }}" class="btn btn-secondary"><i class="bi bi-ui-checks-grid"></i> Configure Workflow in Manage Drafts</a>
-      <a href="{{ url_for('csc.admin_drafts') }}" class="btn btn-secondary">Back to Manage Drafts</a>
+      <a href="{{ url_for('csc.admin_revision_generation') }}" class="btn btn-secondary"><i class="bi bi-ui-checks-grid"></i> Configure Workflow in Draft Generation</a>
+      <a href="{{ url_for('csc.admin_revision_generation') }}" class="btn btn-secondary">Back to Draft Generation</a>
     </div>
   </form>
 </div>

@@ -1330,6 +1330,114 @@ body.workspace-flyout-open .workspace-backdrop {
 
 .flash-close:hover { opacity: 1; }
 
+.app-dialog-overlay {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+    background: rgba(15, 23, 42, 0.58);
+    z-index: 1200;
+}
+
+.app-dialog-overlay.is-active {
+    display: flex;
+}
+
+.app-dialog {
+    width: min(520px, calc(100vw - 2rem));
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+    box-shadow: var(--shadow-lg);
+    overflow: hidden;
+}
+
+.app-dialog-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    padding: 1.25rem 1.25rem 1rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.app-dialog-icon {
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: 0.9rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    font-size: 1.1rem;
+    font-weight: 700;
+    border: 1px solid transparent;
+}
+
+.app-dialog-icon.is-success {
+    background: var(--flash-success-bg);
+    color: var(--success);
+    border-color: color-mix(in srgb, var(--success) 22%, var(--border));
+}
+
+.app-dialog-icon.is-warning {
+    background: var(--flash-warning-bg);
+    color: var(--warning);
+    border-color: color-mix(in srgb, var(--warning) 24%, var(--border));
+}
+
+.app-dialog-icon.is-danger {
+    background: var(--flash-danger-bg);
+    color: var(--danger);
+    border-color: color-mix(in srgb, var(--danger) 22%, var(--border));
+}
+
+.app-dialog-icon.is-info {
+    background: var(--flash-info-bg);
+    color: var(--info);
+    border-color: color-mix(in srgb, var(--info) 22%, var(--border));
+}
+
+.app-dialog-copy {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.app-dialog-eyebrow {
+    display: block;
+    margin-bottom: 0.35rem;
+    font-size: 0.76rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.app-dialog-title {
+    margin: 0;
+    font-size: 1.2rem;
+    line-height: 1.3;
+}
+
+.app-dialog-body {
+    padding: 1rem 1.25rem 0;
+    color: var(--muted);
+    font-size: 0.96rem;
+    line-height: 1.65;
+    white-space: pre-wrap;
+}
+
+.app-dialog-footer {
+    display: flex;
+    justify-content: flex-end;
+    padding: 1.2rem 1.25rem 1.25rem;
+}
+
+.app-dialog-open {
+    overflow: hidden;
+}
+
 /* ── Page header ────────────────────────────────────────────── */
 .page-header {
     display: flex;

@@ -1,0 +1,260 @@
+{% extends "base.html" %}
+{% block title %}Published Spec — {{ draft.spec_number }} — {{ app_name }}{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}">
+<style nonce="{{ csp_nonce() }}">
+.csc-published-shell {
+  display: grid;
+  gap: 1.35rem;
+}
+.csc-version-overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+}
+.csc-version-stat {
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--primary) 4%, transparent), transparent 64%),
+    var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.csc-version-stat-kicker {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 700;
+}
+.csc-version-stat-value {
+  margin-top: 0.35rem;
+  font-size: 1.7rem;
+  font-weight: 800;
+}
+.csc-version-stat-note {
+  margin-top: 0.2rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.csc-version-card {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.csc-version-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  padding: 1.1rem 1.2rem 0;
+}
+.csc-version-card-copy h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+.csc-version-card-copy p {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+}
+.csc-version-rail {
+  display: flex;
+  gap: 0;
+  align-items: stretch;
+  overflow-x: auto;
+  padding: 1.2rem;
+}
+.csc-version-link,
+.csc-version-block {
+  min-width: 240px;
+  text-decoration: none;
+  color: inherit;
+}
+.csc-version-node {
+  position: relative;
+  display: grid;
+  gap: 0.65rem;
+  min-height: 180px;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.csc-version-node::after {
+  content: "›";
+  position: absolute;
+  top: 50%;
+  right: -1.15rem;
+  transform: translateY(-50%);
+  color: var(--muted);
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+.csc-version-link:last-child .csc-version-node::after,
+.csc-version-block:last-child .csc-version-node::after {
+  display: none;
+}
+.csc-version-link:hover .csc-version-node {
+  border-color: color-mix(in srgb, var(--primary) 32%, var(--border));
+  background: color-mix(in srgb, var(--primary) 4%, transparent);
+}
+.csc-version-node.is-current {
+  border-color: color-mix(in srgb, var(--primary) 34%, var(--border));
+  background: color-mix(in srgb, var(--primary) 7%, transparent);
+}
+.csc-version-node.is-disabled {
+  opacity: 0.72;
+  background: color-mix(in srgb, var(--background) 88%, transparent);
+}
+.csc-version-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  color: color-mix(in srgb, var(--primary) 72%, #1f2937);
+}
+.csc-version-node.is-disabled .csc-version-chip {
+  background: color-mix(in srgb, #6b7280 12%, transparent);
+  color: #4b5563;
+}
+.csc-version-label {
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 1;
+}
+.csc-version-meta {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+.csc-version-note {
+  font-size: 0.88rem;
+  color: var(--text);
+  line-height: 1.45;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="inv-page">
+  {% set csc_nav_active = 'published_specs' %}
+  {% set current_version_node = (version_map | selectattr('spec_version', 'equalto', draft.spec_version) | list | first) %}
+  <div class="inv-module-header">
+    <div>
+      <div class="page-kicker"><a href="{{ url_for('csc.published_specs') }}">Published Specs</a></div>
+      <h1 class="inv-module-title"><i class="bi bi-journal-text"></i> {{ draft.spec_number }}</h1>
+      <p class="inv-module-subtitle">{{ draft.chemical_name }}{% if draft.subset_display %} · {{ draft.subset_display }}{% endif %}</p>
+    </div>
+    <div class="inv-header-actions">
+      {% if current_version_node and current_version_node.can_download_dossier %}
+      <a href="{{ url_for('csc.published_spec_version_dossier', draft_id=draft.id, spec_version=draft.spec_version) }}" class="btn btn-primary">
+        <i class="bi bi-download"></i> Download Current Dossier
+      </a>
+      {% else %}
+      <span class="btn btn-secondary disabled" aria-disabled="true" title="Exact published dossier not retained for this version">
+        <i class="bi bi-file-earmark-x"></i> Dossier Not Retained
+      </span>
+      {% endif %}
+      {% if csc_is_material_master_admin %}
+      <a href="{{ url_for('csc.admin_revision_generation') }}" class="btn btn-secondary">
+        <i class="bi bi-ui-checks-grid"></i> Draft Generation
+      </a>
+      {% endif %}
+    </div>
+  </div>
+
+  {% include "csc/_workflow_nav.html" %}
+
+  <div class="csc-published-shell">
+    <section class="csc-version-overview">
+      <article class="csc-version-stat">
+        <div class="csc-version-stat-kicker">Current Published Version</div>
+        <div class="csc-version-stat-value">{{ draft.version }}</div>
+        <div class="csc-version-stat-note">Live master specification baseline.</div>
+      </article>
+      <article class="csc-version-stat">
+        <div class="csc-version-stat-kicker">Tracked Publication Points</div>
+        <div class="csc-version-stat-value">{{ version_map|length }}</div>
+        <div class="csc-version-stat-note">Version chain retained for this specification.</div>
+      </article>
+      <article class="csc-version-stat">
+        <div class="csc-version-stat-kicker">Workflow Status</div>
+        <div class="csc-version-stat-value" style="font-size: 1.15rem;">
+          {% if active_revision %}
+          {{ (active_revision.status or 'open')|replace('_', ' ')|title }}
+          {% else %}
+          No Active Revision
+          {% endif %}
+        </div>
+        <div class="csc-version-stat-note">
+          {% if active_revision %}
+          A revision workflow exists in parallel to this published baseline.
+          {% else %}
+          No in-flight revision is attached to this published specification.
+          {% endif %}
+        </div>
+      </article>
+    </section>
+
+    <section class="csc-version-card">
+      <div class="csc-version-card-head">
+        <div class="csc-version-card-copy">
+          <h2>Version Change Information</h2>
+          <p>Follow the published release path from left to right. Click an available version node to download the exact stored dossier for that publication point.</p>
+          {% if current_version_node and not current_version_node.can_download_dossier %}
+          <p style="margin-top:0.55rem; color:#b45309;">This specification has legacy published versions whose exact review dossiers were not retained at publish time. Those nodes stay visible for version traceability but are not downloadable.</p>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="csc-version-rail">
+        {% for version in version_map %}
+          {% if version.can_download_dossier %}
+          <a href="{{ url_for('csc.published_spec_version_dossier', draft_id=draft.id, spec_version=version.spec_version) }}" class="csc-version-link" title="Download dossier for version {{ version.version_label }}">
+          {% else %}
+          <div class="csc-version-block">
+          {% endif %}
+            <article class="csc-version-node {{ 'is-current' if version.is_current }} {{ 'is-disabled' if not version.can_download_dossier }}">
+              <span class="csc-version-chip">
+                {% if version.is_current %}Current Published{% else %}Published Version{% endif %}
+              </span>
+              <div class="csc-version-label">{{ version.version_label }}</div>
+              <div class="csc-version-meta">
+                <span><strong>Published:</strong> {{ version.created_at | datetime_ist('%d %b %Y, %H:%M') if version.created_at else '—' }}</span>
+                <span><strong>By:</strong> {{ version.created_by or '—' }}</span>
+                <span><strong>Action:</strong> {{ (version.source_action or 'published')|replace('_', ' ')|title }}</span>
+              </div>
+              <div class="csc-version-note">
+                {{ version.remarks or version.availability_note }}
+              </div>
+            </article>
+          {% if version.can_download_dossier %}
+          </a>
+          {% else %}
+          </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </section>
+
+    {% set summary_rows = review_context.summary_rows %}
+    {% set section_rows = review_context.section_rows %}
+    {% set parameter_rows = review_context.parameter_rows %}
+    {% set master_rows = review_context.master_rows %}
+    {% set material_property_rows = review_context.material_property_rows %}
+    {% set storage_rows = review_context.storage_rows %}
+    {% set impact_rows = review_context.impact_rows %}
+    {% set latest_review_notes = review_context.latest_review_notes %}
+    {% include "csc/admin/_revision_detail.html" %}
+  </div>
+</div>
+{% endblock %}

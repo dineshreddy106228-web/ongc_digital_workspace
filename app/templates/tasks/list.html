@@ -112,10 +112,12 @@
 <div class="page-wrapper">
 
   {% call page_header("Task Tracker", "Track local and global tasks, owners, status, and updates.", "Office Management", "Pilot v1.1", "info") %}
+    {% if is_privileged %}
     <a href="{{ url_for('tasks.task_dashboard') }}" class="btn btn-secondary">
       <i class="bi bi-speedometer2"></i>
       <span>Dashboard</span>
     </a>
+    {% endif %}
     <a href="{{ url_for('tasks.create_task') }}" class="btn btn-primary">
       <i class="bi bi-plus-lg"></i>
       <span>Create Task</span>

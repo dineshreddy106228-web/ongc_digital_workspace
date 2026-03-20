@@ -131,9 +131,7 @@
 
 {% block content %}
 <div class="inv-page">
-  <a href="{{ url_for('csc.landing') }}" class="csc-back-link">
-    <i class="bi bi-arrow-left"></i> Back to Material Master Management
-  </a>
+  {% set csc_nav_active = 'upload' %}
 
   <div class="inv-module-header">
     <div>
@@ -141,6 +139,8 @@
       <p class="inv-module-subtitle">Ingest a CSC Format A file and create a draft flagged as a new specification.</p>
     </div>
   </div>
+
+  {% include "csc/_workflow_nav.html" %}
 
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% for category, message in messages %}

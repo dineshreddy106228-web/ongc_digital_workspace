@@ -1066,6 +1066,23 @@
     flex: 1;
 }
 
+.csc-leave-modal-status {
+    margin-top: 1rem;
+    padding: 0.8rem 0.9rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--surface-alt);
+    color: var(--muted);
+    font-size: 0.9rem;
+    white-space: pre-wrap;
+}
+
+.csc-leave-modal-status.is-error {
+    border-color: color-mix(in srgb, #dc2626 28%, var(--border));
+    background: color-mix(in srgb, #dc2626 8%, white);
+    color: #991b1b;
+}
+
 .csc-submit-modal {
     max-width: 880px;
     width: min(880px, calc(100vw - 3rem));
@@ -1253,6 +1270,30 @@
     min-height: 1.25rem;
 }
 
+.csc-submit-status {
+    margin-top: 1rem;
+    padding: 0.8rem 0.95rem;
+    border-radius: 12px;
+    border: 1px solid #d7e0ec;
+    background: #f8fafc;
+    color: var(--muted);
+    font-size: 0.9rem;
+    line-height: 1.55;
+    white-space: pre-wrap;
+}
+
+.csc-submit-status.is-success {
+    border-color: color-mix(in srgb, #15803d 28%, #d7e0ec);
+    background: color-mix(in srgb, #15803d 8%, white);
+    color: #166534;
+}
+
+.csc-submit-status.is-error {
+    border-color: color-mix(in srgb, #dc2626 28%, #d7e0ec);
+    background: color-mix(in srgb, #dc2626 8%, white);
+    color: #991b1b;
+}
+
 .csc-submit-modal-footer {
     display: flex;
     justify-content: space-between;
@@ -1309,6 +1350,11 @@
         <div class="csc-editor-title-block">
             <h1><i class="bi bi-pencil-square"></i> {{ draft.spec_number }}</h1>
             <p class="csc-editor-title-meta" id="draftChemicalMeta">{{ draft.chemical_name }} — v{{ draft.version if draft.version is not none else 1 }}</p>
+            {% if editor_mode == 'committee_head' %}
+            <div style="margin-top:0.55rem;">
+                <span class="csc-workflow-scope-pill">Committee Head Editing Mode</span>
+            </div>
+            {% endif %}
             {% if draft_type_label == 'New Specification' %}
             <div style="margin-top:0.55rem;">
                 <span class="csc-workflow-scope-pill">New Specification</span>
@@ -1319,11 +1365,11 @@
             <span class="csc-editor-status" id="draftStatus">
                 <i class="bi bi-hourglass"></i> {{ draft.status|replace('_', ' ')|title }}
             </span>
-            <a href="{{ url_for('csc.workspace') }}" class="btn btn-secondary btn-sm">
-                <i class="bi bi-arrow-left"></i> Back
-            </a>
         </div>
     </div>
+
+    {% set csc_nav_active = 'review' if editor_mode == 'committee_head' else 'committee_user' %}
+    {% include "csc/_workflow_nav.html" %}
 
     <div class="csc-workflow-scope-banner">
         <span class="csc-workflow-scope-title">Open for revision:</span>
@@ -1353,12 +1399,12 @@
             <i class="bi bi-box-seam"></i> Storage and Handling
         </button>
         {% endif %}
-        {% if workflow_scope.parameter_type or workflow_scope.parameter_other %}
+        {% if workflow_scope.parameters and (workflow_scope.parameter_type or workflow_scope.parameter_other) %}
         <button type="button" class="csc-tab" data-tab="parameters" role="tab">
             <i class="bi bi-table"></i> Parameters
         </button>
         {% endif %}
-        {% if workflow_scope.parameters_impact %}
+        {% if workflow_scope.impact %}
         <button type="button" class="csc-tab" data-tab="impact" role="tab">
             <i class="bi bi-graph-up"></i> Impact
         </button>
@@ -1406,41 +1452,45 @@
     <div class="csc-tab-content" data-tab="master-data" role="tabpanel">
         <div class="csc-section-panel">
             <div class="csc-section-header">
-                <h2 class="csc-section-title">Linked Master Data</h2>
-                <p class="csc-section-guidance">View-only mirror of the linked material master. Material Properties, Storage & Handling, and Impact are managed from their dedicated tabs.</p>
+                <h2 class="csc-section-title">Master Data</h2>
+                <p class="csc-section-guidance">Edit the core master-data fields for this workflow draft here. Material Properties, Storage &amp; Handling, and Impact remain managed from their dedicated tabs.</p>
             </div>
 
-            <p class="csc-master-note">All values are frozen here for viewing. Workbook-driven properties and storage fields are editable only in their dedicated tabs.</p>
-            <p class="csc-master-note">Impact mirror fields below are frozen here and update only from the Impact tab.</p>
+            <p class="csc-master-note">Committee users maintain the base master-data details here. If the Material Master Management Admin needs to change them directly, they must open a self draft from Draft Generation for Revision in Secretary Workspace.</p>
+            <p class="csc-master-note">Fields controlled by the workbook or impact workflow stay on their dedicated tabs to avoid conflicting edits.</p>
 
-            <div class="csc-master-grid">
-                <div class="csc-form-group">
-                    <label for="masterChemicalName" class="csc-form-label">Chemical Name</label>
-                    <input type="text" id="masterChemicalName" class="csc-input" value="{{ draft.chemical_name or '' }}" data-master-view-field="chemical_name" readonly>
+            <form id="masterDataForm" data-section="master_data">
+                <div class="csc-master-grid">
+                    <div class="csc-form-group">
+                        <label for="masterChemicalName" class="csc-form-label">Chemical Name</label>
+                        <input type="text" id="masterChemicalName" class="csc-input" value="{{ draft.chemical_name or '' }}" data-master-view-field="chemical_name" data-master-edit-field="chemical_name">
+                    </div>
+                    <div class="csc-form-group">
+                        <label for="masterMaterialCode" class="csc-form-label">Material Code</label>
+                        <input type="text" id="masterMaterialCode" class="csc-input" value="{{ master_data.get('material_code', '') }}" data-master-view-field="material_code" data-master-edit-field="material_code" {% if master_data.get('material_code', '') %}readonly{% endif %}>
+                        <div class="csc-form-hint">Material Code becomes read-only after it is established.</div>
+                    </div>
+                    {% for field_name, label in editable_master_fields %}
+                    <div class="csc-form-group">
+                        <label for="master_{{ field_name }}" class="csc-form-label">{{ label }}</label>
+                        <input type="text" id="master_{{ field_name }}" class="csc-input" value="{{ master_data.get(field_name, '') }}" data-master-view-field="{{ field_name }}" data-master-edit-field="{{ field_name }}">
+                    </div>
+                    {% endfor %}
+                    {% for field_name, label in editable_master_extra_fields %}
+                    <div class="csc-form-group">
+                        <label for="master_extra_{{ field_name }}" class="csc-form-label">{{ label }}</label>
+                        <input type="text" id="master_extra_{{ field_name }}" class="csc-input" value="{{ master_data.get('extra__' + field_name, '') }}" data-master-view-field="extra__{{ field_name }}" data-master-edit-field="extra__{{ field_name }}">
+                    </div>
+                    {% endfor %}
                 </div>
-                <div class="csc-form-group">
-                    <label for="masterMaterialCode" class="csc-form-label">Material Code</label>
-                    <input type="text" id="masterMaterialCode" class="csc-input" value="{{ master_data.get('material_code', '') }}" data-master-view-field="material_code" readonly>
+
+                <div class="csc-section-actions">
+                    <button type="button" class="btn btn-primary btn-sm" data-save-section="master-data">
+                        <i class="bi bi-check-circle"></i> Save Master Data
+                    </button>
+                    <span class="csc-save-indicator" id="masterDataIndicator"></span>
                 </div>
-                {% for field_name, label in master_fields %}
-                <div class="csc-form-group">
-                    <label for="master_{{ field_name }}" class="csc-form-label">{{ label }}</label>
-                    <input type="text" id="master_{{ field_name }}" class="csc-input" value="{{ master_data.get(field_name, '') }}" data-master-view-field="{{ field_name }}" readonly>
-                </div>
-                {% endfor %}
-                {% for field_name, label in master_extra_fields %}
-                <div class="csc-form-group">
-                    <label for="master_extra_{{ field_name }}" class="csc-form-label">{{ label }}</label>
-                    <input type="text" id="master_extra_{{ field_name }}" class="csc-input" value="{{ master_data.get('extra__' + field_name, '') }}" data-master-view-field="extra__{{ field_name }}" readonly>
-                </div>
-                {% endfor %}
-                {% for field_name, label in master_impact_fields %}
-                <div class="csc-form-group">
-                    <label for="master_impact_{{ field_name }}" class="csc-form-label">{{ label }}</label>
-                    <input type="text" id="master_impact_{{ field_name }}" class="csc-input" value="{{ master_data.get(field_name, '') }}" data-master-view-field="{{ field_name }}" readonly>
-                </div>
-                {% endfor %}
-            </div>
+            </form>
         </div>
     </div>
 
@@ -1562,7 +1612,7 @@
     {# ════════════════════════════════════════════════════════════════ #}
     {# SECTION 4: Parameter Review                                      #}
     {# ════════════════════════════════════════════════════════════════ #}
-    {% if workflow_scope.parameter_type or workflow_scope.parameter_other %}
+    {% if workflow_scope.parameters and (workflow_scope.parameter_type or workflow_scope.parameter_other) %}
     <div class="csc-tab-content" data-tab="parameters" role="tabpanel">
         <div class="csc-section-panel">
             <div class="csc-section-header">
@@ -1795,7 +1845,7 @@
     {# ════════════════════════════════════════════════════════════════ #}
     {# SECTION 7: Impact Analysis                                       #}
     {# ════════════════════════════════════════════════════════════════ #}
-    {% if workflow_scope.parameters_impact %}
+    {% if workflow_scope.impact %}
     <div class="csc-tab-content" data-tab="impact" role="tabpanel">
         <div class="csc-section-panel">
             <div class="csc-section-header">
@@ -1912,14 +1962,24 @@
             {# Export & Actions #}
             <div class="csc-section-actions" style="flex-wrap: wrap; gap: 1rem;">
                 <button type="button" class="btn btn-primary btn-sm" id="exportDocxBtn">
-                    <i class="bi bi-file-earmark-word"></i> Export to Word
+                    <i class="bi bi-file-earmark-word"></i> Save Changes and Export
                 </button>
+                {% if editor_mode == 'committee_head' %}
+                <a href="{{ url_for('csc.review_workbench') }}" class="btn btn-secondary btn-sm">
+                    <i class="bi bi-arrow-return-left"></i> Return to Committee Head Workbench
+                </a>
+                <span class="csc-workflow-subnote">Use Committee Head Workbench to approve and forward this edited draft to Secretary.</span>
+                {% else %}
                 <button type="button" class="btn btn-success btn-sm" id="submitDraftBtn">
-                    <i class="bi bi-send"></i> Submit for Admin Approval
+                    <i class="bi bi-send"></i> Submit for Committee Head Approval
                 </button>
+                {% endif %}
+                {% if can_delete_draft %}
                 <button type="button" class="btn btn-danger btn-sm" id="deleteDraftBtn">
                     <i class="bi bi-trash"></i> Delete Draft
                 </button>
+                {% endif %}
+                <span class="csc-save-indicator" id="exportIndicator"></span>
             </div>
         </div>
     </div>
@@ -1942,6 +2002,19 @@
     </div>
 </div>
 
+<div class="csc-modal-overlay" id="leavePageModal">
+    <div class="csc-modal">
+        <h2 class="csc-modal-title">Unsaved Changes</h2>
+        <div class="csc-modal-body" id="leavePageBody">Save all changes before leaving this draft?</div>
+        <div class="csc-modal-actions">
+            <button type="button" class="btn btn-secondary btn-sm" id="leaveStayBtn">Stay on Draft</button>
+            <button type="button" class="btn btn-danger btn-sm" id="leaveDiscardBtn">Leave Without Saving</button>
+            <button type="button" class="btn btn-primary btn-sm" id="leaveSaveBtn">Save All and Leave</button>
+        </div>
+        <div class="csc-leave-modal-status" id="leavePageStatus" hidden></div>
+    </div>
+</div>
+
 <div class="csc-modal-overlay" id="submitReviewModal">
     <div class="csc-modal csc-submit-modal">
         <div class="csc-submit-modal-header">
@@ -1951,7 +2024,7 @@
             </div>
             <h2 class="csc-modal-title" id="submitReviewTitle">Review Draft Before Submission</h2>
             <p class="csc-submit-modal-subtitle" id="submitReviewSubtitle">
-                Validate the draft snapshot before sending it to the admin workbench.
+                Validate the draft snapshot before sending it to the Committee Head workbench.
             </p>
         </div>
         <div class="csc-submit-modal-body">
@@ -2008,6 +2081,10 @@
                         <h3>Version Change Reason</h3>
                         <p id="submitPreviewRecommendation"></p>
                     </div>
+                    <div class="csc-submit-section-card">
+                        <h3>Parameter Type Changes</h3>
+                        <p id="submitPreviewParameterTypes"></p>
+                    </div>
                 </div>
             </div>
 
@@ -2046,6 +2123,7 @@
                     </div>
 
                     <div class="csc-submit-error" id="submitReviewError"></div>
+                    <div class="csc-submit-status" id="submitReviewStatus" hidden></div>
                 </div>
             </div>
         </div>
@@ -2082,6 +2160,9 @@
     var submitStep = 1;
     var visitedTabs = { background: true };
     var initialEditorState = null;
+    var pendingLeaveDestination = null;
+    var bypassLeavePrompt = false;
+    var leaveSaveInProgress = false;
     var workflowScope = {{ workflow_scope|tojson }};
     var parameterTypeEditable = !!workflowScope.parameter_type;
     var parameterOtherEditable = !!workflowScope.parameter_other;
@@ -2175,6 +2256,9 @@
             var viewFields = document.querySelectorAll('[data-master-view-field="' + key + '"]');
             viewFields.forEach(function(field) {
                 field.value = masterData[key] || '';
+                if (key === 'material_code' && normalizedValue(masterData[key] || '')) {
+                    field.setAttribute('readonly', 'readonly');
+                }
             });
             if (Object.prototype.hasOwnProperty.call(materialPropertiesState, key)) {
                 materialPropertiesState[key] = masterData[key] || '';
@@ -2191,8 +2275,8 @@
 
     function currentMasterDataSnapshot() {
         var snapshot = {};
-        document.querySelectorAll('[data-master-view-field]').forEach(function(field) {
-            snapshot[field.getAttribute('data-master-view-field')] = normalizedValue(field.value);
+        document.querySelectorAll('[data-master-edit-field]').forEach(function(field) {
+            snapshot[field.getAttribute('data-master-edit-field')] = normalizedValue(field.value);
         });
         return snapshot;
     }
@@ -2243,6 +2327,26 @@
         return JSON.stringify(rows);
     }
 
+    function hasParameterTypeChanges() {
+        var changed = false;
+        document.querySelectorAll('#paramBodyPhase1 tr, #paramBodyPhase2 tr').forEach(function(row) {
+            if (changed) return;
+            var currentType = normalizedParameterType(
+                row.querySelector('.param-type')?.value
+                || row.getAttribute('data-param-type')
+                || 'Desirable'
+            );
+            var sourceType = normalizedParameterType(
+                row.getAttribute('data-source-param-type')
+                || currentType
+            );
+            if (currentType !== sourceType) {
+                changed = true;
+            }
+        });
+        return changed;
+    }
+
     function currentImpactSnapshot() {
         syncImpactChemicalName();
         return JSON.stringify({
@@ -2250,6 +2354,34 @@
             chemical_name: impactChecklistState.chemical_name || '',
             answers: impactChecklistState.answers || {}
         });
+    }
+
+    function currentIssuesSnapshot() {
+        var issues = [];
+        for (var i = 0; i < 4; i++) {
+            issues.push({
+                flagged: document.querySelector('input[name="issue_' + i + '_flag"]:checked')?.value === 'true',
+                notes: normalizedValue(document.querySelector('textarea[name="issue_' + i + '_notes"]')?.value || '')
+            });
+        }
+        return JSON.stringify(issues);
+    }
+
+    function readCurrentEditorState() {
+        return {
+            masterData: JSON.stringify(currentMasterDataSnapshot()),
+            background: normalizedValue(document.getElementById('backgroundText')?.value || ''),
+            existing: normalizedValue(document.getElementById('existingText')?.value || ''),
+            issues: currentIssuesSnapshot(),
+            materialProperties: currentMaterialPropertiesSnapshot(),
+            storageHandling: currentStorageHandlingSnapshot(),
+            parameters: currentParametersSnapshot(),
+            impact: currentImpactSnapshot(),
+            changes: normalizedValue(document.getElementById('proposedSummary')?.value || ''),
+            justification: normalizedValue(document.getElementById('justificationText')?.value || ''),
+            recommendation: normalizedValue(document.getElementById('mainRec')?.value || ''),
+            recommendationRemarks: normalizedValue(document.getElementById('remarksRec')?.value || '')
+        };
     }
 
     function escapeHtml(value) {
@@ -2668,18 +2800,59 @@
     }
 
     function captureInitialEditorState() {
-        initialEditorState = {
-            background: normalizedValue(document.getElementById('backgroundText')?.value || ''),
-            existing: normalizedValue(document.getElementById('existingText')?.value || ''),
-            materialProperties: currentMaterialPropertiesSnapshot(),
-            storageHandling: currentStorageHandlingSnapshot(),
-            parameters: currentParametersSnapshot(),
-            impact: currentImpactSnapshot(),
-            changes: normalizedValue(document.getElementById('proposedSummary')?.value || ''),
-            justification: normalizedValue(document.getElementById('justificationText')?.value || ''),
-            recommendation: normalizedValue(document.getElementById('mainRec')?.value || ''),
-            recommendationRemarks: normalizedValue(document.getElementById('remarksRec')?.value || '')
+        initialEditorState = readCurrentEditorState();
+    }
+
+    function syncSavedEditorState(keys) {
+        if (!initialEditorState) {
+            captureInitialEditorState();
+            return;
+        }
+        var currentState = readCurrentEditorState();
+        keys.forEach(function(key) {
+            initialEditorState[key] = currentState[key];
+        });
+        updateChangesChecklist();
+    }
+
+    function getDirtyEditorState() {
+        if (!initialEditorState) return {};
+        var currentState = readCurrentEditorState();
+        return {
+            masterData: currentState.masterData !== initialEditorState.masterData,
+            background: currentState.background !== initialEditorState.background,
+            existing: currentState.existing !== initialEditorState.existing,
+            issues: currentState.issues !== initialEditorState.issues,
+            materialProperties: currentState.materialProperties !== initialEditorState.materialProperties,
+            storageHandling: currentState.storageHandling !== initialEditorState.storageHandling,
+            parameters: currentState.parameters !== initialEditorState.parameters,
+            impact: currentState.impact !== initialEditorState.impact,
+            changes: currentState.changes !== initialEditorState.changes,
+            justification: currentState.justification !== initialEditorState.justification,
+            recommendation: currentState.recommendation !== initialEditorState.recommendation,
+            recommendationRemarks: currentState.recommendationRemarks !== initialEditorState.recommendationRemarks
         };
+    }
+
+    function hasUnsavedChanges() {
+        return Object.values(getDirtyEditorState()).some(Boolean);
+    }
+
+    function getDirtySectionLabels() {
+        var dirtyState = getDirtyEditorState();
+        var labels = [];
+        if (dirtyState.masterData) labels.push('Master Data');
+        if (dirtyState.background) labels.push('Background');
+        if (dirtyState.existing) labels.push('Existing Spec');
+        if (dirtyState.issues) labels.push('Issues');
+        if (dirtyState.materialProperties) labels.push('Material Properties');
+        if (dirtyState.storageHandling) labels.push('Storage and Handling');
+        if (dirtyState.parameters) labels.push('Parameters');
+        if (dirtyState.impact) labels.push('Impact');
+        if (dirtyState.changes) labels.push('Proposed Changes');
+        if (dirtyState.justification) labels.push('Justification');
+        if (dirtyState.recommendation || dirtyState.recommendationRemarks) labels.push('Version Change Reason');
+        return labels;
     }
 
     function setChecklistState(key, checked) {
@@ -2702,6 +2875,10 @@
             normalizedValue(document.getElementById('existingText')?.value || '') !== initialEditorState.existing
         );
         setChecklistState(
+            'Issues',
+            currentIssuesSnapshot() !== initialEditorState.issues
+        );
+        setChecklistState(
             'MaterialProperties',
             currentMaterialPropertiesSnapshot() !== initialEditorState.materialProperties
         );
@@ -2711,7 +2888,7 @@
         );
         setChecklistState(
             'Parameters',
-            currentParametersSnapshot() !== initialEditorState.parameters
+            currentParametersSnapshot() !== initialEditorState.parameters || hasParameterTypeChanges()
         );
         setChecklistState(
             'Impact',
@@ -2816,6 +2993,10 @@
         element.addEventListener('input', updateChangesChecklist);
         element.addEventListener('change', updateChangesChecklist);
     });
+    document.querySelectorAll('[data-master-edit-field]').forEach(function(element) {
+        element.addEventListener('input', updateChangesChecklist);
+        element.addEventListener('change', updateChangesChecklist);
+    });
 
     // ═══════════════════════════════════════════════════════════════════════════
     // Generic save section handler
@@ -2839,13 +3020,154 @@
             });
     }
 
+    function buildMasterDataPayload() {
+        var payload = {};
+        document.querySelectorAll('[data-master-edit-field]').forEach(function(field) {
+            payload[field.getAttribute('data-master-edit-field')] = field.value || '';
+        });
+        return payload;
+    }
+
+    function saveMasterDataSection() {
+        return fetch('/csc/api/draft/' + draftId + '/master-data', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify(buildMasterDataPayload())
+        })
+            .then(function(r) {
+                return r.json().then(function(data) {
+                    if (!r.ok || !data.success) {
+                        throw new Error(data.error || ('HTTP ' + r.status));
+                    }
+                    return data;
+                });
+            })
+            .then(function(data) {
+                if (data && data.draft) {
+                    draftSpecNumber = data.draft.spec_number || draftSpecNumber;
+                    draftSubsetDisplay = data.draft.subset_display || draftSubsetDisplay;
+                }
+                if (data && data.draft && typeof data.draft.chemical_name === 'string') {
+                    var chemicalMeta = document.getElementById('draftChemicalMeta');
+                    if (chemicalMeta) {
+                        chemicalMeta.textContent = data.draft.chemical_name + ' — ' + draftVersion;
+                    }
+                }
+                applyMasterDataPayload(data.master_data);
+                syncSavedEditorState(['masterData']);
+                return data;
+            });
+    }
+
+    function buildIssuesPayload() {
+        var issues = [];
+        for (var i = 0; i < 4; i++) {
+            var flagValue = document.querySelector('input[name="issue_' + i + '_flag"]:checked')?.value;
+            var notes = document.querySelector('textarea[name="issue_' + i + '_notes"]')?.value || '';
+            issues.push({
+                issue_type: '',
+                is_present: flagValue === 'true',
+                note: notes
+            });
+        }
+        issues[0].issue_type = 'Specification Ambiguity';
+        issues[1].issue_type = 'Parameter Non-compliance';
+        issues[2].issue_type = 'Test Procedure Gaps';
+        issues[3].issue_type = 'Safety/Environmental Concern';
+        return issues;
+    }
+
+    function buildParametersPayload() {
+        var params = [];
+        document.querySelectorAll('#paramBodyPhase1 tr, #paramBodyPhase2 tr').forEach(function(row) {
+            var paramId = row.getAttribute('data-param-id') || null;
+            if (phase1Locked) {
+                params.push({
+                    parameter_id: paramId,
+                    proposed_value: row.querySelector('.param-proposed')?.value || '',
+                });
+            } else {
+                params.push({
+                    parameter_name: row.querySelector('.param-name')?.value || '',
+                    parameter_id: paramId,
+                    parameter_type: row.querySelector('.param-type')?.value || (row.getAttribute('data-param-type') || 'Desirable'),
+                    unit_of_measure: row.querySelector('.param-unit')?.value || '',
+                    required_value_type: row.querySelector('.param-required-type')?.value || 'text',
+                    required_value_text: row.querySelector('.param-required-text')?.value || '',
+                    required_value_operator_1: row.querySelector('.param-required-operator-1')?.value || '',
+                    required_value_value_1: row.querySelector('.param-required-value-1')?.value || '',
+                    required_value_operator_2: row.querySelector('.param-required-operator-2')?.value || '',
+                    required_value_value_2: row.querySelector('.param-required-value-2')?.value || '',
+                    parameter_conditions: row.querySelector('.param-conditions')?.value || '',
+                    existing_value: '',
+                    proposed_value: '',
+                    test_procedure_type: row.querySelector('.param-procedure-type')?.value || '',
+                    test_procedure_text: row.querySelector('.param-procedure-text')?.value || ''
+                });
+            }
+        });
+        return params;
+    }
+
+    function buildProposedChangesPayload() {
+        var changedSections = getCheckedChangeSections();
+        var summary = document.getElementById('proposedSummary').value;
+        var payload = summary;
+        if (changedSections.length) {
+            payload = 'Sections updated:\n- ' + changedSections.join('\n- ');
+            if (summary.trim()) {
+                payload += '\n\nChange summary:\n' + summary;
+            }
+        }
+        return payload;
+    }
+
+    function buildImpactPayload() {
+        syncImpactChemicalName();
+        return {
+            chemical_name: impactChecklistState.chemical_name || '',
+            checklist_state: impactChecklistState
+        };
+    }
+
+    function validateRecommendationFields() {
+        var main = document.getElementById('mainRec').value;
+        var remarks = document.getElementById('remarksRec').value;
+        var mainWordCount = wordCount(main);
+        if (!normalizedValue(main)) {
+            throw new Error('Enter a meaningful version change reason under 300 words.');
+        }
+        if (mainWordCount > 300) {
+            throw new Error('Version change reason must stay within 300 words.');
+        }
+        return { main: main, remarks: remarks };
+    }
+
+    function saveBackgroundSection() {
+        return saveTextSection('background', document.getElementById('backgroundText').value)
+            .then(function(data) {
+                syncSavedEditorState(['background']);
+                return data;
+            });
+    }
+
+    function saveExistingSection() {
+        return saveTextSection('existing_spec', document.getElementById('existingText').value)
+            .then(function(data) {
+                syncSavedEditorState(['existing']);
+                return data;
+            });
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // Section 1: Background
     // ═══════════════════════════════════════════════════════════════════════════
 
     document.querySelector('[data-save-section="background"]').addEventListener('click', function() {
-        var text = document.getElementById('backgroundText').value;
-        saveTextSection('background', text)
+        saveBackgroundSection()
             .then(function() {
                 showSaveIndicator('backgroundIndicator', 'success', '✓ Saved');
             })
@@ -2854,13 +3176,22 @@
             });
     });
 
+    document.querySelector('[data-save-section="master-data"]')?.addEventListener('click', function() {
+        saveMasterDataSection()
+            .then(function() {
+                showSaveIndicator('masterDataIndicator', 'success', '✓ Saved');
+            })
+            .catch(function(e) {
+                showSaveIndicator('masterDataIndicator', 'error', '✗ Save failed: ' + e.message);
+            });
+    });
+
     // ═══════════════════════════════════════════════════════════════════════════
     // Section 2: Existing Spec
     // ═══════════════════════════════════════════════════════════════════════════
 
     document.querySelector('[data-save-section="existing_spec"]').addEventListener('click', function() {
-        var text = document.getElementById('existingText').value;
-        saveTextSection('existing_spec', text)
+        saveExistingSection()
             .then(function() {
                 showSaveIndicator('existingIndicator', 'success', '✓ Saved');
             })
@@ -2879,12 +3210,8 @@
         }, {});
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // Material Properties
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    document.querySelector('[data-save-section="material-properties"]')?.addEventListener('click', function() {
-        fetch('/csc/api/draft/' + draftId + '/material-properties', {
+    function saveMaterialPropertiesSection() {
+        return fetch('/csc/api/draft/' + draftId + '/material-properties', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -2906,19 +3233,13 @@
                 }
                 applyMasterDataPayload(data.master_data);
                 renderMaterialProperties();
-                showSaveIndicator('materialPropertiesIndicator', 'success', '✓ Saved');
-            })
-            .catch(function(e) {
-                showSaveIndicator('materialPropertiesIndicator', 'error', '✗ Save failed: ' + e.message);
+                syncSavedEditorState(['materialProperties']);
+                return data;
             });
-    });
+    }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // Storage and Handling
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    document.querySelector('[data-save-section="storage-handling"]')?.addEventListener('click', function() {
-        fetch('/csc/api/draft/' + draftId + '/storage-handling', {
+    function saveStorageHandlingSection() {
+        return fetch('/csc/api/draft/' + draftId + '/storage-handling', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -2940,6 +3261,51 @@
                 }
                 applyMasterDataPayload(data.master_data);
                 renderStorageHandling();
+                syncSavedEditorState(['storageHandling']);
+                return data;
+            });
+    }
+
+    function saveIssuesSection() {
+        return fetch('/csc/api/draft/' + draftId + '/issues', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify(buildIssuesPayload())
+        })
+            .then(function(r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            })
+            .then(function(data) {
+                syncSavedEditorState(['issues']);
+                return data;
+            });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Material Properties
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    document.querySelector('[data-save-section="material-properties"]')?.addEventListener('click', function() {
+        saveMaterialPropertiesSection()
+            .then(function() {
+                showSaveIndicator('materialPropertiesIndicator', 'success', '✓ Saved');
+            })
+            .catch(function(e) {
+                showSaveIndicator('materialPropertiesIndicator', 'error', '✗ Save failed: ' + e.message);
+            });
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Storage and Handling
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    document.querySelector('[data-save-section="storage-handling"]')?.addEventListener('click', function() {
+        saveStorageHandlingSection()
+            .then(function() {
                 showSaveIndicator('storageHandlingIndicator', 'success', '✓ Saved');
             })
             .catch(function(e) {
@@ -2952,32 +3318,7 @@
     // ═══════════════════════════════════════════════════════════════════════════
 
     document.querySelector('[data-save-section="issues"]').addEventListener('click', function() {
-        var issues = [];
-        for (var i = 0; i < 4; i++) {
-            var flagValue = document.querySelector('input[name="issue_' + i + '_flag"]:checked')?.value;
-            var notes = document.querySelector('textarea[name="issue_' + i + '_notes"]')?.value || '';
-            issues.push({
-                issue_type: '',
-                is_present: flagValue === 'true',
-                note: notes
-            });
-        }
-        issues[0].issue_type = 'Specification Ambiguity';
-        issues[1].issue_type = 'Parameter Non-compliance';
-        issues[2].issue_type = 'Test Procedure Gaps';
-        issues[3].issue_type = 'Safety/Environmental Concern';
-        fetch('/csc/api/draft/' + draftId + '/issues', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': csrfToken
-            },
-            body: JSON.stringify(issues)
-        })
-            .then(function(r) {
-                if (!r.ok) throw new Error('HTTP ' + r.status);
-                return r.json();
-            })
+        saveIssuesSection()
             .then(function() {
                 showSaveIndicator('issuesIndicator', 'success', '✓ Saved');
             })
@@ -3030,6 +3371,9 @@
         var normalized = Object.assign({}, param || {});
         normalized.parameter_name = normalizedValue(normalized.parameter_name || '');
         normalized.parameter_type = normalizedParameterType(normalized.parameter_type || 'Desirable');
+        normalized.source_parameter_type = normalizedParameterType(
+            normalized.source_parameter_type || normalized.parameter_type || 'Desirable'
+        );
         normalized.unit_of_measure = normalizedValue(normalized.unit_of_measure || '');
         normalized.required_value_type = normalizedValue(normalized.required_value_type || '').toLowerCase() === 'comparison' ? 'comparison' : 'text';
         normalized.required_value_text = normalizedValue(normalized.required_value_text || normalized.specification || normalized.existing_value || '');
@@ -3089,7 +3433,7 @@
         var deleteCell = parameterOtherEditable
             ? '<button type="button" class="btn btn-sm btn-danger deleteParamBtn" data-idx="' + idx + '"><i class="bi bi-trash"></i></button>'
             : '<span class="csc-param-readonly">Locked</span>';
-        return '<tr data-param-id="' + escapeHtml(p.id || '') + '" data-param-type="' + escapeHtml(p.parameter_type || 'Desirable') + '">' +
+        return '<tr data-param-id="' + escapeHtml(p.id || '') + '" data-param-type="' + escapeHtml(p.parameter_type || 'Desirable') + '" data-source-param-type="' + escapeHtml(p.source_parameter_type || p.parameter_type || 'Desirable') + '">' +
             '<td><textarea class="param-name" placeholder="Parameter name"' + nameReadonly + '>' + escapeHtml(p.parameter_name) + '</textarea></td>' +
             '<td>' + typeCell + '</td>' +
             '<td><input type="text" class="param-unit" value="' + escapeHtml(p.unit_of_measure) + '" placeholder="Unit"' + unitReadonly + '></td>' +
@@ -3155,7 +3499,7 @@
         if (!tbody) return;
         tbody.innerHTML = parametersData.map(function(p, idx) {
             var normalized = normalizeParameterRowData(p);
-            return '<tr data-param-id="' + p.id + '" data-param-type="' + escapeHtml(normalized.parameter_type || 'Desirable') + '">' +
+            return '<tr data-param-id="' + p.id + '" data-param-type="' + escapeHtml(normalized.parameter_type || 'Desirable') + '" data-source-param-type="' + escapeHtml(normalized.source_parameter_type || normalized.parameter_type || 'Desirable') + '">' +
                 '<td class="csc-param-readonly">' + escapeHtml(normalized.parameter_name || '—') + '</td>' +
                 '<td class="csc-param-readonly">' + escapeHtml(normalized.parameter_type || '—') + '</td>' +
                 '<td class="csc-param-readonly">' + escapeHtml(normalized.unit_of_measure || '—') + '</td>' +
@@ -3179,6 +3523,7 @@
         tr.innerHTML = renderParameterPhase1Row({
             parameter_name: '',
             parameter_type: 'Desirable',
+            source_parameter_type: '',
             unit_of_measure: '',
             required_value_type: 'text',
             required_value_text: '',
@@ -3200,49 +3545,27 @@
         if (addParamBtn) addParamBtn.style.display = 'none';
     }
 
-    document.querySelector('[data-save-section="parameters"]')?.addEventListener('click', function() {
-        var params = [];
-        document.querySelectorAll('#paramBodyPhase1 tr, #paramBodyPhase2 tr').forEach(function(row) {
-            var paramId = row.getAttribute('data-param-id') || null;
-            if (phase1Locked) {
-                // Phase 2
-                params.push({
-                    parameter_id: paramId,
-                    proposed_value: row.querySelector('.param-proposed')?.value || '',
-                });
-            } else {
-                // Phase 1
-                params.push({
-                    parameter_name: row.querySelector('.param-name')?.value || '',
-                    parameter_id: paramId,
-                    parameter_type: row.querySelector('.param-type')?.value || (row.getAttribute('data-param-type') || 'Desirable'),
-                    unit_of_measure: row.querySelector('.param-unit')?.value || '',
-                    required_value_type: row.querySelector('.param-required-type')?.value || 'text',
-                    required_value_text: row.querySelector('.param-required-text')?.value || '',
-                    required_value_operator_1: row.querySelector('.param-required-operator-1')?.value || '',
-                    required_value_value_1: row.querySelector('.param-required-value-1')?.value || '',
-                    required_value_operator_2: row.querySelector('.param-required-operator-2')?.value || '',
-                    required_value_value_2: row.querySelector('.param-required-value-2')?.value || '',
-                    parameter_conditions: row.querySelector('.param-conditions')?.value || '',
-                    existing_value: '',
-                    proposed_value: '',
-                    test_procedure_type: row.querySelector('.param-procedure-type')?.value || '',
-                    test_procedure_text: row.querySelector('.param-procedure-text')?.value || ''
-                });
-            }
-        });
-        fetch('/csc/api/draft/' + draftId + (phase1Locked ? '/parameters/proposed' : '/parameters'), {
+    function saveParametersSection() {
+        return fetch('/csc/api/draft/' + draftId + (phase1Locked ? '/parameters/proposed' : '/parameters'), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'X-CSRFToken': csrfToken
             },
-            body: JSON.stringify(params)
+            body: JSON.stringify(buildParametersPayload())
         })
             .then(function(r) {
                 if (!r.ok) throw new Error('HTTP ' + r.status);
                 return r.json();
             })
+            .then(function(data) {
+                syncSavedEditorState(['parameters']);
+                return data;
+            });
+    }
+
+    document.querySelector('[data-save-section="parameters"]')?.addEventListener('click', function() {
+        saveParametersSection()
             .then(function() {
                 showSaveIndicator('paramIndicator', 'success', '✓ Saved');
             })
@@ -3259,21 +3582,84 @@
     captureInitialEditorState();
     updateChangesChecklist();
 
+    function saveProposedChangesSection() {
+        return saveTextSection('proposed_changes', buildProposedChangesPayload())
+            .then(function(data) {
+                syncSavedEditorState(['changes']);
+                return data;
+            });
+    }
+
+    function saveJustificationSection() {
+        return saveTextSection('justification', document.getElementById('justificationText').value)
+            .then(function(data) {
+                syncSavedEditorState(['justification']);
+                return data;
+            });
+    }
+
+    function saveImpactSection() {
+        return fetch('/csc/api/draft/' + draftId + '/impact', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify(buildImpactPayload())
+        })
+            .then(function(r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            })
+            .then(function(data) {
+                if (data && data.impact && data.impact.checklist_state) {
+                    impactChecklistState = normalizeImpactChecklistState(data.impact.checklist_state);
+                }
+                applyMasterDataPayload(data.master_data);
+                renderImpactChecklist();
+                syncSavedEditorState(['impact']);
+                return data;
+            });
+    }
+
+    function saveRecommendationSection() {
+        var values = validateRecommendationFields();
+        return Promise.all([
+            saveTextSection('recommendation', values.main),
+            saveTextSection('recommendation_remarks', values.remarks)
+        ]).then(function(data) {
+            syncSavedEditorState(['recommendation', 'recommendationRemarks']);
+            return data;
+        });
+    }
+
+    function saveDirtySections() {
+        var dirtyState = getDirtyEditorState();
+        var tasks = [];
+
+        if (dirtyState.masterData) tasks.push(saveMasterDataSection);
+        if (dirtyState.background) tasks.push(saveBackgroundSection);
+        if (dirtyState.existing) tasks.push(saveExistingSection);
+        if (dirtyState.issues) tasks.push(saveIssuesSection);
+        if (dirtyState.materialProperties) tasks.push(saveMaterialPropertiesSection);
+        if (dirtyState.storageHandling) tasks.push(saveStorageHandlingSection);
+        if (dirtyState.parameters) tasks.push(saveParametersSection);
+        if (dirtyState.impact) tasks.push(saveImpactSection);
+        if (dirtyState.changes) tasks.push(saveProposedChangesSection);
+        if (dirtyState.justification) tasks.push(saveJustificationSection);
+        if (dirtyState.recommendation || dirtyState.recommendationRemarks) tasks.push(saveRecommendationSection);
+
+        return tasks.reduce(function(chain, task) {
+            return chain.then(task);
+        }, Promise.resolve());
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // Section 5: Proposed Changes
     // ═══════════════════════════════════════════════════════════════════════════
 
     document.querySelector('[data-save-section="proposed_changes"]').addEventListener('click', function() {
-        var changedSections = getCheckedChangeSections();
-        var summary = document.getElementById('proposedSummary').value;
-        var payload = summary;
-        if (changedSections.length) {
-            payload = 'Sections updated:\n- ' + changedSections.join('\n- ');
-            if (summary.trim()) {
-                payload += '\n\nChange summary:\n' + summary;
-            }
-        }
-        saveTextSection('proposed_changes', payload)
+        saveProposedChangesSection()
             .then(function() {
                 showSaveIndicator('proposedIndicator', 'success', '✓ Saved');
             })
@@ -3287,8 +3673,7 @@
     // ═══════════════════════════════════════════════════════════════════════════
 
     document.querySelector('[data-save-section="justification"]').addEventListener('click', function() {
-        var text = document.getElementById('justificationText').value;
-        saveTextSection('justification', text)
+        saveJustificationSection()
             .then(function() {
                 showSaveIndicator('justificationIndicator', 'success', '✓ Saved');
             })
@@ -3315,29 +3700,8 @@
     });
 
     document.querySelector('[data-save-section="impact"]')?.addEventListener('click', function() {
-        syncImpactChemicalName();
-
-        fetch('/csc/api/draft/' + draftId + '/impact', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': csrfToken
-            },
-            body: JSON.stringify({
-                chemical_name: impactChecklistState.chemical_name || '',
-                checklist_state: impactChecklistState
-            })
-        })
-            .then(function(r) {
-                if (!r.ok) throw new Error('HTTP ' + r.status);
-                return r.json();
-            })
-            .then(function(data) {
-                if (data && data.impact && data.impact.checklist_state) {
-                    impactChecklistState = normalizeImpactChecklistState(data.impact.checklist_state);
-                }
-                applyMasterDataPayload(data.master_data);
-                renderImpactChecklist();
+        saveImpactSection()
+            .then(function() {
                 showSaveIndicator('impactIndicator', 'success', '✓ Saved');
             })
             .catch(function(e) {
@@ -3350,21 +3714,8 @@
     // ═══════════════════════════════════════════════════════════════════════════
 
     document.querySelector('[data-save-section="recommendation"]').addEventListener('click', function() {
-        var main = document.getElementById('mainRec').value;
-        var remarks = document.getElementById('remarksRec').value;
-        var mainWordCount = wordCount(main);
-        if (!normalizedValue(main)) {
-            showSaveIndicator('recommendationIndicator', 'error', 'Enter a meaningful version change reason under 300 words.');
-            return;
-        }
-        if (mainWordCount > 300) {
-            showSaveIndicator('recommendationIndicator', 'error', 'Version change reason must stay within 300 words.');
-            return;
-        }
-        Promise.all([
-            saveTextSection('recommendation', main),
-            saveTextSection('recommendation_remarks', remarks)
-        ]).then(function() {
+        saveRecommendationSection()
+            .then(function() {
                 showSaveIndicator('recommendationIndicator', 'success', '✓ Saved');
             })
             .catch(function(e) {
@@ -3377,7 +3728,34 @@
     // ═══════════════════════════════════════════════════════════════════════════
 
     document.getElementById('exportDocxBtn')?.addEventListener('click', function() {
-        window.location.href = '/csc/draft/' + draftId + '/export/docx';
+        var button = this;
+        button.disabled = true;
+        showSaveIndicator('exportIndicator', 'info', hasUnsavedChanges()
+            ? 'Saving changes before export...'
+            : 'Preparing Word export...');
+
+        Promise.resolve()
+            .then(function() {
+                if (!hasUnsavedChanges()) return null;
+                return saveDirtySections().then(function() {
+                    captureInitialEditorState();
+                    updateChangesChecklist();
+                });
+            })
+            .then(function() {
+                showSaveIndicator('exportIndicator', 'success', '✓ Saved. Opening Word export...');
+                window.open('/csc/draft/' + draftId + '/export/docx', '_blank', 'noopener');
+            })
+            .catch(function(error) {
+                showSaveIndicator(
+                    'exportIndicator',
+                    'error',
+                    '✗ Export stopped: ' + (error.message || 'Unable to save the draft before export.')
+                );
+            })
+            .finally(function() {
+                button.disabled = false;
+            });
     });
 
     document.getElementById('submitDraftBtn')?.addEventListener('click', function() {
@@ -3394,11 +3772,32 @@
                     headers: { 'X-CSRFToken': csrfToken }
                 })
                     .then(function(r) {
-                        if (!r.ok) throw new Error('Delete failed');
+                        return r.json().then(function(data) {
+                            if (!r.ok || !data.success) {
+                                throw new Error((data && data.error) || 'Delete failed');
+                            }
+                            return data;
+                        });
+                    })
+                    .then(function(data) {
+                        bypassLeavePrompt = true;
+                        return showWorkflowDialog({
+                            tone: 'success',
+                            title: data.title || 'Draft Deleted',
+                            message: data.message || 'The draft has been deleted successfully.',
+                            confirmLabel: 'Return to Workbench'
+                        });
+                    })
+                    .then(function() {
                         window.location.href = '{{ url_for("csc.workspace") }}';
                     })
                     .catch(function(e) {
-                        alert('Error deleting draft: ' + e.message);
+                        showWorkflowDialog({
+                            tone: 'danger',
+                            title: 'Unable to Delete Draft',
+                            message: e.message || 'The draft could not be deleted right now.',
+                            confirmLabel: 'Close'
+                        });
                     });
             }
         );
@@ -3409,6 +3808,14 @@
     // ═══════════════════════════════════════════════════════════════════════════
 
     var confirmCallback = null;
+
+    function showWorkflowDialog(options) {
+        if (window.showAppDialog) {
+            return window.showAppDialog(options);
+        }
+        window.alert(((options && options.title) ? options.title + '\n\n' : '') + ((options && (options.message || options.body)) || ''));
+        return Promise.resolve();
+    }
 
     function showConfirmModal(title, body, onConfirm) {
         document.getElementById('confirmTitle').textContent = title;
@@ -3453,6 +3860,45 @@
         return count;
     }
 
+    function currentParameterTypePreview() {
+        var changes = [];
+        document.querySelectorAll('#paramBodyPhase1 tr, #paramBodyPhase2 tr').forEach(function(row) {
+            var name = normalizedValue(
+                row.querySelector('.param-name')?.value
+                || row.querySelector('td:first-child')?.textContent
+                || ''
+            ) || 'Untitled Parameter';
+            var currentType = normalizedParameterType(
+                row.querySelector('.param-type')?.value
+                || row.getAttribute('data-param-type')
+                || 'Desirable'
+            );
+            var sourceType = normalizedParameterType(
+                row.getAttribute('data-source-param-type')
+                || currentType
+            );
+            if (currentType !== sourceType) {
+                changes.push(name + ': ' + sourceType + ' -> ' + currentType);
+            }
+        });
+        return changes;
+    }
+
+    function setSubmitReviewStatus(message, tone) {
+        var status = document.getElementById('submitReviewStatus');
+        if (!status) return;
+        if (!message) {
+            status.hidden = true;
+            status.textContent = '';
+            status.classList.remove('is-success', 'is-error');
+            return;
+        }
+        status.hidden = false;
+        status.textContent = message;
+        status.classList.toggle('is-success', tone === 'success');
+        status.classList.toggle('is-error', tone === 'error');
+    }
+
     function setSubmitStep(step) {
         submitStep = step;
         var previewStep = document.getElementById('submitPreviewStep');
@@ -3470,14 +3916,14 @@
         if (step === 1) {
             stepLabel.textContent = 'Step 1 of 2';
             title.textContent = 'Review Draft Before Submission';
-            subtitle.textContent = 'Validate the draft snapshot before sending it to the admin workbench.';
+            subtitle.textContent = 'Validate the draft snapshot before sending it to the Committee Head workbench.';
             nextButton.textContent = 'Next';
             nextButton.disabled = false;
         } else {
             stepLabel.textContent = 'Step 2 of 2';
             title.textContent = 'Authorization Confirmation';
             subtitle.textContent = 'Capture the required authorization declaration before final submission.';
-            nextButton.textContent = 'Submit for Admin Approval';
+            nextButton.textContent = 'Submit to Committee Head';
             updateSubmitAuthorizationState();
         }
     }
@@ -3506,7 +3952,7 @@
         document.getElementById('submitPreviewSubset').textContent = draftSubsetDisplay;
         document.getElementById('submitPreviewVersion').textContent = draftVersion;
         document.getElementById('submitPreviewMaterialCode').textContent = getInputValue('masterMaterialCode', '') || 'Not provided';
-        document.getElementById('submitPreviewPhysicalState').textContent = getInputValue('master_physical_state', '') || 'Not provided';
+        document.getElementById('submitPreviewPhysicalState').textContent = normalizedValue(materialPropertiesState.physical_state || '') || 'Not provided';
         document.getElementById('submitPreviewParameterCount').textContent = String(getParameterCount());
         document.getElementById('submitPreviewIssueCount').textContent = String(getFlaggedIssueCount());
         document.getElementById('submitPreviewBackground').textContent = previewText(
@@ -3524,11 +3970,15 @@
             getInputValue('mainRec', ''),
             'No version change reason has been entered.'
         );
+        document.getElementById('submitPreviewParameterTypes').textContent = currentParameterTypePreview().length
+            ? currentParameterTypePreview().join('\n')
+            : 'No parameter type changes detected in this draft.';
         document.getElementById('submitAuthorizationSubset').textContent = draftSubsetDisplay;
     }
 
     function resetSubmitReviewModal() {
         document.getElementById('submitReviewError').textContent = '';
+        setSubmitReviewStatus('');
         document.getElementById('submitAuthYes').checked = false;
         document.getElementById('submitAuthNo').checked = false;
         document.getElementById('submitAuthorizedByName').value = '';
@@ -3573,6 +4023,11 @@
     function submitDraftForReview() {
         var nextButton = document.getElementById('submitReviewNext');
         var errorElement = document.getElementById('submitReviewError');
+        var dirtyState = getDirtyEditorState();
+        var dirtyLabels = getDirtySectionLabels();
+        var nonParameterDirtyLabels = dirtyLabels.filter(function(label) {
+            return label !== 'Parameters';
+        });
         var payload = {
             authorization_confirmed: true,
             authorized_by_name: document.getElementById('submitAuthorizedByName').value.trim(),
@@ -3580,17 +4035,41 @@
         };
 
         nextButton.disabled = true;
-        nextButton.textContent = 'Submitting...';
+        nextButton.textContent = 'Saving and submitting...';
         errorElement.textContent = '';
+        if (dirtyLabels.length) {
+            setSubmitReviewStatus(
+                dirtyState.parameters
+                    ? 'Saving Parameters tab changes before submission.'
+                        + (nonParameterDirtyLabels.length
+                            ? '\nOther unsaved sections: ' + nonParameterDirtyLabels.join(', ')
+                            : '')
+                    : 'Saving unsaved sections before submission: ' + dirtyLabels.join(', '),
+                ''
+            );
+        } else {
+            setSubmitReviewStatus('No unsaved draft changes detected. Submitting to Committee Head...', '');
+        }
 
-        fetch('/csc/api/draft/' + draftId + '/submit', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': csrfToken
-            },
-            body: JSON.stringify(payload)
-        })
+        saveDirtySections()
+            .then(function() {
+                if (dirtyLabels.length) {
+                    setSubmitReviewStatus(
+                        dirtyState.parameters
+                            ? 'Parameters tab saved successfully. Draft is now being submitted to Committee Head.'
+                            : 'Unsaved draft sections saved successfully. Draft is now being submitted to Committee Head.',
+                        'success'
+                    );
+                }
+                return fetch('/csc/api/draft/' + draftId + '/submit', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify(payload)
+                });
+            })
             .then(function(response) {
                 return response.json().then(function(data) {
                     if (!response.ok) {
@@ -3600,11 +4079,27 @@
                 });
             })
             .then(function(data) {
-                window.location.replace((data && data.redirect) || '{{ url_for("csc.workspace") }}');
+                captureInitialEditorState();
+                updateChangesChecklist();
+                closeSubmitReviewModal();
+                return showWorkflowDialog({
+                    tone: 'success',
+                    title: (data && data.title) || 'Draft Submitted for Approval',
+                    message: (data && data.message) || 'The draft has been submitted to the Committee Head for review.',
+                    confirmLabel: 'Open Committee User Workbench'
+                }).then(function() {
+                    window.location.replace((data && data.redirect) || '{{ url_for("csc.workspace") }}');
+                });
             })
             .catch(function(error) {
-                errorElement.textContent = error.message;
-                nextButton.textContent = 'Submit for Admin Approval';
+                if (dirtyState.parameters) {
+                    errorElement.textContent = 'Submission stopped because the Parameters tab could not be saved.';
+                    setSubmitReviewStatus(error.message || 'Parameter save failed before submission.', 'error');
+                } else {
+                    errorElement.textContent = error.message;
+                    setSubmitReviewStatus('Submission stopped because one or more draft sections could not be saved.', 'error');
+                }
+                nextButton.textContent = 'Submit to Committee Head';
                 updateSubmitAuthorizationState();
             });
     }
@@ -3627,6 +4122,121 @@
     document.getElementById('submitAuthNo')?.addEventListener('change', updateSubmitAuthorizationState);
     document.getElementById('submitAuthorizedByName')?.addEventListener('input', updateSubmitAuthorizationState);
     document.getElementById('submitSubcommitteeHeadName')?.addEventListener('input', updateSubmitAuthorizationState);
+
+    function setLeaveModalStatus(message, isError) {
+        var status = document.getElementById('leavePageStatus');
+        if (!status) return;
+        if (!message) {
+            status.hidden = true;
+            status.textContent = '';
+            status.classList.remove('is-error');
+            return;
+        }
+        status.hidden = false;
+        status.textContent = message;
+        status.classList.toggle('is-error', !!isError);
+    }
+
+    function setLeaveModalBusy(isBusy) {
+        leaveSaveInProgress = isBusy;
+        ['leaveStayBtn', 'leaveDiscardBtn', 'leaveSaveBtn'].forEach(function(id) {
+            var button = document.getElementById(id);
+            if (button) button.disabled = isBusy;
+        });
+    }
+
+    function closeLeavePageModal() {
+        if (leaveSaveInProgress) return;
+        document.getElementById('leavePageModal')?.classList.remove('show');
+        setLeaveModalStatus('');
+        pendingLeaveDestination = null;
+    }
+
+    function leaveEditorNow(destination) {
+        bypassLeavePrompt = true;
+        window.location.href = destination;
+    }
+
+    function openLeavePageModal(destination) {
+        pendingLeaveDestination = destination;
+        var dirtySections = getDirtySectionLabels();
+        var message = 'Save all changes before leaving this draft?';
+        if (dirtySections.length) {
+            message += '\n\nUnsaved sections: ' + dirtySections.join(', ');
+        }
+        document.getElementById('leavePageBody').textContent = message;
+        setLeaveModalStatus('');
+        setLeaveModalBusy(false);
+        document.getElementById('leavePageModal')?.classList.add('show');
+    }
+
+    function promptForLeaveIfNeeded(destination) {
+        if (bypassLeavePrompt || !hasUnsavedChanges()) {
+            leaveEditorNow(destination);
+            return;
+        }
+        openLeavePageModal(destination);
+    }
+
+    document.getElementById('leaveStayBtn')?.addEventListener('click', closeLeavePageModal);
+    document.getElementById('leaveDiscardBtn')?.addEventListener('click', function() {
+        if (!pendingLeaveDestination) {
+            closeLeavePageModal();
+            return;
+        }
+        leaveEditorNow(pendingLeaveDestination);
+    });
+    document.getElementById('leaveSaveBtn')?.addEventListener('click', function() {
+        if (!pendingLeaveDestination || leaveSaveInProgress) return;
+        setLeaveModalBusy(true);
+        setLeaveModalStatus('Saving all draft changes before leaving...');
+        saveDirtySections()
+            .then(function() {
+                captureInitialEditorState();
+                updateChangesChecklist();
+                leaveEditorNow(pendingLeaveDestination);
+            })
+            .catch(function(error) {
+                setLeaveModalBusy(false);
+                setLeaveModalStatus(error.message || 'Unable to save the draft before leaving. Review the highlighted section and try again.', true);
+            });
+    });
+
+    document.getElementById('leavePageModal')?.addEventListener('click', function(event) {
+        if (event.target === this) {
+            closeLeavePageModal();
+        }
+    });
+
+    document.addEventListener('keydown', function(event) {
+        if (event.key === 'Escape') {
+            closeLeavePageModal();
+        }
+    });
+
+    document.addEventListener('click', function(event) {
+        var link = event.target.closest('a[href]');
+        if (!link || bypassLeavePrompt) return;
+        if (link.target === '_blank' || link.hasAttribute('download')) return;
+
+        var href = link.getAttribute('href');
+        if (!href || href === '#' || href.indexOf('javascript:') === 0 || href.indexOf('mailto:') === 0 || href.indexOf('tel:') === 0) {
+            return;
+        }
+
+        var targetUrl = new URL(link.href, window.location.href);
+        if (targetUrl.href === window.location.href) return;
+        if (!hasUnsavedChanges()) return;
+
+        event.preventDefault();
+        openLeavePageModal(targetUrl.href);
+    });
+
+    window.addEventListener('beforeunload', function(event) {
+        if (bypassLeavePrompt || !hasUnsavedChanges()) return;
+        event.preventDefault();
+        event.returnValue = '';
+    });
 
     // ═══════════════════════════════════════════════════════════════════════════
     // Completion status

@@ -1,5 +1,5 @@
 <div class="csc-review-intro">
-  This admin review is read-only. If the admin needs to make workflow edits, create a self draft from the Manage Drafts page instead of editing the committee submission.
+  This snapshot is read-only. Review the latest submitted changes here before taking any workflow decision.
 </div>
 
 <div class="csc-review-card">
@@ -59,7 +59,12 @@
         {% for parameter in parameter_rows %}
         <tr>
           <td>{{ parameter.parameter_name }}</td>
-          <td>{{ parameter.parameter_type or '—' }}</td>
+          <td>
+            {{ parameter.parameter_type or '—' }}
+            {% if parameter.source_parameter_type and parameter.source_parameter_type != parameter.parameter_type %}
+            <span class="csc-review-subvalue">Was {{ parameter.source_parameter_type }}</span>
+            {% endif %}
+          </td>
           <td>{{ parameter.unit_of_measure or '—' }}</td>
           <td>{{ parameter.existing_value }}</td>
           <td>{{ parameter.required_value }}</td>
@@ -146,9 +151,9 @@
   </div>
 </div>
 
-{% if revision.reviewer_notes %}
+{% if latest_review_notes %}
 <div class="csc-review-card">
   <h3>Latest Review Notes</h3>
-  <pre class="csc-review-pre">{{ revision.reviewer_notes }}</pre>
+  <pre class="csc-review-pre">{{ latest_review_notes }}</pre>
 </div>
 {% endif %}

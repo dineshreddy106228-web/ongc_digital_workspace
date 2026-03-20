@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Committee Workbench — Material Master Admin — {{ app_name }}{% endblock %}
+{% block title %}{{ workbench_title or 'Committee Workbench' }} — {{ app_name }}{% endblock %}
 
 {% block head_extra %}
 <meta name="csrf-token" content="{{ csrf_token() }}">
@@ -50,6 +50,10 @@
   background: color-mix(in srgb, #2563eb 12%, transparent);
   color: #1d4ed8;
 }
+.csc-status-head-approved {
+  background: color-mix(in srgb, #0f766e 16%, transparent);
+  color: #0f766e;
+}
 .csc-status-returned {
   background: color-mix(in srgb, #f59e0b 15%, transparent);
   color: #b45309;
@@ -87,6 +91,11 @@
 }
 .csc-btn-sm.is-snapshot {
   color: var(--text);
+}
+.csc-btn-sm.is-danger {
+  color: #b91c1c;
+  border-color: color-mix(in srgb, #dc2626 28%, var(--border));
+  background: color-mix(in srgb, #dc2626 8%, white);
 }
 .csc-no-data {
   text-align: center;
@@ -157,13 +166,6 @@
   text-align: center;
   color: var(--muted);
 }
-.csc-review-intro {
-  margin-bottom: 1rem;
-  padding: 0.9rem 1rem;
-  border-radius: var(--radius-sm, 8px);
-  background: color-mix(in srgb, var(--primary) 7%, transparent);
-  color: var(--text);
-}
 .csc-review-columns {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -204,34 +206,17 @@
   font-weight: 600;
   white-space: pre-wrap;
 }
-.csc-review-section-block + .csc-review-section-block,
-.csc-review-list-item + .csc-review-list-item {
-  margin-top: 1rem;
-}
 .csc-review-pre {
   margin: 0;
   white-space: pre-wrap;
   font: inherit;
   color: var(--text);
 }
-.csc-review-list-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  align-items: center;
-}
-.csc-review-flag {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 999px;
-  padding: 0.15rem 0.55rem;
-  font-size: 0.75rem;
-  background: color-mix(in srgb, #10b981 15%, transparent);
-  color: #047857;
-}
-.csc-review-flag.is-flagged {
-  background: color-mix(in srgb, #f59e0b 18%, transparent);
-  color: #b45309;
+.csc-review-subvalue {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.76rem;
+  color: var(--muted);
 }
 .csc-review-table-wrap {
   overflow-x: auto;
@@ -349,16 +334,19 @@
 
 {% block content %}
 <div class="inv-page">
+  {% set csc_nav_active = workflow_nav_active|default('review') %}
   <div class="inv-module-header">
     <div>
-      <div class="page-kicker"><a href="{{ url_for('csc.admin_index') }}">Material Master Admin</a></div>
-      <h1 class="inv-module-title"><i class="bi bi-clipboard-check"></i> Committee Workbench</h1>
-      <p class="inv-module-subtitle">Review committee submissions in read-only mode, then approve, return, or reject them from the workbench modal</p>
+      <div class="page-kicker"><a href="{{ workbench_kicker_url }}">{{ workbench_kicker_label }}</a></div>
+      <h1 class="inv-module-title"><i class="bi bi-clipboard-check"></i> {{ workbench_title }}</h1>
+      <p class="inv-module-subtitle">{{ workbench_subtitle }}</p>
     </div>
   </div>
 
+  {% include "csc/_workflow_nav.html" %}
+
   <div class="alert alert-info">
-    Admin review is read-only. Committee submissions are not opened in the editor from this screen. If workflow edits are required, use Manage Drafts to create a separate admin self draft.
+    {{ intro_message }}
   </div>
 
   {% with messages = get_flashed_messages(with_categories=true) %}
@@ -379,6 +367,7 @@
               <th>Chemical</th>
               <th>Submitted By</th>
               <th>Submitted At</th>
+              <th>Latest Updated</th>
               <th>Status</th>
               <th>Notes</th>
               <th style="width: 220px; text-align: right;">Actions</th>
@@ -400,25 +389,50 @@
               <td>{{ revision.parent_spec.chemical_name or '—' }}</td>
               <td>{{ revision.submitted_by or '—' }}</td>
               <td>{{ revision.submitted_at | datetime_ist('%d %b %Y, %H:%M') if revision.submitted_at else '—' }}</td>
+              <td>{{ row.latest_updated_at | datetime_ist('%d %b %Y, %H:%M') if row.latest_updated_at else '—' }}</td>
               <td>
                 <span class="csc-status-badge csc-status-{{ revision.status or 'open' }}">
                   {{ (revision.status or 'open')|replace('_', ' ')|title }}
                 </span>
               </td>
-              <td>{{ revision.reviewer_notes or '—' }}</td>
+              <td>{{ revision.module_admin_notes or revision.committee_head_notes or revision.reviewer_notes or '—' }}</td>
               <td class="csc-actions">
+                {% if row.can_edit %}
+                <a
+                  href="{{ row.edit_url }}"
+                  class="csc-btn-sm"
+                >
+                  <i class="bi bi-pencil-square"></i>
+                  Edit Draft
+                </a>
+                {% endif %}
                 <button
                   type="button"
-                  class="csc-btn-sm {{ 'is-decision' if revision.status == 'submitted' else 'is-snapshot' }}"
+                  class="csc-btn-sm {{ 'is-decision' if row.can_decide else 'is-snapshot' }}"
                   data-review-revision-id="{{ revision.id }}"
                   data-review-title="{{ revision.parent_spec.spec_number }} — {{ revision.parent_spec.chemical_name or 'Draft Review' }}"
+                  data-review-url="{{ row.review_url }}"
+                  data-approve-url="{{ url_for(approve_endpoint_name, revision_id=revision.id) }}"
+                  data-return-url="{{ url_for(return_endpoint_name, revision_id=revision.id) }}"
+                  data-reject-url="{{ url_for(reject_endpoint_name, revision_id=revision.id) }}"
+                  data-force-delete-url="{{ row.force_delete_url if row.can_force_delete else '' }}"
                 >
-                  <i class="bi {{ 'bi-clipboard-check' if revision.status == 'submitted' else 'bi-eye' }}"></i>
-                  {{ 'Review & Decide' if revision.status == 'submitted' else 'View Snapshot' }}
+                  <i class="bi {{ 'bi-clipboard-check' if row.can_decide else 'bi-eye' }}"></i>
+                  {{ row.decision_label }}
                 </button>
-                <span class="csc-row-note">
-                  {{ 'Decision pending admin action' if revision.status == 'submitted' else 'Historical read-only snapshot' }}
-                </span>
+                {% if row.can_force_delete %}
+                <button
+                  type="button"
+                  class="csc-btn-sm is-danger"
+                  data-force-delete-revision-id="{{ revision.id }}"
+                  data-force-delete-title="{{ revision.parent_spec.spec_number }} — {{ revision.parent_spec.chemical_name or 'Draft Review' }}"
+                  data-force-delete-url="{{ row.force_delete_url }}"
+                >
+                  <i class="bi bi-trash"></i>
+                  Delete Draft
+                </button>
+                {% endif %}
+                <span class="csc-row-note">{{ row.decision_note }}</span>
               </td>
             </tr>
             {% endfor %}
@@ -440,7 +454,7 @@
     <div class="csc-review-header">
       <div>
         <h2 class="csc-review-title" id="reviewDetailTitle">Draft Review</h2>
-        <p class="csc-review-subtitle" id="reviewDetailSubtitle">Read-only revision snapshot for admin review.</p>
+        <p class="csc-review-subtitle" id="reviewDetailSubtitle">Read-only revision snapshot.</p>
       </div>
       <button type="button" class="csc-review-close" id="closeReviewDetailModal" aria-label="Close review dialog">
         <i class="bi bi-x-lg"></i>
@@ -454,42 +468,47 @@
     <div class="csc-review-footer">
       <div id="reviewDecisionPanel" class="csc-decision-panel">
         <div class="csc-decision-grid">
-          <div class="csc-decision-field">
+          <div class="csc-decision-field" id="versionIncrementField">
             <label for="reviewVersionIncrement">Version Increment</label>
             <select id="reviewVersionIncrement">
               <option value="whole">Whole Number</option>
               <option value="decimal">Decimal</option>
             </select>
           </div>
-          <div class="csc-decision-field">
+          <div class="csc-decision-field" id="approvedByField">
             <label for="reviewApprovedBy">Approved By</label>
             <input id="reviewApprovedBy" type="text" placeholder="Enter the approving authority name">
-            <small>Required on approval. Capture the exact approving authority.</small>
+            <small>Required on publish.</small>
           </div>
-          <div class="csc-decision-field">
+          <div class="csc-decision-field" id="dishaField">
             <label for="reviewDishaFileNumber">Disha File Number</label>
             <input id="reviewDishaFileNumber" type="text" placeholder="Enter the Disha file number">
-            <small>Required on approval. Enter the file reference under which approval was obtained.</small>
+            <small>Required on publish.</small>
           </div>
           <div class="csc-decision-field" style="grid-column: 1 / -1;">
-            <label for="reviewerNotes">Approval / Return Notes</label>
-            <textarea id="reviewerNotes" rows="4" placeholder="Enter the review decision note. On approval, include the rationale and any publication direction."></textarea>
-            <small>Approval notes must include decision context, the Approved By name, and the Disha File Number.</small>
+            <label for="reviewerNotes">Review Notes</label>
+            <textarea id="reviewerNotes" rows="4" placeholder="Enter the review decision note."></textarea>
+            <small id="reviewerNotesHelp">Review notes are required for all decisions.</small>
           </div>
         </div>
         <div class="csc-decision-actions">
-          <div class="csc-decision-note">Approve publishes the submitted draft. Return sends it back without admin edits. Reject deletes the submitted child draft.</div>
+          <div class="csc-decision-note">{{ decision_note }}</div>
           <div class="csc-decision-buttons">
             <button type="button" class="btn btn-secondary" id="dismissReviewDetail">Close</button>
-            <button type="button" class="btn btn-warning" data-decision-action="return">Return</button>
-            <button type="button" class="btn btn-danger" data-decision-action="reject">Reject</button>
-            <button type="button" class="btn btn-primary" data-decision-action="approve">Approve and Publish</button>
+            <button type="button" class="btn btn-warning" data-decision-action="return">{{ return_action_label }}</button>
+            {% if reject_action_label %}
+            <button type="button" class="btn btn-danger" data-decision-action="reject">{{ reject_action_label }}</button>
+            {% endif %}
+            <button type="button" class="btn btn-primary" data-decision-action="approve">{{ primary_action_label }}</button>
           </div>
         </div>
       </div>
       <div id="reviewReadOnlyFooter" class="csc-decision-actions">
-        <div class="csc-decision-note">This submission is no longer awaiting a decision. The snapshot remains available for audit review.</div>
-        <button type="button" class="btn btn-secondary" id="dismissReviewReadOnly">Close</button>
+        <div class="csc-decision-note">This submission is not awaiting your decision. The snapshot remains available for review.</div>
+        <div class="csc-decision-buttons">
+          <button type="button" class="btn btn-danger" id="modalForceDeleteReadOnly" style="display:none;">Delete Draft</button>
+          <button type="button" class="btn btn-secondary" id="dismissReviewReadOnly">Close</button>
+        </div>
       </div>
     </div>
   </div>
@@ -512,37 +531,81 @@
   const approvedByInput = document.getElementById('reviewApprovedBy');
   const dishaInput = document.getElementById('reviewDishaFileNumber');
   const versionSelect = document.getElementById('reviewVersionIncrement');
+  const versionIncrementField = document.getElementById('versionIncrementField');
+  const approvedByField = document.getElementById('approvedByField');
+  const dishaField = document.getElementById('dishaField');
+  const reviewerNotesHelp = document.getElementById('reviewerNotesHelp');
+  const modalForceDeleteReadOnly = document.getElementById('modalForceDeleteReadOnly');
+  const expectedDecisionStage = {{ decision_stage|tojson }};
+  const expectedDecisionMode = {{ decision_mode|tojson }};
+  const requirePublishFields = {{ require_publish_fields|tojson }};
+  const pendingSubtitle = {{ review_subtitle_pending|tojson }};
+  const readOnlySubtitle = {{ review_subtitle_readonly|tojson }};
+
   let currentRevisionId = null;
   let currentStatus = null;
+  let currentDecisionMode = 'read_only';
+  let currentReviewUrl = null;
+  let currentApproveUrl = null;
+  let currentReturnUrl = null;
+  let currentRejectUrl = null;
+  let currentForceDeleteUrl = null;
+
+  function showWorkflowDialog(options) {
+    if (window.showAppDialog) {
+      return window.showAppDialog(options);
+    }
+    window.alert(((options && options.title) ? options.title + '\n\n' : '') + ((options && (options.message || options.body)) || ''));
+    return Promise.resolve();
+  }
 
   function closeModal() {
     modal.classList.remove('active');
     modal.setAttribute('aria-hidden', 'true');
     currentRevisionId = null;
     currentStatus = null;
+    currentDecisionMode = 'read_only';
+    currentReviewUrl = null;
+    currentApproveUrl = null;
+    currentReturnUrl = null;
+    currentRejectUrl = null;
+    currentForceDeleteUrl = null;
     modalBody.innerHTML = '<div class="csc-review-loading">Loading draft snapshot…</div>';
     reviewerNotes.value = '';
     approvedByInput.value = '';
     dishaInput.value = '';
     versionSelect.value = 'whole';
+    modalForceDeleteReadOnly.style.display = 'none';
   }
 
-  function setDecisionMode(status) {
-    const isSubmitted = status === 'submitted';
-    decisionPanel.classList.toggle('active', isSubmitted);
-    readOnlyFooter.style.display = isSubmitted ? 'none' : 'flex';
+  function setDecisionMode(status, decisionMode) {
+    const isDecisionState = status === expectedDecisionStage && decisionMode === expectedDecisionMode;
+    decisionPanel.classList.toggle('active', isDecisionState);
+    readOnlyFooter.style.display = isDecisionState ? 'none' : 'flex';
+    modalForceDeleteReadOnly.style.display = (!isDecisionState && currentForceDeleteUrl) ? '' : 'none';
+    versionIncrementField.style.display = requirePublishFields ? '' : 'none';
+    approvedByField.style.display = requirePublishFields ? '' : 'none';
+    dishaField.style.display = requirePublishFields ? '' : 'none';
+    reviewerNotesHelp.textContent = requirePublishFields
+      ? 'On publish, include decision context, the Approved By name, and the Disha File Number.'
+      : 'Review notes are required for approve, return, and delete.';
   }
 
-  function openReview(revisionId, title) {
-    currentRevisionId = revisionId;
-    modalTitle.textContent = title || 'Draft Review';
+  function openReview(config) {
+    currentRevisionId = config.revisionId;
+    currentReviewUrl = config.reviewUrl;
+    currentApproveUrl = config.approveUrl;
+    currentReturnUrl = config.returnUrl;
+    currentRejectUrl = config.rejectUrl;
+    currentForceDeleteUrl = config.forceDeleteUrl || null;
+    modalTitle.textContent = config.title || 'Draft Review';
     modalSubtitle.textContent = 'Loading read-only revision snapshot…';
     modalBody.innerHTML = '<div class="csc-review-loading">Loading draft snapshot…</div>';
-    setDecisionMode(false);
+    setDecisionMode('', 'read_only');
     modal.classList.add('active');
     modal.setAttribute('aria-hidden', 'false');
 
-    fetch(`/csc/admin/revision/${revisionId}/review`, {
+    fetch(currentReviewUrl, {
       headers: { 'X-Requested-With': 'XMLHttpRequest' }
     })
     .then(response => response.json().then(data => ({ ok: response.ok, data })))
@@ -551,43 +614,68 @@
         throw new Error(data.error || 'Failed to load revision detail');
       }
       currentStatus = data.status;
-      modalSubtitle.textContent = data.status === 'submitted'
-        ? 'Review the verified snapshot below, then approve, return, or reject without editing the committee draft.'
-        : 'Read-only revision snapshot for audit and decision history.';
+      currentDecisionMode = data.decision_mode || 'read_only';
+      modalSubtitle.textContent = currentStatus === expectedDecisionStage && currentDecisionMode === expectedDecisionMode
+        ? pendingSubtitle
+        : readOnlySubtitle;
       modalBody.innerHTML = data.html;
-      setDecisionMode(data.status);
+      setDecisionMode(data.status, currentDecisionMode);
     })
     .catch(error => {
-      modalBody.innerHTML = `<div class="csc-review-error">${error.message}</div>`;
-      setDecisionMode(false);
+      modalBody.innerHTML = '<div class="csc-review-error">' + error.message + '</div>';
+      setDecisionMode('', 'read_only');
     });
   }
 
   function submitDecision(action) {
-    if (!currentRevisionId || currentStatus !== 'submitted') return;
+    if (!currentRevisionId || currentStatus !== expectedDecisionStage || currentDecisionMode !== expectedDecisionMode) {
+      return;
+    }
 
     const noteText = reviewerNotes.value.trim();
     if (!noteText) {
-      alert('Review notes are required.');
+      showWorkflowDialog({
+        tone: 'warning',
+        title: 'Review Notes Required',
+        message: 'Enter the review decision note before continuing.',
+        confirmLabel: 'Continue'
+      });
       return;
     }
 
     const payload = { reviewer_notes: noteText };
-    if (action === 'approve') {
+    if (action === 'approve' && requirePublishFields) {
       payload.version_increment = versionSelect.value;
       payload.approval_authorized_by = approvedByInput.value.trim();
       payload.approval_disha_file_number = dishaInput.value.trim();
       if (!payload.approval_authorized_by) {
-        alert('Enter the Approved By name before publishing.');
+        showWorkflowDialog({
+          tone: 'warning',
+          title: 'Approved By Name Required',
+          message: 'Enter the Approved By name before publishing this draft.',
+          confirmLabel: 'Continue'
+        });
         return;
       }
       if (!payload.approval_disha_file_number) {
-        alert('Enter the Disha File Number before publishing.');
+        showWorkflowDialog({
+          tone: 'warning',
+          title: 'Disha File Number Required',
+          message: 'Enter the Disha File Number before publishing this draft.',
+          confirmLabel: 'Continue'
+        });
         return;
       }
     }
 
-    fetch(`/csc/admin/revision/${currentRevisionId}/${action}`, {
+    const decisionUrl = action === 'approve'
+      ? currentApproveUrl
+      : (action === 'return' ? currentReturnUrl : currentRejectUrl);
+    if (!decisionUrl) {
+      return;
+    }
+
+    fetch(decisionUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -600,16 +688,36 @@
       if (!ok || !data.success) {
         throw new Error(data.error || 'Request failed');
       }
-      window.location.reload();
+      return showWorkflowDialog({
+        tone: 'success',
+        title: data.title || 'Workflow Updated',
+        message: data.message || 'The workflow action was completed successfully.',
+        confirmLabel: 'Refresh Workbench'
+      }).then(() => {
+        window.location.reload();
+      });
     })
     .catch(error => {
-      alert(error.message);
+      showWorkflowDialog({
+        tone: 'danger',
+        title: 'Workflow Action Failed',
+        message: error.message || 'The workflow action could not be completed.',
+        confirmLabel: 'Close'
+      });
     });
   }
 
   document.querySelectorAll('[data-review-revision-id]').forEach(button => {
     button.addEventListener('click', function() {
-      openReview(this.dataset.reviewRevisionId, this.dataset.reviewTitle);
+      openReview({
+        revisionId: this.dataset.reviewRevisionId,
+        title: this.dataset.reviewTitle,
+        reviewUrl: this.dataset.reviewUrl,
+        approveUrl: this.dataset.approveUrl,
+        returnUrl: this.dataset.returnUrl,
+        rejectUrl: this.dataset.rejectUrl,
+        forceDeleteUrl: this.dataset.forceDeleteUrl
+      });
     });
   });
 
@@ -617,6 +725,66 @@
     button.addEventListener('click', function() {
       submitDecision(this.dataset.decisionAction);
     });
+  });
+
+  document.querySelectorAll('[data-force-delete-revision-id]').forEach(button => {
+    button.addEventListener('click', function() {
+      executeForceDelete(this.dataset.forceDeleteUrl, this.dataset.forceDeleteTitle || 'this draft');
+    });
+  });
+
+  function executeForceDelete(decisionUrl, draftTitle) {
+    if (!decisionUrl) {
+      return;
+    }
+    const noteText = window.prompt('Enter the delete note for ' + draftTitle + ':');
+    if (noteText === null) {
+      return;
+    }
+    const trimmedNote = noteText.trim();
+    if (!trimmedNote) {
+      showWorkflowDialog({
+        tone: 'warning',
+        title: 'Delete Note Required',
+        message: 'Enter the delete note before deleting this draft.',
+        confirmLabel: 'Continue'
+      });
+      return;
+    }
+    fetch(decisionUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrfToken
+      },
+      body: JSON.stringify({ reviewer_notes: trimmedNote })
+    })
+    .then(response => response.json().then(data => ({ ok: response.ok, data })))
+    .then(({ ok, data }) => {
+      if (!ok || !data.success) {
+        throw new Error(data.error || 'Delete failed');
+      }
+      return showWorkflowDialog({
+        tone: 'success',
+        title: data.title || 'Draft Deleted',
+        message: data.message || 'The draft was deleted successfully.',
+        confirmLabel: 'Refresh Workbench'
+      }).then(() => {
+        window.location.reload();
+      });
+    })
+    .catch(error => {
+      showWorkflowDialog({
+        tone: 'danger',
+        title: 'Delete Failed',
+        message: error.message || 'The draft could not be deleted.',
+        confirmLabel: 'Close'
+      });
+    });
+  }
+
+  modalForceDeleteReadOnly.addEventListener('click', function() {
+    executeForceDelete(currentForceDeleteUrl, modalTitle.textContent || 'this draft');
   });
 
   document.getElementById('closeReviewDetailModal').addEventListener('click', closeModal);

@@ -306,7 +306,19 @@
     {% endif %}
 
     <div class="container">
-        {% if current_user.is_authenticated and request.endpoint != 'main.dashboard' %}
+        {% set workflow_nav_endpoints = [
+            'csc.index',
+            'csc.landing',
+            'csc.workspace',
+            'csc.msds_page',
+            'csc.ingest',
+            'csc.review_workbench',
+            'csc.admin_index',
+            'csc.admin_revisions',
+            'csc.admin_revision_generation'
+        ] %}
+        {% set hide_page_back = request.endpoint in workflow_nav_endpoints %}
+        {% if current_user.is_authenticated and request.endpoint != 'main.dashboard' and not hide_page_back %}
             {% set back_fallback = url_for('main.dashboard') %}
             {% if request.endpoint and request.endpoint.startswith('inventory.') %}
                 {% set back_fallback = url_for('inventory.landing') %}
@@ -344,6 +356,24 @@
         {% endwith %}
 
         {% block content %}{% endblock %}
+    </div>
+
+    <div class="app-dialog-overlay" id="appDialogOverlay" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="appDialogTitle">
+        <div class="app-dialog">
+            <div class="app-dialog-header">
+                <div class="app-dialog-icon is-info" id="appDialogIcon" aria-hidden="true">
+                    <i class="bi bi-info-circle"></i>
+                </div>
+                <div class="app-dialog-copy">
+                    <span class="app-dialog-eyebrow" id="appDialogEyebrow">Workflow Update</span>
+                    <h2 class="app-dialog-title" id="appDialogTitle">Action completed</h2>
+                </div>
+            </div>
+            <div class="app-dialog-body" id="appDialogBody"></div>
+            <div class="app-dialog-footer">
+                <button type="button" class="btn btn-primary" id="appDialogConfirm">Continue</button>
+            </div>
+        </div>
     </div>
 
     <footer class="site-footer">
@@ -483,6 +513,121 @@
         })();
     </script>
     {% endif %}
+    <script nonce="{{ csp_nonce() }}">
+        (function () {
+            var overlay = document.getElementById('appDialogOverlay');
+            var iconShell = document.getElementById('appDialogIcon');
+            var eyebrow = document.getElementById('appDialogEyebrow');
+            var title = document.getElementById('appDialogTitle');
+            var body = document.getElementById('appDialogBody');
+            var confirmButton = document.getElementById('appDialogConfirm');
+            if (!overlay || !iconShell || !eyebrow || !title || !body || !confirmButton) return;
+
+            var activeDialog = null;
+            var dialogQueue = [];
+            var toneConfig = {
+                success: { eyebrow: 'Workflow Update', icon: 'check-circle', fallbackTitle: 'Action completed' },
+                warning: { eyebrow: 'Attention', icon: 'exclamation-triangle', fallbackTitle: 'Review required' },
+                danger: { eyebrow: 'Action Required', icon: 'x-circle', fallbackTitle: 'Action failed' },
+                info: { eyebrow: 'Workflow Update', icon: 'info-circle', fallbackTitle: 'Update available' }
+            };
+
+            function getVisibleBlockingModal() {
+                return document.querySelector('.workspace-welcome-overlay:not(.hidden)');
+            }
+
+            function normalizeDialogOptions(options) {
+                var tone = (options && options.tone) || 'info';
+                if (!toneConfig[tone]) tone = 'info';
+                return {
+                    tone: tone,
+                    title: (options && options.title) || toneConfig[tone].fallbackTitle,
+                    message: (options && (options.message || options.body)) || '',
+                    confirmLabel: (options && options.confirmLabel) || 'Continue'
+                };
+            }
+
+            function renderDialog(dialogOptions) {
+                var config = toneConfig[dialogOptions.tone];
+                iconShell.className = 'app-dialog-icon is-' + dialogOptions.tone;
+                iconShell.innerHTML = '<i class="bi bi-' + config.icon + '"></i>';
+                eyebrow.textContent = config.eyebrow;
+                title.textContent = dialogOptions.title;
+                body.textContent = dialogOptions.message;
+                confirmButton.textContent = dialogOptions.confirmLabel;
+                overlay.classList.add('is-active');
+                overlay.setAttribute('aria-hidden', 'false');
+                document.body.classList.add('app-dialog-open');
+                confirmButton.focus();
+            }
+
+            function drainDialogQueue() {
+                if (activeDialog || !dialogQueue.length) return;
+                if (getVisibleBlockingModal()) {
+                    window.setTimeout(drainDialogQueue, 250);
+                    return;
+                }
+                activeDialog = dialogQueue.shift();
+                renderDialog(activeDialog.options);
+            }
+
+            function closeActiveDialog() {
+                if (!activeDialog) return;
+                overlay.classList.remove('is-active');
+                overlay.setAttribute('aria-hidden', 'true');
+                document.body.classList.remove('app-dialog-open');
+                var resolver = activeDialog.resolve;
+                activeDialog = null;
+                if (typeof resolver === 'function') resolver();
+                drainDialogQueue();
+            }
+
+            window.showAppDialog = function (options) {
+                return new Promise(function (resolve) {
+                    dialogQueue.push({
+                        options: normalizeDialogOptions(options || {}),
+                        resolve: resolve
+                    });
+                    drainDialogQueue();
+                });
+            };
+
+            confirmButton.addEventListener('click', closeActiveDialog);
+            overlay.addEventListener('click', function (event) {
+                if (event.target === overlay) {
+                    closeActiveDialog();
+                }
+            });
+            document.addEventListener('keydown', function (event) {
+                if (event.key === 'Escape' && activeDialog) {
+                    closeActiveDialog();
+                }
+            });
+
+            Array.prototype.slice.call(document.querySelectorAll('.flash-area')).forEach(function (area) {
+                area.querySelectorAll('.flash').forEach(function (flashNode) {
+                    var tone = 'info';
+                    ['success', 'warning', 'danger', 'info'].some(function (candidate) {
+                        if (flashNode.classList.contains('flash-' + candidate)) {
+                            tone = candidate;
+                            return true;
+                        }
+                        return false;
+                    });
+
+                    var clone = flashNode.cloneNode(true);
+                    clone.querySelectorAll('.flash-close').forEach(function (button) {
+                        button.remove();
+                    });
+                    var message = clone.textContent.trim();
+                    if (message) {
+                        window.showAppDialog({ tone: tone, message: message });
+                    }
+                });
+                area.hidden = true;
+            });
+        })();
+    </script>
     {% block scripts_extra %}{% endblock %}
 </body>
 </html>

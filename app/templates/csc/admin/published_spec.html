@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Published Specification — {{ draft.spec_number }} — {{ app_name }}{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="inv-page">
+  {% set csc_nav_active = 'admin' %}
+  <div class="inv-module-header">
+    <div>
+      <div class="page-kicker"><a href="{{ url_for('csc.published_specs') }}">Published Specs</a></div>
+      <h1 class="inv-module-title"><i class="bi bi-journal-text"></i> Published Specification</h1>
+      <p class="inv-module-subtitle">{{ draft.spec_number }} — {{ draft.chemical_name }}</p>
+    </div>
+    <div class="inv-header-actions">
+      <span class="inv-badge inv-badge-info">{{ draft.subset_display or 'No subset' }}</span>
+      <span class="inv-badge inv-badge-muted">v{{ draft.version if draft.version is not none else '0' }}</span>
+    </div>
+  </div>
+
+  {% include "csc/_workflow_nav.html" %}
+
+  <div class="alert alert-info">
+    This is a read-only published specification snapshot. Use Published Specs to review release history and Draft Generation for Revision in Secretary Workspace to open workflow drafts.
+  </div>
+
+  <div class="inv-header-actions" style="margin-bottom: 1rem;">
+    <a href="{{ url_for('csc.published_specs') }}" class="btn btn-secondary">
+      <i class="bi bi-arrow-left"></i> Back to Published Specs
+    </a>
+    {% if active_revision and active_revision.child_draft and active_revision.child_draft.is_admin_draft and active_revision.child_draft.created_by_id == current_user.id and active_revision.status in ['open', 'returned'] %}
+    <a href="{{ url_for('csc.editor', draft_id=active_revision.child_draft.id) }}" class="btn btn-primary">
+      <i class="bi bi-pencil-square"></i> Open My Draft
+    </a>
+    {% endif %}
+  </div>
+
+  {% set summary_rows = review_context.summary_rows %}
+  {% set section_rows = review_context.section_rows %}
+  {% set parameter_rows = review_context.parameter_rows %}
+  {% set master_rows = review_context.master_rows %}
+  {% set material_property_rows = review_context.material_property_rows %}
+  {% set storage_rows = review_context.storage_rows %}
+  {% set impact_rows = review_context.impact_rows %}
+  {% set latest_review_notes = review_context.latest_review_notes %}
+  {% include "csc/admin/_revision_detail.html" %}
+</div>
+{% endblock %}

@@ -18,6 +18,7 @@ from app.features import get_admin_module_options
 from app.models.core.backup_snapshot import BackupSnapshot
 from app.models.core.user import User
 from app.models.core.role import Role
+from app.models.core.module_admin_assignment import ModuleAdminAssignment
 from app.models.office.office import Office
 from app.models.core.audit_log import AuditLog
 from app.models.core.activity_log import ActivityLog
@@ -95,6 +96,32 @@ def _module_options():
     return get_admin_module_options()
 
 
+def _manageable_module_options():
+    """Return business modules that can have workspace-assigned module admins."""
+    return [
+        option
+        for option in _module_options()
+        if option["code"] not in {"dashboard", "admin_users"}
+    ]
+
+
+def _user_can_admin_module(user: User, module_code: str) -> bool:
+    """Check whether a user has underlying access for a module-admin assignment."""
+    canonical_role = canonicalize_role_name(user.role.name) if user.role else None
+
+    if canonical_role == SUPERUSER_ROLE:
+        return module_code in SUPER_USER_MODULES
+
+    return (
+        UserModulePermission.query.filter_by(
+            user_id=user.id,
+            module_code=module_code,
+            can_access=True,
+        ).first()
+        is not None
+    )
+
+
 def _assignable_roles():
     """Return active role choices using canonical labels with legacy fallback."""
     roles = Role.query.filter(Role.is_active == True).order_by(Role.name).all()
@@ -127,6 +154,115 @@ def _assignable_roles():
 def users():
     all_users = User.query.order_by(User.created_at.desc()).all()
     return render_template("admin/users.html", users=all_users)
+
+
+@admin_bp.route("/modules", methods=["GET", "POST"])
+@login_required
+@roles_required(ADMIN_ROLE)
+def module_management():
+    """Assign up to two module admins for each business module."""
+    module_options = _manageable_module_options()
+    active_users = User.query.filter_by(is_active=True).order_by(User.full_name, User.username).all()
+
+    if request.method == "POST":
+        touched_user_ids = set()
+
+        try:
+            for module in module_options:
+                module_code = module["code"]
+                raw_values = [
+                    request.form.get(f"{module_code}_admin_1", "").strip(),
+                    request.form.get(f"{module_code}_admin_2", "").strip(),
+                ]
+                selected_user_ids = []
+                for value in raw_values:
+                    if not value:
+                        continue
+                    try:
+                        selected_user_ids.append(int(value))
+                    except ValueError:
+                        raise ValueError(f"Invalid user selection for {module['label']}.")
+
+                if len(selected_user_ids) != len(set(selected_user_ids)):
+                    raise ValueError(f"Select distinct module admins for {module['label']}.")
+                if len(selected_user_ids) > 2:
+                    raise ValueError(f"{module['label']} can have a maximum of two module admins.")
+
+                selected_users = (
+                    User.query.filter(User.id.in_(selected_user_ids)).all()
+                    if selected_user_ids
+                    else []
+                )
+                if len(selected_users) != len(selected_user_ids):
+                    raise ValueError(f"One or more selected users for {module['label']} no longer exist.")
+
+                for user in selected_users:
+                    if not _user_can_admin_module(user, module_code):
+                        raise ValueError(
+                            f"{user.username} does not currently hold {module['label']} module access."
+                        )
+
+                existing_assignments = ModuleAdminAssignment.query.filter_by(module_code=module_code).all()
+                touched_user_ids.update(assignment.user_id for assignment in existing_assignments)
+                ModuleAdminAssignment.query.filter_by(module_code=module_code).delete()
+                db.session.flush()
+
+                for user_id in selected_user_ids:
+                    db.session.add(
+                        ModuleAdminAssignment(
+                            module_code=module_code,
+                            user_id=user_id,
+                        )
+                    )
+                    touched_user_ids.add(user_id)
+
+            db.session.commit()
+
+            for user_id in touched_user_ids:
+                invalidate_user_module_access_cache(user_id)
+
+            AuditLog.log(
+                action="MODULE_ADMINS_UPDATED",
+                user_id=current_user.id,
+                entity_type="ModuleAdminAssignment",
+                entity_id="workspace",
+                details=f"Workspace admin '{current_user.username}' updated module admin assignments.",
+                ip_address=_client_ip(),
+                user_agent=get_user_agent(),
+            )
+            log_activity(current_user.username, "module_admins_updated", "module_management", "workspace")
+            flash("Module admin assignments updated.", "success")
+            return redirect(url_for("admin.module_management"))
+        except Exception as exc:
+            db.session.rollback()
+            flash(str(exc), "danger")
+
+    assignments_by_module = {}
+    for assignment in (
+        ModuleAdminAssignment.query
+        .order_by(ModuleAdminAssignment.module_code.asc(), ModuleAdminAssignment.user_id.asc())
+        .all()
+    ):
+        assignments_by_module.setdefault(assignment.module_code, []).append(assignment.user_id)
+
+    modules = []
+    for module in module_options:
+        eligible_users = [
+            user for user in active_users
+            if _user_can_admin_module(user, module["code"])
+        ]
+        modules.append(
+            {
+                **module,
+                "eligible_users": eligible_users,
+                "assigned_user_ids": assignments_by_module.get(module["code"], []),
+            }
+        )
+
+    return render_template(
+        "admin/module_management.html",
+        modules=modules,
+    )
 
 
 # ── Create User ──────────────────────────────────────────────────

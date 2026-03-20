@@ -34,7 +34,7 @@ from app.core.services.recurring_tasks import (
 )
 from app.core.utils.audit import log_action
 from app.core.utils.activity import log_activity
-from app.core.utils.decorators import module_access_required
+from app.core.utils.decorators import module_access_required, superuser_required
 
 
 TASK_STATUSES = [
@@ -641,8 +641,9 @@ def list_tasks():
 @office_bp.route("/dashboard")
 @login_required
 @module_access_required("tasks")
+@superuser_required
 def task_dashboard():
-    """Sectioned summary + calendar view. Super users also get analytics."""
+    """Sectioned summary + calendar view for superusers only."""
     all_tasks = (
         _task_visibility_query()
         .filter_by(is_active=True)

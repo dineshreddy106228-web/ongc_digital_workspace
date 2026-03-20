@@ -108,6 +108,33 @@ def superuser_required(fn):
     return wrapper
 
 
+def module_admin_required(module_code: str):
+    """Restrict a view to users assigned as admins for the given module."""
+
+    def decorator(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            if not current_user.is_authenticated:
+                flash("Please log in to access this page.", "warning")
+                return redirect(url_for("auth.login"))
+            if not current_user.is_active:
+                flash("Your account has been deactivated.", "danger")
+                return redirect(url_for("auth.login"))
+            if not is_module_enabled(module_code):
+                abort(404)
+            if not current_user.is_module_admin(module_code):
+                flash(
+                    "This page is restricted to the assigned module admins.",
+                    "danger",
+                )
+                abort(403)
+            return fn(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
 def require_permission(permission_name: str):
     """Restrict a view to users whose role grants *permission_name*.
 

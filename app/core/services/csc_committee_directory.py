@@ -2,7 +2,10 @@ from __future__ import annotations
 
 """Committee directory data for Material Master Management landing page."""
 
-from pathlib import Path
+import json
+from builtins import Exception
+from app.core.services.csc_utils import SPEC_SUBSET_ORDER
+from app.extensions import db
 
 
 ROOT_COMMITTEE = {
@@ -25,13 +28,15 @@ ROOT_COMMITTEE = {
     "members": [],
     "members_note": "Apex committee members are defined through the governing office order.",
     "office_orders": ["csc-governing-office-order"],
+    "committee_user": "",
+    "committee_head": "",
 }
 
 
 CHILD_COMMITTEES = [
     {
         "slug": "coordination",
-        "title": "Coordination Committee",
+        "title": "Governance Committee",
         "kind": "Governance",
         "tone": "indigo",
         "summary": "Central coordination across CSC and all material subset committees.",
@@ -49,6 +54,8 @@ CHILD_COMMITTEES = [
         "members": [],
         "members_note": "Members are notified through the applicable office order.",
         "office_orders": ["review-committees-corporate-specification"],
+        "committee_user": "",
+        "committee_head": "",
     },
     {
         "slug": "committee-1",
@@ -63,6 +70,8 @@ CHILD_COMMITTEES = [
         "members": [],
         "members_note": "Members are notified through the applicable office order.",
         "office_orders": ["review-committees-corporate-specification"],
+        "committee_user": "",
+        "committee_head": "",
     },
     {
         "slug": "committee-2",
@@ -76,6 +85,8 @@ CHILD_COMMITTEES = [
         "members": [],
         "members_note": "Members are notified through the applicable office order.",
         "office_orders": ["review-committees-corporate-specification"],
+        "committee_user": "",
+        "committee_head": "",
     },
     {
         "slug": "committee-3",
@@ -90,6 +101,8 @@ CHILD_COMMITTEES = [
         "members": [],
         "members_note": "Members are notified through the applicable office order.",
         "office_orders": ["review-committees-corporate-specification"],
+        "committee_user": "",
+        "committee_head": "",
     },
     {
         "slug": "committee-4",
@@ -105,6 +118,8 @@ CHILD_COMMITTEES = [
         "members": [],
         "members_note": "Members are notified through the applicable office order.",
         "office_orders": ["review-committees-corporate-specification"],
+        "committee_user": "",
+        "committee_head": "",
     },
     {
         "slug": "material-handling",
@@ -126,6 +141,8 @@ CHILD_COMMITTEES = [
         "members": [],
         "members_note": "Members are notified through the applicable office order.",
         "office_orders": ["storage-conditions-material-handling"],
+        "committee_user": "",
+        "committee_head": "",
     },
 ]
 
@@ -136,89 +153,202 @@ OFFICE_ORDERS = [
         "title": "CSC Governing Office Order",
         "issued_label": "Office Order",
         "summary": "Primary governing office order for the Corporate Specification Committee (Oil Field Chemicals).",
-        "path": Path("/Users/dineshreddy/Downloads/CSC_Governing_Office_Order.pdf"),
+        "filename": "CSC_Governing_Office_Order.pdf",
     },
     {
         "slug": "review-committees-corporate-specification",
         "title": "Review Committees of Corporate Specification",
         "issued_label": "Office Order issued on 06.03.2026",
         "summary": "Formation order for review committees governing the corporate specification structure.",
-        "path": Path("/Users/dineshreddy/Downloads/Review committees of Corporate Specification 06.03.2026.pdf"),
+        "filename": "Review committees of Corporate Specification 06.03.2026.pdf",
     },
     {
         "slug": "storage-conditions-material-handling",
         "title": "Review Committee for Storage Conditions & Material Handling",
         "issued_label": "Office Order",
         "summary": "Formation order for the storage conditions and material handling committee.",
-        "path": Path("/Users/dineshreddy/Downloads/Office Order_Review Committee_Storage Conditions_Material Handling.pdf"),
+        "filename": "Office Order_Review Committee_Storage Conditions_Material Handling.pdf",
     },
 ]
 
 
-import json
-from app.extensions import db
-from flask import url_for
-from builtins import Exception
+DEFAULT_ROOT_COMMITTEE = json.loads(json.dumps(ROOT_COMMITTEE))
+DEFAULT_CHILD_COMMITTEES = json.loads(json.dumps(CHILD_COMMITTEES))
+DEFAULT_OFFICE_ORDERS = json.loads(json.dumps(OFFICE_ORDERS))
+DEFAULT_COMMITTEE_BY_SLUG = {
+    committee["slug"]: json.loads(json.dumps(committee))
+    for committee in [DEFAULT_ROOT_COMMITTEE, *DEFAULT_CHILD_COMMITTEES]
+}
+
+
+def _clone_json(value):
+    return json.loads(json.dumps(value))
+
+
+def _normalize_committee_entry(committee: dict | None, fallback: dict | None) -> dict:
+    base = _clone_json(fallback or {})
+    incoming = committee if isinstance(committee, dict) else {}
+    for key, value in incoming.items():
+        if value is not None:
+            base[key] = value
+
+    if base.get("slug") == "coordination":
+        base["title"] = "Governance Committee"
+
+    base["members"] = [
+        str(member).strip()
+        for member in (base.get("members") or [])
+        if str(member).strip()
+    ]
+    base["office_orders"] = [
+        str(order_slug).strip()
+        for order_slug in (base.get("office_orders") or [])
+        if str(order_slug).strip()
+    ]
+    base["committee_user"] = str(base.get("committee_user") or "").strip()
+    base["committee_head"] = str(base.get("committee_head") or "").strip()
+
+    normalized_subsets = []
+    for subset in base.get("subsets") or []:
+        if isinstance(subset, dict):
+            code = str(subset.get("code") or "").strip().upper()
+            label = str(subset.get("label") or "").strip()
+        else:
+            code = str(subset or "").strip().upper()
+            label = ""
+        if code:
+            normalized_subsets.append({"code": code, "label": label or code})
+    base["subsets"] = normalized_subsets
+    return base
+
+
+def normalize_committee_config_payload(payload: dict[str, object] | None) -> dict[str, object]:
+    """Normalize a posted governance payload before persisting it."""
+    data = payload if isinstance(payload, dict) else {}
+    root_committee = _normalize_committee_entry(
+        data.get("ROOT_COMMITTEE"),
+        DEFAULT_ROOT_COMMITTEE,
+    )
+
+    child_committees = []
+    seen_slugs = set()
+    for committee in data.get("CHILD_COMMITTEES") or []:
+        if not isinstance(committee, dict):
+            continue
+        slug = str(committee.get("slug") or "").strip()
+        if not slug or slug in seen_slugs:
+            continue
+        seen_slugs.add(slug)
+        child_committees.append(
+            _normalize_committee_entry(
+                committee,
+                DEFAULT_COMMITTEE_BY_SLUG.get(slug, {"slug": slug}),
+            )
+        )
+
+    for committee in DEFAULT_CHILD_COMMITTEES:
+        slug = committee["slug"]
+        if slug in seen_slugs:
+            continue
+        child_committees.append(_clone_json(committee))
+
+    office_orders = [
+        _clone_json(order)
+        for order in (data.get("OFFICE_ORDERS") or DEFAULT_OFFICE_ORDERS)
+        if isinstance(order, dict)
+    ] or [_clone_json(order) for order in DEFAULT_OFFICE_ORDERS]
+
+    return {
+        "ROOT_COMMITTEE": root_committee,
+        "CHILD_COMMITTEES": child_committees,
+        "OFFICE_ORDERS": office_orders,
+    }
+
+
+def get_committee_config_payload() -> dict[str, object]:
+    """Return the normalized committee configuration payload."""
+    payload = {
+        "ROOT_COMMITTEE": _clone_json(DEFAULT_ROOT_COMMITTEE),
+        "CHILD_COMMITTEES": [_clone_json(committee) for committee in DEFAULT_CHILD_COMMITTEES],
+        "OFFICE_ORDERS": [_clone_json(order) for order in DEFAULT_OFFICE_ORDERS],
+    }
+
+    try:
+        from app.models.csc.governance import CSCConfig
+
+        config = db.session.query(CSCConfig).first()
+        if config and config.directory_json:
+            raw = json.loads(config.directory_json)
+            payload = normalize_committee_config_payload(raw)
+    except Exception:
+        pass
+
+    return payload
+
+
+def get_committee_access_for_username(username: str | None) -> dict[str, object]:
+    """Return committee assignments and covered subset codes for a username."""
+    username_key = str(username or "").strip().lower()
+    if not username_key:
+        return {"committee_slugs": [], "committee_titles": [], "subset_codes": []}
+
+    payload = get_committee_config_payload()
+    subset_codes = set()
+    committee_slugs = []
+    committee_titles = []
+
+    for committee in [payload["ROOT_COMMITTEE"], *payload["CHILD_COMMITTEES"]]:
+        committee_user = str(committee.get("committee_user") or "").strip().lower()
+        committee_head = str(committee.get("committee_head") or "").strip().lower()
+        if username_key not in {committee_user, committee_head}:
+            continue
+
+        committee_slugs.append(committee.get("slug") or "")
+        committee_titles.append(committee.get("title") or "")
+        for subset in committee.get("subsets") or []:
+            code = str((subset or {}).get("code") or "").strip().upper()
+            if code:
+                subset_codes.add(code)
+
+    ordered_codes = [code for code in SPEC_SUBSET_ORDER if code in subset_codes]
+    ordered_codes.extend(sorted(code for code in subset_codes if code not in SPEC_SUBSET_ORDER))
+    return {
+        "committee_slugs": committee_slugs,
+        "committee_titles": committee_titles,
+        "subset_codes": ordered_codes,
+    }
+
 
 def get_committee_directory() -> list[dict]:
     """Return the landing-page committee directory structure."""
-    try:
-        from app.models.csc.governance import CSCConfig
-        config = db.session.query(CSCConfig).first()
-        if config and config.directory_json:
-            data = json.loads(config.directory_json)
-            return [data.get("ROOT_COMMITTEE"), *data.get("CHILD_COMMITTEES", [])]
-    except Exception:
-        pass
-    return [ROOT_COMMITTEE, *CHILD_COMMITTEES]
+    payload = get_committee_config_payload()
+    return [payload["ROOT_COMMITTEE"], *payload["CHILD_COMMITTEES"]]
 
 
 def get_committee_tree() -> dict[str, object]:
     """Return committees grouped by visual tree level."""
-    try:
-        from app.models.csc.governance import CSCConfig
-        config = db.session.query(CSCConfig).first()
-        if config and config.directory_json:
-            data = json.loads(config.directory_json)
-            root = data.get("ROOT_COMMITTEE", {})
-            children = data.get("CHILD_COMMITTEES", [])
-            return {
-                "root": root,
-                "level_one": [c for c in children if c.get("slug") == "coordination"],
-                "level_two": [c for c in children if c.get("slug") != "coordination"],
-            }
-    except Exception:
-        pass
-
+    payload = get_committee_config_payload()
+    children = payload["CHILD_COMMITTEES"]
     return {
-        "root": ROOT_COMMITTEE,
-        "level_one": [committee for committee in CHILD_COMMITTEES if committee["slug"] == "coordination"],
-        "level_two": [committee for committee in CHILD_COMMITTEES if committee["slug"] != "coordination"],
+        "root": payload["ROOT_COMMITTEE"],
+        "level_one": [committee for committee in children if committee.get("slug") == "coordination"],
+        "level_two": [committee for committee in children if committee.get("slug") != "coordination"],
     }
 
 
 def get_office_orders() -> list[dict]:
-    """Return office-order metadata with file availability flags."""
-    try:
-        from app.models.csc.governance import CSCConfig, CSCOfficeOrderFile
-        config = db.session.query(CSCConfig).first()
-        if config and config.directory_json:
-            data = json.loads(config.directory_json)
-            order_defs = data.get("OFFICE_ORDERS", [])
-        else:
-            order_defs = OFFICE_ORDERS
-    except Exception:
-        order_defs = OFFICE_ORDERS
+    """Return office-order metadata with DB-backed availability flags."""
+    order_defs = get_committee_config_payload().get("OFFICE_ORDERS", DEFAULT_OFFICE_ORDERS)
 
     orders = []
     try:
         from app.models.csc.governance import CSCOfficeOrderFile
+
         existing_slugs = {row.slug for row in db.session.query(CSCOfficeOrderFile.slug).all()}
     except Exception:
         existing_slugs = set()
 
     for order in order_defs:
-        # Check DB first
         if order["slug"] in existing_slugs:
             orders.append(
                 {
@@ -230,20 +360,16 @@ def get_office_orders() -> list[dict]:
                     "filename": order.get("filename", f"{order['slug']}.pdf"),
                 }
             )
-        else:
-            # Fallback to local Path check
-            path = order.get("path")
-            available = path.exists() if hasattr(path, "exists") else False
-            filename = path.name if hasattr(path, "name") else order.get("filename", f"{order['slug']}.pdf")
-            
-            orders.append(
-                {
-                    "slug": order["slug"],
-                    "title": order["title"],
-                    "issued_label": order["issued_label"],
-                    "summary": order["summary"],
-                    "available": available,
-                    "filename": filename,
-                }
-            )
+            continue
+
+        orders.append(
+            {
+                "slug": order["slug"],
+                "title": order["title"],
+                "issued_label": order["issued_label"],
+                "summary": order["summary"],
+                "available": False,
+                "filename": order.get("filename", f"{order['slug']}.pdf"),
+            }
+        )
     return orders

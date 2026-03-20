@@ -116,9 +116,7 @@
 
 {% block content %}
 <div class="inv-page">
-  <a href="{{ url_for('csc.landing') }}" class="csc-back-link">
-    <i class="bi bi-arrow-left"></i> Back to Material Master Management
-  </a>
+  {% set csc_nav_active = 'msds' %}
 
   <div class="inv-module-header">
     <div>
@@ -128,11 +126,10 @@
     <div class="inv-header-actions">
       <span class="inv-badge inv-badge-info">{{ total }} materials</span>
       <span class="inv-badge inv-badge-success">{{ msds_count }} MSDS stored</span>
-      <a href="{{ url_for('csc.workspace') }}" class="btn btn-sm btn-secondary">
-        <i class="bi bi-pencil-square"></i> Drafting Workspace
-      </a>
     </div>
   </div>
+
+  {% include "csc/_workflow_nav.html" %}
 
   <div class="msds-center-grid">
     <div class="msds-center-card is-primary">
@@ -170,7 +167,7 @@
       </div>
       <div class="msds-stat">
         <div class="msds-stat-label">Storage Pattern</div>
-        <div class="msds-stat-value">PDF on disk, metadata in MySQL</div>
+        <div class="msds-stat-value">PDF stored in database</div>
       </div>
       <div class="msds-stat">
         <div class="msds-stat-label">Replacement Behavior</div>

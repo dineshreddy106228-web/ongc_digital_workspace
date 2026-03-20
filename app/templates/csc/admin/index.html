@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Material Master Admin — {{ app_name }}{% endblock %}
+{% block title %}Secretary Workspace — {{ app_name }}{% endblock %}
 
 {% block head_extra %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}">
@@ -7,13 +7,16 @@
 
 {% block content %}
 <div class="inv-page">
+    {% set csc_nav_active = 'admin' %}
     <div class="inv-module-header">
         <div>
             <div class="page-kicker"><a href="{{ url_for('csc.index') }}">Material Master Management</a></div>
-            <h1 class="inv-module-title"><i class="bi bi-gear"></i> Material Master Admin</h1>
-            <p class="inv-module-subtitle">Open drafting, review submitted changes, and publish approved specifications</p>
+            <h1 class="inv-module-title"><i class="bi bi-gear"></i> Secretary Workspace</h1>
+            <p class="inv-module-subtitle">Generate revision drafts, govern approvals, and publish committee-approved revisions</p>
         </div>
     </div>
+
+    {% include "csc/_workflow_nav.html" %}
 
     <div class="inv-kpi-row" style="margin-bottom: 2rem;">
         <div class="inv-kpi-card">
@@ -33,36 +36,47 @@
         <div class="inv-kpi-card">
             <div class="inv-kpi-icon inv-kpi-blue"><i class="bi bi-send-check"></i></div>
             <div>
-                <div class="inv-kpi-value">{{ stats.submitted or 0 }}</div>
-                <div class="inv-kpi-label">Submitted</div>
+                <div class="inv-kpi-value">{{ stats.submitted_to_head or 0 }}</div>
+                <div class="inv-kpi-label">At Committee Head</div>
             </div>
         </div>
         <div class="inv-kpi-card">
             <div class="inv-kpi-icon inv-kpi-purple"><i class="bi bi-arrow-counterclockwise"></i></div>
             <div>
-                <div class="inv-kpi-value">{{ stats.returned or 0 }}</div>
-                <div class="inv-kpi-label">Returned</div>
+                <div class="inv-kpi-value">{{ stats.pending_admin or 0 }}</div>
+                <div class="inv-kpi-label">Pending Publish</div>
             </div>
         </div>
     </div>
 
     <div class="inv-landing-grid">
-        <a href="{{ url_for('csc.admin_drafts') }}" class="inv-landing-card inv-landing-card-amber">
+        <a href="{{ url_for('csc.published_specs') }}" class="inv-landing-card inv-landing-card-amber">
             <div class="inv-landing-icon"><i class="bi bi-list-task"></i></div>
             <div class="inv-landing-card-body">
-                <h2 class="inv-landing-card-title">Manage Drafts</h2>
-                <p class="inv-landing-card-desc">Open drafting for published materials, edit non-workflow master data, and monitor open drafting status.</p>
+                <h2 class="inv-landing-card-title">Published Specs</h2>
+                <p class="inv-landing-card-desc">Open the module-wide published specification library, inspect version progression, and download stored publication dossiers.</p>
             </div>
             <div class="inv-landing-card-footer">
-                <span class="inv-landing-enter">Open Drafts <i class="bi bi-arrow-right"></i></span>
+                <span class="inv-landing-enter">Open Published Specs <i class="bi bi-arrow-right"></i></span>
+            </div>
+        </a>
+
+        <a href="{{ url_for('csc.admin_revision_generation') }}" class="inv-landing-card inv-landing-card-teal">
+            <div class="inv-landing-icon"><i class="bi bi-ui-checks-grid"></i></div>
+            <div class="inv-landing-card-body">
+                <h2 class="inv-landing-card-title">Draft Generation for Revision</h2>
+                <p class="inv-landing-card-desc">Configure committee workflow scope and create secretary-owned self drafts when the Material Master Management Admin must initiate the revision flow.</p>
+            </div>
+            <div class="inv-landing-card-footer">
+                <span class="inv-landing-enter">Open Draft Generation <i class="bi bi-arrow-right"></i></span>
             </div>
         </a>
 
         <a href="{{ url_for('csc.admin_revisions') }}" class="inv-landing-card inv-landing-card-green">
             <div class="inv-landing-icon"><i class="bi bi-clipboard-check"></i></div>
             <div class="inv-landing-card-body">
-                <h2 class="inv-landing-card-title">Committee Workbench</h2>
-                <p class="inv-landing-card-desc">Approve, return, or reject drafts submitted by subcommittee users and choose the publish version increment.</p>
+                <h2 class="inv-landing-card-title">Secretary Workbench</h2>
+                <p class="inv-landing-card-desc">Publish, return, or delete drafts already approved by the Committee Head / Nodal Officer.</p>
             </div>
             <div class="inv-landing-card-footer">
                 <span class="inv-landing-enter">Open Workbench <i class="bi bi-arrow-right"></i></span>
@@ -91,7 +105,7 @@
             </div>
         </a>
 
-        <a href="{{ url_for('csc.admin_settings') }}" class="inv-landing-card inv-landing-card-teal">
+        <a href="{{ url_for('csc.admin_settings') }}" class="inv-landing-card inv-landing-card-blue">
             <div class="inv-landing-icon"><i class="bi bi-sliders"></i></div>
             <div class="inv-landing-card-body">
                 <h2 class="inv-landing-card-title">Governance Settings</h2>

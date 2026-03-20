@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% from "components/ui.html" import page_header %}
+{% block title %}Module Management{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+  {% call page_header("Module Management", "Assign up to two module admins for each workspace module.", "Administration", "Admin", "neutral") %}
+    <a href="{{ url_for('admin.users') }}" class="btn btn-secondary">
+      <i class="bi bi-arrow-left"></i>
+      <span>Back to Users</span>
+    </a>
+  {% endcall %}
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <div class="alert alert-{{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <form method="POST" action="{{ url_for('admin.module_management') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <div class="card form-card">
+      <div class="card-body">
+        {% if modules %}
+        <div class="form-section">
+          <h3 class="form-section-title">Module Admin Assignments</h3>
+          <p class="form-section-hint">
+            Each module can have zero, one, or two module admins. Only users who already hold access to that module are available for assignment.
+          </p>
+
+          {% for module in modules %}
+          <div class="form-section" style="padding: 1rem; border: 1px solid var(--border); border-radius: 12px; margin-bottom: 1rem;">
+            <div style="display:flex; justify-content:space-between; gap:1rem; align-items:flex-start; flex-wrap:wrap; margin-bottom:0.9rem;">
+              <div>
+                <h4 class="form-section-title" style="margin-bottom:0.2rem;">{{ module.label }}</h4>
+                <p class="form-section-hint" style="margin:0;">
+                  Module code: <strong>{{ module.code }}</strong>
+                  {% if not module.enabled %} · Feature flag currently off{% endif %}
+                </p>
+              </div>
+              <div class="module-code-tag">
+                {{ module.assigned_user_ids|length }} / 2 assigned
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="{{ module.code }}_admin_1" class="form-label">Module Admin 1</label>
+                <select id="{{ module.code }}_admin_1" name="{{ module.code }}_admin_1" class="form-control">
+                  <option value="">— Not Assigned —</option>
+                  {% for user in module.eligible_users %}
+                  <option value="{{ user.id }}" {{ 'selected' if module.assigned_user_ids|length > 0 and module.assigned_user_ids[0] == user.id }}>
+                    {{ user.full_name or user.username }} ({{ user.username }})
+                  </option>
+                  {% endfor %}
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="{{ module.code }}_admin_2" class="form-label">Module Admin 2</label>
+                <select id="{{ module.code }}_admin_2" name="{{ module.code }}_admin_2" class="form-control">
+                  <option value="">— Not Assigned —</option>
+                  {% for user in module.eligible_users %}
+                  <option value="{{ user.id }}" {{ 'selected' if module.assigned_user_ids|length > 1 and module.assigned_user_ids[1] == user.id }}>
+                    {{ user.full_name or user.username }} ({{ user.username }})
+                  </option>
+                  {% endfor %}
+                </select>
+              </div>
+            </div>
+
+            {% if module.eligible_users %}
+            <small class="form-hint">Eligible users: {{ module.eligible_users|map(attribute='username')|join(', ') }}</small>
+            {% else %}
+            <small class="form-hint">No active users currently hold this module's access permission.</small>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-muted">No workspace modules are available for module-admin assignment.</p>
+        {% endif %}
+
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">Save Module Admins</button>
+          <a href="{{ url_for('admin.users') }}" class="btn btn-secondary">Cancel</a>
+        </div>
+      </div>
+    </div>
+  </form>
+</div>
+{% endblock %}
