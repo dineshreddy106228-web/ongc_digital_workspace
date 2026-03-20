@@ -45,6 +45,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from flask import (
     abort,
@@ -713,14 +714,19 @@ def _require_revision_snapshot_access(revision: CSCRevision) -> None:
 
 def _get_material_master_admin_users() -> list[User]:
     """Return active module admins for the CSC module."""
-    return sorted(
-        [
-        user
-        for user in User.query.filter_by(is_active=True).all()
-        if user.is_module_admin("csc")
-        ],
-        key=lambda user: ((user.full_name or "").strip().lower(), user.username.lower()),
-    )
+    try:
+        return sorted(
+            [
+                user
+                for user in User.query.filter_by(is_active=True).all()
+                if user.is_module_admin("csc")
+            ],
+            key=lambda user: ((user.full_name or "").strip().lower(), user.username.lower()),
+        )
+    except (ProgrammingError, OperationalError) as exc:
+        logger.warning("CSC module admin lookup skipped because assignments table is unavailable: %s", exc)
+        db.session.rollback()
+        return []
 
 
 def _get_material_master_admin_labels() -> list[str]:

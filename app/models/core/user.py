@@ -1,11 +1,27 @@
 """User model – authentication, role assignment, office membership, governance."""
 
+import logging
+from functools import lru_cache
 from datetime import datetime, timezone
 from flask_login import UserMixin
+from sqlalchemy import inspect
+from sqlalchemy.exc import OperationalError, ProgrammingError
 from werkzeug.security import generate_password_hash, check_password_hash
 from app.extensions import db
 from app.features import is_module_enabled
 from app.core.roles import ADMIN_ROLE, SUPERUSER_ROLE, canonicalize_role_name
+
+logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=1)
+def _module_admin_assignments_table_available() -> bool:
+    """Return True when the module-admin assignment table exists."""
+    try:
+        return inspect(db.engine).has_table("module_admin_assignments")
+    except Exception as exc:
+        logger.warning("Failed to inspect module admin assignments table availability: %s", exc)
+        return False
 
 
 class User(UserMixin, db.Model):
@@ -244,22 +260,45 @@ class User(UserMixin, db.Model):
         """Return True when this user is assigned as an admin for the module."""
         from app.models.core.module_admin_assignment import ModuleAdminAssignment
 
-        return (
-            ModuleAdminAssignment.query.filter_by(
-                user_id=self.id,
-                module_code=module_code,
-            ).first()
-            is not None
-        )
+        if not _module_admin_assignments_table_available():
+            return False
+        try:
+            return (
+                ModuleAdminAssignment.query.filter_by(
+                    user_id=self.id,
+                    module_code=module_code,
+                ).first()
+                is not None
+            )
+        except (ProgrammingError, OperationalError) as exc:
+            logger.warning(
+                "Module admin assignment lookup failed for user_id=%s module=%s: %s",
+                self.id,
+                module_code,
+                exc,
+            )
+            db.session.rollback()
+            return False
 
     def get_administered_module_codes(self) -> list[str]:
         """Return business module codes this user administers."""
         from app.models.core.module_admin_assignment import ModuleAdminAssignment
 
-        return [
-            assignment.module_code
-            for assignment in self.module_admin_assignments.order_by(ModuleAdminAssignment.module_code).all()
-        ]
+        if not _module_admin_assignments_table_available():
+            return []
+        try:
+            return [
+                assignment.module_code
+                for assignment in self.module_admin_assignments.order_by(ModuleAdminAssignment.module_code).all()
+            ]
+        except (ProgrammingError, OperationalError) as exc:
+            logger.warning(
+                "Module admin assignment list failed for user_id=%s: %s",
+                self.id,
+                exc,
+            )
+            db.session.rollback()
+            return []
 
     def __repr__(self):
         return f"<User {self.username}>"
