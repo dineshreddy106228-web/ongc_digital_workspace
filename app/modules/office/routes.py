@@ -32,6 +32,7 @@ from app.core.services.recurring_tasks import (
     normalize_weekday_codes,
     recurrence_summary,
 )
+from app.core.services.rich_text import rich_text_visible_text, sanitize_rich_text
 from app.core.utils.audit import log_action
 from app.core.utils.activity import log_activity
 from app.core.utils.decorators import module_access_required, superuser_required
@@ -871,7 +872,7 @@ def create_task():
 
     if request.method == "POST":
         task_title = request.form.get("task_title", "").strip()
-        task_description = request.form.get("task_description", "").strip()
+        task_description = sanitize_rich_text(request.form.get("task_description", ""))
         task_origin = request.form.get("task_origin", "").strip()
         status = request.form.get("status", "").strip()
         priority = request.form.get("priority", "").strip()
@@ -896,7 +897,7 @@ def create_task():
             errors.append(f"Task title cannot exceed {MAX_TASK_TITLE_LEN} characters.")
         if len(task_origin) > MAX_TASK_ORIGIN_LEN:
             errors.append(f"Task origin cannot exceed {MAX_TASK_ORIGIN_LEN} characters.")
-        if len(task_description) > MAX_TASK_DESC_LEN:
+        if len(rich_text_visible_text(task_description)) > MAX_TASK_DESC_LEN:
             errors.append(f"Task description cannot exceed {MAX_TASK_DESC_LEN} characters.")
         if status not in TASK_STATUSES:
             errors.append("Please choose a valid status.")
@@ -1473,7 +1474,7 @@ def edit_task(task_id):
     if request.method == "POST":
         restore_required = _is_archived_task(task)
         task_title = request.form.get("task_title", "").strip()
-        task_description = request.form.get("task_description", "").strip()
+        task_description = sanitize_rich_text(request.form.get("task_description", ""))
         task_origin = request.form.get("task_origin", "").strip()
         status = request.form.get("status", "").strip()
         priority = request.form.get("priority", "").strip()
@@ -1491,7 +1492,7 @@ def edit_task(task_id):
             errors.append(f"Task title cannot exceed {MAX_TASK_TITLE_LEN} characters.")
         if len(task_origin) > MAX_TASK_ORIGIN_LEN:
             errors.append(f"Task origin cannot exceed {MAX_TASK_ORIGIN_LEN} characters.")
-        if len(task_description) > MAX_TASK_DESC_LEN:
+        if len(rich_text_visible_text(task_description)) > MAX_TASK_DESC_LEN:
             errors.append(f"Task description cannot exceed {MAX_TASK_DESC_LEN} characters.")
         if status not in TASK_STATUSES:
             errors.append("Please choose a valid status.")

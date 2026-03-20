@@ -67,7 +67,13 @@
 
         <div class="detail-field detail-field-wide">
           <div class="form-label">Description</div>
-          <div class="detail-value preserve-whitespace">{{ task.task_description or '—' }}</div>
+          <div class="detail-value rich-text-content">
+            {% if task.task_description %}
+            {{ task.task_description|richtext }}
+            {% else %}
+            —
+            {% endif %}
+          </div>
         </div>
 
         <div class="detail-field">

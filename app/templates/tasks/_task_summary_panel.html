@@ -76,7 +76,13 @@
       </dl>
       <div class="task-summary-copy-block">
         <div class="task-summary-copy-label">Description</div>
-        <p>{{ task.task_description or "No detailed description has been added for this task." }}</p>
+        <div class="rich-text-content">
+          {% if task.task_description %}
+          {{ task.task_description|richtext }}
+          {% else %}
+          <p>No detailed description has been added for this task.</p>
+          {% endif %}
+        </div>
       </div>
       <div class="task-summary-copy-block">
         <div class="task-summary-copy-label">Collaborators</div>

@@ -1,0 +1,43 @@
+{% macro rich_text_field(field_id, field_name, label, value='', hint='', max_length=5000, placeholder='Add a structured description.') %}
+{% set label_id = field_id ~ '_label' %}
+<div class="form-group">
+  <label class="form-label" id="{{ label_id }}" for="{{ field_id }}_editor">{{ label }}</label>
+  <div class="rich-text-field" data-rich-text-field>
+    <div class="rich-text-toolbar" role="toolbar" aria-label="{{ label }} formatting tools">
+      <button type="button" class="rich-text-button" data-rich-text-command="bold" aria-label="Bold" title="Bold">
+        <strong>B</strong>
+      </button>
+      <button type="button" class="rich-text-button" data-rich-text-command="underline" aria-label="Underline" title="Underline">
+        <span class="rich-text-button-underline">U</span>
+      </button>
+      <button type="button" class="rich-text-button" data-rich-text-command="insertUnorderedList" aria-label="Bullet list" title="Bullet list">
+        Bullets
+      </button>
+      <button type="button" class="rich-text-button" data-rich-text-command="insertOrderedList" aria-label="Numbered list" title="Numbered list">
+        Numbering
+      </button>
+    </div>
+    <div
+      id="{{ field_id }}_editor"
+      class="rich-text-editor"
+      contenteditable="true"
+      role="textbox"
+      aria-multiline="true"
+      aria-labelledby="{{ label_id }}"
+      data-rich-text-editor
+      data-placeholder="{{ placeholder }}"
+    >{{ value|richtext }}</div>
+    <textarea
+      id="{{ field_id }}"
+      name="{{ field_name }}"
+      class="rich-text-input"
+      rows="4"
+      maxlength="{{ max_length }}"
+      hidden
+    >{{ value or '' }}</textarea>
+  </div>
+  {% if hint %}
+  <div class="form-hint">{{ hint }}</div>
+  {% endif %}
+</div>
+{% endmacro %}

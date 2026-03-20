@@ -376,6 +376,101 @@ select.form-control {
   margin-top: 0.25rem;
 }
 
+.rich-text-field {
+  border: 1.5px solid var(--color-border, #d1d5db);
+  border-radius: 0.75rem;
+  background: var(--color-surface, #fff);
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+  overflow: hidden;
+}
+
+.rich-text-field:focus-within {
+  border-color: var(--color-primary, #1a56db);
+  box-shadow: 0 0 0 3px rgba(26, 86, 219, 0.12);
+}
+
+.rich-text-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 0.75rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border, #d1d5db) 88%, transparent);
+  background: color-mix(in srgb, var(--color-surface-alt, #f8fafc) 88%, var(--color-surface, #fff));
+  flex-wrap: wrap;
+}
+
+.rich-text-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.35rem;
+  height: 2.1rem;
+  padding: 0 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--color-border, #d1d5db) 90%, transparent);
+  border-radius: 0.55rem;
+  background: var(--color-surface, #fff);
+  color: var(--color-text, #1a1a2e);
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.rich-text-button:hover,
+.rich-text-button:focus-visible {
+  border-color: color-mix(in srgb, var(--color-border, #d1d5db) 70%, var(--color-primary, #1a56db));
+  background: color-mix(in srgb, var(--color-surface-alt, #f8fafc) 78%, var(--color-surface, #fff));
+  outline: none;
+}
+
+.rich-text-button.is-active {
+  border-color: color-mix(in srgb, var(--color-primary, #1a56db) 40%, var(--color-border, #d1d5db));
+  background: color-mix(in srgb, var(--color-primary, #1a56db) 10%, var(--color-surface, #fff));
+  color: var(--color-primary, #1a56db);
+}
+
+.rich-text-button-underline {
+  text-decoration: underline;
+}
+
+.rich-text-editor {
+  min-height: 8.5rem;
+  padding: 0.85rem;
+  color: var(--color-text, #1a1a2e);
+  font-size: 0.95rem;
+  line-height: 1.6;
+  outline: none;
+  overflow-wrap: anywhere;
+}
+
+.rich-text-editor.is-empty::before {
+  content: attr(data-placeholder);
+  color: var(--color-text-muted, #666);
+}
+
+.rich-text-editor p {
+  margin: 0 0 0.65rem;
+}
+
+.rich-text-editor ul,
+.rich-text-editor ol {
+  margin: 0 0 0.75rem 1.25rem;
+  padding: 0;
+}
+
+.rich-text-editor li + li {
+  margin-top: 0.25rem;
+}
+
+.rich-text-editor > :last-child {
+  margin-bottom: 0;
+}
+
+.rich-text-input {
+  display: none;
+}
+
 .form-group-checkbox {
   flex-direction: row;
   align-items: center;
@@ -752,6 +847,29 @@ select.form-control {
   color: var(--color-text, #1a1a2e);
   font-size: 0.92rem;
   line-height: 1.6;
+}
+
+.rich-text-content {
+  color: inherit;
+  overflow-wrap: anywhere;
+}
+
+.rich-text-content p {
+  margin: 0 0 0.7rem;
+}
+
+.rich-text-content ul,
+.rich-text-content ol {
+  margin: 0 0 0.8rem 1.25rem;
+  padding: 0;
+}
+
+.rich-text-content li + li {
+  margin-top: 0.25rem;
+}
+
+.rich-text-content > :last-child {
+  margin-bottom: 0;
 }
 
 .preserve-whitespace {

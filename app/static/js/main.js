@@ -87,6 +87,113 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
+    function syncRichTextField(field) {
+        const editor = field.querySelector("[data-rich-text-editor]");
+        const input = field.querySelector(".rich-text-input");
+        if (!editor || !input) {
+            return;
+        }
+
+        const isEmpty = editor.textContent.trim() === "";
+        editor.classList.toggle("is-empty", isEmpty);
+        input.value = isEmpty ? "" : editor.innerHTML.trim();
+    }
+
+    function updateRichTextButtons(field) {
+        const editor = field.querySelector("[data-rich-text-editor]");
+        if (!editor) {
+            return;
+        }
+
+        const selection = document.getSelection();
+        const hasFocus = document.activeElement === editor || (selection && editor.contains(selection.anchorNode));
+
+        field.querySelectorAll("[data-rich-text-command]").forEach(function (button) {
+            const command = button.getAttribute("data-rich-text-command");
+            let isActive = false;
+
+            if (hasFocus) {
+                try {
+                    isActive = document.queryCommandState(command);
+                } catch (error) {
+                    isActive = false;
+                }
+            }
+
+            button.classList.toggle("is-active", Boolean(isActive));
+            button.setAttribute("aria-pressed", String(Boolean(isActive)));
+        });
+    }
+
+    function initializeRichTextFields() {
+        document.querySelectorAll("[data-rich-text-field]").forEach(function (field) {
+            const editor = field.querySelector("[data-rich-text-editor]");
+            const input = field.querySelector(".rich-text-input");
+            const form = field.closest("form");
+
+            if (!editor || !input) {
+                return;
+            }
+
+            try {
+                document.execCommand("styleWithCSS", false, false);
+            } catch (error) {
+                // The editor still works when the command is unsupported.
+            }
+
+            field.querySelectorAll("[data-rich-text-command]").forEach(function (button) {
+                button.addEventListener("click", function () {
+                    const command = button.getAttribute("data-rich-text-command");
+                    if (!command) {
+                        return;
+                    }
+
+                    editor.focus();
+                    document.execCommand(command, false, null);
+                    syncRichTextField(field);
+                    updateRichTextButtons(field);
+                });
+            });
+
+            editor.addEventListener("input", function () {
+                syncRichTextField(field);
+                updateRichTextButtons(field);
+            });
+
+            editor.addEventListener("blur", function () {
+                syncRichTextField(field);
+                updateRichTextButtons(field);
+            });
+
+            editor.addEventListener("keyup", function () {
+                updateRichTextButtons(field);
+            });
+
+            editor.addEventListener("mouseup", function () {
+                updateRichTextButtons(field);
+            });
+
+            editor.addEventListener("paste", function (event) {
+                event.preventDefault();
+                const pastedText = (event.clipboardData || window.clipboardData).getData("text/plain");
+                document.execCommand("insertText", false, pastedText);
+            });
+
+            if (form) {
+                form.addEventListener("submit", function () {
+                    syncRichTextField(field);
+                });
+            }
+
+            document.addEventListener("selectionchange", function () {
+                updateRichTextButtons(field);
+            });
+
+            syncRichTextField(field);
+            updateRichTextButtons(field);
+        });
+    }
+
     // Manual dismiss for flash messages (replaces inline onclick handlers).
     document.querySelectorAll(".js-flash-close").forEach(function (btn) {
         btn.addEventListener("click", function () {
@@ -120,25 +227,6 @@ document.addEventListener("DOMContentLoaded", function () {
         setInterval(tickISTClock, 1000);
     }
 
-    document.querySelectorAll(".js-page-back").forEach(function (button) {
-        button.addEventListener("click", function () {
-            var fallbackUrl = button.getAttribute("data-fallback-url") || "/";
-            var hasSameOriginReferrer = false;
+    initializeRichTextFields();
 
-            if (document.referrer) {
-                try {
-                    hasSameOriginReferrer = new URL(document.referrer).origin === window.location.origin;
-                } catch (error) {
-                    hasSameOriginReferrer = false;
-                }
-            }
-
-            if (hasSameOriginReferrer && window.history.length > 1) {
-                window.history.back();
-                return;
-            }
-
-            window.location.href = fallbackUrl;
-        });
-    });
 });

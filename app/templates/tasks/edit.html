@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "components/rich_text.html" import rich_text_field %}
 {% block title %}Edit Task{% endblock %}
 
 {% block head_extra %}
@@ -55,14 +56,15 @@
                    value="{{ form_data.get('task_title', task.task_title) }}" required maxlength="255">
           </div>
 
-          <div class="form-group">
-            <label class="form-label" for="task_description">Task Description</label>
-            <textarea id="task_description" name="task_description" class="form-control"
-                      rows="4" maxlength="5000">{{ form_data.get('task_description', task.task_description or '') }}</textarea>
-            <div class="form-hint">
-              Note supporting officers or contextual responsibilities here when relevant.
-            </div>
-          </div>
+          {{ rich_text_field(
+            'task_description',
+            'task_description',
+            'Task Description',
+            form_data.get('task_description', task.task_description or ''),
+            'Use bold, underline, bullets, or numbering for structured notes. Note supporting officers or contextual responsibilities here when relevant.',
+            5000,
+            'Capture the latest scope, dependencies, or review remarks.'
+          ) }}
         </div>
 
         <!-- Section: Classification & Assignment -->

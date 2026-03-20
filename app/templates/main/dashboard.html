@@ -8,26 +8,22 @@
 {% endblock %}
 
 {% block content %}
+{% set identity = workspace_context.identity %}
+{% set welcome = workspace_context.welcome %}
 <section class="dashboard dashboard-shell" id="dashboard-root" data-dashboard-page>
 
-    <div class="dashboard-topbar">
-        <div class="dashboard-welcome">
-            <div class="dashboard-title-row">
-                <h1>Welcome, {{ user.full_name or user.username }}</h1>
-                <span class="status-pill status-pill-neutral">Pilot v1.1</span>
-            </div>
-            <p class="welcome-meta">
-                Role: <strong>{{ user.role.name if user.role else '—' }}</strong>
-                &nbsp;·&nbsp;
-                Office: <strong>Corproate Chemistry</strong>
-                {% if user.controlling_officer %}
-                &nbsp;·&nbsp;
-                Controlling Officer: <strong>{{ user.controlling_officer.full_name or user.controlling_officer.username }}</strong>
-                {% endif %}
-            </p>
+    <div class="dashboard-command-header">
+        <div class="dashboard-command-copy">
+            <div class="dashboard-kicker">ONGC Digital Workspace</div>
+            <h1 class="dashboard-page-title">{{ identity.title }}</h1>
+            <p class="dashboard-page-subtitle">{{ identity.subtitle }}</p>
         </div>
 
-        <div class="dashboard-actions">
+        <div class="dashboard-command-meta">
+            <div class="dashboard-meta-card">
+                <span class="dashboard-meta-label">Last Refreshed</span>
+                <strong>{{ last_refreshed|datetime_ist('%d %b %Y · %I:%M %p') }}</strong>
+            </div>
             {% if is_super %}
             <button
                 type="button"
@@ -41,126 +37,138 @@
         </div>
     </div>
 
-    {% if task_module_active and metrics %}
-    <div class="dashboard-section dashboard-section-metrics">
-        <h2 class="section-title">Task Metrics</h2>
-        <div class="metrics-grid">
-            <div class="metric-card metric-card-primary">
-                <div class="metric-card-header">
-                    <div class="metric-label-group">
-                        <div class="metric-title">Open Tasks</div>
-                        <div class="metric-meta">Current active workload across your queue.</div>
-                    </div>
-                    <div class="metric-icon">
-                        <i class="bi bi-list-check"></i>
-                    </div>
-                </div>
-                <div class="metric-value">{{ metrics.open_tasks }}</div>
+    <div class="dashboard-summary-bar">
+        <div class="dashboard-summary-copy">
+            <h2>{{ welcome.greeting }}, {{ welcome.name }}</h2>
+            <p>{{ welcome.summary }}</p>
+        </div>
+
+        <div class="dashboard-summary-meta">
+            {% if user.role %}
+            <div class="dashboard-summary-item">
+                <span>Role</span>
+                <strong>{{ user.role.name }}</strong>
             </div>
-            <div class="metric-card metric-card-danger">
-                <div class="metric-card-header">
-                    <div class="metric-label-group">
-                        <div class="metric-title">Overdue Tasks</div>
-                        <div class="metric-meta">Requires immediate follow-up and review.</div>
-                    </div>
-                    <div class="metric-icon">
-                        <i class="bi bi-exclamation-triangle"></i>
-                    </div>
-                </div>
-                <div class="metric-value">{{ metrics.overdue_tasks }}</div>
+            {% endif %}
+            {% if user.office %}
+            <div class="dashboard-summary-item">
+                <span>Office</span>
+                <strong>{{ user.office.office_name }}</strong>
             </div>
-            <div class="metric-card metric-card-warning">
-                <div class="metric-card-header">
-                    <div class="metric-label-group">
-                        <div class="metric-title">Due This Week</div>
-                        <div class="metric-meta">Upcoming deadlines in the near-term horizon.</div>
-                    </div>
-                    <div class="metric-icon">
-                        <i class="bi bi-calendar-week"></i>
-                    </div>
-                </div>
-                <div class="metric-value">{{ metrics.due_this_week }}</div>
+            {% endif %}
+            {% if user.controlling_officer %}
+            <div class="dashboard-summary-item">
+                <span>Controlling Officer</span>
+                <strong>{{ user.controlling_officer.full_name or user.controlling_officer.username }}</strong>
             </div>
-            <div class="metric-card metric-card-success">
-                <div class="metric-card-header">
-                    <div class="metric-label-group">
-                        <div class="metric-title">Completed This Month</div>
-                        <div class="metric-meta">Closed tasks contributing to monthly throughput.</div>
-                    </div>
-                    <div class="metric-icon">
-                        <i class="bi bi-check-circle"></i>
-                    </div>
-                </div>
-                <div class="metric-value">{{ metrics.completed_this_month }}</div>
-            </div>
+            {% endif %}
         </div>
     </div>
-    {% endif %}
 
-    <div class="dashboard-layout">
-        <div class="dashboard-primary-column">
-            <div class="dashboard-section">
-                <h2 class="section-title">Modules</h2>
-                <div class="card-grid">
-                    {% for module in module_cards %}
-                        {% if module.clickable %}
-                        <a href="{{ module.href }}" class="card card-link">
-                            <div class="card-icon">{{ module.icon }}</div>
-                            <h3>{{ module.label }}</h3>
-                            <p>{{ module.description }}</p>
-                            <span class="card-tag">{{ module.badge }}</span>
-                        </a>
-                        {% else %}
-                        <div class="card card-disabled">
-                            <div class="card-icon">{{ module.icon }}</div>
-                            <h3>{{ module.label }}</h3>
-                            <p>{{ module.description }}</p>
-                            <span class="card-tag">{{ module.badge }}</span>
+    <div class="dashboard-main-grid">
+        <div class="dashboard-main-column">
+            <details class="dashboard-section-block dashboard-collapsible">
+                <summary class="dashboard-collapsible-summary">
+                    <div class="dashboard-section-header">
+                        <div>
+                            <h2 class="dashboard-section-title">Your Immediate Actions</h2>
+                            <p class="dashboard-section-subtitle">Operational priorities requiring attention now.</p>
                         </div>
-                        {% endif %}
-                    {% endfor %}
+                        <span class="dashboard-collapsible-indicator" aria-hidden="true"></span>
+                    </div>
+                </summary>
 
-                    {% if not has_clickable_modules %}
-                    <div class="card card-disabled" style="grid-column: 1 / -1; text-align: center;">
-                        <div class="card-icon">🔒</div>
-                        <h3>No Active Modules Assigned</h3>
-                        <p>Contact your administrator to request access to an enabled module.</p>
+                <div class="dashboard-collapsible-body">
+                    {% if task_module_active %}
+                    <div class="dashboard-collapsible-toolbar">
+                        <a href="{{ url_for('tasks.list_tasks') }}" class="dashboard-section-link">Open Office Management</a>
+                    </div>
+                    <div class="dashboard-kpi-grid">
+                        {% for item in workspace_context.immediate_actions %}
+                            {% if item.href %}
+                            <a href="{{ item.href }}" class="dashboard-kpi-card dashboard-kpi-card-{{ item.tone }}">
+                                <span class="dashboard-kpi-label">{{ item.label }}</span>
+                                <strong class="dashboard-kpi-value">{{ item.value }}</strong>
+                                <span class="dashboard-kpi-detail">{{ item.detail }}</span>
+                            </a>
+                            {% else %}
+                            <div class="dashboard-kpi-card dashboard-kpi-card-{{ item.tone }}">
+                                <span class="dashboard-kpi-label">{{ item.label }}</span>
+                                <strong class="dashboard-kpi-value">{{ item.value }}</strong>
+                                <span class="dashboard-kpi-detail">{{ item.detail }}</span>
+                            </div>
+                            {% endif %}
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="dashboard-empty-state">
+                        <h3>Office Management is not assigned to this account</h3>
+                        <p>Task metrics will appear here once the module is enabled for this user.</p>
                     </div>
                     {% endif %}
                 </div>
-            </div>
+            </details>
 
-            {% if is_admin and recent_activity %}
-            <div class="dashboard-section">
-                <div class="activity-header">
-                    <h2 class="section-title">Recent Activity</h2>
-                    <a href="{{ url_for('admin.activity_history') }}" class="activity-view-all">View all</a>
-                </div>
-                <div class="activity-feed">
-                    {% for entry in recent_activity %}
-                    <div class="activity-item">
-                        <div class="activity-dot" style="background: {{ entry.accent_color }};"></div>
-                        <div class="activity-body">
-                            <div class="activity-summary">
-                                <i class="bi {{ entry.icon_class }} activity-action-icon"
-                                   style="color: {{ entry.accent_color }};"></i>
-                                <span>{{ entry.summary }}</span>
-                            </div>
-                            {% if entry.details %}
-                            <div class="activity-details">{{ entry.details }}</div>
-                            {% endif %}
-                            <div class="activity-time">{{ entry.created_at|datetime_ist('%d %b %Y') }}</div>
-                        </div>
+            <section class="dashboard-section-block">
+                <div class="dashboard-section-header">
+                    <div>
+                        <h2 class="dashboard-section-title">Module Access</h2>
+                        <p class="dashboard-section-subtitle">Live workspaces and controlled rollout visibility.</p>
                     </div>
+                </div>
+
+                <div class="dashboard-module-grid">
+                    {% for module in workspace_context.modules %}
+                        {% if module.clickable %}
+                        <a href="{{ module.href }}" class="dashboard-module-card dashboard-module-card-{{ module.state }}">
+                            <span class="dashboard-module-status">{{ module.eyebrow }}</span>
+                            <h3>{{ module.label }}</h3>
+                            <p>{{ module.description }}</p>
+                            <span class="dashboard-module-badge">{{ module.badge }}</span>
+                        </a>
+                        {% else %}
+                        <div class="dashboard-module-card dashboard-module-card-{{ module.state }}">
+                            <span class="dashboard-module-status">{{ module.eyebrow }}</span>
+                            <h3>{{ module.label }}</h3>
+                            <p>{{ module.description }}</p>
+                            <span class="dashboard-module-badge">{{ module.badge }}</span>
+                        </div>
+                        {% endif %}
                     {% endfor %}
                 </div>
-            </div>
-            {% endif %}
+            </section>
+
+            <details class="dashboard-section-block dashboard-collapsible">
+                <summary class="dashboard-collapsible-summary">
+                    <div class="dashboard-section-header">
+                        <div>
+                            <h2 class="dashboard-section-title">Visibility & Metrics</h2>
+                            <p class="dashboard-section-subtitle">Clean operational indicators based on current task visibility.</p>
+                        </div>
+                        <span class="dashboard-collapsible-indicator" aria-hidden="true"></span>
+                    </div>
+                </summary>
+
+                <div class="dashboard-collapsible-body">
+                    <div class="dashboard-metric-grid">
+                        {% for metric in workspace_context.visibility_metrics %}
+                        <div class="dashboard-metric-card">
+                            <span class="dashboard-metric-label">{{ metric.label }}</span>
+                            <strong class="dashboard-metric-value">{{ metric.value }}</strong>
+                            <p class="dashboard-metric-detail">{{ metric.detail }}</p>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </details>
 
             {% if is_super and dashboard_analytics %}
-            <div class="dashboard-section dashboard-analytics-section">
-                <div class="activity-header">
-                    <h2 class="section-title">Executive Analytics</h2>
+            <section class="dashboard-section-block dashboard-analytics-section">
+                <div class="dashboard-section-header">
+                    <div>
+                        <h2 class="dashboard-section-title">Executive Analytics</h2>
+                        <p class="dashboard-section-subtitle">Portfolio-level views for supervisory monitoring.</p>
+                    </div>
                     <span class="status-pill status-pill-info">Superuser</span>
                 </div>
 
@@ -234,16 +242,44 @@
                         </div>
                     </div>
                 </div>
-            </div>
+            </section>
             {% endif %}
         </div>
 
-        <aside class="dashboard-secondary-column">
-            <div class="dashboard-section">
-                <div class="activity-header">
-                    <h2 class="section-title">{{ alerts_panel_title }}</h2>
-                    <a href="{{ url_for('notifications.index') }}" class="activity-view-all">View all</a>
+        <aside class="dashboard-side-column">
+            <section class="dashboard-side-panel">
+                <div class="dashboard-section-header">
+                    <div>
+                        <h2 class="dashboard-section-title">Workspace Snapshot</h2>
+                        <p class="dashboard-section-subtitle">Current operating context.</p>
+                    </div>
                 </div>
+
+                <div class="dashboard-snapshot-list">
+                    <div class="dashboard-snapshot-row">
+                        <span>Primary workspace</span>
+                        <strong>Corporate Chemistry</strong>
+                    </div>
+                    <div class="dashboard-snapshot-row">
+                        <span>Available modules</span>
+                        <strong>{{ workspace_context.modules_enabled_count }}</strong>
+                    </div>
+                    <div class="dashboard-snapshot-row">
+                        <span>Task visibility</span>
+                        <strong>{{ "Enabled" if task_module_active else "Not Assigned" }}</strong>
+                    </div>
+                </div>
+            </section>
+
+            <section class="dashboard-side-panel">
+                <div class="dashboard-section-header">
+                    <div>
+                        <h2 class="dashboard-section-title">{{ alerts_panel_title }}</h2>
+                        <p class="dashboard-section-subtitle">Unread workflow and system attention items.</p>
+                    </div>
+                    <a href="{{ url_for('notifications.index') }}" class="dashboard-section-link">View all</a>
+                </div>
+
                 <div class="notification-feed-widget">
                     {% for notification in recent_notifications %}
                     <a
@@ -258,19 +294,53 @@
                     </a>
                     {% else %}
                     <div class="notification-empty-state">
-                        <h3>No alerts right now</h3>
-                        <p>New workflow and account notifications will appear here.</p>
+                        <h3>No unread alerts</h3>
+                        <p>New unread workflow and account notifications will appear here.</p>
                     </div>
                     {% endfor %}
                 </div>
-            </div>
+            </section>
+
+            {% if is_admin and recent_activity %}
+            <section class="dashboard-side-panel">
+                <div class="dashboard-section-header">
+                    <div>
+                        <h2 class="dashboard-section-title">Recent Activity</h2>
+                        <p class="dashboard-section-subtitle">Latest platform events for administrators.</p>
+                    </div>
+                    <a href="{{ url_for('admin.activity_history') }}" class="dashboard-section-link">View all</a>
+                </div>
+
+                <div class="activity-feed">
+                    {% for entry in recent_activity %}
+                    <div class="activity-item">
+                        <div class="activity-dot" style="background: {{ entry.accent_color }};"></div>
+                        <div class="activity-body">
+                            <div class="activity-summary">
+                                <i class="bi {{ entry.icon_class }} activity-action-icon" style="color: {{ entry.accent_color }};"></i>
+                                <span>{{ entry.summary }}</span>
+                            </div>
+                            {% if entry.details %}
+                            <div class="activity-details">{{ entry.details }}</div>
+                            {% endif %}
+                            <div class="activity-time">{{ entry.created_at|datetime_ist('%d %b %Y') }}</div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </section>
+            {% endif %}
 
             {% if is_admin %}
-            <div class="dashboard-section">
-                <div class="activity-header">
-                    <h2 class="section-title">System Status</h2>
+            <section class="dashboard-side-panel">
+                <div class="dashboard-section-header">
+                    <div>
+                        <h2 class="dashboard-section-title">System Status</h2>
+                        <p class="dashboard-section-subtitle">Core platform health indicators.</p>
+                    </div>
                     <span class="status-pill status-pill-success">Operational</span>
                 </div>
+
                 <div class="system-status-panel">
                     {% for item in system_status %}
                     <div class="system-status-item">
@@ -279,10 +349,12 @@
                     </div>
                     {% endfor %}
                 </div>
-            </div>
+            </section>
             {% endif %}
         </aside>
     </div>
+
+    <div class="dashboard-guidance-strip">{{ workspace_context.guidance_message }}</div>
 
 </section>
 {% endblock %}

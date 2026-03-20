@@ -5,15 +5,13 @@ from zoneinfo import ZoneInfo
 
 from flask import render_template, redirect, url_for
 from flask_login import login_required, current_user
-from app.features import get_dashboard_module_cards
 from app.modules.dashboard import dashboard_bp
 from app.models.core.activity_log import ActivityLog
 from app.core.services.dashboard import (
-    get_dashboard_summary_metrics,
+    get_dashboard_workspace_context,
     get_superuser_dashboard_analytics,
 )
 from app.core.services.notifications import (
-    get_recent_notifications,
     get_unread_notifications,
 )
 
@@ -30,10 +28,9 @@ def index():
 @dashboard_bp.route("/dashboard")
 @login_required
 def dashboard():
-    module_cards = get_dashboard_module_cards(current_user)
-    task_module_active = current_user.has_module_access("tasks")
-    metrics = get_dashboard_summary_metrics("global") if task_module_active else None
-    modules_enabled_count = 1 if task_module_active else 0
+    workspace_context = get_dashboard_workspace_context(current_user)
+    task_module_active = workspace_context["task_module_active"]
+    modules_enabled_count = workspace_context["modules_enabled_count"]
     last_refreshed = datetime.now(timezone.utc).astimezone(INDIA_TIMEZONE)
     is_admin = current_user.is_admin_user()
     system_status = []
@@ -48,8 +45,6 @@ def dashboard():
             },
             {"label": "Status", "value": "Operational", "tone": "success"},
         ]
-
-    has_clickable_modules = any(card["clickable"] for card in module_cards)
 
     # Activity feed – admins see the latest 10 platform-wide entries.
     recent_activity = []
@@ -68,17 +63,12 @@ def dashboard():
 
     recent_notifications = get_unread_notifications(current_user.id, limit=5)
     alerts_panel_title = "Unread Alerts"
-    if not recent_notifications:
-        recent_notifications = get_recent_notifications(current_user.id, limit=5)
-        alerts_panel_title = "Recent Alerts"
 
     return render_template(
         "main/dashboard.html",
         user=current_user,
-        metrics=metrics,
-        module_cards=module_cards,
+        workspace_context=workspace_context,
         task_module_active=task_module_active,
-        has_clickable_modules=has_clickable_modules,
         recent_activity=recent_activity,
         is_super=is_super,
         recent_notifications=recent_notifications,

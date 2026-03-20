@@ -26,7 +26,13 @@
       <div class="detail-overview-grid">
         <div class="detail-field detail-field-wide">
           <div class="form-label">Description</div>
-          <div class="detail-value preserve-whitespace">{{ template.task_description or '—' }}</div>
+          <div class="detail-value rich-text-content">
+            {% if template.task_description %}
+            {{ template.task_description|richtext }}
+            {% else %}
+            —
+            {% endif %}
+          </div>
         </div>
 
         <div class="detail-field">

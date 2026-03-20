@@ -5,6 +5,7 @@ from importlib import import_module
 from flask import Flask, g, render_template_string, request, session
 from flask_login import current_user
 from config import Config
+from app.core.services.rich_text import render_rich_text
 from app.core.utils.datetime import format_datetime_ist
 from app.extensions import cache, csrf, db, login_manager, migrate
 from app.features import (
@@ -62,6 +63,7 @@ def create_app(config_class=Config):
     register_cli(app)
 
     app.jinja_env.filters["datetime_ist"] = format_datetime_ist
+    app.jinja_env.filters["richtext"] = render_rich_text
 
     # ── Inject common template context ───────────────────────────
     @app.context_processor

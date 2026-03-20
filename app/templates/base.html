@@ -317,31 +317,6 @@
             'csc.admin_revisions',
             'csc.admin_revision_generation'
         ] %}
-        {% set hide_page_back = request.endpoint in workflow_nav_endpoints %}
-        {% if current_user.is_authenticated and request.endpoint != 'main.dashboard' and not hide_page_back %}
-            {% set back_fallback = url_for('main.dashboard') %}
-            {% if request.endpoint and request.endpoint.startswith('inventory.') %}
-                {% set back_fallback = url_for('inventory.landing') %}
-            {% elif request.endpoint and request.endpoint.startswith('csc.') %}
-                {% set back_fallback = url_for('csc.landing') %}
-            {% elif request.endpoint and request.endpoint.startswith('tasks.') %}
-                {% set back_fallback = url_for('tasks.list_tasks') %}
-            {% elif request.endpoint and request.endpoint.startswith('admin.') %}
-                {% set back_fallback = url_for('admin.users') %}
-            {% endif %}
-        <div class="workspace-page-tools">
-            <button
-                type="button"
-                class="workspace-page-back js-page-back"
-                data-fallback-url="{{ back_fallback }}"
-                aria-label="Go back to the previous page"
-            >
-                <i class="bi bi-arrow-left"></i>
-                <span>Back</span>
-            </button>
-        </div>
-        {% endif %}
-
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
             <div class="flash-area">
@@ -365,8 +340,8 @@
                     <i class="bi bi-info-circle"></i>
                 </div>
                 <div class="app-dialog-copy">
-                    <span class="app-dialog-eyebrow" id="appDialogEyebrow">Workflow Update</span>
-                    <h2 class="app-dialog-title" id="appDialogTitle">Action completed</h2>
+                    <span class="app-dialog-eyebrow" id="appDialogEyebrow">ONGC Digital Workspace</span>
+                    <h2 class="app-dialog-title" id="appDialogTitle">Notification</h2>
                 </div>
             </div>
             <div class="app-dialog-body" id="appDialogBody"></div>
@@ -526,10 +501,10 @@
             var activeDialog = null;
             var dialogQueue = [];
             var toneConfig = {
-                success: { eyebrow: 'Workflow Update', icon: 'check-circle', fallbackTitle: 'Action completed' },
+                success: { eyebrow: 'ONGC Digital Workspace', icon: 'check-circle', fallbackTitle: 'Action completed' },
                 warning: { eyebrow: 'Attention', icon: 'exclamation-triangle', fallbackTitle: 'Review required' },
                 danger: { eyebrow: 'Action Required', icon: 'x-circle', fallbackTitle: 'Action failed' },
-                info: { eyebrow: 'Workflow Update', icon: 'info-circle', fallbackTitle: 'Update available' }
+                info: { eyebrow: 'ONGC Digital Workspace', icon: 'info-circle', fallbackTitle: 'Notification' }
             };
 
             function getVisibleBlockingModal() {
