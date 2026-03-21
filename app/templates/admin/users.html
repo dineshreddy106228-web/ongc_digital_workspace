@@ -11,9 +11,10 @@
   <ul class="organogram-list">
     {% for node in nodes recursive %}
     <li class="organogram-node">
-      <article class="organogram-card {{ 'is-inactive' if not node.is_active }}">
+      <article class="organogram-card organogram-card-level-{{ node.level }} {{ 'is-inactive' if not node.is_active }}">
         <div class="organogram-card-topline">
           <div>
+            <span class="organogram-level-badge organogram-level-badge-{{ node.level }}">{{ node.level_label }}</span>
             <h3>{{ node.name }}</h3>
             <p>@{{ node.username }}</p>
           </div>
@@ -36,19 +37,8 @@
             <strong>{{ node.designation or '—' }}</strong>
           </div>
           <div>
-            <span>Direct Reports</span>
-            <strong>{{ node.direct_report_count }}</strong>
-          </div>
-        </div>
-
-        <div class="organogram-chain-grid">
-          <div>
-            <span>Reviewing Officer</span>
-            <strong>{{ node.reviewing_officer_name or '—' }}</strong>
-          </div>
-          <div>
-            <span>Accepting Officer</span>
-            <strong>{{ node.accepting_officer_name or '—' }}</strong>
+            <span>{{ 'Children' if node.children else 'Chain End' }}</span>
+            <strong>{{ node.children|length if node.children else 'Leaf node' }}</strong>
           </div>
         </div>
       </article>
@@ -116,40 +106,47 @@
     </article>
     <article class="card admin-metric-card">
       <div class="card-body">
-        <span class="admin-metric-label">Top-Level Officers</span>
-        <strong class="admin-metric-value">{{ hierarchy_summary.root_users }}</strong>
-        <p class="admin-metric-detail">Users without a controlling officer above them.</p>
+        <span class="admin-metric-label">Accepting Roots</span>
+        <strong class="admin-metric-value">{{ hierarchy_summary.accepting_roots }}</strong>
+        <p class="admin-metric-detail">Top-level accepting officers anchoring the reporting tree.</p>
       </div>
     </article>
   </section>
 
-  <div class="card organogram-shell">
+  <div class="card admin-tab-shell">
     <div class="card-body">
-      <div class="organogram-header">
-        <div>
-          <h2 class="organogram-title">Reporting Organogram</h2>
-          <p class="organogram-subtitle">
-            Direct-report branches are built from Controlling Officer mappings. Reviewing and Accepting officers are shown on each user card.
-          </p>
-        </div>
+      <div class="admin-tab-list" role="tablist" aria-label="User management views">
+        <button
+          type="button"
+          class="admin-tab-button is-active"
+          id="user-management-table-tab"
+          data-admin-tab-target="user-management-table-panel"
+          role="tab"
+          aria-selected="true"
+          aria-controls="user-management-table-panel"
+        >
+          User Registry
+        </button>
+        <button
+          type="button"
+          class="admin-tab-button"
+          id="user-management-organogram-tab"
+          data-admin-tab-target="user-management-organogram-panel"
+          role="tab"
+          aria-selected="false"
+          aria-controls="user-management-organogram-panel"
+        >
+          Reporting Organogram
+        </button>
       </div>
 
-      {% if organogram %}
-      <div class="organogram-canvas">
-        {{ render_organogram(organogram) }}
-      </div>
-      {% else %}
-      <div class="organogram-empty-state">
-        <h3>No user hierarchy available</h3>
-        <p>Create users and assign their officer chain to populate the organogram.</p>
-      </div>
-      {% endif %}
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="card-body">
-      {% if users %}
+      <section
+        id="user-management-table-panel"
+        class="admin-tab-panel is-active"
+        role="tabpanel"
+        aria-labelledby="user-management-table-tab"
+      >
+        {% if users %}
       <div class="table-responsive">
         <table class="data-table user-management-table">
           <colgroup>
@@ -282,12 +279,70 @@
           </tbody>
         </table>
       </div>
-      {% else %}
+        {% else %}
         <p class="text-muted" style="text-align:center;padding:2rem 0;">
           No users found. <a href="{{ url_for('admin.create_user') }}">Create the first user.</a>
         </p>
-      {% endif %}
+        {% endif %}
+      </section>
+
+      <section
+        id="user-management-organogram-panel"
+        class="admin-tab-panel"
+        role="tabpanel"
+        aria-labelledby="user-management-organogram-tab"
+        hidden
+      >
+        <div class="organogram-shell">
+          <div class="organogram-header">
+            <div>
+              <h2 class="organogram-title">Reporting Organogram</h2>
+              <p class="organogram-subtitle">
+                The hierarchy starts from Accepting Officer and drills down through Reviewing Officer, Controlling Officer, and User.
+              </p>
+            </div>
+          </div>
+
+          {% if organogram %}
+          <div class="organogram-canvas">
+            {{ render_organogram(organogram) }}
+          </div>
+          {% else %}
+          <div class="organogram-empty-state">
+            <h3>No reporting hierarchy available</h3>
+            <p>Assign accepting, reviewing, and controlling officers to populate the reporting tree.</p>
+          </div>
+          {% endif %}
+        </div>
+      </section>
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts_extra %}
+<script nonce="{{ csp_nonce() }}">
+(function() {
+  const tabButtons = Array.from(document.querySelectorAll('[data-admin-tab-target]'));
+  const tabPanels = Array.from(document.querySelectorAll('.admin-tab-panel'));
+
+  function activateTab(targetId) {
+    tabButtons.forEach((button) => {
+      const isActive = button.dataset.adminTabTarget === targetId;
+      button.classList.toggle('is-active', isActive);
+      button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    });
+
+    tabPanels.forEach((panel) => {
+      const isActive = panel.id === targetId;
+      panel.classList.toggle('is-active', isActive);
+      panel.hidden = !isActive;
+    });
+  }
+
+  tabButtons.forEach((button) => {
+    button.addEventListener('click', () => activateTab(button.dataset.adminTabTarget));
+  });
+})();
+</script>
 {% endblock %}
