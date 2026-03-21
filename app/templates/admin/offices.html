@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% from "components/ui.html" import page_header %}
+{% block title %}Office Management{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+  {% call page_header("Office Management", "Create, edit, and manage organisational offices.", "Administration", "Admin", "neutral") %}
+    <a href="{{ url_for('admin.users') }}" class="btn btn-secondary">
+      <i class="bi bi-people"></i>
+      <span>User Management</span>
+    </a>
+    <a href="{{ url_for('admin.add_office') }}" class="btn btn-primary">
+      <i class="bi bi-building-add"></i>
+      <span>Add Office</span>
+    </a>
+  {% endcall %}
+
+  {# Flash messages #}
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <div class="alert alert-{{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <div class="card">
+    <div class="card-body">
+      {% if offices %}
+      <div class="table-responsive">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Office Code</th>
+              <th>Office Name</th>
+              <th>Location</th>
+              <th>Users</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for o in offices %}
+            <tr>
+              <td>{{ loop.index }}</td>
+              <td><strong>{{ o.office_code }}</strong></td>
+              <td>{{ o.office_name }}</td>
+              <td>{{ o.location or '—' }}</td>
+              <td>
+                <a href="{{ url_for('admin.office_users', office_id=o.id) }}"
+                   class="btn btn-sm btn-secondary"
+                   title="View users in this office">
+                  {{ o.users.filter_by(is_active=True).count() }} active
+                </a>
+              </td>
+              <td>
+                {% if o.is_active %}
+                  <span class="badge badge-active">Active</span>
+                {% else %}
+                  <span class="badge badge-inactive">Inactive</span>
+                {% endif %}
+              </td>
+              <td class="actions-cell">
+                <a href="{{ url_for('admin.edit_office', office_id=o.id) }}"
+                   class="btn btn-sm btn-secondary"
+                   title="Edit office">Edit</a>
+
+                <form method="POST"
+                      action="{{ url_for('admin.toggle_office', office_id=o.id) }}"
+                      class="inline-form"
+                      onsubmit="return confirm('{{ 'Deactivate' if o.is_active else 'Activate' }} office {{ o.office_name }}?');">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit"
+                          class="btn btn-sm {{ 'btn-danger' if o.is_active else 'btn-success' }}"
+                          title="{{ 'Deactivate' if o.is_active else 'Activate' }} office">
+                    {{ 'Deactivate' if o.is_active else 'Activate' }}
+                  </button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+        <p class="text-muted" style="text-align:center;padding:2rem 0;">
+          No offices found. <a href="{{ url_for('admin.add_office') }}">Create the first office.</a>
+        </p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

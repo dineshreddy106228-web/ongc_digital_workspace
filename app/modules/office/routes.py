@@ -17,8 +17,10 @@ from app.models.tasks.recurring_task_template import (
     RecurringTaskTemplate,
 )
 from app.models.core.user import User
+from app.models.office.office import Office
 from app.models.tasks.task import Task, TASK_SCOPES
 from app.models.tasks.task_collaborator import TaskCollaborator
+from app.models.tasks.task_office import TaskOffice
 from app.models.tasks.task_update import TaskUpdate
 from app.core.services.dashboard import invalidate_dashboard_summary_metrics
 from app.core.services.notifications import create_notification
@@ -36,6 +38,14 @@ from app.core.services.rich_text import rich_text_visible_text, sanitize_rich_te
 from app.core.utils.audit import log_action
 from app.core.utils.activity import log_activity
 from app.core.utils.decorators import module_access_required, superuser_required
+from app.core.permissions import (
+    can_view_task,
+    can_edit_task,
+    can_close_task,
+    can_add_update,
+    can_create_global_task,
+)
+from app.core.roles import ADMIN_ROLE
 
 
 TASK_STATUSES = [
@@ -63,8 +73,8 @@ TASK_SCHEDULE_MODES = ["ONE_TIME", "RECURRING"]
 # ── Permission helpers ────────────────────────────────────────────
 
 def _is_privileged():
-    """True for super_user – full task visibility and management access."""
-    return current_user.is_super_user()
+    """True for super_user or admin – full task visibility and management access."""
+    return current_user.is_super_user() or current_user.has_role(ADMIN_ROLE)
 
 
 def _normalize_task_scope(scope: str | None, default: str = "") -> str:
@@ -191,72 +201,51 @@ def _collaborator_count(form_data, selected_ids: list[str], max_slots: int) -> i
 
 
 def _can_view_task(task: Task) -> bool:
-    scope = _normalize_task_scope(task.task_scope)
-    if _is_privileged():
-        return True
-    # Task owner can always view their own task
-    if task.owner_id == current_user.id:
-        return True
-    if _is_task_collaborator(task, current_user.id):
-        return True
-    # GLOBAL tasks – visible to all tasks-module users (already filtered in query)
-    if scope == "GLOBAL":
-        return True
-    # Personal tasks – controlling officer can view subordinate's tasks
-    if scope == "MY" and current_user.id in _participant_and_controller_ids(task):
-        if task.owner_id != current_user.id and not _is_task_collaborator(task, current_user.id):
-            return True
-    return False
+    """Delegate to centralized permission engine."""
+    return can_view_task(current_user, task)
 
 
 def _can_view_recurring_template(template: RecurringTaskTemplate) -> bool:
-    scope = _normalize_task_scope(template.task_scope)
+    """Recurring template visibility — mirrors can_view_task logic for templates."""
     if _is_privileged():
         return True
     if template.owner_id == current_user.id:
         return True
     if _is_recurring_template_collaborator(template, current_user.id):
         return True
+    scope = _normalize_task_scope(template.task_scope)
     if scope == "GLOBAL":
         return True
     if scope == "MY" and current_user.id in _recurring_template_participant_and_controller_ids(template):
-        if (
-            template.owner_id != current_user.id
-            and not _is_recurring_template_collaborator(template, current_user.id)
-        ):
-            return True
+        return True
     return False
 
 
 def _can_edit_task(task: Task) -> bool:
-    """Editing rights: privileged roles, creator, or task owner."""
-    if _is_privileged():
-        return True
-    return task.owner_id == current_user.id or task.created_by == current_user.id
+    """Delegate to centralized permission engine."""
+    return can_edit_task(current_user, task)
 
 
 def _can_edit_recurring_template(template: RecurringTaskTemplate) -> bool:
+    """Recurring template edit — mirrors can_edit_task logic for templates."""
     if _is_privileged():
         return True
     return template.owner_id == current_user.id or template.created_by == current_user.id
 
 
 def _can_add_update(task: Task) -> bool:
-    if _is_privileged():
-        return True
-    if task.owner_id == current_user.id:
-        return True
-    if _is_task_collaborator(task, current_user.id):
-        return True
-    # Controlling officer can add remarks on subordinate tasks
-    if current_user.id in _participant_and_controller_ids(task):
-        return True
-    return False
+    """Delegate to centralized permission engine."""
+    return can_add_update(current_user, task)
+
+
+def _can_close_task(task: Task) -> bool:
+    """Delegate to centralized permission engine. Close = terminal status change."""
+    return can_close_task(current_user, task)
 
 
 def _can_create_global_task() -> bool:
-    """Global tasks are available in the current governance model."""
-    return True
+    """Delegate to centralized permission engine. Superuser and Admin only."""
+    return can_create_global_task(current_user)
 
 
 def _active_owner_options():
@@ -353,15 +342,16 @@ def _recurrence_form_context(form_data, task: Task | None = None) -> dict[str, o
 
 def _task_visibility_query():
     """
-    Build a Task query that respects the Governance V2 visibility model:
+    Build a Task query that respects the RBAC visibility model:
 
-    Privileged (super_user):
+    Privileged (super_user or admin):
         → all tasks
 
     Standard users:
         → GLOBAL tasks (task_scope == 'GLOBAL')
         → personal tasks where owner_id == current_user.id
-        → personal tasks of users whose controlling_officer_id == current_user.id
+        → tasks where user is a collaborator
+        → MY-scope tasks of users whose controlling_officer_id == current_user.id
     """
     base = Task.query
 
@@ -610,6 +600,7 @@ def list_tasks():
         task.id: {
             "can_edit": _can_edit_task(task),
             "can_add_update": _can_add_update(task),
+            "can_close": _can_close_task(task),
         }
         for task in all_tasks
     }
@@ -866,6 +857,15 @@ def create_task():
             recurrence_weekdays=RECURRENCE_WEEKDAYS,
             can_create_global=_can_create_global_task(),
             current_scope=current_scope,
+            all_offices=Office.query.filter_by(is_active=True).order_by(Office.office_name).all(),
+            selected_tagged_offices=(
+                form_data.getlist("tagged_offices")
+                if hasattr(form_data, "getlist") else []
+            ),
+            self_task_visible_to_co=(
+                form_data.get("self_task_visible_to_controlling_officer", "")
+                if hasattr(form_data, "get") else ""
+            ),
             form_data=form_data,
             **recurrence_context,
         )
@@ -890,6 +890,12 @@ def create_task():
             request.form.get("recurrence_month_day", "")
         )
 
+        # ── New RBAC fields ──────────────────────────────────────
+        self_task_visible_to_co = request.form.get(
+            "self_task_visible_to_controlling_officer"
+        ) == "on"
+        tagged_office_ids_raw = request.form.getlist("tagged_offices")
+
         errors = []
         if not task_title:
             errors.append("Task title is required.")
@@ -908,6 +914,10 @@ def create_task():
         if schedule_mode not in TASK_SCHEDULE_MODES:
             errors.append("Please choose a valid task schedule.")
 
+        # ── RBAC enforcement: block Users from creating GLOBAL tasks
+        if task_scope == "GLOBAL" and not _can_create_global_task():
+            abort(403)
+
         owner = None
         if task_scope == "GLOBAL":
             if not owner_id_raw:
@@ -920,6 +930,29 @@ def create_task():
                     errors.append("Selected owner was not found or is inactive.")
         else:
             owner = current_user
+
+        # ── Validate tagged offices for GLOBAL tasks ─────────────
+        tagged_offices = []
+        if task_scope == "GLOBAL" and tagged_office_ids_raw:
+            valid_ids = [
+                int(oid) for oid in tagged_office_ids_raw
+                if oid.strip().isdigit()
+            ]
+            if valid_ids:
+                tagged_offices = (
+                    Office.query.filter(
+                        Office.id.in_(valid_ids),
+                        Office.is_active.is_(True),
+                    ).all()
+                )
+                if len(tagged_offices) != len(valid_ids):
+                    errors.append(
+                        "One or more selected offices are invalid or inactive."
+                    )
+
+        # self_task_visible flag only applies to self-tasks (zero collaborators)
+        if self_task_visible_to_co and task_scope == "GLOBAL":
+            self_task_visible_to_co = False
 
         due_date = None
         recurrence_start_date = None
@@ -1117,6 +1150,7 @@ def create_task():
                     office_id=current_user.office_id if current_user.office_id else None,
                     is_active=True,
                     task_scope="GLOBAL" if task_scope == "GLOBAL" else "MY",
+                    self_task_visible_to_controlling_officer=self_task_visible_to_co,
                 )
                 db.session.add(task)
                 db.session.flush()
@@ -1124,6 +1158,12 @@ def create_task():
                 for collaborator in collaborator_users:
                     db.session.add(
                         TaskCollaborator(task_id=task.id, user_id=collaborator.id)
+                    )
+
+                # ── Persist tagged offices for GLOBAL tasks ──────
+                for office in tagged_offices:
+                    db.session.add(
+                        TaskOffice(task_id=task.id, office_id=office.id)
                     )
 
                 db.session.flush()
@@ -1327,6 +1367,7 @@ def task_detail(task_id):
         task=task,
         updates=updates,
         can_edit=_can_edit_task(task),
+        can_close=_can_close_task(task),
         can_add_update=_can_add_update(task),
         can_edit_series=_can_edit_recurring_template(task.recurring_template)
         if task.recurring_template else False,
@@ -1353,6 +1394,7 @@ def task_summary(task_id):
         task=task,
         updates=updates,
         can_edit=_can_edit_task(task),
+        can_close=_can_close_task(task),
         can_add_update=_can_add_update(task),
         can_edit_series=_can_edit_recurring_template(task.recurring_template)
         if task.recurring_template else False,
@@ -1450,6 +1492,25 @@ def edit_task(task_id):
             form_data, collaborator_option_ids
         ) if hasattr(form_data, "getlist") and form_data else existing_collaborator_ids
         max_collaborator_slots = min(len(collaborator_options), 10)
+
+        # Tagged offices: prefer form submission, fall back to existing
+        if hasattr(form_data, "getlist") and form_data:
+            edit_selected_tagged = form_data.getlist("tagged_offices")
+        else:
+            edit_selected_tagged = [
+                str(o.id) for o in getattr(task, "tagged_offices", [])
+            ]
+
+        # self_task_visible: prefer form submission, fall back to existing
+        if hasattr(form_data, "get") and form_data:
+            edit_self_task_vis = form_data.get(
+                "self_task_visible_to_controlling_officer", ""
+            )
+        else:
+            edit_self_task_vis = (
+                "on" if task.self_task_visible_to_controlling_officer else ""
+            )
+
         return render_template(
             "tasks/edit.html",
             task=task,
@@ -1466,6 +1527,9 @@ def edit_task(task_id):
             task_priorities=TASK_PRIORITIES,
             task_scopes=TASK_SCOPES,
             can_create_global=_can_create_global_task(),
+            all_offices=Office.query.filter_by(is_active=True).order_by(Office.office_name).all(),
+            selected_tagged_offices=edit_selected_tagged,
+            self_task_visible_to_co=edit_self_task_vis,
             form_data=form_data,
             recurrence_summary=recurrence_summary,
             restore_required=restore_required,
@@ -1485,6 +1549,16 @@ def edit_task(task_id):
             default=_normalize_task_scope(task.task_scope, default="MY"),
         )
 
+        # ── New RBAC fields (edit) ───────────────────────────────
+        edit_self_task_visible_to_co = request.form.get(
+            "self_task_visible_to_controlling_officer"
+        ) == "on"
+        edit_tagged_office_ids_raw = request.form.getlist("tagged_offices")
+
+        # RBAC enforcement: block Users from switching to GLOBAL
+        if task_scope == "GLOBAL" and not _can_create_global_task():
+            abort(403)
+
         errors = []
         if not task_title:
             errors.append("Task title is required.")
@@ -1500,6 +1574,29 @@ def edit_task(task_id):
             errors.append("Please choose a valid priority.")
         if task_scope not in TASK_SCOPES:
             errors.append("Please choose a valid task scope.")
+
+        # ── Validate tagged offices for GLOBAL tasks (edit) ──
+        edit_tagged_offices = []
+        if task_scope == "GLOBAL" and edit_tagged_office_ids_raw:
+            valid_ids = [
+                int(oid) for oid in edit_tagged_office_ids_raw
+                if oid.strip().isdigit()
+            ]
+            if valid_ids:
+                edit_tagged_offices = (
+                    Office.query.filter(
+                        Office.id.in_(valid_ids),
+                        Office.is_active.is_(True),
+                    ).all()
+                )
+                if len(edit_tagged_offices) != len(valid_ids):
+                    errors.append(
+                        "One or more selected offices are invalid or inactive."
+                    )
+
+        # self_task_visible only applies to MY-scope self-tasks
+        if edit_self_task_visible_to_co and task_scope == "GLOBAL":
+            edit_self_task_visible_to_co = False
 
         due_date = _parse_due_date(due_date_raw)
         if due_date_raw and due_date is None:
@@ -1611,6 +1708,22 @@ def edit_task(task_id):
             changed_fields.append(
                 f"collaborators '{sorted(previous_collaborator_ids)}' -> '{sorted(new_collaborator_ids)}'"
             )
+
+        # ── Track RBAC field changes ─────────────────────────────
+        if task.self_task_visible_to_controlling_officer != edit_self_task_visible_to_co:
+            changed_fields.append(
+                f"self_task_visible_to_co '{task.self_task_visible_to_controlling_officer}'"
+                f" -> '{edit_self_task_visible_to_co}'"
+            )
+            task.self_task_visible_to_controlling_officer = edit_self_task_visible_to_co
+
+        prev_tagged_ids = sorted(o.id for o in getattr(task, "tagged_offices", []))
+        new_tagged_ids = sorted(o.id for o in edit_tagged_offices)
+        if prev_tagged_ids != new_tagged_ids:
+            changed_fields.append(
+                f"tagged_offices '{prev_tagged_ids}' -> '{new_tagged_ids}'"
+            )
+
         if restore_required:
             task.is_active = True
             changed_fields.append("restored to active tracker")
@@ -1619,6 +1732,11 @@ def edit_task(task_id):
             TaskCollaborator.query.filter_by(task_id=task.id).delete(synchronize_session=False)
             for collaborator in collaborator_users:
                 db.session.add(TaskCollaborator(task_id=task.id, user_id=collaborator.id))
+
+            # ── Sync tagged offices ──────────────────────────────
+            TaskOffice.query.filter_by(task_id=task.id).delete(synchronize_session=False)
+            for office in edit_tagged_offices:
+                db.session.add(TaskOffice(task_id=task.id, office_id=office.id))
             db.session.flush()
             log_action(
                 action="TASK_UPDATED",
@@ -1677,6 +1795,8 @@ def add_task_update(task_id):
     if not _can_add_update(task):
         abort(403)
 
+    task_can_close = _can_close_task(task)
+
     if request.method == "POST":
         update_text = request.form.get("update_text", "").strip()
         new_status = request.form.get("new_status", "").strip()
@@ -1689,6 +1809,14 @@ def add_task_update(task_id):
         if len(update_text) > MAX_TASK_UPDATE_LEN:
             errors.append(f"Update text cannot exceed {MAX_TASK_UPDATE_LEN} characters.")
 
+        # ── RBAC: terminal status requires can_close permission ──
+        if new_status in ("Completed", "Cancelled") and not task_can_close:
+            errors.append(
+                "You do not have permission to close this task. "
+                "Only the task owner, creator, or an admin can set the status to "
+                f"'{new_status}'."
+            )
+
         if errors:
             for err in errors:
                 flash(err, "danger")
@@ -1696,6 +1824,7 @@ def add_task_update(task_id):
                 "tasks/add_update.html",
                 task=task,
                 task_statuses=TASK_STATUSES,
+                can_close=task_can_close,
                 form_data=request.form,
             )
 
@@ -1741,6 +1870,7 @@ def add_task_update(task_id):
                 "tasks/add_update.html",
                 task=task,
                 task_statuses=TASK_STATUSES,
+                can_close=task_can_close,
                 form_data=request.form,
             )
 
@@ -1751,5 +1881,63 @@ def add_task_update(task_id):
         "tasks/add_update.html",
         task=task,
         task_statuses=TASK_STATUSES,
+        can_close=task_can_close,
         form_data={},
     )
+
+
+# ── Context Processor ─────────────────────────────────────────────
+# Expose permission helper functions to all templates rendered by the
+# office (tasks) blueprint.  Templates can call these directly, e.g.:
+#   {% if task_perms.can_view(task) %}
+#   {% if task_perms.can_edit(task) %}
+#   {% if task_perms.can_close(task) %}
+#   {% if task_perms.can_add_update(task) %}
+#   {% if task_perms.can_create_global() %}
+#   {% if task_perms.is_privileged() %}
+
+class _TaskPermissionProxy:
+    """
+    Lazy proxy that binds permission checks to the current request user.
+
+    Instantiated once per request by the context processor.  Each method
+    delegates to the centralized permission engine in
+    ``app.core.permissions.task_permissions``.
+    """
+
+    __slots__ = ()
+
+    @staticmethod
+    def can_view(task: Task) -> bool:
+        return can_view_task(current_user, task)
+
+    @staticmethod
+    def can_edit(task: Task) -> bool:
+        return can_edit_task(current_user, task)
+
+    @staticmethod
+    def can_close(task: Task) -> bool:
+        return can_close_task(current_user, task)
+
+    @staticmethod
+    def can_add_update(task: Task) -> bool:
+        return can_add_update(current_user, task)
+
+    @staticmethod
+    def can_create_global() -> bool:
+        return can_create_global_task(current_user)
+
+    @staticmethod
+    def is_privileged() -> bool:
+        return _is_privileged()
+
+
+_task_permission_proxy = _TaskPermissionProxy()
+
+
+@office_bp.context_processor
+def inject_task_permissions():
+    """Make the task permission helpers available in every task template."""
+    return {
+        "task_perms": _task_permission_proxy,
+    }

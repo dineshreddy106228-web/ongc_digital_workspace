@@ -7,6 +7,11 @@
 .csc-workspace-header {
     margin-bottom: 1.75rem;
 }
+.csc-workspace-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
 .csc-workspace-title {
     font-size: 1.5rem;
     font-weight: 700;
@@ -35,6 +40,12 @@
 .csc-filter-group {
     flex: 1;
     min-width: 180px;
+}
+.csc-filter-group-wide {
+    flex: 2;
+}
+.csc-filter-group-actions {
+    flex: 0 0 auto;
 }
 .csc-filter-group label {
     display: block;
@@ -121,10 +132,37 @@
     font-size: 0.82rem;
     font-weight: 600;
 }
+.csc-table-action {
+    text-align: right;
+}
+.csc-table-status {
+    padding: 2rem;
+    text-align: center;
+    color: var(--muted);
+}
+.csc-table-status-error {
+    padding: 1rem;
+    text-align: center;
+    color: var(--danger);
+}
+.csc-table-status-icon {
+    font-size: 1.5rem;
+    display: block;
+    margin-bottom: 0.5rem;
+}
 .csc-empty-state {
     padding: 3rem 1.5rem;
     text-align: center;
     color: var(--muted);
+}
+.csc-empty-icon {
+    font-size: 2.5rem;
+    margin-bottom: 0.75rem;
+}
+.csc-empty-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text);
 }
 </style>
 {% endblock %}
@@ -134,33 +172,36 @@
     {% set csc_nav_active = 'committee_user' %}
 
     <div class="csc-workspace-header">
-        <h1 class="csc-workspace-title">
-            <i class="bi bi-pencil-square"></i> Committee User Workbench
-        </h1>
-        <p class="inv-module-subtitle" style="margin: 0.5rem 0 0;">All active drafts allotted to your committees are visible here. Only drafts in open or returned state are editable by the Committee User.</p>
-        {% if not current_user.is_super_user() %}
-        <p class="inv-module-subtitle" style="margin: 0.35rem 0 0;">
-            {% if allowed_subset_labels %}
-            Committee coverage:
-            {{ allowed_subset_labels|join(', ') }}
-            {% if user_committee_titles %}
-            · {{ user_committee_titles|join(', ') }}
+        <div class="csc-workspace-copy">
+            <h1 class="csc-workspace-title">
+                <i class="bi bi-pencil-square"></i> Committee User Workbench
+            </h1>
+            <p class="inv-module-subtitle">All active drafts allotted to your committees are visible here. Only drafts in open or returned state are editable by the Committee User.</p>
+            {% if not current_user.is_super_user() %}
+            <p class="inv-module-subtitle inv-module-subtitle-spaced">
+                {% if allowed_subset_labels %}
+                <strong>Committee coverage:</strong>
+                {{ allowed_subset_labels|join(', ') }}
+                {% if user_committee_titles %}
+                · {{ user_committee_titles|join(', ') }}
+                {% endif %}
+                {% else %}
+                No subset coverage is assigned to your username in Governance Settings.
+                {% endif %}
+            </p>
             {% endif %}
-            {% else %}
-            No subset coverage is assigned to your username in Governance Settings.
-            {% endif %}
-        </p>
-        {% endif %}
-        <p class="inv-module-subtitle" style="margin: 0.6rem 0 0;">
-            New specification upload stays separate on the landing page.
-        </p>
+            <p class="inv-module-note">
+                <strong>Workflow note:</strong>
+                New specification upload remains on the module overview page.
+            </p>
+        </div>
     </div>
 
     {% include "csc/_workflow_nav.html" %}
 
     <div class="csc-filter-bar">
         <form method="get" action="{{ url_for('csc.workspace') }}" class="csc-filter-row" id="filterForm">
-            <div class="csc-filter-group" style="flex: 2;">
+            <div class="csc-filter-group csc-filter-group-wide">
                 <label for="f-search">Search</label>
                 <input type="text" name="q" id="f-search" value="{{ q or '' }}" placeholder="Spec number or chemical name..." class="csc-filter-input">
             </div>
@@ -173,10 +214,10 @@
                     {% endfor %}
                 </select>
             </div>
-            <div class="csc-filter-group" style="flex: 0 0 auto;">
+            <div class="csc-filter-group csc-filter-group-actions">
                 <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-search"></i> Filter</button>
             </div>
-            <div class="csc-filter-group" style="flex: 0 0 auto;">
+            <div class="csc-filter-group csc-filter-group-actions">
                 <a href="{{ url_for('csc.workspace') }}" class="btn btn-secondary btn-sm"><i class="bi bi-x"></i> Clear</a>
             </div>
         </form>
@@ -196,13 +237,13 @@
                         <th>Version</th>
                         <th>Drafting Status</th>
                         <th>Updated</th>
-                        <th style="text-align: right;">Actions</th>
+                        <th class="csc-table-action">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="draftsBody">
                     <tr>
-                        <td colspan="7" style="padding: 2rem; text-align: center; color: var(--muted);">
-                            <i class="bi bi-hourglass-split" style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"></i>
+                        <td colspan="7" class="csc-table-status">
+                            <i class="bi bi-hourglass-split csc-table-status-icon"></i>
                             Loading drafts…
                         </td>
                     </tr>
@@ -210,8 +251,8 @@
             </table>
         </div>
         <div id="emptyState" class="csc-empty-state" style="display: none;">
-            <div style="font-size: 2.5rem; margin-bottom: 0.75rem;"><i class="bi bi-inbox"></i></div>
-            <div style="font-size: 1.1rem; font-weight: 600; color: var(--text);">
+            <div class="csc-empty-icon"><i class="bi bi-inbox"></i></div>
+            <div class="csc-empty-title">
                 {% if current_user.is_super_user() or allowed_subset_labels %}
                 No Active Drafts
                 {% else %}
@@ -291,7 +332,7 @@
                 '<td>v' + (draft.version || '0') + '</td>' +
                 '<td>' + draftingBadge(draft.drafting_status) + '</td>' +
                 '<td>' + formatDate(draft.updated_at) + '</td>' +
-                '<td style="text-align: right;">' + actionHtml + '</td>' +
+                '<td class="csc-table-action">' + actionHtml + '</td>' +
                 '</tr>';
         }).join('');
     }
@@ -315,10 +356,10 @@
             .then(function(data) {
                 const drafts = data.drafts || [];
                 renderDrafts(drafts);
-                resultCount.textContent = String(data.total || drafts.length) + ' active allotted item(s)';
+                resultCount.textContent = String(data.total || drafts.length) + ' active allotted drafts';
             })
             .catch(function(error) {
-                tableBody.innerHTML = '<tr><td colspan="7" style="padding: 1rem; text-align: center; color: var(--text-error);">Error loading drafts: ' + error.message + '</td></tr>';
+                tableBody.innerHTML = '<tr><td colspan="7" class="csc-table-status-error">Error loading drafts: ' + error.message + '</td></tr>';
             });
     }
 

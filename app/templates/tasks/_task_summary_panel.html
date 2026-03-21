@@ -96,6 +96,22 @@
         <p>No collaborators assigned.</p>
         {% endif %}
       </div>
+      {% if task.task_scope == 'GLOBAL' and task.tagged_offices %}
+      <div class="task-summary-copy-block">
+        <div class="task-summary-copy-label">Tagged Offices</div>
+        <div class="task-summary-chip-row">
+          {% for office in task.tagged_offices %}
+          <span class="task-summary-chip">{{ office.office_name }} ({{ office.office_code }})</span>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+      {% if task.self_task_visible_to_controlling_officer and not task.collaborator_links %}
+      <div class="task-summary-copy-block">
+        <div class="task-summary-copy-label">CO Visibility</div>
+        <p>This self-task is visible to the owner's Controlling Officer.</p>
+      </div>
+      {% endif %}
     </section>
 
     <section class="task-summary-section">

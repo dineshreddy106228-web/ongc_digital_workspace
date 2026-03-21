@@ -10,6 +10,7 @@ from app.models.tasks.task import Task                                    # noqa
 from app.models.tasks.task_collaborator import TaskCollaborator          # noqa: F401
 from app.models.tasks.recurring_task_template import RecurringTaskTemplate  # noqa: F401
 from app.models.tasks.recurring_task_collaborator import RecurringTaskCollaborator  # noqa: F401
+from app.models.tasks.task_office import TaskOffice                        # noqa: F401
 from app.models.tasks.task_update import TaskUpdate                       # noqa: F401
 from app.models.core.activity_log import ActivityLog                     # noqa: F401
 from app.models.core.notification import Notification                    # noqa: F401

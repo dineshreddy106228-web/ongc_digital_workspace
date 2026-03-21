@@ -10,10 +10,14 @@
 
     {# ── Page header ───────────────────────────────────────────────── #}
     <div class="inv-module-header">
-        <div>
+        <div class="inv-module-copy">
             <h1 class="inv-module-title"><i class="bi bi-box-seam"></i> Inventory Intelligence</h1>
             <p class="inv-module-subtitle">
-                SAP Material Consumption &amp; Procurement Analytics
+                SAP material consumption, procurement analytics, and planning support
+            </p>
+            <p class="inv-module-note">
+                <strong>Version 1.1 focus:</strong>
+                Clean module entry for analysis, forecasting, and seed-file governance.
             </p>
         </div>
         <div class="inv-header-actions">
@@ -23,7 +27,7 @@
     </div>
 
     {# ── KPI summary row ──────────────────────────────────────────── #}
-    <div class="inv-kpi-row" style="margin-bottom: 2rem;">
+    <div class="inv-kpi-row">
         <div class="inv-kpi-card">
             <div class="inv-kpi-icon inv-kpi-blue"><i class="bi bi-boxes"></i></div>
             <div>
@@ -67,7 +71,7 @@
                 <i class="bi bi-bar-chart-line"></i>
             </div>
             <div class="inv-landing-card-body">
-                <h2 class="inv-landing-card-title">Material Intelligence</h2>
+                <h2 class="inv-landing-card-title">Materials Intelligence</h2>
                 <p class="inv-landing-card-desc">
                     Explore consumption patterns, procurement analytics and vendor performance across all SAP materials and plants.
                 </p>
@@ -79,7 +83,7 @@
                 </ul>
             </div>
             <div class="inv-landing-card-footer">
-                <span class="inv-landing-enter">Open Material Intelligence <i class="bi bi-arrow-right"></i></span>
+                <span class="inv-landing-enter">Open Materials Intelligence <i class="bi bi-arrow-right"></i></span>
             </div>
         </a>
 
@@ -136,9 +140,7 @@
             <div class="inv-landing-card-body">
                 <h2 class="inv-landing-card-title">
                     Master Data
-                    <span style="font-size:0.7rem; font-weight:600; padding:0.2rem 0.5rem; border-radius:10px;
-                                 background:color-mix(in srgb,#7c3aed 12%,transparent); color:#7c3aed;
-                                 vertical-align:middle; margin-left:0.4rem;">
+                    <span class="inv-access-chip inv-access-chip-admin">
                         <i class="bi bi-shield-lock"></i> Superuser
                     </span>
                 </h2>
@@ -194,14 +196,14 @@
         document.getElementById('landingKpiPeriod').textContent = (kpis.period_from || '') + ' — ' + (kpis.period_to || '');
     }
 
-    fetch('/inventory/api/overview')
+    fetch('{{ url_for("inventory.api_overview") }}')
         .then(function(response) { return response.json(); })
         .then(function(payload) {
             updateLanding(payload.kpis || {});
         })
         .catch(function() {
-            document.getElementById('landingRecordBadge').textContent = 'Load failed';
-            document.getElementById('landingMonthBadge').textContent = 'Load failed';
+            document.getElementById('landingRecordBadge').textContent = 'Overview unavailable';
+            document.getElementById('landingMonthBadge').textContent = 'Retry later';
         });
 })();
 </script>

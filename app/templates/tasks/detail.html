@@ -143,6 +143,24 @@
           </div>
         </div>
 
+        {% if task.task_scope == 'GLOBAL' and task.tagged_offices %}
+        <div class="detail-field">
+          <div class="form-label">Tagged Offices</div>
+          <div class="detail-value">
+            {% for office in task.tagged_offices %}
+              {{ office.office_name }} ({{ office.office_code }}){% if not loop.last %}, {% endif %}
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
+        {% if task.self_task_visible_to_controlling_officer and not task.collaborator_links %}
+        <div class="detail-field">
+          <div class="form-label">CO Visibility</div>
+          <div class="detail-value">Visible to Controlling Officer</div>
+        </div>
+        {% endif %}
+
         <div class="detail-field">
           <div class="form-label">Created By</div>
           <div class="detail-value">

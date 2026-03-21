@@ -7,8 +7,68 @@
 {% endblock %}
 
 {% block content %}
+{% macro render_organogram(nodes) %}
+  <ul class="organogram-list">
+    {% for node in nodes recursive %}
+    <li class="organogram-node">
+      <article class="organogram-card {{ 'is-inactive' if not node.is_active }}">
+        <div class="organogram-card-topline">
+          <div>
+            <h3>{{ node.name }}</h3>
+            <p>@{{ node.username }}</p>
+          </div>
+          <span class="badge {{ 'badge-active' if node.is_active else 'badge-inactive' }}">
+            {{ 'Active' if node.is_active else 'Inactive' }}
+          </span>
+        </div>
+
+        <div class="organogram-meta-grid">
+          <div>
+            <span>Role</span>
+            <strong>{{ node.role_name }}</strong>
+          </div>
+          <div>
+            <span>Office</span>
+            <strong>{{ node.office_name }}</strong>
+          </div>
+          <div>
+            <span>Designation</span>
+            <strong>{{ node.designation or '—' }}</strong>
+          </div>
+          <div>
+            <span>Direct Reports</span>
+            <strong>{{ node.direct_report_count }}</strong>
+          </div>
+        </div>
+
+        <div class="organogram-chain-grid">
+          <div>
+            <span>Reviewing Officer</span>
+            <strong>{{ node.reviewing_officer_name or '—' }}</strong>
+          </div>
+          <div>
+            <span>Accepting Officer</span>
+            <strong>{{ node.accepting_officer_name or '—' }}</strong>
+          </div>
+        </div>
+      </article>
+
+      {% if node.children %}
+      <ul class="organogram-list organogram-children">
+        {{ loop(node.children) }}
+      </ul>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+{% endmacro %}
+
 <div class="page-wrapper">
   {% call page_header("User Management", "Manage system users, roles, and account status.", "Administration", "Admin", "neutral") %}
+      <a href="{{ url_for('admin.offices') }}" class="btn btn-secondary">
+        <i class="bi bi-building"></i>
+        <span>Offices</span>
+      </a>
       <a href="{{ url_for('admin.module_management') }}" class="btn btn-secondary">
         <i class="bi bi-grid"></i>
         <span>Module Management</span>
@@ -32,11 +92,80 @@
     {% endif %}
   {% endwith %}
 
+  <section class="admin-overview-grid">
+    <article class="card admin-metric-card">
+      <div class="card-body">
+        <span class="admin-metric-label">Total Users</span>
+        <strong class="admin-metric-value">{{ hierarchy_summary.total_users }}</strong>
+        <p class="admin-metric-detail">All active and inactive accounts in user management.</p>
+      </div>
+    </article>
+    <article class="card admin-metric-card">
+      <div class="card-body">
+        <span class="admin-metric-label">Mapped Users</span>
+        <strong class="admin-metric-value">{{ hierarchy_summary.mapped_users }}</strong>
+        <p class="admin-metric-detail">Users with at least one officer mapping assigned.</p>
+      </div>
+    </article>
+    <article class="card admin-metric-card">
+      <div class="card-body">
+        <span class="admin-metric-label">Fully Mapped</span>
+        <strong class="admin-metric-value">{{ hierarchy_summary.fully_mapped_users }}</strong>
+        <p class="admin-metric-detail">Users with controlling, reviewing, and accepting officers set.</p>
+      </div>
+    </article>
+    <article class="card admin-metric-card">
+      <div class="card-body">
+        <span class="admin-metric-label">Top-Level Officers</span>
+        <strong class="admin-metric-value">{{ hierarchy_summary.root_users }}</strong>
+        <p class="admin-metric-detail">Users without a controlling officer above them.</p>
+      </div>
+    </article>
+  </section>
+
+  <div class="card organogram-shell">
+    <div class="card-body">
+      <div class="organogram-header">
+        <div>
+          <h2 class="organogram-title">Reporting Organogram</h2>
+          <p class="organogram-subtitle">
+            Direct-report branches are built from Controlling Officer mappings. Reviewing and Accepting officers are shown on each user card.
+          </p>
+        </div>
+      </div>
+
+      {% if organogram %}
+      <div class="organogram-canvas">
+        {{ render_organogram(organogram) }}
+      </div>
+      {% else %}
+      <div class="organogram-empty-state">
+        <h3>No user hierarchy available</h3>
+        <p>Create users and assign their officer chain to populate the organogram.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
   <div class="card">
     <div class="card-body">
       {% if users %}
       <div class="table-responsive">
-        <table class="data-table">
+        <table class="data-table user-management-table">
+          <colgroup>
+            <col style="width: 4%;">
+            <col style="width: 10%;">
+            <col style="width: 11%;">
+            <col style="width: 13%;">
+            <col style="width: 6%;">
+            <col style="width: 12%;">
+            <col style="width: 10%;">
+            <col style="width: 9%;">
+            <col style="width: 9%;">
+            <col style="width: 5%;">
+            <col style="width: 5%;">
+            <col style="width: 6%;">
+          </colgroup>
           <thead>
             <tr>
               <th>#</th>
@@ -45,6 +174,9 @@
               <th>Email</th>
               <th>Role</th>
               <th>Office</th>
+              <th>Controlling Officer</th>
+              <th>Reviewing Officer</th>
+              <th>Accepting Officer</th>
               <th>Status</th>
               <th>Login Record</th>
               <th>Actions</th>
@@ -67,6 +199,27 @@
               <td>
                 {% if u.office %}
                   {{ u.office.office_name }}
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if u.controlling_officer %}
+                  {{ u.controlling_officer.full_name or u.controlling_officer.username }}
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if u.reviewing_officer %}
+                  {{ u.reviewing_officer.full_name or u.reviewing_officer.username }}
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if u.accepting_officer %}
+                  {{ u.accepting_officer.full_name or u.accepting_officer.username }}
                 {% else %}
                   <span class="text-muted">—</span>
                 {% endif %}

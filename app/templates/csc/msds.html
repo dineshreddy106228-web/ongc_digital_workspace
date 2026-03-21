@@ -115,15 +115,73 @@
   background: color-mix(in srgb, var(--surface) 92%, white);
   padding: 0.65rem 0.75rem;
 }
+.msds-status-table {
+  table-layout: fixed;
+}
+.msds-status-table td {
+  padding-top: 0.8rem;
+  padding-bottom: 0.8rem;
+  vertical-align: top;
+}
+.msds-code-cell {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.msds-text-cell {
+  font-weight: 600;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.msds-status-cell,
+.msds-actions-cell {
+  white-space: nowrap;
+}
+.msds-file-cell {
+  min-width: 0;
+}
+.msds-file-empty {
+  color: var(--muted);
+  font-weight: 600;
+}
+.msds-file-name {
+  font-size: 0.84rem;
+  line-height: 1.35;
+  word-break: break-word;
+}
 .msds-file-meta {
   margin-top: 0.25rem;
   font-size: 0.74rem;
   color: var(--muted);
+  line-height: 1.45;
+}
+.msds-file-links {
+  margin-top: 0.45rem;
+}
+.msds-file-links-compact {
+  margin-top: 0;
+}
+.msds-action-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+.msds-inline-form {
+  display: inline-flex;
+}
+.msds-delete-button {
+  color: var(--danger, #dc3545);
+  border-color: color-mix(in srgb, var(--danger, #dc3545) 35%, transparent);
 }
 @media (max-width: 980px) {
   .msds-center-grid,
   .msds-center-form {
     grid-template-columns: 1fr;
+  }
+  .msds-status-table {
+    min-width: 900px;
   }
 }
 </style>
@@ -132,6 +190,7 @@
 {% block content %}
 <div class="inv-page">
   {% set csc_nav_active = 'msds' %}
+  {% set show_msds_metadata = csc_is_material_master_admin or current_user.is_super_user() %}
 
   <div class="inv-module-header">
     <div>
@@ -201,7 +260,14 @@
     </div>
     <div class="inv-card-body">
       <div class="inv-table-wrap">
-        <table class="inv-data-table">
+        <table class="inv-data-table msds-status-table">
+          <colgroup>
+            <col style="width: 160px;">
+            <col>
+            <col style="width: 150px;">
+            <col style="width: {{ '320px' if show_msds_metadata else '220px' }};">
+            <col style="width: 140px;">
+          </colgroup>
           <thead>
             <tr>
               <th>Material Code</th>
@@ -215,46 +281,54 @@
             {% for row in rows %}
             {% set msds_files = msds_by_material.get(row.material, []) %}
             <tr class="inv-row-main">
-              <td>{{ row.material }}</td>
-              <td>{{ row.short_text }}</td>
-              <td>
+              <td class="msds-code-cell">{{ row.material }}</td>
+              <td class="msds-text-cell">{{ row.short_text }}</td>
+              <td class="msds-status-cell">
                 {% if msds_files %}
                 <span class="msds-status-pill is-present"><i class="bi bi-check-circle-fill"></i> {{ msds_files|length }} stored</span>
                 {% else %}
                 <span class="msds-status-pill is-missing"><i class="bi bi-dash-circle"></i> Not Stored</span>
                 {% endif %}
               </td>
-              <td>
+              <td class="msds-file-cell">
                 {% if msds_files %}
                 <div class="msds-file-stack">
                   {% for msds_file in msds_files %}
                   <div class="msds-file-item">
-                    <div><strong>{{ msds_file.filename }}</strong></div>
+                    {% if show_msds_metadata %}
+                    <div class="msds-file-name"><strong>{{ msds_file.filename }}</strong></div>
                     <div class="msds-file-meta">
                       {{ "{:,.0f}".format(msds_file.file_size / 1024) }} KB ·
                       {{ msds_file.uploaded_at|datetime_ist("%d %b %Y %I:%M %p") }}
                     </div>
-                    <div class="msds-link-list" style="margin-top:0.45rem;">
+                    <div class="msds-link-list msds-file-links">
+                    {% else %}
+                    <div class="msds-link-list msds-file-links-compact">
+                    {% endif %}
                       <a href="{{ url_for('csc.open_msds', file_id=msds_file.id) }}" class="btn btn-sm btn-secondary" target="_blank" rel="noopener">View</a>
                       <a href="{{ url_for('csc.open_msds', file_id=msds_file.id, download=1) }}" class="btn btn-sm btn-outline">Download</a>
-                      <form method="POST" action="{{ url_for('csc.delete_msds', file_id=msds_file.id) }}" onsubmit="return confirm('Delete the stored MSDS PDF {{ msds_file.filename }} for {{ row.material }}?');" style="display:inline;">
+                      {% if show_msds_metadata %}
+                      <form method="POST" action="{{ url_for('csc.delete_msds', file_id=msds_file.id) }}" onsubmit="return confirm('Delete the stored MSDS PDF {{ msds_file.filename }} for {{ row.material }}?');" class="msds-inline-form">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <button type="submit" class="btn btn-sm btn-outline" style="color: var(--danger,#dc3545); border-color: color-mix(in srgb, var(--danger,#dc3545) 35%, transparent);">Delete</button>
+                        <button type="submit" class="btn btn-sm btn-outline msds-delete-button">Delete</button>
                       </form>
+                      {% endif %}
                     </div>
                   </div>
                   {% endfor %}
                 </div>
                 {% else %}
-                <span class="inv-muted">—</span>
+                <span class="msds-file-empty">—</span>
                 {% endif %}
               </td>
-              <td>
+              <td class="msds-actions-cell">
+                <div class="msds-action-stack">
                 {% if msds_files %}
-                <a href="{{ url_for('csc.msds_page', material_code=row.material) }}" class="btn btn-sm btn-outline">Upload Another</a>
+                <a href="{{ url_for('csc.msds_page', material_code=row.material) }}" class="btn btn-sm btn-outline">Add Version</a>
                 {% else %}
                 <a href="{{ url_for('csc.msds_page', material_code=row.material) }}" class="btn btn-sm btn-outline">Upload</a>
                 {% endif %}
+                </div>
               </td>
             </tr>
             {% endfor %}

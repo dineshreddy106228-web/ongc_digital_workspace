@@ -15,6 +15,13 @@
   flex-wrap: wrap;
 }
 
+.inv-module-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-width: 760px;
+}
+
 .inv-module-title {
   font-size: 1.5rem;
   font-weight: 700;
@@ -30,6 +37,22 @@
   font-size: 0.85rem;
   color: var(--muted);
   margin: 0;
+}
+
+.inv-module-subtitle-spaced {
+  margin-top: 0.35rem;
+}
+
+.inv-module-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.inv-module-note strong {
+  color: var(--text);
 }
 
 .inv-header-actions {
@@ -55,6 +78,29 @@
 .inv-badge-muted {
   background: var(--surface-alt);
   color: var(--muted);
+}
+
+.inv-access-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  vertical-align: middle;
+  margin-left: 0.4rem;
+}
+
+.inv-access-chip-admin {
+  background: color-mix(in srgb, #7c3aed 12%, transparent);
+  color: #7c3aed;
+}
+
+.inv-label-icon {
+  font-size: 0.65rem;
+  margin-left: 4px;
+  opacity: 0.6;
 }
 
 /* ── Generic cards ────────────────────────────────────────────── */
@@ -89,6 +135,14 @@
   margin: 0.2rem 0 0;
   color: var(--muted);
   font-size: 0.8rem;
+}
+
+.inv-card-inline {
+  display: flex;
+  gap: 0.9rem;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
 /* ── KPI Cards ───────────────────────────────────────────────── */
@@ -1149,6 +1203,19 @@
 .inv-landing-card-amber  .inv-landing-enter { color: var(--warning); }
 .inv-landing-card-purple .inv-landing-enter { color: #7c3aed; }
 .inv-landing-card-teal   .inv-landing-enter { color: #0f766e; }
+
+.inv-modal-footer-spread {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.inv-modal-footer-actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
 
 @media (max-width: 600px) {
   .inv-landing-grid { grid-template-columns: 1fr; }

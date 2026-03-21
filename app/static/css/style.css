@@ -122,6 +122,7 @@
 
     --font-body: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     --font-mono: 'JetBrains Mono', 'Cascadia Code', monospace;
+    --radius-sm: 4px;
     --radius: 6px;
     --transition: .18s ease;
 
@@ -141,6 +142,7 @@
     --color-warning: var(--warning);
     --color-danger: var(--danger);
     --color-info: var(--info);
+    --text-error: var(--danger);
 }
 
 [data-theme="dark"] {
@@ -774,6 +776,30 @@ body.workspace-flyout-open .workspace-main {
     color: var(--muted);
     font-size: .98rem;
     line-height: 1.65;
+}
+
+.workspace-welcome-copy {
+    text-align: left;
+}
+
+.workspace-welcome-section-title {
+    margin-top: 1.1rem;
+    color: var(--text);
+    font-size: .92rem;
+    font-weight: 700;
+}
+
+.workspace-welcome-list {
+    margin: .7rem 0 0;
+    padding-left: 1.25rem;
+}
+
+.workspace-welcome-list li {
+    margin-bottom: .45rem;
+}
+
+.workspace-welcome-modal-wide {
+    width: min(860px, 100%);
 }
 
 .workspace-welcome-grid {
@@ -2053,12 +2079,75 @@ body.workspace-flyout-open .workspace-backdrop {
     flex-direction: column;
     min-height: 100%;
     gap: .65rem;
-    transition: border-color var(--transition), background var(--transition);
+    position: relative;
+    overflow: hidden;
+    --module-accent: var(--primary);
+    --module-accent-strong: var(--primary-strong);
+    --module-tint: color-mix(in srgb, var(--module-accent) 11%, var(--surface));
+    --module-tint-strong: color-mix(in srgb, var(--module-accent) 18%, var(--surface));
+    --module-border: color-mix(in srgb, var(--module-accent) 28%, var(--border));
+    border: 1px solid var(--module-border);
+    border-top: 4px solid color-mix(in srgb, var(--module-accent) 58%, var(--border));
+    background:
+        radial-gradient(circle at top right, color-mix(in srgb, var(--module-accent) 14%, transparent), transparent 42%),
+        linear-gradient(180deg, var(--module-tint), color-mix(in srgb, var(--surface) 93%, var(--surface-alt))),
+        var(--surface);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.48),
+        0 12px 28px rgba(15, 23, 42, 0.05);
+    transition: border-color var(--transition), background var(--transition), box-shadow var(--transition), transform var(--transition);
+}
+
+.dashboard-module-card::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 5px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--module-accent) 88%, white 4%), color-mix(in srgb, var(--module-accent-strong) 82%, black 6%));
+    opacity: .92;
+}
+
+.dashboard-module-card::after {
+    content: "";
+    position: absolute;
+    inset: auto 0 0 0;
+    height: 3px;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--module-accent) 78%, transparent), transparent 72%);
+    opacity: .9;
+}
+
+.dashboard-module-topline {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+}
+
+.dashboard-module-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.15rem;
+    height: 2.15rem;
+    border-radius: 12px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--module-tint-strong) 88%, white 12%), color-mix(in srgb, var(--module-accent) 15%, transparent));
+    color: color-mix(in srgb, var(--module-accent-strong) 88%, var(--text));
+    border: 1px solid color-mix(in srgb, var(--module-accent) 24%, transparent);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.32);
+    flex-shrink: 0;
+}
+
+.dashboard-module-icon i {
+    font-size: 1rem;
 }
 
 .dashboard-module-card h3 {
     font-size: 1.15rem;
     color: var(--text);
+}
+
+.dashboard-module-status {
+    color: color-mix(in srgb, var(--module-accent-strong) 58%, var(--muted));
 }
 
 .dashboard-module-card p {
@@ -2071,10 +2160,11 @@ body.workspace-flyout-open .workspace-backdrop {
 .dashboard-module-badge {
     display: inline-flex;
     align-self: flex-start;
-    padding: .25rem .6rem;
+    padding: .3rem .68rem;
     border-radius: 999px;
-    border: 1px solid var(--border);
-    color: var(--muted);
+    border: 1px solid color-mix(in srgb, var(--module-accent) 24%, var(--border));
+    color: color-mix(in srgb, var(--module-accent-strong) 78%, var(--text));
+    background: linear-gradient(180deg, color-mix(in srgb, var(--module-accent) 14%, white 14%), color-mix(in srgb, var(--module-accent) 10%, transparent));
     font-size: .72rem;
     font-weight: 700;
     letter-spacing: .06em;
@@ -2082,12 +2172,48 @@ body.workspace-flyout-open .workspace-backdrop {
 }
 
 .dashboard-module-card:hover {
-    border-color: color-mix(in srgb, var(--primary) 26%, var(--border));
-    background: var(--surface);
+    border-color: color-mix(in srgb, var(--module-accent) 38%, var(--border));
+    background:
+        radial-gradient(circle at top right, color-mix(in srgb, var(--module-accent) 18%, transparent), transparent 44%),
+        linear-gradient(180deg, color-mix(in srgb, var(--module-accent) 12%, var(--surface)), var(--surface)),
+        var(--surface);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.5),
+        0 18px 34px rgba(15, 23, 42, .09);
+    transform: translateY(-2px);
 }
 .dashboard-module-card-coming-soon {
     opacity: .68;
+    border-top-color: color-mix(in srgb, var(--border) 96%, var(--surface-alt));
     background: color-mix(in srgb, var(--surface-alt) 78%, var(--surface));
+}
+
+.dashboard-module-card-restricted {
+    --module-tint: color-mix(in srgb, var(--module-accent) 5%, var(--surface));
+}
+
+.dashboard-module-card-restricted .dashboard-module-badge {
+    background: color-mix(in srgb, var(--module-accent) 7%, transparent);
+}
+
+.dashboard-module-card-key-office_management {
+    --module-accent: #245b92;
+    --module-accent-strong: #163f67;
+}
+
+.dashboard-module-card-key-csc_workflow {
+    --module-accent: #1d7a73;
+    --module-accent-strong: #145b56;
+}
+
+.dashboard-module-card-key-inventory {
+    --module-accent: #9a6412;
+    --module-accent-strong: #73490d;
+}
+
+.dashboard-module-card-key-admin_users {
+    --module-accent: #556479;
+    --module-accent-strong: #3f4d61;
 }
 
 .dashboard-snapshot-list {

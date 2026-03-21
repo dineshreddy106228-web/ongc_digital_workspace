@@ -242,22 +242,22 @@
         <div class="workspace-welcome-modal">
             <div class="workspace-welcome-eyebrow">ONGC Digital Workspace — Version 1.1</div>
             <h2 class="workspace-welcome-title" id="loginWelcomeTitle">Version updated to 1.1</h2>
-            <div class="workspace-welcome-copy" style="text-align: left; margin-bottom: 1.5rem;">
-                <ul style="margin-bottom: 1.2rem; padding-left: 1.5rem;">
-                    <li style="margin-bottom: 0.5rem;">Broadcat / Polling has been introduced. Superusers can launch a poll or send out an announcement to all users of the workspace</li>
+            <div class="workspace-welcome-copy">
+                <ul class="workspace-welcome-list">
+                    <li>Broadcasts and polling are now available. Superusers can send announcements or launch polls across the workspace.</li>
                 </ul>
-                
-                <p style="margin-bottom: 1.2rem;">
-                    CSC Workflow has been introduced for structured input collection from the Specification Review Committees and the Material Handling Committee. This is under Material Master Management Module
+
+                <p>
+                    CSC Workflow is now available inside Material Master Management for structured input collection from the Specification Review Committees and the Material Handling Committee.
                 </p>
-                
-                <p style="margin-bottom: 0.5rem;">Following processes have been digitized:</p>
-                <ul style="margin-bottom: 1.2rem; padding-left: 1.5rem;">
-                    <li style="margin-bottom: 0.5rem;">Review committee workflow</li>
+
+                <p class="workspace-welcome-section-title">Processes digitized</p>
+                <ul class="workspace-welcome-list">
+                    <li>Review committee workflow</li>
                 </ul>
-                
-                <p style="margin-bottom: 0.5rem;">Following processes have been automated:</p>
-                <ul style="margin-bottom: 0.5rem; padding-left: 1.5rem;">
+
+                <p class="workspace-welcome-section-title">Processes automated</p>
+                <ul class="workspace-welcome-list">
                     <li>Compilation of Specifications for the 12th Edition of Corporate Specifications of Oil Field Chemicals</li>
                 </ul>
             </div>
@@ -273,7 +273,7 @@
 
     {% if current_user.is_authenticated and login_announcement and request.endpoint != 'auth.change_password' %}
     <div class="workspace-welcome-overlay hidden" id="loginAnnouncementModal" role="dialog" aria-modal="true" aria-labelledby="loginAnnouncementTitle">
-        <div class="workspace-welcome-modal" style="max-width: 760px;">
+        <div class="workspace-welcome-modal workspace-welcome-modal-wide">
             <div class="workspace-welcome-eyebrow">Workspace Announcement</div>
             <h2 class="workspace-welcome-title" id="loginAnnouncementTitle">{{ login_announcement.announcement.title }}</h2>
             <p class="workspace-welcome-copy">

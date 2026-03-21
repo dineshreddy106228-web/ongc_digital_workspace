@@ -25,10 +25,12 @@ from app.models.tasks.task_collaborator import TaskCollaborator
 CLOSED_TASK_STATUSES = ("Completed", "Cancelled")
 PENDING_UPDATE_STATUSES = ("Not Started", "On Hold")
 SHOWCASE_MODULE_KEYS = ("office_management", "csc_workflow", "inventory")
+ADMIN_SHOWCASE_MODULE_KEYS = ("admin_users",)
 MODULE_ICON_MAP = {
     "office_management": "bi-list-task",
     "csc_workflow": "bi-diagram-3",
     "inventory": "bi-box-seam",
+    "admin_users": "bi-people",
 }
 INDIA_TIMEZONE = ZoneInfo("Asia/Kolkata")
 
@@ -213,6 +215,28 @@ def _display_first_name(user) -> str:
     return username.split(".")[0].replace("_", " ").title()
 
 
+def _display_user_name(user) -> str:
+    full_name = (getattr(user, "full_name", "") or "").strip()
+    if full_name:
+        return full_name
+
+    username = (getattr(user, "username", "") or "").strip()
+    return username or "Unassigned"
+
+
+def _build_officer_chain(user) -> list[dict]:
+    officers = [
+        ("Controlling Officer", getattr(user, "controlling_officer", None)),
+        ("Reviewing Officer", getattr(user, "reviewing_officer", None)),
+        ("Accepting Officer", getattr(user, "accepting_officer", None)),
+    ]
+    return [
+        {"label": label, "name": _display_user_name(officer)}
+        for label, officer in officers
+        if officer is not None
+    ]
+
+
 def _time_of_day_greeting(now_local: datetime) -> str:
     if now_local.hour < 12:
         return "Good Morning"
@@ -248,10 +272,16 @@ def _build_welcome_summary(open_tasks, due_today_count: int, pending_update_coun
     )
 
 
+def _showcase_module_keys_for_user(user) -> tuple[str, ...]:
+    if user.is_admin_user() and not user.is_super_user():
+        return ADMIN_SHOWCASE_MODULE_KEYS
+    return SHOWCASE_MODULE_KEYS
+
+
 def _build_module_showcase(user, app=None) -> list[dict]:
     cards = []
 
-    for key in SHOWCASE_MODULE_KEYS:
+    for key in _showcase_module_keys_for_user(user):
         definition = get_module_definition(key)
         if definition is None:
             continue
@@ -292,6 +322,14 @@ def _build_module_showcase(user, app=None) -> list[dict]:
         )
 
     return cards
+
+
+def _dashboard_identity_title(user) -> str:
+    if user.is_admin_user():
+        return "Admin Dashboard"
+    if getattr(user, "office", None) and getattr(user.office, "office_name", None):
+        return user.office.office_name
+    return "Corporate Chemistry Digital Workspace"
 
 
 def get_dashboard_workspace_context(user, app=None) -> dict:
@@ -366,7 +404,7 @@ def get_dashboard_workspace_context(user, app=None) -> dict:
 
     return {
         "identity": {
-            "title": "Corporate Chemistry Digital Workspace",
+            "title": _dashboard_identity_title(user),
             "subtitle": "Centralized coordination. Real-time visibility. Structured execution.",
         },
         "welcome": {
@@ -374,6 +412,7 @@ def get_dashboard_workspace_context(user, app=None) -> dict:
             "name": _display_first_name(user),
             "summary": _build_welcome_summary(open_tasks, len(due_today), len(pending_updates)),
         },
+        "officer_chain": _build_officer_chain(user),
         "task_module_active": task_module_active,
         "immediate_actions": [
             {

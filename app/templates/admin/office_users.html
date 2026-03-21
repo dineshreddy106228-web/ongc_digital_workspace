@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% from "components/ui.html" import page_header %}
+{% block title %}Users in {{ office.office_name }}{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+  {% call page_header("Users in " ~ office.office_name, office.office_code ~ " — " ~ (office.location or "No location"), "Administration", "Admin", "neutral") %}
+    <a href="{{ url_for('admin.offices') }}" class="btn btn-secondary">
+      <i class="bi bi-arrow-left"></i>
+      <span>Back to Offices</span>
+    </a>
+    <a href="{{ url_for('admin.edit_office', office_id=office.id) }}" class="btn btn-secondary">
+      <i class="bi bi-pencil"></i>
+      <span>Edit Office</span>
+    </a>
+  {% endcall %}
+
+  {# Flash messages #}
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <div class="alert alert-{{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <div class="card">
+    <div class="card-body">
+      {% if users %}
+      <div class="table-responsive">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Username</th>
+              <th>Full Name</th>
+              <th>Role</th>
+              <th>Controlling Officer</th>
+              <th>Reviewing Officer</th>
+              <th>Accepting Officer</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for u in users %}
+            <tr>
+              <td>{{ loop.index }}</td>
+              <td><strong>{{ u.username }}</strong></td>
+              <td>{{ u.full_name or '—' }}</td>
+              <td>
+                {% if u.role %}
+                  <span class="badge badge-role">{{ u.role.name }}</span>
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if u.controlling_officer %}
+                  {{ u.controlling_officer.full_name or u.controlling_officer.username }}
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if u.reviewing_officer %}
+                  {{ u.reviewing_officer.full_name or u.reviewing_officer.username }}
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if u.accepting_officer %}
+                  {{ u.accepting_officer.full_name or u.accepting_officer.username }}
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if u.is_active %}
+                  <span class="badge badge-active">Active</span>
+                {% else %}
+                  <span class="badge badge-inactive">Inactive</span>
+                {% endif %}
+              </td>
+              <td class="actions-cell">
+                <a href="{{ url_for('admin.edit_user', user_id=u.id) }}"
+                   class="btn btn-sm btn-secondary"
+                   title="Edit user">Edit</a>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+        <p class="text-muted" style="text-align:center;padding:2rem 0;">
+          No users are assigned to this office.
+        </p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
