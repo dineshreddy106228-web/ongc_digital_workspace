@@ -15,6 +15,12 @@ from app.modules.inventory import inventory_bp
 logger = logging.getLogger(__name__)
 
 
+def _row_material_code(row) -> str:
+    if isinstance(row, dict):
+        return str(row.get("material") or "").strip()
+    return str(getattr(row, "material", "") or "").strip()
+
+
 @inventory_bp.route("/msds")
 @login_required
 @superuser_required
@@ -32,7 +38,9 @@ def msds_page():
 
     msds_by_material = {}
     try:
-        msds_by_material = get_msds_material_index([row.material for row in rows])
+        msds_by_material = get_msds_material_index(
+            [_row_material_code(row) for row in rows if _row_material_code(row)]
+        )
     except MSDSError as exc:
         flash(str(exc), "warning")
 

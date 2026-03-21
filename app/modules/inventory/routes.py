@@ -32,6 +32,12 @@ from app.core.utils.decorators import module_access_required, superuser_required
 logger = logging.getLogger(__name__)
 
 
+def _row_material_code(row) -> str:
+    if isinstance(row, dict):
+        return str(row.get("material") or "").strip()
+    return str(getattr(row, "material", "") or "").strip()
+
+
 def _get_inventory_store():
     from app.core.services.inventory_intelligence import get_data_store
 
@@ -611,7 +617,9 @@ def master_data_page():
     rows = get_all_master_data()
     extra_keys = get_extra_column_keys()
     try:
-        msds_by_material = get_msds_material_index([row.material for row in rows])
+        msds_by_material = get_msds_material_index(
+            [_row_material_code(row) for row in rows if _row_material_code(row)]
+        )
     except MSDSError as exc:
         flash(str(exc), "warning")
         msds_by_material = {}

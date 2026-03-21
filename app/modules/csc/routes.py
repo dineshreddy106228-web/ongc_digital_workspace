@@ -2572,6 +2572,12 @@ def landing():
     )
 
 
+def _row_material_code(row) -> str:
+    if isinstance(row, dict):
+        return str(row.get("material") or "").strip()
+    return str(getattr(row, "material", "") or "").strip()
+
+
 @csc_bp.route("/msds")
 @login_required
 @module_access_required("csc")
@@ -2586,7 +2592,9 @@ def msds_page():
         logger.exception("Failed to load material master rows for CSC MSDS Center")
         flash("Material master rows could not be loaded right now.", "warning")
     try:
-        msds_by_material = get_msds_material_index([row.material for row in rows])
+        msds_by_material = get_msds_material_index(
+            [_row_material_code(row) for row in rows if _row_material_code(row)]
+        )
     except MSDSError as exc:
         flash(str(exc), "warning")
         msds_by_material = {}
