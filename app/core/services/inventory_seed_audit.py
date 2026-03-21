@@ -296,6 +296,96 @@ def _build_mc9_raw_view(df: pd.DataFrame) -> pd.DataFrame:
     return frame
 
 
+def _build_extreme_price_swing_view(price_view: pd.DataFrame) -> pd.DataFrame:
+    swing_events = price_view.loc[
+        (price_view["prev_unit_price"] > 0)
+        & (price_view["pct_change"].abs() > 100)
+        & (price_view["effective_value"].fillna(float("inf")) >= LOW_VALUE_THRESHOLD)
+    ].copy()
+    if swing_events.empty:
+        return pd.DataFrame()
+
+    base_columns = [
+        "source_excel_row",
+        "doc_date",
+        "po_number",
+        "plant",
+        "material_desc",
+        "vendor",
+        "order_qty",
+        "order_unit",
+        "price_unit",
+        "unit_price",
+        "effective_value",
+    ]
+    row_map: dict[int, dict] = {}
+
+    def _ensure_entry(source_row: pd.Series) -> dict | None:
+        excel_row = source_row.get("source_excel_row")
+        if pd.isna(excel_row):
+            return None
+        excel_row_int = int(excel_row)
+        entry = row_map.get(excel_row_int)
+        if entry is None:
+            entry = {column: source_row.get(column) for column in base_columns}
+            entry["_roles"] = set()
+            entry["_related_rows"] = set()
+            entry["_swing_pcts"] = []
+            row_map[excel_row_int] = entry
+        return entry
+
+    for _, swing in swing_events.iterrows():
+        current_entry = _ensure_entry(swing)
+        prev_index = swing.get("prev_row_index")
+        prev_row = price_view.loc[int(prev_index)] if pd.notna(prev_index) and int(prev_index) in price_view.index else None
+
+        if current_entry is not None:
+            current_entry["_roles"].add("Flagged Row")
+            prev_excel_row = swing.get("prev_source_excel_row")
+            if pd.notna(prev_excel_row):
+                current_entry["_related_rows"].add(int(prev_excel_row))
+            if pd.notna(swing.get("pct_change")):
+                current_entry["_swing_pcts"].append(float(swing["pct_change"]))
+
+        if prev_row is not None:
+            prev_entry = _ensure_entry(prev_row)
+            if prev_entry is not None:
+                prev_entry["_roles"].add("Previous Row")
+                current_excel_row = swing.get("source_excel_row")
+                if pd.notna(current_excel_row):
+                    prev_entry["_related_rows"].add(int(current_excel_row))
+                if pd.notna(swing.get("pct_change")):
+                    prev_entry["_swing_pcts"].append(float(swing["pct_change"]))
+
+    display_rows: list[dict] = []
+    for entry in row_map.values():
+        roles = entry.pop("_roles")
+        related_rows = sorted(entry.pop("_related_rows"))
+        swing_pcts = entry.pop("_swing_pcts")
+        if "Flagged Row" in roles and "Previous Row" in roles:
+            role_label = "Previous + Flagged"
+        elif "Flagged Row" in roles:
+            role_label = "Flagged Row"
+        else:
+            role_label = "Previous Row"
+        pct_values = sorted({round(float(value), 2) for value in swing_pcts})
+        display_rows.append(
+            {
+                "source_excel_row": int(entry["source_excel_row"]),
+                "Swing Role": role_label,
+                "Related Excel Rows": ", ".join(str(value) for value in related_rows),
+                **entry,
+                "Swing %": ", ".join(f"{value:+.2f}%" for value in pct_values),
+            }
+        )
+
+    if not display_rows:
+        return pd.DataFrame()
+
+    result = pd.DataFrame(display_rows)
+    return result.sort_values(["doc_date", "source_excel_row", "po_number"], kind="stable").reset_index(drop=True)
+
+
 def _format_consumption_period(cons: pd.DataFrame, which: str) -> str:
     if cons.empty:
         return ""
@@ -653,28 +743,32 @@ def _collect_procurement_findings(proc_raw: pd.DataFrame, proc: pd.DataFrame, ig
         ["material_desc", "doc_date", "source_excel_row", "po_number", "item"],
         kind="stable",
     ).copy()
+    price_view["row_index"] = price_view.index
     price_view["prev_unit_price"] = price_view.groupby(
         ["material_desc", "order_unit", "price_unit"],
         dropna=False,
     )["unit_price"].shift(1)
+    price_view["prev_row_index"] = price_view.groupby(
+        ["material_desc", "order_unit", "price_unit"],
+        dropna=False,
+    )["row_index"].shift(1)
+    price_view["prev_source_excel_row"] = price_view.groupby(
+        ["material_desc", "order_unit", "price_unit"],
+        dropna=False,
+    )["source_excel_row"].shift(1)
     price_view["pct_change"] = (
         (price_view["unit_price"] - price_view["prev_unit_price"]) / price_view["prev_unit_price"]
     ) * 100
-    extreme_swings = _attach_source_excel_row(price_view.loc[
-        (price_view["prev_unit_price"] > 0)
-        & (price_view["pct_change"].abs() > 100)
-        & (price_view["effective_value"].fillna(float("inf")) >= LOW_VALUE_THRESHOLD),
-        ["po_number", "doc_date", "plant", "material_desc", "vendor", "order_qty", "order_unit", "price_unit", "prev_unit_price", "unit_price", "pct_change", "effective_value", "source_excel_row"],
-    ])
+    extreme_swings = _build_extreme_price_swing_view(price_view)
     if not extreme_swings.empty:
         findings.append(
             _finding(
                 severity="warning",
                 scope="procurement",
                 check="extreme_price_swings",
-                message="Sequential swings above 100% in derived unit price within the same order-unit and price-unit context suggest dirty procurement rows or exceptional spot buys.",
+                message="Sequential swings above 100% in derived unit price within the same order-unit and price-unit context suggest dirty procurement rows or exceptional spot buys. Both the flagged row and the immediately preceding comparison row are shown so either side can be deleted.",
                 frame=extreme_swings,
-                columns=["po_number", "doc_date", "plant", "material_desc", "vendor", "order_qty", "order_unit", "price_unit", "prev_unit_price", "unit_price", "pct_change", "effective_value"],
+                columns=["Swing Role", "Related Excel Rows", "doc_date", "po_number", "plant", "material_desc", "vendor", "order_qty", "order_unit", "price_unit", "unit_price", "Swing %", "effective_value"],
                 ignored_fingerprints=ignored_rows.get("procurement:extreme_price_swings", set()),
             )
         )
