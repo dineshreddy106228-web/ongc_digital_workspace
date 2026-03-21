@@ -612,7 +612,11 @@ def export_excel():
 def master_data_page():
     """Master Data viewer/editor – superusers only."""
     from app.core.services.master_data import get_all_master_data, get_extra_column_keys
-    from app.core.services.msds_service import MSDSError, get_msds_material_index
+    from app.core.services.msds_service import (
+        MSDSError,
+        get_msds_material_index,
+        get_msds_slot_options,
+    )
 
     rows = get_all_master_data()
     extra_keys = get_extra_column_keys()
@@ -630,9 +634,11 @@ def master_data_page():
         total=len(rows),
         read_only=True,
         msds_by_material=msds_by_material,
+        msds_slot_options=get_msds_slot_options(),
         msds_count=sum(len(files) for files in msds_by_material.values()),
         msds_material_total=len(msds_by_material),
         prefill_material_code=(request.args.get("material_code") or "").strip(),
+        prefill_slot_code=(request.args.get("slot_code") or "").strip().lower() or "standard",
     )
 
 

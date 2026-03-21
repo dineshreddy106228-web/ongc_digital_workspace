@@ -168,7 +168,7 @@ tr.is-saving td { opacity: 0.6; }
 
 .msds-form-grid {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(260px, 1.2fr) auto;
+  grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) minmax(260px, 1.2fr) auto;
   gap: 0.75rem;
   align-items: end;
 }
@@ -330,6 +330,16 @@ tr.is-saving td { opacity: 0.6; }
             </datalist>
           </div>
           <div>
+            <label class="msds-field-label" for="slot_code">MSDS Slot</label>
+            <select class="msds-input" id="slot_code" name="slot_code" required>
+              {% for option in msds_slot_options %}
+              <option value="{{ option.value }}" {{ 'selected' if option.value == (prefill_slot_code or 'standard') else '' }}>
+                {{ option.label }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
             <label class="msds-field-label" for="msds_file">PDF File</label>
             <input class="msds-input" type="file" id="msds_file" name="msds_file" accept="application/pdf,.pdf" required>
           </div>
@@ -347,7 +357,7 @@ tr.is-saving td { opacity: 0.6; }
         </div>
         <div class="msds-stat">
           <div class="msds-stat-label">Upload Behavior</div>
-          <div class="msds-stat-value">Each upload adds a new MSDS version for that material</div>
+          <div class="msds-stat-value">1 ONGC standard slot and 3 vendor slots per material</div>
         </div>
       </div>
     </div>
@@ -541,12 +551,13 @@ tr.is-saving td { opacity: 0.6; }
               <td class="md-col-med">
                 {% if msds_files %}
                 <div class="msds-link-list" style="margin-bottom:0.5rem;">
-                  <span class="msds-status-pill is-present"><i class="bi bi-check-circle-fill"></i> {{ msds_files|length }} stored</span>
+                  <span class="msds-status-pill is-present"><i class="bi bi-check-circle-fill"></i> {{ msds_files|length }}/4 slots used</span>
                   <a href="{{ url_for('inventory.msds_page', material_code=row.material) }}" class="btn btn-sm btn-outline">Upload Another</a>
                 </div>
                 <div class="msds-file-stack">
                   {% for msds_file in msds_files %}
                   <div class="msds-file-item">
+                    <div class="inv-badge inv-badge-info" style="margin-bottom:0.45rem;">{{ msds_file.slot_label }}</div>
                     <div><strong>{{ msds_file.filename }}</strong></div>
                     <div class="msds-file-meta">
                       {{ "{:,.0f}".format(msds_file.file_size / 1024) }} KB ·

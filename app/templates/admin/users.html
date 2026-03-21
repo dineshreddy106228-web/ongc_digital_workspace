@@ -67,6 +67,10 @@
         <i class="bi bi-database"></i>
         <span>Backup Center</span>
       </a>
+      <a href="{{ url_for('admin.export_users_report') }}" class="btn btn-secondary">
+        <i class="bi bi-download"></i>
+        <span>Export Report</span>
+      </a>
       <a href="{{ url_for('admin.create_user') }}" class="btn btn-primary">
         <i class="bi bi-person-plus"></i>
         <span>Create User</span>
@@ -106,9 +110,9 @@
     </article>
     <article class="card admin-metric-card">
       <div class="card-body">
-        <span class="admin-metric-label">Accepting Roots</span>
-        <strong class="admin-metric-value">{{ hierarchy_summary.accepting_roots }}</strong>
-        <p class="admin-metric-detail">Top-level accepting officers anchoring the reporting tree.</p>
+        <span class="admin-metric-label">Office Heads</span>
+        <strong class="admin-metric-value">{{ hierarchy_summary.office_heads }}</strong>
+        <p class="admin-metric-detail">Top-level users with no controlling officer anchoring each office flow.</p>
       </div>
     </article>
   </section>
@@ -298,7 +302,7 @@
             <div>
               <h2 class="organogram-title">Reporting Organogram</h2>
               <p class="organogram-subtitle">
-                Office-wise flow chart starting with Accepting Officers and drilling down to Reviewing Officers, Controlling Officers, and terminal users.
+                Office-wise flow chart starting from users with no controlling officer, then drilling down through accepting, reviewing, controlling, and terminal users.
               </p>
             </div>
           </div>
@@ -311,7 +315,7 @@
                 <div>
                   <h3 class="organogram-office-title">{{ office.office_name }}</h3>
                   <p class="organogram-office-subtitle">
-                    {{ office.accepting_roots }} accepting root{{ '' if office.accepting_roots == 1 else 's' }}, {{ office.mapped_users }} mapped user{{ '' if office.mapped_users == 1 else 's' }}.
+                    {{ office.office_heads }} office head{{ '' if office.office_heads == 1 else 's' }}, {{ office.mapped_users }} mapped user{{ '' if office.mapped_users == 1 else 's' }}.
                   </p>
                 </div>
                 <div class="organogram-office-stats">
@@ -337,7 +341,7 @@
               {% else %}
               <div class="organogram-empty-state">
                 <h3>No reporting hierarchy available</h3>
-                <p>Assign accepting, reviewing, and controlling officers in this office to populate the flow chart.</p>
+                <p>Users without a controlling officer will appear as office heads once reporting mappings are assigned below them.</p>
               </div>
               {% endif %}
             </section>
@@ -346,7 +350,7 @@
           {% else %}
           <div class="organogram-empty-state">
             <h3>No reporting hierarchy available</h3>
-            <p>Assign accepting, reviewing, and controlling officers to populate the reporting flow chart.</p>
+            <p>Users without a controlling officer will anchor each office flow once reporting mappings are in place.</p>
           </div>
           {% endif %}
         </div>

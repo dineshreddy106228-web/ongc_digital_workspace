@@ -35,7 +35,7 @@
 }
 .msds-center-form {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(260px, 1.15fr) auto;
+  grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) minmax(260px, 1.15fr) auto;
   gap: 0.75rem;
   align-items: end;
 }
@@ -237,6 +237,17 @@
           </datalist>
         </div>
         <div>
+          <label class="msds-field-label" for="slot_code">MSDS Slot</label>
+          <select class="msds-input" id="slot_code" name="slot_code" required>
+            {% for option in msds_slot_options %}
+            <option value="{{ option.value }}" {{ 'selected' if option.value == (prefill_slot_code or 'standard') else '' }}>
+              {{ option.label }}
+            </option>
+            {% endfor %}
+          </select>
+          <div class="msds-file-meta" style="margin-top:0.35rem;">1 ONGC standard slot + 3 vendor-submitted slots per material. Uploading to the same slot replaces that slot.</div>
+        </div>
+        <div>
           <label class="msds-field-label" for="msds_file">PDF File</label>
           <input class="msds-input" type="file" id="msds_file" name="msds_file" accept="application/pdf,.pdf" required>
         </div>
@@ -255,7 +266,7 @@
       </div>
       <div class="msds-stat">
         <div class="msds-stat-label">Upload Behavior</div>
-        <div class="msds-stat-value">Each upload creates a new MSDS record for the material</div>
+        <div class="msds-stat-value">1 ONGC standard slot and 3 vendor slots per material</div>
       </div>
       <div class="msds-stat">
         <div class="msds-stat-label">Admin Path</div>
@@ -298,7 +309,7 @@
               <td class="msds-text-cell">{{ row.short_text }}</td>
               <td class="msds-status-cell">
                 {% if msds_files %}
-                <span class="msds-status-pill is-present"><i class="bi bi-check-circle-fill"></i> {{ msds_files|length }} stored</span>
+                <span class="msds-status-pill is-present"><i class="bi bi-check-circle-fill"></i> {{ msds_files|length }}/4 slots used</span>
                 {% else %}
                 <span class="msds-status-pill is-missing"><i class="bi bi-dash-circle"></i> Not Stored</span>
                 {% endif %}
@@ -308,6 +319,7 @@
                 <div class="msds-file-stack">
                   {% for msds_file in msds_files %}
                   <div class="msds-file-item">
+                    <div class="inv-badge inv-badge-info" style="margin-bottom:0.45rem;">{{ msds_file.slot_label }}</div>
                     <div class="msds-file-name"><strong>{{ msds_file.filename }}</strong></div>
                     <div class="msds-file-meta">
                       {{ "{:,.0f}".format(msds_file.file_size / 1024) }} KB ·

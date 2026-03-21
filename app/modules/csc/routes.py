@@ -2578,12 +2578,80 @@ def _row_material_code(row) -> str:
     return str(getattr(row, "material", "") or "").strip()
 
 
+def _row_short_text(row) -> str:
+    if isinstance(row, dict):
+        return str(row.get("short_text") or "").strip()
+    return str(getattr(row, "short_text", "") or "").strip()
+
+
+def _build_msds_material_selector_options(rows) -> list[dict[str, str]]:
+    """Return MSDS selector options ordered by published spec subset order."""
+    material_rows = {
+        _row_material_code(row): row
+        for row in rows
+        if _row_material_code(row)
+    }
+
+    options: list[dict[str, str]] = []
+    seen_codes: set[str] = set()
+
+    try:
+        published_specs = sorted(
+            CSCDraft.query.filter(
+                CSCDraft.parent_draft_id.is_(None),
+                CSCDraft.admin_stage == ADMIN_STAGE_PUBLISHED,
+                CSCDraft.material_code.isnot(None),
+                CSCDraft.material_code != "",
+            ).all(),
+            key=_draft_sort_key,
+        )
+    except Exception:
+        logger.exception("Failed to build published-spec selector options for MSDS Center")
+        published_specs = []
+
+    for draft in published_specs:
+        material_code = (draft.material_code or "").strip()
+        if not material_code or material_code in seen_codes:
+            continue
+
+        row = material_rows.get(material_code)
+        short_text = _row_short_text(row) if row is not None else ""
+        description = short_text or (draft.chemical_name or "").strip() or "—"
+
+        options.append(
+            {
+                "value": material_code,
+                "spec_number": (draft.spec_number or "").strip(),
+                "material_code": material_code,
+                "description": description,
+            }
+        )
+        seen_codes.add(material_code)
+
+    for material_code in sorted(code for code in material_rows if code not in seen_codes):
+        row = material_rows.get(material_code)
+        options.append(
+            {
+                "value": material_code,
+                "spec_number": "",
+                "material_code": material_code,
+                "description": _row_short_text(row) or "—",
+            }
+        )
+
+    return options
+
+
 @csc_bp.route("/msds")
 @login_required
 @module_access_required("csc")
 def msds_page():
     """MSDS center within Material Master Management."""
-    from app.core.services.msds_service import MSDSError, get_msds_material_index
+    from app.core.services.msds_service import (
+        MSDSError,
+        get_msds_material_index,
+        get_msds_slot_options,
+    )
 
     rows = []
     try:
@@ -2601,11 +2669,14 @@ def msds_page():
     return render_template(
         "csc/msds.html",
         rows=rows,
+        material_selector_options=_build_msds_material_selector_options(rows),
+        msds_slot_options=get_msds_slot_options(),
         total=len(rows),
         msds_by_material=msds_by_material,
         msds_count=sum(len(files) for files in msds_by_material.values()),
         msds_material_total=len(msds_by_material),
         prefill_material_code=(request.args.get("material_code") or "").strip(),
+        prefill_slot_code=(request.args.get("slot_code") or "").strip().lower() or "standard",
     )
 
 
@@ -2617,23 +2688,32 @@ def upload_msds():
     from app.core.services.msds_service import MSDSError, store_msds_document
 
     material_code = request.form.get("material_code", "").strip()
+    slot_code = request.form.get("slot_code", "").strip().lower()
     file_obj = request.files.get("msds_file")
 
     try:
-        store_msds_document(material_code=material_code, file_obj=file_obj)
+        msds_file = store_msds_document(
+            material_code=material_code,
+            file_obj=file_obj,
+            slot_code=slot_code,
+        )
         db.session.commit()
     except MSDSError as exc:
         db.session.rollback()
         flash(str(exc), "danger")
-        return redirect(url_for("csc.msds_page", material_code=material_code))
+        return redirect(url_for("csc.msds_page", material_code=material_code, slot_code=slot_code))
     except Exception:
         db.session.rollback()
         logger.exception("Failed to upload MSDS PDF for material=%s", material_code)
         flash("Could not upload the MSDS PDF.", "danger")
-        return redirect(url_for("csc.msds_page", material_code=material_code))
+        return redirect(url_for("csc.msds_page", material_code=material_code, slot_code=slot_code))
 
-    flash(f"MSDS PDF stored for material '{material_code}'.", "success")
-    return redirect(url_for("csc.msds_page", material_code=material_code))
+    action = "replaced" if getattr(msds_file, "storage_action", "") == "replaced" else "stored"
+    flash(
+        f"{msds_file.slot_label} {action} for material '{material_code}'.",
+        "success",
+    )
+    return redirect(url_for("csc.msds_page", material_code=material_code, slot_code=slot_code))
 
 
 @csc_bp.route("/msds/<int:file_id>")
@@ -2685,7 +2765,7 @@ def delete_msds(file_id: int):
         return redirect(url_for("csc.msds_page"))
 
     flash(
-        f"MSDS PDF '{msds_file.filename}' deleted for material '{msds_file.material_code}'.",
+        f"{msds_file.slot_label} '{msds_file.filename}' deleted for material '{msds_file.material_code}'.",
         "success",
     )
     return redirect(url_for("csc.msds_page", material_code=msds_file.material_code))

@@ -273,6 +273,12 @@
   border-color: color-mix(in srgb, #0f766e 35%, var(--panel-border-strong, #e2e8f0));
 }
 
+.organogram-card-level-head {
+  border-color: color-mix(in srgb, #4338ca 38%, var(--panel-border-strong, #e2e8f0));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, #e0e7ff 72%, #ffffff) 0%, #ffffff 100%);
+}
+
 .organogram-card-level-reviewing {
   border-color: color-mix(in srgb, #1d4ed8 35%, var(--panel-border-strong, #e2e8f0));
 }
@@ -316,6 +322,11 @@
 .organogram-level-badge-accepting {
   background: color-mix(in srgb, #ccfbf1 84%, #ffffff);
   color: #115e59;
+}
+
+.organogram-level-badge-head {
+  background: color-mix(in srgb, #e0e7ff 84%, #ffffff);
+  color: #4338ca;
 }
 
 .organogram-level-badge-reviewing {

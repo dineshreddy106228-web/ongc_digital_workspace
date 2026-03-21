@@ -10,6 +10,8 @@ Governance V2 additions:
 import logging
 import os
 import tempfile
+from datetime import datetime
+from io import BytesIO
 from flask import render_template, redirect, url_for, flash, request, send_file
 from flask_login import login_required, current_user
 from sqlalchemy.exc import SQLAlchemyError
@@ -203,11 +205,255 @@ def _record_dependency_change(changes: list[str], label: str, count: int) -> Non
         changes.append(f"{count} {label}{suffix}")
 
 
+def _format_excel_datetime(value) -> str:
+    if value is None:
+        return ""
+    return value.strftime("%d %b %Y %I:%M %p")
+
+
+def _autosize_worksheet(sheet) -> None:
+    for column_cells in sheet.columns:
+        max_length = 0
+        column_letter = column_cells[0].column_letter
+        for cell in column_cells:
+            cell_value = "" if cell.value is None else str(cell.value)
+            max_length = max(max_length, len(cell_value))
+        sheet.column_dimensions[column_letter].width = min(max(max_length + 2, 12), 42)
+
+
+def _write_report_sheet(sheet, headers: list[str], rows: list[list[object]]) -> None:
+    from openpyxl.styles import Alignment, Font, PatternFill
+
+    header_fill = PatternFill(fill_type="solid", fgColor="DCE6F7")
+    header_font = Font(bold=True, color="1F2937")
+
+    sheet.append(headers)
+    for cell in sheet[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    for row in rows:
+        sheet.append(row)
+
+    sheet.freeze_panes = "A2"
+    for row in sheet.iter_rows(min_row=2):
+        for cell in row:
+            cell.alignment = Alignment(vertical="top", wrap_text=True)
+    _autosize_worksheet(sheet)
+
+
+def _build_user_report_workbook(
+    users: list[User],
+    roles: list[Role],
+    offices: list[Office],
+    permissions: list[UserModulePermission],
+    module_admin_assignments: list[ModuleAdminAssignment],
+    hierarchy_summary: dict,
+):
+    from openpyxl import Workbook
+
+    workbook = Workbook()
+    module_label_map = {option["code"]: option["label"] for option in _module_options()}
+    user_by_id = {user.id: user for user in users}
+    permission_map: dict[int, list[UserModulePermission]] = {}
+    for permission in permissions:
+        permission_map.setdefault(permission.user_id, []).append(permission)
+    for permission_rows in permission_map.values():
+        permission_rows.sort(key=lambda item: (item.module_code or "").lower())
+
+    module_admin_map: dict[int, list[ModuleAdminAssignment]] = {}
+    for assignment in module_admin_assignments:
+        module_admin_map.setdefault(assignment.user_id, []).append(assignment)
+    for assignment_rows in module_admin_map.values():
+        assignment_rows.sort(key=lambda item: (item.module_code or "").lower())
+
+    summary_sheet = workbook.active
+    summary_sheet.title = "Summary"
+    summary_rows = [
+        ["Generated At", _format_excel_datetime(datetime.now())],
+        ["Exported By", current_user.username],
+        ["Total Users", hierarchy_summary["total_users"]],
+        ["Mapped Users", hierarchy_summary["mapped_users"]],
+        ["Fully Mapped Users", hierarchy_summary["fully_mapped_users"]],
+        ["Office Heads", hierarchy_summary["office_heads"]],
+        ["Active Users", sum(1 for user in users if user.is_active)],
+        ["Inactive Users", sum(1 for user in users if not user.is_active)],
+        ["Roles", len(roles)],
+        ["Offices", len(offices)],
+        ["Module Permission Rows", len(permissions)],
+        ["Module Admin Assignments", len(module_admin_assignments)],
+    ]
+    _write_report_sheet(summary_sheet, ["Metric", "Value"], summary_rows)
+
+    users_sheet = workbook.create_sheet("Users")
+    user_rows = []
+    for user in sorted(users, key=_user_sort_key):
+        permission_labels = [
+            module_label_map.get(permission.module_code, permission.module_code)
+            for permission in permission_map.get(user.id, [])
+            if permission.can_access
+        ]
+        module_admin_labels = [
+            module_label_map.get(assignment.module_code, assignment.module_code)
+            for assignment in module_admin_map.get(user.id, [])
+        ]
+        user_rows.append(
+            [
+                user.id,
+                user.username,
+                user.full_name or "",
+                user.email or "",
+                user.employee_code or "",
+                user.designation or "",
+                user.role.name if user.role else "",
+                user.office.office_name if user.office else "",
+                user.office.office_code if user.office else "",
+                _display_user_name(user.controlling_officer) if user.controlling_officer else "",
+                _display_user_name(user.reviewing_officer) if user.reviewing_officer else "",
+                _display_user_name(user.accepting_officer) if user.accepting_officer else "",
+                "Active" if user.is_active else "Inactive",
+                "Yes" if user.must_change_password else "No",
+                _format_excel_datetime(user.last_login_at),
+                _format_excel_datetime(user.created_at),
+                _format_excel_datetime(user.updated_at),
+                ", ".join(permission_labels),
+                ", ".join(module_admin_labels),
+            ]
+        )
+    _write_report_sheet(
+        users_sheet,
+        [
+            "User ID",
+            "Username",
+            "Full Name",
+            "Email",
+            "Employee Code",
+            "Designation",
+            "Role",
+            "Office",
+            "Office Code",
+            "Controlling Officer",
+            "Reviewing Officer",
+            "Accepting Officer",
+            "Status",
+            "Must Change Password",
+            "Last Login",
+            "Created At",
+            "Updated At",
+            "Module Access",
+            "Module Admin Ownership",
+        ],
+        user_rows,
+    )
+
+    roles_sheet = workbook.create_sheet("Roles")
+    role_rows = []
+    for role in sorted(roles, key=lambda item: (item.name or "").lower()):
+        role_rows.append(
+            [
+                role.id,
+                role.name,
+                role.description or "",
+                "Active" if role.is_active else "Inactive",
+                role.users.count(),
+                _format_excel_datetime(role.created_at),
+                _format_excel_datetime(role.updated_at),
+            ]
+        )
+    _write_report_sheet(
+        roles_sheet,
+        ["Role ID", "Role", "Description", "Status", "User Count", "Created At", "Updated At"],
+        role_rows,
+    )
+
+    offices_sheet = workbook.create_sheet("Offices")
+    office_rows = []
+    for office in sorted(offices, key=lambda item: (item.office_name or "").lower()):
+        office_users = [user for user in users if user.office_id == office.id]
+        office_rows.append(
+            [
+                office.id,
+                office.office_code,
+                office.office_name,
+                office.location or "",
+                "Active" if office.is_active else "Inactive",
+                len(office_users),
+                sum(1 for user in office_users if user.is_active),
+                _format_excel_datetime(office.created_at),
+                _format_excel_datetime(office.updated_at),
+            ]
+        )
+    _write_report_sheet(
+        offices_sheet,
+        ["Office ID", "Office Code", "Office Name", "Location", "Status", "Total Users", "Active Users", "Created At", "Updated At"],
+        office_rows,
+    )
+
+    permissions_sheet = workbook.create_sheet("Module Access")
+    permission_rows = []
+    for permission in sorted(
+        permissions,
+        key=lambda item: (
+            (user_by_id.get(item.user_id).username if user_by_id.get(item.user_id) else "").lower(),
+            (item.module_code or "").lower(),
+        ),
+    ):
+        user = user_by_id.get(permission.user_id)
+        permission_rows.append(
+            [
+                user.username if user else permission.user_id,
+                user.full_name if user else "",
+                user.role.name if user and user.role else "",
+                module_label_map.get(permission.module_code, permission.module_code),
+                permission.module_code,
+                "Yes" if permission.can_access else "No",
+                _format_excel_datetime(permission.created_at),
+                _format_excel_datetime(permission.updated_at),
+            ]
+        )
+    _write_report_sheet(
+        permissions_sheet,
+        ["Username", "Full Name", "Role", "Module", "Module Code", "Can Access", "Created At", "Updated At"],
+        permission_rows,
+    )
+
+    module_admins_sheet = workbook.create_sheet("Module Admins")
+    admin_rows = []
+    for assignment in sorted(
+        module_admin_assignments,
+        key=lambda item: (
+            module_label_map.get(item.module_code, item.module_code).lower(),
+            item.user.username.lower() if item.user else "",
+        ),
+    ):
+        admin_rows.append(
+            [
+                module_label_map.get(assignment.module_code, assignment.module_code),
+                assignment.module_code,
+                assignment.user.username if assignment.user else "",
+                assignment.user.full_name if assignment.user else "",
+                assignment.user.role.name if assignment.user and assignment.user.role else "",
+                assignment.user.office.office_name if assignment.user and assignment.user.office else "",
+                _format_excel_datetime(assignment.created_at),
+                _format_excel_datetime(assignment.updated_at),
+            ]
+        )
+    _write_report_sheet(
+        module_admins_sheet,
+        ["Module", "Module Code", "Username", "Full Name", "Role", "Office", "Created At", "Updated At"],
+        admin_rows,
+    )
+
+    return workbook
+
+
 ORGANOGRAM_LEVEL_META = {
-    "accepting": {"label": "Accepting Officer", "order": 0},
-    "reviewing": {"label": "Reviewing Officer", "order": 1},
-    "controlling": {"label": "Controlling Officer", "order": 2},
-    "user": {"label": "User", "order": 3},
+    "head": {"label": "Office Head", "order": 0},
+    "accepting": {"label": "Accepting Officer", "order": 1},
+    "reviewing": {"label": "Reviewing Officer", "order": 2},
+    "controlling": {"label": "Controlling Officer", "order": 3},
+    "user": {"label": "User", "order": 4},
 }
 
 
@@ -304,28 +550,56 @@ def _build_user_organogram(users):
                 parent["children"].append(node)
             return node
 
+        def _head_for_user(user: User):
+            if not user.controlling_officer_id:
+                return user
+
+            for officer in (
+                users_by_id.get(user.accepting_officer_id),
+                users_by_id.get(user.reviewing_officer_id),
+                users_by_id.get(user.controlling_officer_id),
+            ):
+                if officer is not None and not officer.controlling_officer_id:
+                    return officer
+
+            return None
+
+        for user in sorted(office_users, key=_user_sort_key):
+            if not user.controlling_officer_id:
+                _ensure_root("head", user)
+
         for user in sorted(office_users, key=_user_sort_key):
             chain_parent = None
-            chain_users = [
-                ("accepting", users_by_id.get(user.accepting_officer_id)),
-                ("reviewing", users_by_id.get(user.reviewing_officer_id)),
-                ("controlling", users_by_id.get(user.controlling_officer_id)),
-            ]
+            head_user = _head_for_user(user)
+            seen_ids = set()
+
+            if head_user is not None:
+                chain_parent = _ensure_root("head", head_user)
+                seen_ids.add(head_user.id)
+
+            chain_users = []
+            if head_user is not user:
+                chain_users = [
+                    ("accepting", users_by_id.get(user.accepting_officer_id)),
+                    ("reviewing", users_by_id.get(user.reviewing_officer_id)),
+                    ("controlling", users_by_id.get(user.controlling_officer_id)),
+                ]
 
             for level, officer in chain_users:
-                if officer is None:
+                if officer is None or officer.id in seen_ids:
                     continue
                 chain_parent = (
                     _ensure_root(level, officer)
                     if chain_parent is None
                     else _ensure_child(chain_parent, level, officer)
                 )
+                seen_ids.add(officer.id)
 
             if chain_parent is not None:
                 if user.id not in officer_reference_ids:
                     _ensure_child(chain_parent, "user", user)
             elif user.id not in officer_reference_ids:
-                _ensure_root("user", user)
+                _ensure_root("head" if not user.controlling_officer_id else "user", user)
 
         finalized_roots = _finalize(roots)
         organogram.append(
@@ -344,8 +618,8 @@ def _build_user_organogram(users):
                         ]
                     )
                 ),
-                "accepting_roots": sum(
-                    1 for node in finalized_roots if node["level"] == "accepting"
+                "office_heads": sum(
+                    1 for node in finalized_roots if node["level"] == "head"
                 ),
                 "unmapped_users": sum(
                     1
@@ -403,13 +677,118 @@ def users():
             and user.reviewing_officer_id
             and user.accepting_officer_id
         ),
-        "accepting_roots": sum(section["accepting_roots"] for section in organogram),
+        "office_heads": sum(section["office_heads"] for section in organogram),
     }
     return render_template(
         "admin/users.html",
         users=all_users,
         organogram=organogram,
         hierarchy_summary=hierarchy_summary,
+    )
+
+
+@admin_bp.route("/users/export")
+@login_required
+@roles_required(ADMIN_ROLE)
+def export_users_report():
+    users = (
+        User.query
+        .options(
+            joinedload(User.role),
+            joinedload(User.office),
+            joinedload(User.controlling_officer),
+            joinedload(User.reviewing_officer),
+            joinedload(User.accepting_officer),
+        )
+        .order_by(User.created_at.desc())
+        .all()
+    )
+    roles = Role.query.order_by(Role.name.asc()).all()
+    offices = Office.query.order_by(Office.office_name.asc()).all()
+    permissions = (
+        UserModulePermission.query
+        .order_by(UserModulePermission.user_id.asc(), UserModulePermission.module_code.asc())
+        .all()
+    )
+    module_admin_assignments = (
+        ModuleAdminAssignment.query
+        .options(
+            joinedload(ModuleAdminAssignment.user).joinedload(User.role),
+            joinedload(ModuleAdminAssignment.user).joinedload(User.office),
+        )
+        .order_by(ModuleAdminAssignment.module_code.asc(), ModuleAdminAssignment.user_id.asc())
+        .all()
+    )
+
+    organogram = _build_user_organogram(users)
+    hierarchy_summary = {
+        "total_users": len(users),
+        "mapped_users": sum(
+            1
+            for user in users
+            if any(
+                [
+                    user.controlling_officer_id,
+                    user.reviewing_officer_id,
+                    user.accepting_officer_id,
+                ]
+            )
+        ),
+        "fully_mapped_users": sum(
+            1
+            for user in users
+            if user.controlling_officer_id
+            and user.reviewing_officer_id
+            and user.accepting_officer_id
+        ),
+        "office_heads": sum(section["office_heads"] for section in organogram),
+    }
+
+    workbook = _build_user_report_workbook(
+        users=users,
+        roles=roles,
+        offices=offices,
+        permissions=permissions,
+        module_admin_assignments=module_admin_assignments,
+        hierarchy_summary=hierarchy_summary,
+    )
+
+    stream = BytesIO()
+    workbook.save(stream)
+    stream.seek(0)
+    filename = f"user_management_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+
+    try:
+        db.session.add(
+            AuditLog(
+                action="USER_REPORT_EXPORTED",
+                user_id=current_user.id,
+                entity_type="UserReport",
+                entity_id=filename,
+                details=(
+                    f"Admin '{current_user.username}' exported the user management report "
+                    f"'{filename}'."
+                ),
+                ip_address=AuditLog._normalize_ip(_client_ip()),
+                user_agent=AuditLog._normalize_user_agent(get_user_agent()),
+            )
+        )
+        log_activity(
+            current_user.username,
+            "user_report_exported",
+            "user_management",
+            filename,
+        )
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+
+    return send_file(
+        stream,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        max_age=0,
     )
 
 

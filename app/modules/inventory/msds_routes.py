@@ -33,7 +33,11 @@ def _material_codes_from_rows(rows) -> list[str]:
 def msds_page():
     """Dedicated MSDS upload and management page for superusers."""
     from app.core.services.master_data import get_all_master_data
-    from app.core.services.msds_service import MSDSError, get_msds_material_index
+    from app.core.services.msds_service import (
+        MSDSError,
+        get_msds_material_index,
+        get_msds_slot_options,
+    )
 
     rows = []
     try:
@@ -51,11 +55,13 @@ def msds_page():
     return render_template(
         "inventory/msds.html",
         rows=rows,
+        msds_slot_options=get_msds_slot_options(),
         total=len(rows),
         msds_by_material=msds_by_material,
         msds_count=sum(len(files) for files in msds_by_material.values()),
         msds_material_total=len(msds_by_material),
         prefill_material_code=(request.args.get("material_code") or "").strip(),
+        prefill_slot_code=(request.args.get("slot_code") or "").strip().lower() or "standard",
     )
 
 
@@ -67,23 +73,32 @@ def upload_msds():
     from app.core.services.msds_service import MSDSError, store_msds_document
 
     material_code = request.form.get("material_code", "").strip()
+    slot_code = request.form.get("slot_code", "").strip().lower()
     file_obj = request.files.get("msds_file")
 
     try:
-        store_msds_document(material_code=material_code, file_obj=file_obj)
+        msds_file = store_msds_document(
+            material_code=material_code,
+            file_obj=file_obj,
+            slot_code=slot_code,
+        )
         db.session.commit()
     except MSDSError as exc:
         db.session.rollback()
         flash(str(exc), "danger")
-        return redirect(url_for("inventory.msds_page", material_code=material_code))
+        return redirect(url_for("inventory.msds_page", material_code=material_code, slot_code=slot_code))
     except Exception:
         db.session.rollback()
         logger.exception("Failed to upload MSDS PDF for material=%s", material_code)
         flash("Could not upload the MSDS PDF.", "danger")
-        return redirect(url_for("inventory.msds_page", material_code=material_code))
+        return redirect(url_for("inventory.msds_page", material_code=material_code, slot_code=slot_code))
 
-    flash(f"MSDS PDF stored for material '{material_code}'.", "success")
-    return redirect(url_for("inventory.msds_page", material_code=material_code))
+    action = "replaced" if getattr(msds_file, "storage_action", "") == "replaced" else "stored"
+    flash(
+        f"{msds_file.slot_label} {action} for material '{material_code}'.",
+        "success",
+    )
+    return redirect(url_for("inventory.msds_page", material_code=material_code, slot_code=slot_code))
 
 
 @inventory_bp.route("/msds/<int:file_id>")
@@ -163,7 +178,7 @@ def delete_msds(file_id: int):
         return redirect(url_for("inventory.msds_page"))
 
     flash(
-        f"MSDS PDF '{msds_file.filename}' deleted for material '{msds_file.material_code}'.",
+        f"{msds_file.slot_label} '{msds_file.filename}' deleted for material '{msds_file.material_code}'.",
         "success",
     )
     return redirect(url_for("inventory.msds_page", material_code=msds_file.material_code))
