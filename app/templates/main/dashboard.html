@@ -56,12 +56,12 @@
                 <strong>{{ user.office.office_name }}</strong>
             </div>
             {% endif %}
-            {% if user.controlling_officer %}
+            {% for officer in workspace_context.officer_chain %}
             <div class="dashboard-summary-item">
-                <span>Controlling Officer</span>
-                <strong>{{ user.controlling_officer.full_name or user.controlling_officer.username }}</strong>
+                <span>{{ officer.label }}</span>
+                <strong>{{ officer.name }}</strong>
             </div>
-            {% endif %}
+            {% endfor %}
         </div>
     </div>
 

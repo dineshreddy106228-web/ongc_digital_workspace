@@ -12,6 +12,7 @@ import tempfile
 from flask import render_template, redirect, url_for, flash, request, send_file
 from flask_login import login_required, current_user
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import joinedload
 from app.modules.admin import admin_bp
 from app.extensions import db
 from app.features import get_admin_module_options
@@ -148,13 +149,143 @@ def _assignable_roles():
     ]
 
 
+def _display_user_name(user) -> str:
+    if user is None:
+        return "Unassigned"
+
+    full_name = (user.full_name or "").strip()
+    if full_name:
+        return full_name
+
+    username = (user.username or "").strip()
+    return username or "Unassigned"
+
+
+def _user_sort_key(user: User):
+    return (_display_user_name(user).lower(), (user.username or "").lower(), user.id)
+
+
+def _resolve_officer_selection(raw_id, label, target_user_id=None):
+    raw_value = (raw_id or "").strip()
+    if not raw_value:
+        return None, None
+
+    if not raw_value.isdigit():
+        return None, f"Select a valid {label}."
+
+    officer = User.query.filter_by(id=int(raw_value), is_active=True).first()
+    if officer is None:
+        return None, f"Selected {label} is invalid or inactive."
+
+    if target_user_id is not None and officer.id == target_user_id:
+        return None, f"A user cannot be their own {label}."
+
+    return officer, None
+
+
+def _build_user_organogram(users):
+    users_by_id = {user.id: user for user in users}
+    children_by_parent = {}
+
+    for user in users:
+        parent_id = user.controlling_officer_id
+        if parent_id and parent_id in users_by_id and parent_id != user.id:
+            children_by_parent.setdefault(parent_id, []).append(user)
+
+    for children in children_by_parent.values():
+        children.sort(key=_user_sort_key)
+
+    roots = [
+        user
+        for user in users
+        if not user.controlling_officer_id
+        or user.controlling_officer_id not in users_by_id
+        or user.controlling_officer_id == user.id
+    ]
+    roots.sort(key=_user_sort_key)
+
+    placed_ids = set()
+
+    def _build_node(user, lineage=None):
+        active_lineage = set(lineage or set())
+        active_lineage.add(user.id)
+        placed_ids.add(user.id)
+
+        child_nodes = []
+        for child in children_by_parent.get(user.id, []):
+            if child.id in active_lineage:
+                continue
+            child_nodes.append(_build_node(child, active_lineage))
+
+        return {
+            "id": user.id,
+            "name": _display_user_name(user),
+            "username": user.username,
+            "role_name": user.role.name if user.role else "No role",
+            "office_name": user.office.office_name if user.office else "No office",
+            "designation": (user.designation or "").strip(),
+            "is_active": user.is_active,
+            "reviewing_officer_name": _display_user_name(user.reviewing_officer)
+            if user.reviewing_officer else None,
+            "accepting_officer_name": _display_user_name(user.accepting_officer)
+            if user.accepting_officer else None,
+            "direct_report_count": len(children_by_parent.get(user.id, [])),
+            "children": child_nodes,
+        }
+
+    organogram = [_build_node(root) for root in roots]
+
+    for user in sorted((user for user in users if user.id not in placed_ids), key=_user_sort_key):
+        organogram.append(_build_node(user))
+
+    return organogram
+
+
 # ── Users List ───────────────────────────────────────────────────
 @admin_bp.route("/users")
 @login_required
 @roles_required(ADMIN_ROLE)
 def users():
-    all_users = User.query.order_by(User.created_at.desc()).all()
-    return render_template("admin/users.html", users=all_users)
+    all_users = (
+        User.query
+        .options(
+            joinedload(User.role),
+            joinedload(User.office),
+            joinedload(User.controlling_officer),
+            joinedload(User.reviewing_officer),
+            joinedload(User.accepting_officer),
+        )
+        .order_by(User.created_at.desc())
+        .all()
+    )
+    hierarchy_summary = {
+        "total_users": len(all_users),
+        "mapped_users": sum(
+            1
+            for user in all_users
+            if any(
+                [
+                    user.controlling_officer_id,
+                    user.reviewing_officer_id,
+                    user.accepting_officer_id,
+                ]
+            )
+        ),
+        "fully_mapped_users": sum(
+            1
+            for user in all_users
+            if user.controlling_officer_id
+            and user.reviewing_officer_id
+            and user.accepting_officer_id
+        ),
+        "root_users": sum(1 for user in all_users if not user.controlling_officer_id),
+    }
+    return render_template(
+        "admin/users.html",
+        users=all_users,
+        organogram=_build_user_organogram(all_users),
+        hierarchy_summary=hierarchy_summary,
+    )
 
 
 @admin_bp.route("/modules", methods=["GET", "POST"])
@@ -288,6 +419,7 @@ def create_user():
         is_active = request.form.get("is_active") == "on"
         controlling_officer_id_raw = request.form.get("controlling_officer_id", "").strip()
         reviewing_officer_id_raw = request.form.get("reviewing_officer_id", "").strip()
+        accepting_officer_id_raw = request.form.get("accepting_officer_id", "").strip()
         selected_modules = request.form.getlist("module_access")
 
         # ── Validation ────────────────────────────────────────────
@@ -327,14 +459,22 @@ def create_user():
         # Validate officer references
         controlling_officer_id = None
         reviewing_officer_id = None
-        if controlling_officer_id_raw and controlling_officer_id_raw.isdigit():
-            co = User.query.filter_by(id=int(controlling_officer_id_raw), is_active=True).first()
-            if co:
-                controlling_officer_id = co.id
-        if reviewing_officer_id_raw and reviewing_officer_id_raw.isdigit():
-            ro = User.query.filter_by(id=int(reviewing_officer_id_raw), is_active=True).first()
-            if ro:
-                reviewing_officer_id = ro.id
+        accepting_officer_id = None
+        co, co_error = _resolve_officer_selection(controlling_officer_id_raw, "controlling officer")
+        ro, ro_error = _resolve_officer_selection(reviewing_officer_id_raw, "reviewing officer")
+        ao, ao_error = _resolve_officer_selection(accepting_officer_id_raw, "accepting officer")
+        if co_error:
+            errors.append(co_error)
+        elif co:
+            controlling_officer_id = co.id
+        if ro_error:
+            errors.append(ro_error)
+        elif ro:
+            reviewing_officer_id = ro.id
+        if ao_error:
+            errors.append(ao_error)
+        elif ao:
+            accepting_officer_id = ao.id
 
         if errors:
             for err in errors:
@@ -362,6 +502,7 @@ def create_user():
             must_change_password=True,
             controlling_officer_id=controlling_officer_id,
             reviewing_officer_id=reviewing_officer_id,
+            accepting_officer_id=accepting_officer_id,
         )
         new_user.set_password(temp_password)
         db.session.add(new_user)
@@ -448,6 +589,7 @@ def edit_user(user_id):
         is_active = request.form.get("is_active") == "on"
         controlling_officer_id_raw = request.form.get("controlling_officer_id", "").strip()
         reviewing_officer_id_raw = request.form.get("reviewing_officer_id", "").strip()
+        accepting_officer_id_raw = request.form.get("accepting_officer_id", "").strip()
         selected_modules = request.form.getlist("module_access")
 
         # ── Validation ────────────────────────────────────────────
@@ -481,14 +623,28 @@ def edit_user(user_id):
         # Validate officer references
         controlling_officer_id = None
         reviewing_officer_id = None
-        if controlling_officer_id_raw and controlling_officer_id_raw.isdigit():
-            co = User.query.filter_by(id=int(controlling_officer_id_raw), is_active=True).first()
-            if co and co.id != user_id:
-                controlling_officer_id = co.id
-        if reviewing_officer_id_raw and reviewing_officer_id_raw.isdigit():
-            ro = User.query.filter_by(id=int(reviewing_officer_id_raw), is_active=True).first()
-            if ro and ro.id != user_id:
-                reviewing_officer_id = ro.id
+        accepting_officer_id = None
+        co, co_error = _resolve_officer_selection(
+            controlling_officer_id_raw, "controlling officer", target_user_id=user_id
+        )
+        ro, ro_error = _resolve_officer_selection(
+            reviewing_officer_id_raw, "reviewing officer", target_user_id=user_id
+        )
+        ao, ao_error = _resolve_officer_selection(
+            accepting_officer_id_raw, "accepting officer", target_user_id=user_id
+        )
+        if co_error:
+            errors.append(co_error)
+        elif co:
+            controlling_officer_id = co.id
+        if ro_error:
+            errors.append(ro_error)
+        elif ro:
+            reviewing_officer_id = ro.id
+        if ao_error:
+            errors.append(ao_error)
+        elif ao:
+            accepting_officer_id = ao.id
 
         if errors:
             for err in errors:
@@ -533,12 +689,16 @@ def edit_user(user_id):
         # Hierarchy changes
         old_co = target.controlling_officer_id
         old_ro = target.reviewing_officer_id
+        old_ao = target.accepting_officer_id
         target.controlling_officer_id = controlling_officer_id
         target.reviewing_officer_id = reviewing_officer_id
+        target.accepting_officer_id = accepting_officer_id
         if old_co != controlling_officer_id:
             changed_fields.append(f"controlling_officer_id: {old_co} → {controlling_officer_id}")
         if old_ro != reviewing_officer_id:
             changed_fields.append(f"reviewing_officer_id: {old_ro} → {reviewing_officer_id}")
+        if old_ao != accepting_officer_id:
+            changed_fields.append(f"accepting_officer_id: {old_ao} → {accepting_officer_id}")
 
         db.session.flush()
 
@@ -560,7 +720,11 @@ def edit_user(user_id):
         )
 
         # Separate audit entries for governance changes
-        if old_co != controlling_officer_id or old_ro != reviewing_officer_id:
+        if (
+            old_co != controlling_officer_id
+            or old_ro != reviewing_officer_id
+            or old_ao != accepting_officer_id
+        ):
             AuditLog.log(
                 action="USER_HIERARCHY_UPDATED",
                 user_id=current_user.id,
@@ -569,7 +733,8 @@ def edit_user(user_id):
                 details=(
                     f"Hierarchy updated for '{target.username}': "
                     f"controlling_officer_id={controlling_officer_id}, "
-                    f"reviewing_officer_id={reviewing_officer_id}"
+                    f"reviewing_officer_id={reviewing_officer_id}, "
+                    f"accepting_officer_id={accepting_officer_id}"
                 ),
                 ip_address=_client_ip(),
                 user_agent=get_user_agent(),
@@ -749,6 +914,10 @@ def delete_user(user_id):
         )
         User.query.filter_by(reviewing_officer_id=target.id).update(
             {User.reviewing_officer_id: None},
+            synchronize_session=False,
+        )
+        User.query.filter_by(accepting_officer_id=target.id).update(
+            {User.accepting_officer_id: None},
             synchronize_session=False,
         )
         Task.query.filter_by(owner_id=target.id).update(
@@ -1310,7 +1479,14 @@ def office_users(office_id):
     _require_office_management()
     office = Office.query.get_or_404(office_id)
     users_in_office = (
-        User.query.filter_by(office_id=office.id)
+        User.query
+        .options(
+            joinedload(User.role),
+            joinedload(User.controlling_officer),
+            joinedload(User.reviewing_officer),
+            joinedload(User.accepting_officer),
+        )
+        .filter_by(office_id=office.id)
         .order_by(User.is_active.desc(), User.full_name, User.username)
         .all()
     )
@@ -1388,18 +1564,14 @@ def set_user_officers(user_id):
     ro_raw = request.form.get("reviewing_officer_id", "").strip()
     ao_raw = request.form.get("accepting_officer_id", "").strip()
 
-    def _resolve_officer(raw_id, label):
-        if not raw_id or not raw_id.isdigit():
-            return None
-        officer = User.query.filter_by(id=int(raw_id), is_active=True).first()
-        if officer and officer.id == target.id:
-            flash(f"A user cannot be their own {label}.", "danger")
-            return None
-        return officer
+    co, co_error = _resolve_officer_selection(co_raw, "controlling officer", target_user_id=target.id)
+    ro, ro_error = _resolve_officer_selection(ro_raw, "reviewing officer", target_user_id=target.id)
+    ao, ao_error = _resolve_officer_selection(ao_raw, "accepting officer", target_user_id=target.id)
 
-    co = _resolve_officer(co_raw, "controlling officer")
-    ro = _resolve_officer(ro_raw, "reviewing officer")
-    ao = _resolve_officer(ao_raw, "accepting officer")
+    for error in (co_error, ro_error, ao_error):
+        if error:
+            flash(error, "danger")
+            return redirect(url_for("admin.edit_user", user_id=user_id))
 
     changed = []
     old_co = target.controlling_officer_id

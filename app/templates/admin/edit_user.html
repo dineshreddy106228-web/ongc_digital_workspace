@@ -181,7 +181,7 @@
         <div class="form-section">
           <h3 class="form-section-title">Reporting Hierarchy</h3>
           <p class="form-section-hint">
-            Controlling Officer sees this user's MY tasks and can add remarks.
+            Maintain the full reporting chain used by the organogram, task visibility, and approvals.
           </p>
 
           <div class="form-row">
@@ -202,6 +202,47 @@
                   </option>
                 {% endfor %}
               </select>
+              <small class="form-hint">Direct supervisor. Used as the organogram reporting line.</small>
+            </div>
+
+            <div class="form-group">
+              <label for="reviewing_officer_id" class="form-label">Reviewing Officer</label>
+              <select id="reviewing_officer_id" name="reviewing_officer_id" class="form-control">
+                <option value="">— None —</option>
+                {% for officer in officers %}
+                  {% set ro_selected = false %}
+                  {% if form_data %}
+                    {% set ro_selected = form_data.get('reviewing_officer_id', '') == officer.id|string %}
+                  {% else %}
+                    {% set ro_selected = target.reviewing_officer_id == officer.id %}
+                  {% endif %}
+                  <option value="{{ officer.id }}" {{ 'selected' if ro_selected }}>
+                    {{ officer.full_name or officer.username }}
+                    {% if officer.designation %} ({{ officer.designation }}){% endif %}
+                  </option>
+                {% endfor %}
+              </select>
+              <small class="form-hint">Second-level reporting officer for this user.</small>
+            </div>
+
+            <div class="form-group">
+              <label for="accepting_officer_id" class="form-label">Accepting Officer</label>
+              <select id="accepting_officer_id" name="accepting_officer_id" class="form-control">
+                <option value="">— None —</option>
+                {% for officer in officers %}
+                  {% set ao_selected = false %}
+                  {% if form_data %}
+                    {% set ao_selected = form_data.get('accepting_officer_id', '') == officer.id|string %}
+                  {% else %}
+                    {% set ao_selected = target.accepting_officer_id == officer.id %}
+                  {% endif %}
+                  <option value="{{ officer.id }}" {{ 'selected' if ao_selected }}>
+                    {{ officer.full_name or officer.username }}
+                    {% if officer.designation %} ({{ officer.designation }}){% endif %}
+                  </option>
+                {% endfor %}
+              </select>
+              <small class="form-hint">Final officer in the reporting chain.</small>
             </div>
           </div>
         </div>

@@ -40,6 +40,8 @@
               <th>Full Name</th>
               <th>Role</th>
               <th>Controlling Officer</th>
+              <th>Reviewing Officer</th>
+              <th>Accepting Officer</th>
               <th>Status</th>
               <th>Actions</th>
             </tr>
@@ -60,6 +62,20 @@
               <td>
                 {% if u.controlling_officer %}
                   {{ u.controlling_officer.full_name or u.controlling_officer.username }}
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if u.reviewing_officer %}
+                  {{ u.reviewing_officer.full_name or u.reviewing_officer.username }}
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if u.accepting_officer %}
+                  {{ u.accepting_officer.full_name or u.accepting_officer.username }}
                 {% else %}
                   <span class="text-muted">—</span>
                 {% endif %}

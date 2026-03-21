@@ -52,6 +52,164 @@
   padding: 1.35rem 1.4rem;
 }
 
+.admin-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.admin-metric-card .card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.admin-metric-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted, #666);
+}
+
+.admin-metric-value {
+  font-size: 1.8rem;
+  line-height: 1;
+  color: var(--color-text, #1a1a2e);
+}
+
+.admin-metric-detail {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-text-muted, #666);
+  line-height: 1.45;
+}
+
+.organogram-shell {
+  margin-bottom: 1rem;
+}
+
+.organogram-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.organogram-title {
+  margin: 0;
+  font-size: 1.15rem;
+  color: var(--color-text, #1a1a2e);
+}
+
+.organogram-subtitle {
+  margin: 0.35rem 0 0;
+  color: var(--color-text-muted, #666);
+  line-height: 1.6;
+  max-width: 78ch;
+}
+
+.organogram-canvas {
+  overflow: auto;
+  padding-bottom: 0.25rem;
+}
+
+.organogram-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.organogram-node {
+  position: relative;
+  margin: 0;
+}
+
+.organogram-children {
+  margin-top: 0.85rem;
+  margin-left: 1.25rem;
+  padding-left: 1.25rem;
+  border-left: 2px solid color-mix(in srgb, var(--color-border, #e2e8f0) 80%, var(--color-primary, #1a56db));
+}
+
+.organogram-card {
+  padding: 1rem 1.05rem;
+  border: 1px solid color-mix(in srgb, var(--panel-border-strong, #e2e8f0) 80%, var(--color-primary, #1a56db));
+  border-radius: 0.85rem;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-primary-light, #e8f0fe) 42%, #ffffff) 0%, #ffffff 100%);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+}
+
+.organogram-card.is-inactive {
+  opacity: 0.78;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-surface-alt, #f8fafc) 88%, #ffffff) 0%, #ffffff 100%);
+  border-style: dashed;
+}
+
+.organogram-card-topline {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.organogram-card-topline h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--color-text, #1a1a2e);
+}
+
+.organogram-card-topline p {
+  margin: 0.2rem 0 0;
+  font-size: 0.82rem;
+  color: var(--color-text-muted, #666);
+}
+
+.organogram-meta-grid,
+.organogram-chain-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.85rem;
+}
+
+.organogram-meta-grid span,
+.organogram-chain-grid span {
+  display: block;
+  margin-bottom: 0.2rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted, #666);
+}
+
+.organogram-meta-grid strong,
+.organogram-chain-grid strong {
+  font-size: 0.9rem;
+  color: var(--color-text, #1a1a2e);
+}
+
+.organogram-empty-state {
+  padding: 1.5rem;
+  border-radius: 0.85rem;
+  border: 1px dashed var(--color-border, #e2e8f0);
+  background: var(--color-surface-alt, #f8fafc);
+}
+
+.organogram-empty-state h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.organogram-empty-state p {
+  margin: 0.35rem 0 0;
+  color: var(--color-text-muted, #666);
+}
+
 /* ── Data Table ──────────────────────────────────────────────── */
 .table-responsive {
   overflow: auto;
@@ -103,6 +261,54 @@
   padding: 0.95rem 1rem;
   vertical-align: middle;
   color: var(--color-text, #1a1a2e);
+}
+
+.user-management-table {
+  table-layout: fixed;
+  white-space: normal;
+  font-size: 0.82rem;
+}
+
+.user-management-table thead th,
+.user-management-table td {
+  padding: 0.8rem 0.7rem;
+}
+
+.user-management-table td {
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.user-management-table td strong {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.user-management-table .badge {
+  white-space: normal;
+  text-align: center;
+}
+
+.user-management-table .actions-cell {
+  gap: 0.35rem;
+  align-items: flex-start;
+}
+
+.user-management-table .btn-sm {
+  padding: 0.34rem 0.55rem;
+  font-size: 0.72rem;
+}
+
+@media (max-width: 1500px) {
+  .user-management-table {
+    font-size: 0.78rem;
+  }
+
+  .user-management-table thead th,
+  .user-management-table td {
+    padding: 0.72rem 0.58rem;
+  }
 }
 
 .actions-cell {
