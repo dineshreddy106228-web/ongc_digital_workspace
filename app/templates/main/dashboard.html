@@ -20,7 +20,7 @@
         </div>
 
         <div class="dashboard-command-meta">
-            <div class="dashboard-meta-card">
+            <div class="dashboard-meta-card dashboard-meta-card-timestamp">
                 <span class="dashboard-meta-label">Last Refreshed</span>
                 <strong>{{ last_refreshed|datetime_ist('%d %b %Y · %I:%M %p') }}</strong>
             </div>
@@ -37,7 +37,7 @@
         </div>
     </div>
 
-    <div class="dashboard-summary-bar">
+    <div class="dashboard-summary-bar dashboard-summary-bar-command">
         <div class="dashboard-summary-copy">
             <h2>{{ welcome.greeting }}, {{ welcome.name }}</h2>
             <p>{{ welcome.summary }}</p>
@@ -67,7 +67,7 @@
 
     <div class="dashboard-main-grid">
         <div class="dashboard-main-column">
-            <details class="dashboard-section-block dashboard-collapsible">
+            <details class="dashboard-section-block dashboard-section-block-actions dashboard-collapsible">
                 <summary class="dashboard-collapsible-summary">
                     <div class="dashboard-section-header">
                         <div>
@@ -109,7 +109,7 @@
                 </div>
             </details>
 
-            <section class="dashboard-section-block">
+            <section class="dashboard-section-block dashboard-section-block-modules">
                 <div class="dashboard-section-header">
                     <div>
                         <h2 class="dashboard-section-title">Module Access</h2>
@@ -148,7 +148,7 @@
                 </div>
             </section>
 
-            <details class="dashboard-section-block dashboard-collapsible">
+            <details class="dashboard-section-block dashboard-section-block-visibility dashboard-collapsible">
                 <summary class="dashboard-collapsible-summary">
                     <div class="dashboard-section-header">
                         <div>
@@ -173,7 +173,7 @@
             </details>
 
             {% if is_super and dashboard_analytics %}
-            <section class="dashboard-section-block dashboard-analytics-section">
+            <section class="dashboard-section-block dashboard-section-block-analytics dashboard-analytics-section">
                 <div class="dashboard-section-header">
                     <div>
                         <h2 class="dashboard-section-title">Executive Analytics</h2>
@@ -257,7 +257,7 @@
         </div>
 
         <aside class="dashboard-side-column">
-            <section class="dashboard-side-panel">
+            <section class="dashboard-side-panel dashboard-side-panel-snapshot">
                 <div class="dashboard-section-header">
                     <div>
                         <h2 class="dashboard-section-title">Workspace Snapshot</h2>
@@ -281,7 +281,7 @@
                 </div>
             </section>
 
-            <section class="dashboard-side-panel">
+            <section class="dashboard-side-panel dashboard-side-panel-alerts">
                 <div class="dashboard-section-header">
                     <div>
                         <h2 class="dashboard-section-title">{{ alerts_panel_title }}</h2>
@@ -312,7 +312,7 @@
             </section>
 
             {% if is_admin and recent_activity %}
-            <section class="dashboard-side-panel">
+            <section class="dashboard-side-panel dashboard-side-panel-activity">
                 <div class="dashboard-section-header">
                     <div>
                         <h2 class="dashboard-section-title">Recent Activity</h2>
@@ -342,7 +342,7 @@
             {% endif %}
 
             {% if is_admin %}
-            <section class="dashboard-side-panel">
+            <section class="dashboard-side-panel dashboard-side-panel-status">
                 <div class="dashboard-section-header">
                     <div>
                         <h2 class="dashboard-section-title">System Status</h2>
@@ -364,7 +364,7 @@
         </aside>
     </div>
 
-    <div class="dashboard-guidance-strip">{{ workspace_context.guidance_message }}</div>
+    <div class="dashboard-guidance-strip dashboard-guidance-strip-command">{{ workspace_context.guidance_message }}</div>
 
 </section>
 {% endblock %}

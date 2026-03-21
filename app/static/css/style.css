@@ -1566,6 +1566,26 @@ body.workspace-flyout-open .workspace-backdrop {
     border-radius: 14px;
     border: 1px solid var(--border);
     background: var(--surface);
+    position: relative;
+    overflow: hidden;
+    --tile-accent: #365c86;
+    --tile-border: color-mix(in srgb, var(--tile-accent) 24%, var(--border));
+    --tile-tint: color-mix(in srgb, var(--tile-accent) 8%, var(--surface));
+    border-color: var(--tile-border);
+    background:
+        linear-gradient(180deg, var(--tile-tint), color-mix(in srgb, var(--surface) 94%, var(--surface-alt))),
+        var(--surface);
+}
+.dashboard-meta-card::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 4px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--tile-accent) 82%, white 8%), color-mix(in srgb, var(--tile-accent) 62%, black 6%));
+    opacity: .95;
+}
+.dashboard-meta-card-timestamp {
+    --tile-accent: #315f8f;
 }
 .dashboard-meta-label {
     color: var(--muted);
@@ -1612,6 +1632,27 @@ body.workspace-flyout-open .workspace-backdrop {
     display: grid;
     grid-template-columns: minmax(0, 1.4fr) minmax(300px, 1fr);
     gap: 1rem 1.5rem;
+    position: relative;
+    overflow: hidden;
+    --tile-accent: #2f5a85;
+    --tile-border: color-mix(in srgb, var(--tile-accent) 22%, var(--border));
+    --tile-tint: color-mix(in srgb, var(--tile-accent) 8%, var(--surface));
+    border-color: var(--tile-border);
+    background:
+        radial-gradient(circle at top right, color-mix(in srgb, var(--tile-accent) 10%, transparent), transparent 36%),
+        linear-gradient(180deg, var(--tile-tint), color-mix(in srgb, var(--surface) 94%, var(--surface-alt))),
+        var(--surface);
+}
+.dashboard-summary-bar::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 5px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--tile-accent) 78%, white 8%), color-mix(in srgb, var(--tile-accent) 60%, black 8%));
+    opacity: .96;
+}
+.dashboard-summary-bar-command {
+    --tile-accent: #315f8f;
 }
 .dashboard-summary-copy h2 {
     font-size: 1.15rem;
@@ -1666,6 +1707,26 @@ body.workspace-flyout-open .workspace-backdrop {
     border-radius: 18px;
     background: var(--surface);
     box-shadow: var(--shadow-sm);
+    position: relative;
+    overflow: hidden;
+    --tile-accent: #66778f;
+    --tile-border: color-mix(in srgb, var(--tile-accent) 20%, var(--border));
+    --tile-tint: color-mix(in srgb, var(--tile-accent) 7%, var(--surface));
+    border-color: var(--tile-border);
+    background:
+        radial-gradient(circle at top right, color-mix(in srgb, var(--tile-accent) 10%, transparent), transparent 42%),
+        linear-gradient(180deg, var(--tile-tint), color-mix(in srgb, var(--surface) 94%, var(--surface-alt))),
+        var(--surface);
+}
+.dashboard-section-block::before,
+.dashboard-side-panel::before,
+.dashboard-guidance-strip::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 5px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--tile-accent) 80%, white 8%), color-mix(in srgb, var(--tile-accent) 62%, black 7%));
+    opacity: .92;
 }
 .dashboard-section-block,
 .dashboard-side-panel {
@@ -1702,7 +1763,7 @@ body.workspace-flyout-open .workspace-backdrop {
 }
 .dashboard-collapsible-body {
     padding: 0 1.2rem 1.2rem;
-    border-top: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+    border-top: 1px solid color-mix(in srgb, var(--tile-accent) 16%, var(--border));
 }
 .dashboard-collapsible-toolbar {
     display: flex;
@@ -1714,6 +1775,33 @@ body.workspace-flyout-open .workspace-backdrop {
     padding: .9rem 1rem;
     color: var(--muted);
     font-size: .86rem;
+}
+.dashboard-section-block-actions {
+    --tile-accent: #315f8f;
+}
+.dashboard-section-block-modules {
+    --tile-accent: #145d73;
+}
+.dashboard-section-block-visibility {
+    --tile-accent: #7a5f1b;
+}
+.dashboard-section-block-analytics {
+    --tile-accent: #6b4f8e;
+}
+.dashboard-side-panel-snapshot {
+    --tile-accent: #4e6480;
+}
+.dashboard-side-panel-alerts {
+    --tile-accent: #8a5c1e;
+}
+.dashboard-side-panel-activity {
+    --tile-accent: #2d6f61;
+}
+.dashboard-side-panel-status {
+    --tile-accent: #495e79;
+}
+.dashboard-guidance-strip-command {
+    --tile-accent: #5a6788;
 }
 
 .dashboard-section-header {
@@ -1752,6 +1840,14 @@ body.workspace-flyout-open .workspace-backdrop {
     margin-top: .3rem;
     color: var(--muted);
     font-size: .86rem;
+}
+.dashboard-empty-state {
+    padding: 1rem 1.05rem;
+    border: 1px dashed color-mix(in srgb, var(--tile-accent) 24%, var(--border));
+    border-radius: 14px;
+    background:
+        linear-gradient(180deg, color-mix(in srgb, var(--tile-accent) 5%, var(--surface)), color-mix(in srgb, var(--surface) 95%, var(--surface-alt))),
+        var(--surface);
 }
 
 .dashboard-section { margin-top: 0; }
@@ -1813,8 +1909,8 @@ body.workspace-flyout-open .workspace-backdrop {
     display: grid;
     gap: .75rem;
     padding: 1rem;
-    background: linear-gradient(180deg, var(--surface), color-mix(in srgb, var(--surface) 88%, var(--surface-alt)));
-    border: 1px solid var(--border);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--tile-accent) 6%, var(--surface)), color-mix(in srgb, var(--surface) 90%, var(--surface-alt)));
+    border: 1px solid color-mix(in srgb, var(--tile-accent) 16%, var(--border));
     border-radius: 16px;
     box-shadow: var(--shadow-sm);
 }
@@ -1824,9 +1920,9 @@ body.workspace-flyout-open .workspace-backdrop {
     justify-content: space-between;
     gap: 1rem;
     padding: .9rem 1rem;
-    border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+    border: 1px solid color-mix(in srgb, var(--tile-accent) 16%, transparent);
     border-radius: 12px;
-    background: color-mix(in srgb, var(--surface) 92%, var(--surface-alt));
+    background: color-mix(in srgb, var(--tile-accent) 6%, var(--surface));
 }
 .system-status-label {
     color: var(--muted);
@@ -1849,14 +1945,39 @@ body.workspace-flyout-open .workspace-backdrop {
     margin-bottom: 1rem;
 }
 .analytics-signal-card {
+    --signal-accent: #315f8f;
+    position: relative;
+    overflow: hidden;
     padding: 1rem 1.05rem;
-    border: 1px solid var(--border);
+    border: 1px solid color-mix(in srgb, var(--signal-accent) 22%, var(--border));
     border-radius: 14px;
-    background: linear-gradient(180deg, var(--surface), color-mix(in srgb, var(--surface) 88%, var(--surface-alt)));
+    background:
+        linear-gradient(180deg, color-mix(in srgb, var(--signal-accent) 8%, var(--surface)), color-mix(in srgb, var(--surface) 92%, var(--surface-alt))),
+        var(--surface);
     box-shadow: var(--shadow-sm);
 }
+.analytics-signal-card::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 4px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--signal-accent) 82%, white 8%), color-mix(in srgb, var(--signal-accent) 60%, black 6%));
+    opacity: .92;
+}
+.analytics-signal-grid .analytics-signal-card:nth-child(1) {
+    --signal-accent: #315f8f;
+}
+.analytics-signal-grid .analytics-signal-card:nth-child(2) {
+    --signal-accent: #2d6f61;
+}
+.analytics-signal-grid .analytics-signal-card:nth-child(3) {
+    --signal-accent: #8a5c1e;
+}
+.analytics-signal-grid .analytics-signal-card:nth-child(4) {
+    --signal-accent: #8b4d5f;
+}
 .analytics-signal-alert {
-    border-color: color-mix(in srgb, var(--warning) 25%, var(--border));
+    border-color: color-mix(in srgb, var(--signal-accent) 30%, var(--border));
 }
 .analytics-signal-label {
     display: block;
@@ -1870,7 +1991,7 @@ body.workspace-flyout-open .workspace-backdrop {
     margin-top: .45rem;
     font-size: 1.8rem;
     line-height: 1;
-    color: var(--text);
+    color: color-mix(in srgb, var(--signal-accent) 72%, var(--text));
 }
 .analytics-grid {
     display: grid;
@@ -1878,11 +1999,37 @@ body.workspace-flyout-open .workspace-backdrop {
     gap: 1rem;
 }
 .analytics-card {
+    --analytics-accent: #6b4f8e;
+    position: relative;
+    overflow: hidden;
     padding: 1rem 1.1rem 1.1rem;
-    border: 1px solid var(--border);
+    border: 1px solid color-mix(in srgb, var(--analytics-accent) 20%, var(--border));
     border-radius: 16px;
-    background: linear-gradient(180deg, var(--surface), color-mix(in srgb, var(--surface) 88%, var(--surface-alt)));
+    background:
+        radial-gradient(circle at top right, color-mix(in srgb, var(--analytics-accent) 9%, transparent), transparent 42%),
+        linear-gradient(180deg, color-mix(in srgb, var(--analytics-accent) 6%, var(--surface)), color-mix(in srgb, var(--surface) 93%, var(--surface-alt))),
+        var(--surface);
     box-shadow: var(--shadow-sm);
+}
+.analytics-card::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 4px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--analytics-accent) 80%, white 8%), color-mix(in srgb, var(--analytics-accent) 60%, black 6%));
+    opacity: .88;
+}
+.analytics-grid .analytics-card:nth-child(2) {
+    --analytics-accent: #315f8f;
+}
+.analytics-grid .analytics-card:nth-child(3) {
+    --analytics-accent: #2d6f61;
+}
+.analytics-grid .analytics-card:nth-child(4) {
+    --analytics-accent: #8a5c1e;
+}
+.analytics-grid .analytics-card:nth-child(5) {
+    --analytics-accent: #6b4f8e;
 }
 .analytics-card-wide {
     grid-column: 1 / -1;
@@ -2019,6 +2166,8 @@ body.workspace-flyout-open .workspace-backdrop {
     gap: .35rem;
     border-top: 3px solid var(--border);
     transition: border-color var(--transition), background var(--transition);
+    position: relative;
+    overflow: hidden;
 }
 .dashboard-kpi-card:hover {
     border-top-color: color-mix(in srgb, var(--primary) 70%, var(--border));
@@ -2051,27 +2200,72 @@ body.workspace-flyout-open .workspace-backdrop {
 
 .dashboard-kpi-card-primary {
     border-top-color: color-mix(in srgb, var(--primary) 35%, var(--border));
+    background:
+        linear-gradient(180deg, color-mix(in srgb, var(--primary) 7%, var(--surface)), color-mix(in srgb, var(--surface) 94%, var(--surface-alt))),
+        var(--surface);
 }
 .dashboard-kpi-card-primary .dashboard-kpi-value {
     color: var(--primary);
 }
 .dashboard-kpi-card-danger {
     border-top-color: color-mix(in srgb, var(--danger) 35%, var(--border));
+    background:
+        linear-gradient(180deg, color-mix(in srgb, var(--danger) 6%, var(--surface)), color-mix(in srgb, var(--surface) 94%, var(--surface-alt))),
+        var(--surface);
 }
 .dashboard-kpi-card-danger .dashboard-kpi-value {
     color: var(--danger);
 }
 .dashboard-kpi-card-warning {
     border-top-color: color-mix(in srgb, var(--warning) 35%, var(--border));
+    background:
+        linear-gradient(180deg, color-mix(in srgb, var(--warning) 8%, var(--surface)), color-mix(in srgb, var(--surface) 94%, var(--surface-alt))),
+        var(--surface);
 }
 .dashboard-kpi-card-warning .dashboard-kpi-value {
     color: var(--warning);
 }
 .dashboard-kpi-card-success {
     border-top-color: color-mix(in srgb, var(--success) 35%, var(--border));
+    background:
+        linear-gradient(180deg, color-mix(in srgb, var(--success) 7%, var(--surface)), color-mix(in srgb, var(--surface) 94%, var(--surface-alt))),
+        var(--surface);
 }
 .dashboard-kpi-card-success .dashboard-kpi-value {
     color: var(--success);
+}
+
+.dashboard-metric-card {
+    position: relative;
+    overflow: hidden;
+    --metric-accent: #46627f;
+    border-color: color-mix(in srgb, var(--metric-accent) 24%, var(--border));
+    background:
+        linear-gradient(180deg, color-mix(in srgb, var(--metric-accent) 8%, var(--surface)), color-mix(in srgb, var(--surface) 94%, var(--surface-alt))),
+        var(--surface);
+}
+.dashboard-metric-card::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 4px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--metric-accent) 76%, white 8%), color-mix(in srgb, var(--metric-accent) 58%, black 6%));
+    opacity: .92;
+}
+.dashboard-metric-grid .dashboard-metric-card:nth-child(1) {
+    --metric-accent: #315f8f;
+}
+.dashboard-metric-grid .dashboard-metric-card:nth-child(2) {
+    --metric-accent: #2d6f61;
+}
+.dashboard-metric-grid .dashboard-metric-card:nth-child(3) {
+    --metric-accent: #8a5c1e;
+}
+.dashboard-metric-grid .dashboard-metric-card:nth-child(4) {
+    --metric-accent: #6d528e;
+}
+.dashboard-metric-grid .dashboard-metric-card .dashboard-metric-value {
+    color: color-mix(in srgb, var(--metric-accent) 74%, var(--text));
 }
 
 .dashboard-module-card {
@@ -2225,14 +2419,15 @@ body.workspace-flyout-open .workspace-backdrop {
     align-items: center;
     justify-content: space-between;
     gap: 1rem;
-    padding-bottom: .85rem;
-    border-bottom: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+    padding: .85rem .9rem;
+    border: 1px solid color-mix(in srgb, var(--tile-accent) 16%, var(--border));
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--tile-accent) 6%, var(--surface));
     color: var(--muted);
     font-size: .88rem;
 }
 .dashboard-snapshot-row:last-child {
-    padding-bottom: 0;
-    border-bottom: 0;
+    padding-bottom: .85rem;
 }
 .dashboard-snapshot-row strong {
     color: var(--text);
@@ -2805,8 +3000,8 @@ body.workspace-flyout-open .workspace-backdrop {
 .activity-view-all:hover { text-decoration: underline; }
 
 .activity-feed {
-    background: var(--surface);
-    border: 1px solid var(--border);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--tile-accent) 5%, var(--surface)), color-mix(in srgb, var(--surface) 94%, var(--surface-alt)));
+    border: 1px solid color-mix(in srgb, var(--tile-accent) 16%, var(--border));
     border-radius: 12px;
     padding: 4px 0;
     margin-top: 0.75rem;
@@ -2817,9 +3012,10 @@ body.workspace-flyout-open .workspace-backdrop {
     gap: 12px;
     padding: 12px 18px;
     position: relative;
+    background: color-mix(in srgb, var(--tile-accent) 3%, var(--surface));
 }
 .activity-item + .activity-item {
-    border-top: 1px solid var(--border);
+    border-top: 1px solid color-mix(in srgb, var(--tile-accent) 14%, var(--border));
 }
 .activity-dot {
     flex-shrink: 0;
@@ -2859,8 +3055,8 @@ body.workspace-flyout-open .workspace-backdrop {
 }
 
 .notification-feed-widget {
-    background: var(--surface);
-    border: 1px solid var(--border);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--tile-accent) 5%, var(--surface)), color-mix(in srgb, var(--surface) 94%, var(--surface-alt)));
+    border: 1px solid color-mix(in srgb, var(--tile-accent) 18%, var(--border));
     border-radius: 12px;
     overflow: hidden;
     box-shadow: var(--shadow-sm);
@@ -2870,16 +3066,17 @@ body.workspace-flyout-open .workspace-backdrop {
     display: block;
     padding: 1rem 1.1rem;
     border-left: 3px solid transparent;
+    background: color-mix(in srgb, var(--tile-accent) 3%, var(--surface));
     color: inherit;
     text-decoration: none;
 }
 
 .notification-widget-item + .notification-widget-item {
-    border-top: 1px solid var(--border);
+    border-top: 1px solid color-mix(in srgb, var(--tile-accent) 14%, var(--border));
 }
 
 .notification-widget-item:hover {
-    background: var(--surface-hover);
+    background: color-mix(in srgb, var(--tile-accent) 9%, var(--surface));
     text-decoration: none;
 }
 
@@ -2914,6 +3111,7 @@ body.workspace-flyout-open .workspace-backdrop {
 
 .notification-empty-state {
     padding: 1.4rem;
+    background: color-mix(in srgb, var(--tile-accent) 4%, var(--surface));
     color: var(--muted);
 }
 

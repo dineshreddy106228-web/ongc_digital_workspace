@@ -7,6 +7,7 @@ Governance V2 additions:
   - User category reflected via role assignment
 """
 
+import logging
 import os
 import tempfile
 from flask import render_template, redirect, url_for, flash, request, send_file
@@ -23,7 +24,18 @@ from app.models.core.module_admin_assignment import ModuleAdminAssignment
 from app.models.office.office import Office
 from app.models.core.audit_log import AuditLog
 from app.models.core.activity_log import ActivityLog
+from app.models.core.announcement import (
+    Announcement,
+    AnnouncementRecipient,
+    AnnouncementVote,
+)
 from app.models.core.notification import Notification
+from app.models.csc.draft import CSCDraft
+from app.models.csc.revision import CSCRevision
+from app.models.inventory.inventory_consumption_seed import InventoryConsumptionSeed
+from app.models.inventory.inventory_procurement_seed import InventoryProcurementSeed
+from app.models.inventory.inventory_upload import InventoryUpload
+from app.models.inventory.material_master import MaterialMaster
 from app.models.tasks.recurring_task_collaborator import RecurringTaskCollaborator
 from app.models.tasks.recurring_task_template import RecurringTaskTemplate
 from app.models.tasks.task import Task
@@ -55,6 +67,8 @@ from app.core.roles import (
     ROLE_REGISTRY,
     canonicalize_role_name,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # ── Helper ──────────────────────────────────────────────────────
@@ -181,6 +195,12 @@ def _resolve_officer_selection(raw_id, label, target_user_id=None):
         return None, f"A user cannot be their own {label}."
 
     return officer, None
+
+
+def _record_dependency_change(changes: list[str], label: str, count: int) -> None:
+    if count:
+        suffix = "" if count == 1 else "s"
+        changes.append(f"{count} {label}{suffix}")
 
 
 ORGANOGRAM_LEVEL_META = {
@@ -955,50 +975,142 @@ def delete_user(user_id):
     target_username = target.username
 
     try:
-        User.query.filter_by(controlling_officer_id=target.id).update(
+        dependency_changes = []
+
+        affected = User.query.filter_by(controlling_officer_id=target.id).update(
             {User.controlling_officer_id: None},
             synchronize_session=False,
         )
-        User.query.filter_by(reviewing_officer_id=target.id).update(
+        _record_dependency_change(dependency_changes, "controlling-officer mapping cleared", affected)
+
+        affected = User.query.filter_by(reviewing_officer_id=target.id).update(
             {User.reviewing_officer_id: None},
             synchronize_session=False,
         )
-        User.query.filter_by(accepting_officer_id=target.id).update(
+        _record_dependency_change(dependency_changes, "reviewing-officer mapping cleared", affected)
+
+        affected = User.query.filter_by(accepting_officer_id=target.id).update(
             {User.accepting_officer_id: None},
             synchronize_session=False,
         )
-        Task.query.filter_by(owner_id=target.id).update(
+        _record_dependency_change(dependency_changes, "accepting-officer mapping cleared", affected)
+
+        affected = Task.query.filter_by(owner_id=target.id).update(
             {Task.owner_id: None},
             synchronize_session=False,
         )
-        Task.query.filter_by(created_by=target.id).update(
+        _record_dependency_change(dependency_changes, "task owner reference cleared", affected)
+
+        affected = Task.query.filter_by(created_by=target.id).update(
             {Task.created_by: None},
             synchronize_session=False,
         )
-        RecurringTaskTemplate.query.filter_by(owner_id=target.id).update(
+        _record_dependency_change(dependency_changes, "task creator reference cleared", affected)
+
+        affected = RecurringTaskTemplate.query.filter_by(owner_id=target.id).update(
             {RecurringTaskTemplate.owner_id: None},
             synchronize_session=False,
         )
-        RecurringTaskTemplate.query.filter_by(created_by=target.id).update(
+        _record_dependency_change(dependency_changes, "recurring-task owner reference cleared", affected)
+
+        affected = RecurringTaskTemplate.query.filter_by(created_by=target.id).update(
             {RecurringTaskTemplate.created_by: None},
             synchronize_session=False,
         )
-        TaskUpdate.query.filter_by(updated_by=target.id).update(
+        _record_dependency_change(dependency_changes, "recurring-task creator reference cleared", affected)
+
+        affected = TaskUpdate.query.filter_by(updated_by=target.id).update(
             {TaskUpdate.updated_by: None},
             synchronize_session=False,
         )
-        TaskCollaborator.query.filter_by(user_id=target.id).delete(
+        _record_dependency_change(dependency_changes, "task update author reference cleared", affected)
+
+        affected = TaskCollaborator.query.filter_by(user_id=target.id).delete(
             synchronize_session=False
         )
-        RecurringTaskCollaborator.query.filter_by(user_id=target.id).delete(
+        _record_dependency_change(dependency_changes, "task collaborator link removed", affected)
+
+        affected = RecurringTaskCollaborator.query.filter_by(user_id=target.id).delete(
             synchronize_session=False
         )
-        UserModulePermission.query.filter_by(user_id=target.id).delete(
+        _record_dependency_change(dependency_changes, "recurring collaborator link removed", affected)
+
+        affected = UserModulePermission.query.filter_by(user_id=target.id).delete(
             synchronize_session=False
         )
-        Notification.query.filter_by(user_id=target.id).delete(
+        _record_dependency_change(dependency_changes, "module permission removed", affected)
+
+        affected = ModuleAdminAssignment.query.filter_by(user_id=target.id).delete(
             synchronize_session=False
         )
+        _record_dependency_change(dependency_changes, "module-admin assignment removed", affected)
+
+        affected = Notification.query.filter_by(user_id=target.id).delete(
+            synchronize_session=False
+        )
+        _record_dependency_change(dependency_changes, "notification removed", affected)
+
+        affected = AnnouncementRecipient.query.filter_by(user_id=target.id).delete(
+            synchronize_session=False
+        )
+        _record_dependency_change(dependency_changes, "announcement receipt removed", affected)
+
+        affected = AnnouncementVote.query.filter_by(user_id=target.id).delete(
+            synchronize_session=False
+        )
+        _record_dependency_change(dependency_changes, "announcement vote removed", affected)
+
+        created_announcements = Announcement.query.filter_by(created_by=target.id).all()
+        if created_announcements:
+            for announcement in created_announcements:
+                db.session.delete(announcement)
+            _record_dependency_change(
+                dependency_changes,
+                "announcement created by user removed",
+                len(created_announcements),
+            )
+
+        affected = CSCDraft.query.filter_by(created_by_id=target.id).update(
+            {CSCDraft.created_by_id: None},
+            synchronize_session=False,
+        )
+        _record_dependency_change(dependency_changes, "CSC draft creator reference cleared", affected)
+
+        affected = CSCRevision.query.filter_by(committee_head_user_id=target.id).update(
+            {CSCRevision.committee_head_user_id: None},
+            synchronize_session=False,
+        )
+        _record_dependency_change(dependency_changes, "CSC committee-head reference cleared", affected)
+
+        affected = CSCRevision.query.filter_by(module_admin_user_id=target.id).update(
+            {CSCRevision.module_admin_user_id: None},
+            synchronize_session=False,
+        )
+        _record_dependency_change(dependency_changes, "CSC module-admin reference cleared", affected)
+
+        affected = InventoryUpload.query.filter_by(uploaded_by=target.id).update(
+            {InventoryUpload.uploaded_by: None},
+            synchronize_session=False,
+        )
+        _record_dependency_change(dependency_changes, "inventory upload reference cleared", affected)
+
+        affected = MaterialMaster.query.filter_by(updated_by=target.id).update(
+            {MaterialMaster.updated_by: None},
+            synchronize_session=False,
+        )
+        _record_dependency_change(dependency_changes, "material-master editor reference cleared", affected)
+
+        affected = InventoryConsumptionSeed.query.filter_by(imported_by=target.id).update(
+            {InventoryConsumptionSeed.imported_by: None},
+            synchronize_session=False,
+        )
+        _record_dependency_change(dependency_changes, "inventory consumption import reference cleared", affected)
+
+        affected = InventoryProcurementSeed.query.filter_by(imported_by=target.id).update(
+            {InventoryProcurementSeed.imported_by: None},
+            synchronize_session=False,
+        )
+        _record_dependency_change(dependency_changes, "inventory procurement import reference cleared", affected)
 
         db.session.delete(target)
         db.session.flush()
@@ -1011,7 +1123,8 @@ def delete_user(user_id):
                 entity_id=str(user_id),
                 details=(
                     f"Admin '{current_user.username}' deleted user "
-                    f"'{target_username}' after deactivation."
+                    f"'{target_username}' after deactivation. "
+                    f"Affected dependencies: {'; '.join(dependency_changes) if dependency_changes else 'none'}"
                 ),
                 ip_address=AuditLog._normalize_ip(_client_ip()),
                 user_agent=AuditLog._normalize_user_agent(get_user_agent()),
@@ -1022,10 +1135,16 @@ def delete_user(user_id):
         db.session.commit()
     except SQLAlchemyError:
         db.session.rollback()
+        logger.exception("Failed to delete user '%s' due to dependent database rows.", target_username)
         flash(f"Could not delete user '{target_username}' due to a database error.", "danger")
         return redirect(url_for("admin.users"))
 
     flash(f"User '{target_username}' has been deleted.", "success")
+    if dependency_changes:
+        flash(
+            "Dependencies cleared before deletion: " + "; ".join(dependency_changes) + ".",
+            "info",
+        )
     return redirect(url_for("admin.users"))
 
 
