@@ -90,11 +90,81 @@
   margin-top: 0.4rem;
 }
 
+.organogram-office-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.organogram-office-section {
+  border: 1px solid color-mix(in srgb, var(--panel-border-strong, #e2e8f0) 78%, var(--color-primary, #1a56db));
+  border-radius: 1rem;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--color-primary-light, #e8f0fe) 20%, #ffffff) 0%, #ffffff 100%);
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.06);
+  overflow: hidden;
+}
+
 .organogram-header {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
   margin-bottom: 1rem;
+}
+
+.organogram-office-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border, #e2e8f0) 76%, var(--color-primary, #1a56db));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-primary-light, #e8f0fe) 36%, #ffffff) 0%, #ffffff 100%);
+}
+
+.organogram-office-title {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--color-text, #1a1a2e);
+}
+
+.organogram-office-subtitle {
+  margin: 0.3rem 0 0;
+  color: var(--color-text-muted, #666);
+  line-height: 1.55;
+  font-size: 0.88rem;
+}
+
+.organogram-office-stats {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.7rem;
+}
+
+.organogram-office-stat {
+  min-width: 84px;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--color-border, #e2e8f0) 78%, var(--color-primary, #1a56db));
+  border-radius: 0.85rem;
+  background: color-mix(in srgb, var(--color-primary-light, #e8f0fe) 32%, #ffffff);
+  text-align: center;
+}
+
+.organogram-office-stat strong {
+  display: block;
+  font-size: 1rem;
+  color: var(--color-text, #1a1a2e);
+}
+
+.organogram-office-stat span {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted, #666);
 }
 
 .organogram-title {
@@ -115,22 +185,79 @@
   padding-bottom: 0.25rem;
 }
 
+.organogram-canvas-flow {
+  padding: 1.1rem;
+}
+
 .organogram-list {
   list-style: none;
   margin: 0;
   padding: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 1.25rem;
+  min-width: max-content;
+}
+
+.organogram-flow-list {
+  justify-content: flex-start;
+  padding-bottom: 0.35rem;
 }
 
 .organogram-node {
   position: relative;
   margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 260px;
 }
 
 .organogram-children {
-  margin-top: 0.85rem;
-  margin-left: 1.25rem;
-  padding-left: 1.25rem;
-  border-left: 2px solid color-mix(in srgb, var(--color-border, #e2e8f0) 80%, var(--color-primary, #1a56db));
+  margin-top: 1.1rem;
+  padding-top: 1.3rem;
+  border-left: 0;
+  position: relative;
+}
+
+.organogram-flow-children::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 2px;
+  height: 1rem;
+  transform: translateX(-50%);
+  background: color-mix(in srgb, var(--color-border, #e2e8f0) 56%, var(--color-primary, #1a56db));
+}
+
+.organogram-flow-children > .organogram-node::before {
+  content: "";
+  position: absolute;
+  top: -1.3rem;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: color-mix(in srgb, var(--color-border, #e2e8f0) 56%, var(--color-primary, #1a56db));
+}
+
+.organogram-flow-children > .organogram-node::after {
+  content: "";
+  position: absolute;
+  top: -1.3rem;
+  left: 50%;
+  width: 2px;
+  height: 1.3rem;
+  transform: translateX(-50%);
+  background: color-mix(in srgb, var(--color-border, #e2e8f0) 56%, var(--color-primary, #1a56db));
+}
+
+.organogram-flow-children > .organogram-node:first-child::before {
+  left: 50%;
+}
+
+.organogram-flow-children > .organogram-node:last-child::before {
+  right: 50%;
 }
 
 .organogram-card {
@@ -258,6 +385,16 @@
 .organogram-empty-state p {
   margin: 0.35rem 0 0;
   color: var(--color-text-muted, #666);
+}
+
+@media (max-width: 900px) {
+  .organogram-office-header {
+    flex-direction: column;
+  }
+
+  .organogram-office-stats {
+    justify-content: flex-start;
+  }
 }
 
 .admin-tab-shell {

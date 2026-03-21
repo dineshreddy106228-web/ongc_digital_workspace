@@ -8,7 +8,7 @@
 
 {% block content %}
 {% macro render_organogram(nodes) %}
-  <ul class="organogram-list">
+  <ul class="organogram-list organogram-flow-list">
     {% for node in nodes recursive %}
     <li class="organogram-node">
       <article class="organogram-card organogram-card-level-{{ node.level }} {{ 'is-inactive' if not node.is_active }}">
@@ -38,13 +38,13 @@
           </div>
           <div>
             <span>{{ 'Children' if node.children else 'Chain End' }}</span>
-            <strong>{{ node.children|length if node.children else 'Leaf node' }}</strong>
+            <strong>{{ node.children|length if node.children else 'Leaf User' }}</strong>
           </div>
         </div>
       </article>
 
       {% if node.children %}
-      <ul class="organogram-list organogram-children">
+      <ul class="organogram-list organogram-children organogram-flow-children">
         {{ loop(node.children) }}
       </ul>
       {% endif %}
@@ -298,19 +298,55 @@
             <div>
               <h2 class="organogram-title">Reporting Organogram</h2>
               <p class="organogram-subtitle">
-                The hierarchy starts from Accepting Officer and drills down through Reviewing Officer, Controlling Officer, and User.
+                Office-wise flow chart starting with Accepting Officers and drilling down to Reviewing Officers, Controlling Officers, and terminal users.
               </p>
             </div>
           </div>
 
           {% if organogram %}
-          <div class="organogram-canvas">
-            {{ render_organogram(organogram) }}
+          <div class="organogram-office-grid">
+            {% for office in organogram %}
+            <section class="organogram-office-section">
+              <div class="organogram-office-header">
+                <div>
+                  <h3 class="organogram-office-title">{{ office.office_name }}</h3>
+                  <p class="organogram-office-subtitle">
+                    {{ office.accepting_roots }} accepting root{{ '' if office.accepting_roots == 1 else 's' }}, {{ office.mapped_users }} mapped user{{ '' if office.mapped_users == 1 else 's' }}.
+                  </p>
+                </div>
+                <div class="organogram-office-stats">
+                  <div class="organogram-office-stat">
+                    <strong>{{ office.total_users }}</strong>
+                    <span>Total Users</span>
+                  </div>
+                  <div class="organogram-office-stat">
+                    <strong>{{ office.mapped_users }}</strong>
+                    <span>Mapped</span>
+                  </div>
+                  <div class="organogram-office-stat">
+                    <strong>{{ office.unmapped_users }}</strong>
+                    <span>Unmapped</span>
+                  </div>
+                </div>
+              </div>
+
+              {% if office.nodes %}
+              <div class="organogram-canvas organogram-canvas-flow">
+                {{ render_organogram(office.nodes) }}
+              </div>
+              {% else %}
+              <div class="organogram-empty-state">
+                <h3>No reporting hierarchy available</h3>
+                <p>Assign accepting, reviewing, and controlling officers in this office to populate the flow chart.</p>
+              </div>
+              {% endif %}
+            </section>
+            {% endfor %}
           </div>
           {% else %}
           <div class="organogram-empty-state">
             <h3>No reporting hierarchy available</h3>
-            <p>Assign accepting, reviewing, and controlling officers to populate the reporting tree.</p>
+            <p>Assign accepting, reviewing, and controlling officers to populate the reporting flow chart.</p>
           </div>
           {% endif %}
         </div>

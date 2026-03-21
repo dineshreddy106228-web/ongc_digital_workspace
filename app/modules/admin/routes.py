@@ -241,59 +241,20 @@ def _organogram_node_sort_key(node: dict):
 
 def _build_user_organogram(users):
     users_by_id = {user.id: user for user in users}
-    officer_reference_ids = {
-        int(officer_id)
-        for user in users
-        for officer_id in (
-            user.accepting_officer_id,
-            user.reviewing_officer_id,
-            user.controlling_officer_id,
+    office_sections = {}
+
+    for user in users:
+        office_key = user.office_id or 0
+        office_name = user.office.office_name if user.office else "Unassigned Office"
+        section = office_sections.setdefault(
+            office_key,
+            {
+                "office_id": user.office_id,
+                "office_name": office_name,
+                "users": [],
+            },
         )
-        if officer_id is not None and int(officer_id) in users_by_id
-    }
-
-    roots = []
-    root_index = {}
-
-    def _ensure_root(level: str, user: User) -> dict:
-        key = f"{level}:{user.id}"
-        node = root_index.get(key)
-        if node is None:
-            node = _new_organogram_node(user, level)
-            root_index[key] = node
-            roots.append(node)
-        return node
-
-    def _ensure_child(parent: dict, level: str, user: User) -> dict:
-        key = f"{level}:{user.id}"
-        node = parent["_child_index"].get(key)
-        if node is None:
-            node = _new_organogram_node(user, level)
-            parent["_child_index"][key] = node
-            parent["children"].append(node)
-        return node
-
-    for user in sorted(users, key=_user_sort_key):
-        chain_parent = None
-        chain_users = [
-            ("accepting", users_by_id.get(user.accepting_officer_id)),
-            ("reviewing", users_by_id.get(user.reviewing_officer_id)),
-            ("controlling", users_by_id.get(user.controlling_officer_id)),
-        ]
-
-        for level, officer in chain_users:
-            if officer is None:
-                continue
-            chain_parent = (
-                _ensure_root(level, officer)
-                if chain_parent is None
-                else _ensure_child(chain_parent, level, officer)
-            )
-
-        if chain_parent is not None:
-            _ensure_child(chain_parent, "user", user)
-        elif user.id not in officer_reference_ids:
-            _ensure_root("user", user)
+        section["users"].append(user)
 
     def _finalize(nodes: list[dict]) -> list[dict]:
         nodes.sort(key=_organogram_node_sort_key)
@@ -304,7 +265,104 @@ def _build_user_organogram(users):
             finalized.append(node)
         return finalized
 
-    return _finalize(roots)
+    organogram = []
+
+    for section in sorted(
+        office_sections.values(),
+        key=lambda item: ((item["office_name"] or "").lower(), item["office_id"] or 0),
+    ):
+        office_users = section["users"]
+        officer_reference_ids = {
+            int(officer_id)
+            for user in office_users
+            for officer_id in (
+                user.accepting_officer_id,
+                user.reviewing_officer_id,
+                user.controlling_officer_id,
+            )
+            if officer_id is not None and int(officer_id) in users_by_id
+        }
+
+        roots = []
+        root_index = {}
+
+        def _ensure_root(level: str, user: User) -> dict:
+            key = f"{level}:{user.id}"
+            node = root_index.get(key)
+            if node is None:
+                node = _new_organogram_node(user, level)
+                root_index[key] = node
+                roots.append(node)
+            return node
+
+        def _ensure_child(parent: dict, level: str, user: User) -> dict:
+            key = f"{level}:{user.id}"
+            node = parent["_child_index"].get(key)
+            if node is None:
+                node = _new_organogram_node(user, level)
+                parent["_child_index"][key] = node
+                parent["children"].append(node)
+            return node
+
+        for user in sorted(office_users, key=_user_sort_key):
+            chain_parent = None
+            chain_users = [
+                ("accepting", users_by_id.get(user.accepting_officer_id)),
+                ("reviewing", users_by_id.get(user.reviewing_officer_id)),
+                ("controlling", users_by_id.get(user.controlling_officer_id)),
+            ]
+
+            for level, officer in chain_users:
+                if officer is None:
+                    continue
+                chain_parent = (
+                    _ensure_root(level, officer)
+                    if chain_parent is None
+                    else _ensure_child(chain_parent, level, officer)
+                )
+
+            if chain_parent is not None:
+                if user.id not in officer_reference_ids:
+                    _ensure_child(chain_parent, "user", user)
+            elif user.id not in officer_reference_ids:
+                _ensure_root("user", user)
+
+        finalized_roots = _finalize(roots)
+        organogram.append(
+            {
+                "office_id": section["office_id"],
+                "office_name": section["office_name"],
+                "total_users": len(office_users),
+                "mapped_users": sum(
+                    1
+                    for user in office_users
+                    if any(
+                        [
+                            user.controlling_officer_id,
+                            user.reviewing_officer_id,
+                            user.accepting_officer_id,
+                        ]
+                    )
+                ),
+                "accepting_roots": sum(
+                    1 for node in finalized_roots if node["level"] == "accepting"
+                ),
+                "unmapped_users": sum(
+                    1
+                    for user in office_users
+                    if not any(
+                        [
+                            user.controlling_officer_id,
+                            user.reviewing_officer_id,
+                            user.accepting_officer_id,
+                        ]
+                    )
+                ),
+                "nodes": finalized_roots,
+            }
+        )
+
+    return organogram
 
 
 # ── Users List ───────────────────────────────────────────────────
@@ -345,7 +403,7 @@ def users():
             and user.reviewing_officer_id
             and user.accepting_officer_id
         ),
-        "accepting_roots": sum(1 for node in organogram if node["level"] == "accepting"),
+        "accepting_roots": sum(section["accepting_roots"] for section in organogram),
     }
     return render_template(
         "admin/users.html",
