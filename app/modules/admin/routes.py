@@ -35,6 +35,7 @@ from app.models.core.user_module_permission import (
 from app.core.utils.decorators import roles_required
 from app.core.utils.request_meta import get_client_ip, get_user_agent
 from app.core.utils.activity import log_activity
+from app.core.permissions import can_manage_offices
 from app.core.module_registry import invalidate_user_module_access_cache
 from app.core.services.notifications import create_notification
 from app.core.services.backups import (
@@ -1050,3 +1051,405 @@ def import_backup():
             os.remove(temp_path)
 
     return redirect(url_for("admin.backup_center"))
+
+
+# ══════════════════════════════════════════════════════════════════
+#  OFFICE MANAGEMENT
+# ══════════════════════════════════════════════════════════════════
+
+def _require_office_management():
+    """Abort 403 if current_user cannot manage offices."""
+    if not can_manage_offices(current_user):
+        from flask import abort
+        abort(403)
+
+
+# ── List Offices ─────────────────────────────────────────────────
+@admin_bp.route("/offices")
+@admin_bp.route("/offices/")
+@login_required
+@roles_required(ADMIN_ROLE)
+def offices():
+    _require_office_management()
+    all_offices = Office.query.order_by(Office.office_name).all()
+    return render_template("admin/offices.html", offices=all_offices)
+
+
+# ── Add Office ───────────────────────────────────────────────────
+@admin_bp.route("/offices/add", methods=["GET", "POST"])
+@login_required
+@roles_required(ADMIN_ROLE)
+def add_office():
+    _require_office_management()
+
+    if request.method == "POST":
+        office_code = request.form.get("office_code", "").strip().upper()
+        office_name = request.form.get("office_name", "").strip()
+        location = request.form.get("location", "").strip()
+
+        errors = []
+        if not office_code:
+            errors.append("Office code is required.")
+        elif len(office_code) > 50:
+            errors.append("Office code cannot exceed 50 characters.")
+        if not office_name:
+            errors.append("Office name is required.")
+        elif len(office_name) > 150:
+            errors.append("Office name cannot exceed 150 characters.")
+        if len(location) > 150:
+            errors.append("Location cannot exceed 150 characters.")
+
+        if office_code and Office.query.filter_by(office_code=office_code).first():
+            errors.append(f"Office code '{office_code}' already exists.")
+
+        if errors:
+            for err in errors:
+                flash(err, "danger")
+            return render_template(
+                "admin/office_form.html",
+                mode="add",
+                form_data=request.form,
+            )
+
+        try:
+            new_office = Office(
+                office_code=office_code,
+                office_name=office_name,
+                location=location,
+                is_active=True,
+            )
+            db.session.add(new_office)
+            db.session.flush()
+
+            AuditLog.log(
+                action="OFFICE_CREATED",
+                user_id=current_user.id,
+                entity_type="Office",
+                entity_id=str(new_office.id),
+                details=(
+                    f"Admin '{current_user.username}' created office "
+                    f"'{office_name}' ({office_code})."
+                ),
+                ip_address=_client_ip(),
+                user_agent=get_user_agent(),
+            )
+            log_activity(
+                current_user.username,
+                "office_created",
+                "office",
+                office_name,
+                details=f"code={office_code}, location={location or '-'}",
+            )
+            db.session.commit()
+        except SQLAlchemyError:
+            db.session.rollback()
+            flash("Could not create office due to a database error.", "danger")
+            return render_template(
+                "admin/office_form.html",
+                mode="add",
+                form_data=request.form,
+            )
+
+        flash(f"Office '{office_name}' created successfully.", "success")
+        return redirect(url_for("admin.offices"))
+
+    return render_template(
+        "admin/office_form.html",
+        mode="add",
+        form_data={},
+    )
+
+
+# ── Edit Office ──────────────────────────────────────────────────
+@admin_bp.route("/offices/<int:office_id>/edit", methods=["GET", "POST"])
+@login_required
+@roles_required(ADMIN_ROLE)
+def edit_office(office_id):
+    _require_office_management()
+    office = Office.query.get_or_404(office_id)
+
+    if request.method == "POST":
+        office_name = request.form.get("office_name", "").strip()
+        location = request.form.get("location", "").strip()
+
+        errors = []
+        if not office_name:
+            errors.append("Office name is required.")
+        elif len(office_name) > 150:
+            errors.append("Office name cannot exceed 150 characters.")
+        if len(location) > 150:
+            errors.append("Location cannot exceed 150 characters.")
+
+        if errors:
+            for err in errors:
+                flash(err, "danger")
+            return render_template(
+                "admin/office_form.html",
+                mode="edit",
+                office=office,
+                form_data=request.form,
+            )
+
+        changed_fields = []
+        if office.office_name != office_name:
+            changed_fields.append(f"name '{office.office_name}' → '{office_name}'")
+            office.office_name = office_name
+        if (office.location or "") != location:
+            changed_fields.append(f"location '{office.location or '-'}' → '{location or '-'}'")
+            office.location = location
+
+        try:
+            db.session.flush()
+
+            AuditLog.log(
+                action="OFFICE_UPDATED",
+                user_id=current_user.id,
+                entity_type="Office",
+                entity_id=str(office.id),
+                details=(
+                    f"Admin '{current_user.username}' updated office '{office.office_code}'. "
+                    f"Changes: {'; '.join(changed_fields) if changed_fields else 'none'}"
+                ),
+                ip_address=_client_ip(),
+                user_agent=get_user_agent(),
+            )
+            if changed_fields:
+                log_activity(
+                    current_user.username,
+                    "office_updated",
+                    "office",
+                    office.office_name,
+                    details="; ".join(changed_fields),
+                )
+            db.session.commit()
+        except SQLAlchemyError:
+            db.session.rollback()
+            flash("Could not update office due to a database error.", "danger")
+            return render_template(
+                "admin/office_form.html",
+                mode="edit",
+                office=office,
+                form_data=request.form,
+            )
+
+        flash(f"Office '{office.office_name}' updated successfully.", "success")
+        return redirect(url_for("admin.offices"))
+
+    return render_template(
+        "admin/office_form.html",
+        mode="edit",
+        office=office,
+        form_data={},
+    )
+
+
+# ── Toggle Office Active/Inactive ───────────────────────────────
+@admin_bp.route("/offices/<int:office_id>/toggle", methods=["POST"])
+@login_required
+@roles_required(ADMIN_ROLE)
+def toggle_office(office_id):
+    _require_office_management()
+    office = Office.query.get_or_404(office_id)
+
+    if office.is_active:
+        active_user_count = User.query.filter_by(
+            office_id=office.id, is_active=True
+        ).count()
+        if active_user_count > 0:
+            flash(
+                f"Cannot deactivate '{office.office_name}' — "
+                f"{active_user_count} active user(s) are assigned to it. "
+                "Reassign them first.",
+                "danger",
+            )
+            return redirect(url_for("admin.offices"))
+
+        office.is_active = False
+        action = "OFFICE_DEACTIVATED"
+        verb = "deactivated"
+    else:
+        office.is_active = True
+        action = "OFFICE_ACTIVATED"
+        verb = "activated"
+
+    try:
+        db.session.flush()
+        AuditLog.log(
+            action=action,
+            user_id=current_user.id,
+            entity_type="Office",
+            entity_id=str(office.id),
+            details=(
+                f"Admin '{current_user.username}' {verb} office "
+                f"'{office.office_name}' ({office.office_code})."
+            ),
+            ip_address=_client_ip(),
+            user_agent=get_user_agent(),
+        )
+        log_activity(
+            current_user.username,
+            f"office_{verb}",
+            "office",
+            office.office_name,
+        )
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        flash(f"Could not {verb[:-1]}e office due to a database error.", "danger")
+        return redirect(url_for("admin.offices"))
+
+    flash(f"Office '{office.office_name}' has been {verb}.", "success")
+    return redirect(url_for("admin.offices"))
+
+
+# ── Users in Office ──────────────────────────────────────────────
+@admin_bp.route("/offices/<int:office_id>/users")
+@login_required
+@roles_required(ADMIN_ROLE)
+def office_users(office_id):
+    _require_office_management()
+    office = Office.query.get_or_404(office_id)
+    users_in_office = (
+        User.query.filter_by(office_id=office.id)
+        .order_by(User.is_active.desc(), User.full_name, User.username)
+        .all()
+    )
+    return render_template(
+        "admin/office_users.html",
+        office=office,
+        users=users_in_office,
+    )
+
+
+# ── Assign User to Office ───────────────────────────────────────
+@admin_bp.route("/users/<int:user_id>/assign-office", methods=["POST"])
+@login_required
+@roles_required(ADMIN_ROLE)
+def assign_user_office(user_id):
+    _require_office_management()
+    target = User.query.get_or_404(user_id)
+    office_id_raw = request.form.get("office_id", "").strip()
+
+    if not office_id_raw or not office_id_raw.isdigit():
+        flash("Please select a valid office.", "danger")
+        return redirect(url_for("admin.edit_user", user_id=user_id))
+
+    office = Office.query.filter_by(id=int(office_id_raw), is_active=True).first()
+    if not office:
+        flash("Selected office is invalid or inactive.", "danger")
+        return redirect(url_for("admin.edit_user", user_id=user_id))
+
+    old_office_name = target.office.office_name if target.office else "None"
+    target.office_id = office.id
+
+    try:
+        db.session.flush()
+        AuditLog.log(
+            action="USER_OFFICE_ASSIGNED",
+            user_id=current_user.id,
+            entity_type="User",
+            entity_id=str(target.id),
+            details=(
+                f"Admin '{current_user.username}' reassigned '{target.username}' "
+                f"from '{old_office_name}' to '{office.office_name}'."
+            ),
+            ip_address=_client_ip(),
+            user_agent=get_user_agent(),
+        )
+        log_activity(
+            current_user.username,
+            "user_office_assigned",
+            "user",
+            target.username,
+            details=f"office={office.office_name}",
+        )
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        flash("Could not assign office due to a database error.", "danger")
+        return redirect(url_for("admin.edit_user", user_id=user_id))
+
+    flash(
+        f"'{target.username}' has been assigned to '{office.office_name}'.",
+        "success",
+    )
+    return redirect(url_for("admin.edit_user", user_id=user_id))
+
+
+# ── Set Officers (Controlling / Reviewing / Accepting) ───────────
+@admin_bp.route("/users/<int:user_id>/set-officers", methods=["POST"])
+@login_required
+@roles_required(ADMIN_ROLE)
+def set_user_officers(user_id):
+    _require_office_management()
+    target = User.query.get_or_404(user_id)
+
+    co_raw = request.form.get("controlling_officer_id", "").strip()
+    ro_raw = request.form.get("reviewing_officer_id", "").strip()
+    ao_raw = request.form.get("accepting_officer_id", "").strip()
+
+    def _resolve_officer(raw_id, label):
+        if not raw_id or not raw_id.isdigit():
+            return None
+        officer = User.query.filter_by(id=int(raw_id), is_active=True).first()
+        if officer and officer.id == target.id:
+            flash(f"A user cannot be their own {label}.", "danger")
+            return None
+        return officer
+
+    co = _resolve_officer(co_raw, "controlling officer")
+    ro = _resolve_officer(ro_raw, "reviewing officer")
+    ao = _resolve_officer(ao_raw, "accepting officer")
+
+    changed = []
+    old_co = target.controlling_officer_id
+    old_ro = target.reviewing_officer_id
+    old_ao = target.accepting_officer_id
+
+    target.controlling_officer_id = co.id if co else None
+    target.reviewing_officer_id = ro.id if ro else None
+    target.accepting_officer_id = ao.id if ao else None
+
+    if old_co != target.controlling_officer_id:
+        changed.append(f"controlling_officer: {old_co} → {target.controlling_officer_id}")
+    if old_ro != target.reviewing_officer_id:
+        changed.append(f"reviewing_officer: {old_ro} → {target.reviewing_officer_id}")
+    if old_ao != target.accepting_officer_id:
+        changed.append(f"accepting_officer: {old_ao} → {target.accepting_officer_id}")
+
+    if not changed:
+        flash("No changes to officer assignments.", "info")
+        return redirect(url_for("admin.edit_user", user_id=user_id))
+
+    try:
+        db.session.flush()
+        AuditLog.log(
+            action="USER_OFFICERS_UPDATED",
+            user_id=current_user.id,
+            entity_type="User",
+            entity_id=str(target.id),
+            details=(
+                f"Admin '{current_user.username}' updated officers for "
+                f"'{target.username}'. Changes: {'; '.join(changed)}"
+            ),
+            ip_address=_client_ip(),
+            user_agent=get_user_agent(),
+        )
+        log_activity(
+            current_user.username,
+            "user_officers_updated",
+            "user",
+            target.username,
+            details="; ".join(changed),
+        )
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        flash("Could not update officer assignments due to a database error.", "danger")
+        return redirect(url_for("admin.edit_user", user_id=user_id))
+
+    flash(
+        f"Officer assignments for '{target.username}' updated successfully.",
+        "success",
+    )
+    return redirect(url_for("admin.edit_user", user_id=user_id))

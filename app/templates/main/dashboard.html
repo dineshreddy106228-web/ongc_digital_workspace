@@ -120,15 +120,25 @@
                 <div class="dashboard-module-grid">
                     {% for module in workspace_context.modules %}
                         {% if module.clickable %}
-                        <a href="{{ module.href }}" class="dashboard-module-card dashboard-module-card-{{ module.state }}">
-                            <span class="dashboard-module-status">{{ module.eyebrow }}</span>
+                        <a href="{{ module.href }}" class="dashboard-module-card dashboard-module-card-{{ module.state }} dashboard-module-card-key-{{ module.key }}">
+                            <div class="dashboard-module-topline">
+                                <span class="dashboard-module-status">{{ module.eyebrow }}</span>
+                                <span class="dashboard-module-icon" aria-hidden="true">
+                                    <i class="bi {{ module.icon_class or 'bi-grid' }}"></i>
+                                </span>
+                            </div>
                             <h3>{{ module.label }}</h3>
                             <p>{{ module.description }}</p>
                             <span class="dashboard-module-badge">{{ module.badge }}</span>
                         </a>
                         {% else %}
-                        <div class="dashboard-module-card dashboard-module-card-{{ module.state }}">
-                            <span class="dashboard-module-status">{{ module.eyebrow }}</span>
+                        <div class="dashboard-module-card dashboard-module-card-{{ module.state }} dashboard-module-card-key-{{ module.key }}">
+                            <div class="dashboard-module-topline">
+                                <span class="dashboard-module-status">{{ module.eyebrow }}</span>
+                                <span class="dashboard-module-icon" aria-hidden="true">
+                                    <i class="bi {{ module.icon_class or 'bi-grid' }}"></i>
+                                </span>
+                            </div>
                             <h3>{{ module.label }}</h3>
                             <p>{{ module.description }}</p>
                             <span class="dashboard-module-badge">{{ module.badge }}</span>

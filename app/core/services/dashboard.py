@@ -25,10 +25,12 @@ from app.models.tasks.task_collaborator import TaskCollaborator
 CLOSED_TASK_STATUSES = ("Completed", "Cancelled")
 PENDING_UPDATE_STATUSES = ("Not Started", "On Hold")
 SHOWCASE_MODULE_KEYS = ("office_management", "csc_workflow", "inventory")
+ADMIN_SHOWCASE_MODULE_KEYS = ("admin_users",)
 MODULE_ICON_MAP = {
     "office_management": "bi-list-task",
     "csc_workflow": "bi-diagram-3",
     "inventory": "bi-box-seam",
+    "admin_users": "bi-people",
 }
 INDIA_TIMEZONE = ZoneInfo("Asia/Kolkata")
 
@@ -248,10 +250,16 @@ def _build_welcome_summary(open_tasks, due_today_count: int, pending_update_coun
     )
 
 
+def _showcase_module_keys_for_user(user) -> tuple[str, ...]:
+    if user.is_admin_user() and not user.is_super_user():
+        return ADMIN_SHOWCASE_MODULE_KEYS
+    return SHOWCASE_MODULE_KEYS
+
+
 def _build_module_showcase(user, app=None) -> list[dict]:
     cards = []
 
-    for key in SHOWCASE_MODULE_KEYS:
+    for key in _showcase_module_keys_for_user(user):
         definition = get_module_definition(key)
         if definition is None:
             continue

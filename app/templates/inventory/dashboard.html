@@ -60,7 +60,7 @@
             <div class="inv-kpi-icon inv-kpi-green"><i class="bi bi-building"></i></div>
             <div>
                 <div class="inv-kpi-value" id="kpiPlants">—</div>
-                <div class="inv-kpi-label">Plants <i class="bi bi-pencil-square" style="font-size:0.65rem;margin-left:4px;opacity:0.6;"></i></div>
+                <div class="inv-kpi-label">Plants <i class="bi bi-pencil-square inv-label-icon"></i></div>
                 <div class="inv-kpi-hint" id="kpiPlantHint">Across all storage locations</div>
             </div>
         </div>
@@ -125,11 +125,11 @@
     </div>
 
     {% if current_user.is_authenticated and current_user.is_super_user() %}
-    <div class="inv-card" style="margin-bottom: 1rem;">
-        <div class="inv-card-body" style="display:flex; gap:0.9rem; justify-content:space-between; align-items:center; flex-wrap:wrap;">
+    <div class="inv-card">
+        <div class="inv-card-body inv-card-inline">
             <div>
                 <strong>MSDS administration</strong>
-                <div class="inv-card-subtitle" style="margin-top:0.2rem;">Upload material-specific MSDS PDFs into the database from the MSDS Center. Materials without an MSDS show a direct upload link.</div>
+                <div class="inv-card-subtitle">Upload material-specific MSDS PDFs into the database from the MSDS Center. Materials without an MSDS show a direct upload link.</div>
             </div>
             <a href="{{ url_for('inventory.msds_page') }}" class="btn btn-sm btn-primary">
                 <i class="bi bi-upload"></i> Open MSDS Upload
@@ -598,7 +598,7 @@
             applyFilters();
         }).catch(function() {
             tbody.innerHTML = '<tr><td colspan="12"><div class="inv-error">Failed to load inventory data. Please refresh and try again.</div></td></tr>';
-            countEl.textContent = 'Load failed';
+            countEl.textContent = 'Inventory unavailable';
         });
     }
 

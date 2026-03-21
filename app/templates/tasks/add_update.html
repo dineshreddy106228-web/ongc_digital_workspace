@@ -45,10 +45,19 @@
               <option value="">— No Status Change —</option>
               {% set selected_status = form_data.get('new_status', '') %}
               {% for status in task_statuses %}
+              {% if status in ('Completed', 'Cancelled') and not can_close %}
+              {# Terminal statuses hidden — user lacks close permission #}
+              {% else %}
               <option value="{{ status }}" {{ 'selected' if selected_status == status }}>{{ status }}</option>
+              {% endif %}
               {% endfor %}
             </select>
-            <div class="form-hint">Leave blank to keep the current status unchanged.</div>
+            <div class="form-hint">
+              Leave blank to keep the current status unchanged.
+              {% if not can_close %}
+              Terminal statuses (Completed, Cancelled) require owner or admin access.
+              {% endif %}
+            </div>
           </div>
         </div>
 

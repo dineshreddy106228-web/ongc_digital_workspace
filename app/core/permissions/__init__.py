@@ -55,3 +55,18 @@ def user_has_permission(user: "User", permission_name: str) -> bool:
 def get_all_permissions() -> list[str]:
     """Return a sorted list of every permission string defined in the registry."""
     return sorted(_ALL_PERMISSIONS)
+
+
+# ── Task-level permission functions (re-exported for convenience) ────────────
+# Canonical implementations live in task_permissions.py within this package.
+# Import here so consumers can do:
+#   from app.core.permissions import can_view_task, can_edit_task, ...
+
+from app.core.permissions.task_permissions import (  # noqa: E402, F401
+    can_view_task,
+    can_edit_task,
+    can_close_task,
+    can_add_update,
+    can_create_global_task,
+    can_manage_offices,
+)

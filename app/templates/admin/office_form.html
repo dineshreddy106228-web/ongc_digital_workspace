@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% from "components/ui.html" import page_header %}
+{% block title %}{{ 'Edit Office' if mode == 'edit' else 'Add Office' }}{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+  {% if mode == 'edit' %}
+    {% call page_header("Edit Office", "Update details for " ~ office.office_code ~ ".", "Administration", "Admin", "neutral") %}
+      <a href="{{ url_for('admin.offices') }}" class="btn btn-secondary">
+        <i class="bi bi-arrow-left"></i>
+        <span>Back to Offices</span>
+      </a>
+    {% endcall %}
+  {% else %}
+    {% call page_header("Add Office", "Register a new organisational office.", "Administration", "Admin", "neutral") %}
+      <a href="{{ url_for('admin.offices') }}" class="btn btn-secondary">
+        <i class="bi bi-arrow-left"></i>
+        <span>Back to Offices</span>
+      </a>
+    {% endcall %}
+  {% endif %}
+
+  {# Flash messages #}
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <div class="alert alert-{{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <div class="card form-card-narrow">
+    <div class="card-body">
+      <form method="POST"
+            action="{{ url_for('admin.edit_office', office_id=office.id) if mode == 'edit' else url_for('admin.add_office') }}"
+            novalidate>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <div class="form-section">
+          <h3 class="form-section-title">Office Details</h3>
+
+          <div class="form-group">
+            <label for="office_code" class="form-label">
+              Office Code <span class="required">*</span>
+            </label>
+            {% if mode == 'edit' %}
+              <input
+                type="text"
+                id="office_code"
+                class="form-control"
+                value="{{ office.office_code }}"
+                disabled
+              >
+              <small class="form-hint">Office code cannot be changed after creation.</small>
+            {% else %}
+              <input
+                type="text"
+                id="office_code"
+                name="office_code"
+                class="form-control"
+                value="{{ form_data.get('office_code', '') }}"
+                required
+                autocomplete="off"
+                placeholder="e.g. CORP_CHEM"
+                maxlength="50"
+              >
+              <small class="form-hint">Unique identifier. Will be stored in uppercase.</small>
+            {% endif %}
+          </div>
+
+          <div class="form-group">
+            <label for="office_name" class="form-label">
+              Office Name <span class="required">*</span>
+            </label>
+            <input
+              type="text"
+              id="office_name"
+              name="office_name"
+              class="form-control"
+              value="{{ form_data.get('office_name', '') or (office.office_name if mode == 'edit' else '') }}"
+              required
+              placeholder="e.g. Corporate Chemistry Lab"
+              maxlength="150"
+            >
+          </div>
+
+          <div class="form-group">
+            <label for="location" class="form-label">Location</label>
+            <input
+              type="text"
+              id="location"
+              name="location"
+              class="form-control"
+              value="{{ form_data.get('location', '') or (office.location if mode == 'edit' else '') }}"
+              placeholder="e.g. Mumbai, KDMIPE Dehradun"
+              maxlength="150"
+            >
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">
+            {{ 'Update Office' if mode == 'edit' else 'Create Office' }}
+          </button>
+          <a href="{{ url_for('admin.offices') }}" class="btn btn-secondary">Cancel</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -140,9 +140,13 @@
               {% set selected_scope = 'GLOBAL' if form_data.get('task_scope', task.task_scope) == 'GLOBAL' else 'LOCAL' %}
               <select id="task_scope" name="task_scope" class="form-control" required>
                 <option value="LOCAL" {{ 'selected' if selected_scope == 'LOCAL' }}>Local Task</option>
+                {% if can_create_global %}
                 <option value="GLOBAL" {{ 'selected' if selected_scope == 'GLOBAL' }}>Global Task</option>
+                {% endif %}
               </select>
-              <small class="form-hint">Global Task requires an owner. Local Task covers self-tasks and user-to-user coordination.</small>
+              <small class="form-hint">
+                {% if can_create_global %}Global Task requires an owner. {% endif %}Local Task covers self-tasks and user-to-user coordination.
+              </small>
             </div>
 
             <div class="form-group">
@@ -179,6 +183,37 @@
               {% endfor %}
             {% endif %}
 
+            {# ── Self-task visibility checkbox (LOCAL scope, zero collaborators) ── #}
+            <div class="form-group" id="self-task-visible-group" style="display:none; width:100%;">
+              <label class="checkbox-label" style="display:flex; align-items:center; gap:0.5rem;">
+                <input type="checkbox" name="self_task_visible_to_controlling_officer" id="self_task_visible_to_co"
+                       {{ 'checked' if self_task_visible_to_co == 'on' }}>
+                <span>Make this self-task visible to my Controlling Officer</span>
+              </label>
+              <small class="form-hint">
+                When checked, your controlling officer can view this self-task even though it has no collaborators.
+              </small>
+            </div>
+
+            {# ── Tagged offices multi-select (GLOBAL scope only) ── #}
+            {% if can_create_global and all_offices %}
+            <div class="form-group" id="tagged-offices-group" style="display:none; width:100%;">
+              <label class="form-label">Tagged Offices</label>
+              <div style="display:flex; flex-wrap:wrap; gap:0.75rem 1rem;">
+                {% for office in all_offices %}
+                <label class="checkbox-label" style="display:flex; align-items:center; gap:0.4rem; margin:0;">
+                  <input type="checkbox" name="tagged_offices" value="{{ office.id }}"
+                         {{ 'checked' if office.id|string in selected_tagged_offices }}>
+                  <span>{{ office.office_name }} ({{ office.office_code }})</span>
+                </label>
+                {% endfor %}
+              </div>
+              <small class="form-hint">
+                Select which offices this global task is relevant to. This helps with filtering and reporting.
+              </small>
+            </div>
+            {% endif %}
+
           </div>
         </div>
 
@@ -198,6 +233,8 @@
   const collaboratorCount = document.getElementById('collaborator_count');
   const collaboratorSlots = Array.from(document.querySelectorAll('.collaborator-slot'));
   const localOwnerId = '{{ task.owner_id or current_user.id }}';
+  const selfTaskVisibleGroup = document.getElementById('self-task-visible-group');
+  const taggedOfficesGroup = document.getElementById('tagged-offices-group');
 
   function getOwnerId() {
     if (scopeInput && scopeInput.value === 'GLOBAL') {
@@ -234,6 +271,31 @@
     });
   }
 
+  function syncSelfTaskVisible() {
+    const isLocal = !scopeInput || scopeInput.value !== 'GLOBAL';
+    const count = Number.parseInt(collaboratorCount?.value || '0', 10) || 0;
+    const showSelfTaskOption = isLocal && count === 0;
+    if (selfTaskVisibleGroup) {
+      selfTaskVisibleGroup.style.display = showSelfTaskOption ? '' : 'none';
+      const checkbox = selfTaskVisibleGroup.querySelector('input[type="checkbox"]');
+      if (checkbox && !showSelfTaskOption) {
+        checkbox.checked = false;
+      }
+    }
+  }
+
+  function syncTaggedOffices() {
+    const isGlobal = scopeInput && scopeInput.value === 'GLOBAL';
+    if (taggedOfficesGroup) {
+      taggedOfficesGroup.style.display = isGlobal ? '' : 'none';
+      if (!isGlobal) {
+        taggedOfficesGroup.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+          cb.checked = false;
+        });
+      }
+    }
+  }
+
   function syncCollaboratorSlots() {
     const count = Number.parseInt(collaboratorCount?.value || '0', 10) || 0;
     collaboratorSlots.forEach((slot, index) => {
@@ -248,13 +310,20 @@
       }
     });
     syncCollaboratorOptions();
+    syncSelfTaskVisible();
+  }
+
+  function syncScope() {
+    syncCollaboratorSlots();
+    syncTaggedOffices();
+    syncSelfTaskVisible();
   }
 
   if (collaboratorCount) {
     collaboratorCount.addEventListener('change', syncCollaboratorSlots);
   }
   if (scopeInput) {
-    scopeInput.addEventListener('change', syncCollaboratorOptions);
+    scopeInput.addEventListener('change', syncScope);
   }
   if (ownerSelect) {
     ownerSelect.addEventListener('change', syncCollaboratorOptions);
@@ -266,6 +335,8 @@
     }
   });
   syncCollaboratorSlots();
+  syncTaggedOffices();
+  syncSelfTaskVisible();
 })();
 </script>
 {% endblock %}

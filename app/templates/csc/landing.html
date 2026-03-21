@@ -454,12 +454,12 @@
 
     {# ── Page header ───────────────────────────────────────────────── #}
     <div class="inv-module-header">
-        <div>
+        <div class="inv-module-copy">
             <h1 class="inv-module-title"><i class="bi bi-file-earmark-medical"></i> Material Master Management</h1>
             <p class="inv-module-subtitle">
-                CSC &amp; Subcommittees Workflow for material master drafting, review, and publication
+                CSC and subcommittee workflow for material master drafting, review, and publication
             </p>
-            <p class="inv-module-subtitle" style="margin-top: 0.35rem;">
+            <p class="inv-module-note">
                 <strong>Module Admin{% if material_master_admin_labels|length != 1 %}s{% endif %}:</strong>
                 {% if material_master_admin_labels %}
                 {{ material_master_admin_labels|join(', ') }}
@@ -484,7 +484,7 @@
     {% include "csc/_workflow_nav.html" %}
 
     {# ── KPI row with 4 cards ───────────────────────────────────────── #}
-    <div class="inv-kpi-row" style="margin-bottom: 2rem;">
+    <div class="inv-kpi-row">
         {# Total Specs card #}
         <div class="inv-kpi-card">
             <div class="inv-kpi-icon inv-kpi-blue"><i class="bi bi-file-earmark-text"></i></div>
@@ -618,9 +618,7 @@
             <div class="inv-landing-card-body">
                 <h2 class="inv-landing-card-title">
                     Secretary Workspace
-                    <span style="font-size:0.7rem; font-weight:600; padding:0.2rem 0.5rem; border-radius:10px;
-                                 background:color-mix(in srgb,#7c3aed 12%,transparent); color:#7c3aed;
-                                 vertical-align:middle; margin-left:0.4rem;">
+                    <span class="inv-access-chip inv-access-chip-admin">
                         <i class="bi bi-shield-lock"></i> Module Admin
                     </span>
                 </h2>
@@ -791,9 +789,9 @@
         <div class="inv-modal-body mmm-pdf-modal-body">
             <iframe id="officeOrderModalFrame" class="mmm-pdf-frame" title="Office order preview"></iframe>
         </div>
-        <div class="inv-modal-footer" style="display:flex; justify-content:space-between; gap:0.75rem; flex-wrap:wrap;">
+        <div class="inv-modal-footer inv-modal-footer-spread">
             <div class="inv-modal-meta" id="officeOrderModalMeta">Office order preview</div>
-            <div style="display:flex; gap:0.6rem; flex-wrap:wrap;">
+            <div class="inv-modal-footer-actions">
                 <a href="#" class="btn btn-secondary btn-sm" id="officeOrderDownloadBtn" download>
                     <i class="bi bi-download"></i> Download PDF
                 </a>
@@ -979,7 +977,7 @@
         })
         .catch(function(err) {
             console.error('CSC overview fetch failed:', err);
-            document.getElementById('cscTotalBadge').textContent = 'Load failed';
+            document.getElementById('cscTotalBadge').textContent = 'Overview unavailable';
         });
 })();
 </script>

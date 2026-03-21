@@ -610,8 +610,13 @@ def master_data_page():
 
     rows = get_all_master_data()
     extra_keys = get_extra_column_keys()
+    material_codes = [
+        (row.get("material") or "").strip()
+        for row in rows
+        if isinstance(row, dict) and (row.get("material") or "").strip()
+    ]
     try:
-        msds_by_material = get_msds_material_index([row.material for row in rows])
+        msds_by_material = get_msds_material_index(material_codes)
     except MSDSError as exc:
         flash(str(exc), "warning")
         msds_by_material = {}

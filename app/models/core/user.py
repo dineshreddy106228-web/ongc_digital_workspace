@@ -45,6 +45,11 @@ class User(UserMixin, db.Model):
     reviewing_officer_id = db.Column(
         db.BigInteger, db.ForeignKey("users.id"), nullable=True
     )
+    # accepting_officer_id: final officer in the governance chain
+    # Chain: user → controlling_officer → reviewing_officer → accepting_officer
+    accepting_officer_id = db.Column(
+        db.BigInteger, db.ForeignKey("users.id"), nullable=True
+    )
 
     designation = db.Column(db.String(150), default="")
     employee_code = db.Column(db.String(50), default="")
@@ -120,7 +125,7 @@ class User(UserMixin, db.Model):
         back_populates="controlled_users",
         uselist=False,
         lazy="select",
-        overlaps="reviewing_officer,reviewed_users",
+        overlaps="reviewing_officer,reviewed_users,accepting_officer,accepted_users",
     )
     # Users for whom this user IS the controlling officer (one-to-many)
     controlled_users = db.relationship(
@@ -129,7 +134,7 @@ class User(UserMixin, db.Model):
         back_populates="controlling_officer",
         uselist=True,
         lazy="dynamic",
-        overlaps="reviewing_officer,reviewed_users",
+        overlaps="reviewing_officer,reviewed_users,accepting_officer,accepted_users",
     )
 
     # The user who is this user's reviewing officer (many-to-one)
@@ -140,7 +145,7 @@ class User(UserMixin, db.Model):
         back_populates="reviewed_users",
         uselist=False,
         lazy="select",
-        overlaps="controlling_officer,controlled_users",
+        overlaps="controlling_officer,controlled_users,accepting_officer,accepted_users",
     )
     # Users for whom this user IS the reviewing officer (one-to-many)
     reviewed_users = db.relationship(
@@ -149,7 +154,27 @@ class User(UserMixin, db.Model):
         back_populates="reviewing_officer",
         uselist=True,
         lazy="dynamic",
-        overlaps="controlling_officer,controlled_users",
+        overlaps="controlling_officer,controlled_users,accepting_officer,accepted_users",
+    )
+
+    # The user who is this user's accepting officer (many-to-one)
+    accepting_officer = db.relationship(
+        "User",
+        foreign_keys=[accepting_officer_id],
+        remote_side=[id],
+        back_populates="accepted_users",
+        uselist=False,
+        lazy="select",
+        overlaps="controlling_officer,controlled_users,reviewing_officer,reviewed_users",
+    )
+    # Users for whom this user IS the accepting officer (one-to-many)
+    accepted_users = db.relationship(
+        "User",
+        foreign_keys=[accepting_officer_id],
+        back_populates="accepting_officer",
+        uselist=True,
+        lazy="dynamic",
+        overlaps="controlling_officer,controlled_users,reviewing_officer,reviewed_users",
     )
 
     # Module access grants
