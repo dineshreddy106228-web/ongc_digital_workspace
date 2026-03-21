@@ -235,7 +235,7 @@
                       {{ msds_file.uploaded_at|datetime_ist("%d %b %Y %I:%M %p") }}
                     </div>
                     <div class="msds-link-list" style="margin-top:0.45rem;">
-                      <a href="{{ url_for('csc.open_msds', file_id=msds_file.id) }}" class="btn btn-sm btn-secondary">View</a>
+                      <a href="{{ url_for('csc.open_msds', file_id=msds_file.id) }}" class="btn btn-sm btn-secondary" target="_blank" rel="noopener">View</a>
                       <a href="{{ url_for('csc.open_msds', file_id=msds_file.id, download=1) }}" class="btn btn-sm btn-outline">Download</a>
                       <form method="POST" action="{{ url_for('csc.delete_msds', file_id=msds_file.id) }}" onsubmit="return confirm('Delete the stored MSDS PDF {{ msds_file.filename }} for {{ row.material }}?');" style="display:inline;">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
