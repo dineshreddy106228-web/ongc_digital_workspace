@@ -62,6 +62,12 @@ def _score_label(score: float) -> str:
     return "Low — manual validation required"
 
 
+def _slugify(value: str) -> str:
+    cleaned = "".join(ch if ch.isalnum() else "-" for ch in str(value or "").strip().lower())
+    compact = "-".join(part for part in cleaned.split("-") if part)
+    return compact or "value"
+
+
 def _title_row(ws, row: int, text: str, ncols: int, bg: str = _C_HDR, sz: int = 13, h: int = 28):
     ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=ncols)
     c = ws.cell(row, 1, text)
@@ -201,7 +207,7 @@ def build_forecast_workbook(
         fc_rows = fc.get("forecast_rows", [])
 
         # Material header
-        ws2.merge_cells(start_row=row, start_column=1, end_row=row, end_column=8)
+        ws2.merge_cells(start_row=row, start_column=1, end_row=row, end_column=9)
         c = ws2.cell(row, 1, f"  {mf.get('material', '')}  |  {fc.get('method', '')}  |  {fc.get('demand_type', '')}")
         c.font = Font(name=_FN, bold=True, size=11, color="FFFFFF")
         c.fill = _fl(_C_HDR)
@@ -209,7 +215,7 @@ def build_forecast_workbook(
         ws2.row_dimensions[row].height = 24
         row += 1
 
-        _hdr_row(ws2, row, ["Month", "Actual", "", "Forecast Month", "P5", "P50", "P95", "Buffer"], _C_HDR, h=24)
+        _hdr_row(ws2, row, ["Month", "Actual", "", "Forecast Month", "P5", "P50", "P95", "Buffer", "Range Width"], _C_HDR, h=24)
         row += 1
 
         n_hist = len(hist_labels)
@@ -232,7 +238,7 @@ def build_forecast_workbook(
                 ws2.cell(row, 4, fr.get("period", "")).font = _fnt(sz=9)
                 ws2.cell(row, 4).border = _BD
                 ws2.cell(row, 4).alignment = _C
-                for ci, key in enumerate(["p5_qty", "p50_qty", "p95_qty", "buffer_qty"], 5):
+                for ci, key in enumerate(["p5_qty", "p50_qty", "p95_qty", "buffer_qty", "range_width_qty"], 5):
                     cell_f = ws2.cell(row, ci, round(fr.get(key, 0), 0))
                     cell_f.number_format = "#,##0"
                     cell_f.font = _fnt(bold=(key == "p50_qty"), sz=9)
@@ -244,16 +250,23 @@ def build_forecast_workbook(
             row += 1
         row += 2
 
-    for c_letter, w in zip("ABCDEFGH", [12, 14, 3, 12, 14, 14, 14, 14]):
+    for c_letter, w in zip("ABCDEFGHI", [12, 14, 3, 12, 14, 14, 14, 14, 14]):
         ws2.column_dimensions[c_letter].width = w
 
     # ── Sheet 3: Confidence & Quality ─────────────────────────────────
     ws3 = wb.create_sheet("Confidence & Quality")
-    _title_row(ws3, 1, "Confidence Score & Data Quality", 8, h=26)
-    _hdr_row(ws3, 2, ["Material", "Demand Type", "Active Months", "Method", "MAPE %", "Bias %", "Coverage %", "Conf Score"], _C_HDR, h=30)
+    _title_row(ws3, 1, "Forecast Confidence & Reliability", 10, h=26)
+    _hdr_row(
+        ws3,
+        2,
+        ["Material", "Demand Type", "Active Months", "Method", "Op Percentile", "Coverage %", "Bias", "Directional %", "Conf Score", "Conf Band"],
+        _C_HDR,
+        h=30,
+    )
 
     for ri, mf in enumerate(materials_forecast):
         fc = mf.get("forecast", {})
+        confidence = fc.get("forecast_confidence_record") or {}
         er = ri + 3
         ws3.cell(er, 1, mf.get("material", "")).font = _fnt(bold=True, sz=9)
         ws3.cell(er, 1).border = _BD
@@ -268,16 +281,18 @@ def build_forecast_workbook(
         ws3.cell(er, 4).border = _BD
         ws3.cell(er, 4).alignment = _L
 
-        mape = fc.get("wf_mape", "")
-        bias = fc.get("wf_bias_pct", "")
-        cov = fc.get("wf_coverage", "")
-        score = fc.get("wf_conf_score", "")
-        for ci, val in enumerate([mape, bias, cov, score], 5):
+        op_percentile = fc.get("selected_percentile_label", "P50")
+        coverage = confidence.get("coverage_pct", "")
+        bias = confidence.get("bias", "")
+        directional = confidence.get("directional_accuracy_pct", "")
+        score = confidence.get("confidence_score", "")
+        band = confidence.get("confidence_band", "")
+        for ci, val in enumerate([op_percentile, coverage, bias, directional, score, band], 5):
             cell_q = ws3.cell(er, ci, val if val != "" else "—")
             cell_q.font = _fnt(sz=10)
             cell_q.border = _BD
             cell_q.alignment = _C
-            if ci == 8 and isinstance(val, (int, float)):
+            if ci == 9 and isinstance(val, (int, float)):
                 sc = _score_color(float(val))
                 cell_q.font = Font(name=_FN, bold=True, size=11, color="FFFFFF")
                 cell_q.fill = _fl(sc)
@@ -287,7 +302,7 @@ def build_forecast_workbook(
     ws3.column_dimensions["B"].width = 14
     ws3.column_dimensions["C"].width = 14
     ws3.column_dimensions["D"].width = 38
-    for i in range(5, 9):
+    for i in range(5, 11):
         ws3.column_dimensions[get_column_letter(i)].width = 14
 
     # ── Save ──────────────────────────────────────────────────────────
@@ -296,4 +311,240 @@ def build_forecast_workbook(
     stream.seek(0)
     plant_suffix = plant_label.lower().replace(" ", "-") if plant_label else "all-plants"
     filename = f"demand-forecast-{plant_suffix}.xlsx"
+    return stream, filename
+
+
+def build_forecast_backtest_workbook(
+    material: str,
+    forecast: dict,
+    plant_label: str = "All Plants",
+) -> tuple[BytesIO, str]:
+    """Build a detailed walk-forward backtest workbook for one material."""
+    wb = Workbook()
+
+    selected_percentile = forecast.get("selected_percentile_label", "P50")
+    confidence = forecast.get("forecast_confidence_record") or {}
+    backtest_rows = forecast.get("walk_forward_backtest_rows", []) or []
+    percentile_summary = forecast.get("percentile_backtest_summary", []) or []
+    confidence_by_percentile = forecast.get("confidence_by_percentile_table", []) or []
+    production_rows = forecast.get("production_forecast_rows", []) or []
+
+    ws1 = wb.active
+    ws1.title = "Walk-Forward Detail"
+    _title_row(ws1, 1, f"Walk-Forward Backtest | {material} | {plant_label}", 27, h=28)
+    _hdr_row(
+        ws1,
+        2,
+        [
+            "Selected Percentile",
+            "Confidence Score",
+            "Confidence Band",
+            "Demand Type",
+            "Method",
+            "Backtest Start",
+            "Backtest End",
+            "Evaluation Points",
+        ],
+        _C_HDR,
+        h=24,
+    )
+    meta_values = [
+        selected_percentile,
+        confidence.get("confidence_score", forecast.get("confidence_score", "—")),
+        confidence.get("confidence_band", forecast.get("confidence_band", "—")),
+        forecast.get("demand_type", ""),
+        forecast.get("method", ""),
+        confidence.get("backtest_window_start", ""),
+        confidence.get("backtest_window_end", ""),
+        confidence.get("evaluation_points", len(backtest_rows)),
+    ]
+    for col_idx, value in enumerate(meta_values, 1):
+        cell = ws1.cell(3, col_idx, value)
+        cell.font = _fnt(sz=10, bold=(col_idx == 1))
+        cell.border = _BD
+        cell.alignment = _C if col_idx != 5 else _L
+
+    detail_headers = [
+        "Backtest Month",
+        "Prev Actual Consumption",
+        "Actual Consumption",
+        "P50 Forecast",
+        "P55 Forecast",
+        "P60 Forecast",
+        "P65 Forecast",
+        "P70 Forecast",
+        "P75 Forecast",
+        "P80 Forecast",
+        "P85 Forecast",
+        "P90 Forecast",
+        "P95 Forecast",
+        "Selected Percentile",
+        "Selected Forecast",
+        "Coverage Lower",
+        "Coverage Upper",
+        "Within Coverage",
+        "Forecast Error",
+        "Abs Error",
+        "Underforecast",
+        "Overforecast",
+        "Buffer",
+        "Adjusted Buffer",
+        "Actual Direction",
+        "Forecast Direction",
+        "Directional Hit",
+    ]
+    _hdr_row(ws1, 5, detail_headers, _C_HDR, h=28)
+
+    row_idx = 6
+    for row in backtest_rows:
+        values = [
+            row.get("backtest_period", ""),
+            row.get("prev_actual_consumption_qty", ""),
+            row.get("actual_consumption_qty", ""),
+            row.get("p50_forecast_qty", ""),
+            row.get("p55_forecast_qty", ""),
+            row.get("p60_forecast_qty", ""),
+            row.get("p65_forecast_qty", ""),
+            row.get("p70_forecast_qty", ""),
+            row.get("p75_forecast_qty", ""),
+            row.get("p80_forecast_qty", ""),
+            row.get("p85_forecast_qty", ""),
+            row.get("p90_forecast_qty", ""),
+            row.get("p95_forecast_qty", ""),
+            row.get("selected_percentile_label", ""),
+            row.get("selected_forecast_qty", ""),
+            row.get("coverage_lower_qty", ""),
+            row.get("coverage_upper_qty", ""),
+            "Yes" if row.get("within_coverage_band") else "No",
+            row.get("forecast_error_qty", ""),
+            row.get("abs_error_qty", ""),
+            row.get("underforecast_qty", ""),
+            row.get("overforecast_qty", ""),
+            row.get("buffer_qty", ""),
+            row.get("adjusted_buffer_qty", ""),
+            row.get("actual_direction", ""),
+            row.get("forecast_direction", ""),
+            "Yes" if row.get("directional_hit") else "No" if row.get("directional_hit") is not None else "—",
+        ]
+        for col_idx, value in enumerate(values, 1):
+            cell = ws1.cell(row_idx, col_idx, value)
+            cell.border = _BD
+            cell.alignment = _C if col_idx in (1, 14, 18, 25, 26, 27) else _R
+            if col_idx == 1:
+                cell.alignment = _L
+            if row_idx % 2 == 0:
+                cell.fill = _fl(_C_ALT)
+        row_idx += 1
+
+    widths = [16, 16, 16, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 14, 14, 14, 12, 12, 12, 12, 12, 12, 14, 12, 14, 12]
+    for idx, width in enumerate(widths, 1):
+        ws1.column_dimensions[get_column_letter(idx)].width = width
+
+    ws2 = wb.create_sheet("Percentile Summary")
+    _title_row(ws2, 1, f"Percentile Backtest Summary | {material}", 10, h=28)
+    _hdr_row(
+        ws2,
+        2,
+        ["Percentile", "MAE", "RMSE", "Bias", "Underforecast %", "Overforecast %", "Underforecast Penalty", "Weighted Score", "Eval Points", "Selected"],
+        _C_HDR,
+        h=24,
+    )
+    for row_idx, row in enumerate(percentile_summary, 3):
+        is_selected = int(row.get("percentile", -1)) == int(forecast.get("selected_percentile", 50))
+        values = [
+            f"P{int(row.get('percentile', 0))}",
+            row.get("mae", ""),
+            row.get("rmse", ""),
+            row.get("bias", ""),
+            row.get("underforecast_pct", ""),
+            row.get("overforecast_pct", ""),
+            row.get("underforecast_penalty", ""),
+            row.get("weighted_score", ""),
+            row.get("evaluation_points", ""),
+            "Yes" if is_selected else "",
+        ]
+        for col_idx, value in enumerate(values, 1):
+            cell = ws2.cell(row_idx, col_idx, value)
+            cell.border = _BD
+            cell.alignment = _C if col_idx in (1, 9, 10) else _R
+            if is_selected:
+                cell.fill = _fl("EAF6EE")
+                cell.font = _fnt(bold=True, sz=10)
+            else:
+                cell.font = _fnt(sz=10)
+    for idx, width in enumerate([12, 12, 12, 12, 16, 16, 20, 16, 12, 10], 1):
+        ws2.column_dimensions[get_column_letter(idx)].width = width
+
+    ws3 = wb.create_sheet("Confidence by Percentile")
+    _title_row(ws3, 1, f"Forecast Confidence by Percentile | {material}", 9, h=28)
+    _hdr_row(
+        ws3,
+        2,
+        ["Percentile", "Coverage %", "Error Volatility", "Bias", "Directional %", "Confidence Score", "Confidence Band", "Eval Points", "Selected"],
+        _C_HDR,
+        h=24,
+    )
+    for row_idx, row in enumerate(confidence_by_percentile, 3):
+        is_selected = int(row.get("percentile", -1)) == int(forecast.get("selected_percentile", 50))
+        values = [
+            f"P{int(row.get('percentile', 0))}",
+            row.get("coverage_pct", ""),
+            row.get("error_volatility", ""),
+            row.get("bias", ""),
+            row.get("directional_accuracy_pct", ""),
+            row.get("confidence_score", ""),
+            row.get("confidence_band", ""),
+            row.get("evaluation_points", ""),
+            "Yes" if is_selected else "",
+        ]
+        for col_idx, value in enumerate(values, 1):
+            cell = ws3.cell(row_idx, col_idx, value)
+            cell.border = _BD
+            cell.alignment = _C if col_idx in (1, 7, 8, 9) else _R
+            if col_idx == 6 and isinstance(value, (int, float)):
+                cell.fill = _fl(_score_color(float(value)))
+                cell.font = Font(name=_FN, bold=True, size=10, color="FFFFFF")
+            elif is_selected:
+                cell.fill = _fl("EAF6EE")
+                cell.font = _fnt(bold=True, sz=10)
+            else:
+                cell.font = _fnt(sz=10)
+    for idx, width in enumerate([12, 12, 16, 12, 14, 16, 18, 12, 10], 1):
+        ws3.column_dimensions[get_column_letter(idx)].width = width
+
+    ws4 = wb.create_sheet("Operational Forecast")
+    _title_row(ws4, 1, f"Live Operational Forecast | {material}", 9, h=28)
+    _hdr_row(
+        ws4,
+        2,
+        ["Forecast Month", "Baseline P50", "Selected Percentile", "Selected Forecast", "Lower Bound", "Upper Bound", "Confidence Score", "Confidence Band", "Adj Buffer Total"],
+        _C_HDR,
+        h=24,
+    )
+    for row_idx, row in enumerate(production_rows, 3):
+        values = [
+            row.get("forecast_month", ""),
+            row.get("baseline_p50", ""),
+            f"P{int(row.get('selected_percentile', forecast.get('selected_percentile', 50)))}",
+            row.get("selected_forecast", ""),
+            row.get("lower_bound", ""),
+            row.get("upper_bound", ""),
+            row.get("confidence_score", ""),
+            row.get("confidence_band", ""),
+            forecast.get("confidence_adjusted_buffer_total_qty", ""),
+        ]
+        for col_idx, value in enumerate(values, 1):
+            cell = ws4.cell(row_idx, col_idx, value)
+            cell.border = _BD
+            cell.alignment = _C if col_idx in (1, 3, 7, 8) else _R
+            cell.font = _fnt(sz=10, bold=(col_idx == 4))
+    for idx, width in enumerate([16, 14, 14, 14, 14, 14, 16, 18, 16], 1):
+        ws4.column_dimensions[get_column_letter(idx)].width = width
+
+    stream = BytesIO()
+    wb.save(stream)
+    stream.seek(0)
+    material_slug = _slugify(material or "material")
+    plant_slug = _slugify(plant_label or "all-plants")
+    filename = f"forecast-backtest-{material_slug}-{plant_slug}.xlsx"
     return stream, filename

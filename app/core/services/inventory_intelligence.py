@@ -45,6 +45,25 @@ from app.core.services.inventory_forecast import (
     MIN_NZ_SEAS,
     SEAS_PERIOD as _FC_SEAS_PERIOD,
 )
+from app.core.services.forecast_percentiles import (
+    DEFAULT_PERCENTILE_LADDER,
+    PercentileScoreWeights,
+    aggregate_percentile_summary,
+    build_percentile_ladder,
+    build_selected_percentile_backtest_rows,
+    build_production_forecast_rows,
+    select_best_percentile,
+    summarize_percentile_backtest,
+    walk_forward_percentile_backtest,
+)
+from app.core.services.forecast_confidence import (
+    ConfidenceScoreWeights,
+    ConfidenceThresholds,
+    aggregate_confidence_summary,
+    select_confidence_summary,
+    summarize_confidence_by_percentile,
+)
+from app.core.services.buffer_policy import adjust_buffer_by_confidence
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +74,7 @@ MC9_FILE = os.path.join(_BASE_DIR, "MC9_data.xlsx")
 PLANT_GROUPING_FILE = os.path.join(_BASE_DIR, "inventory_plant_grouping.json")
 _CACHE_DIR = os.path.join(_BASE_DIR, ".cache", "inventory")
 _FORECAST_CACHE_FILE = os.path.join(_CACHE_DIR, "forecast_precomputed.pkl")
+_FORECAST_CACHE_SCHEMA_VERSION = 4
 
 _PERIOD_RE = re.compile(r"^\s*(\d{1,2})\.(\d{4})\s*$")
 _PRICE_SWING_THRESHOLD_PCT = 15.0
@@ -276,6 +296,11 @@ _HIGH_CV_THRESHOLD = 0.50         # coefficient of variation threshold
 _MIN_HISTORY_MONTHS = 7           # unchanged from original
 _MIN_RECENT_ACTIVE = 3            # relaxed from 5 to handle sporadic items
 _SEASONAL_CYCLE = 12              # months in a seasonal cycle
+_PERCENTILE_LADDER = DEFAULT_PERCENTILE_LADDER
+_PERCENTILE_SCORE_WEIGHTS = PercentileScoreWeights()
+_PERCENTILE_SELECTION_LEVEL = "material"
+_CONFIDENCE_SCORE_WEIGHTS = ConfidenceScoreWeights()
+_CONFIDENCE_THRESHOLDS = ConfidenceThresholds()
 
 
 def _classify_demand(quantities: np.ndarray) -> str:
@@ -1498,6 +1523,7 @@ def _load_normalized_cache(
 
 def _forecast_cache_payload_signature() -> dict[str, tuple[int, int] | None]:
     return {
+        "schema_version": (_FORECAST_CACHE_SCHEMA_VERSION, _FORECAST_CACHE_SCHEMA_VERSION),
         "consumption": _source_signature(CONS_FILE),
         "procurement": _source_signature(PROC_FILE),
         "plant_grouping": _source_signature(PLANT_GROUPING_FILE),
@@ -1506,6 +1532,28 @@ def _forecast_cache_payload_signature() -> dict[str, tuple[int, int] | None]:
 
 def _forecast_cache_entry_key(material: str, plant: str | None) -> str:
     return f"{_normalize_plant(plant) or '__all__'}::{material.upper()}"
+
+
+def _forecast_cache_needs_refresh(forecast: dict | None) -> bool:
+    if not isinstance(forecast, dict):
+        return True
+
+    required_keys = (
+        "selected_percentile",
+        "selected_percentile_label",
+        "selected_forecast_total_qty",
+        "confidence_adjusted_buffer_total_qty",
+        "walk_forward_backtest_rows",
+    )
+    if any(key not in forecast for key in required_keys):
+        return True
+
+    confidence_record = forecast.get("forecast_confidence_record") or {}
+    evaluation_points = int(confidence_record.get("evaluation_points", 0) or 0)
+    if evaluation_points > 0 and not forecast.get("walk_forward_backtest_rows"):
+        return True
+
+    return False
 
 
 def _load_precomputed_forecast_cache() -> dict[str, dict]:
@@ -1598,7 +1646,17 @@ def precompute_forecast_cache(
     for material_name in ranked_materials:
         frame = material_groups[material_name]
         monthly = _monthly_series(frame)
-        forecasts[_forecast_cache_entry_key(material_name, None)] = _build_forecast(monthly)
+        material_code = ""
+        if not frame.empty and "material_code" in frame.columns:
+            frame_codes = frame["material_code"].replace("", pd.NA).dropna()
+            if not frame_codes.empty:
+                material_code = _normalize_text(frame_codes.iloc[0])
+        forecasts[_forecast_cache_entry_key(material_name, None)] = _build_forecast(
+            monthly,
+            material=material_name,
+            material_code=material_code,
+            plant="",
+        )
 
     _write_precomputed_forecast_cache(forecasts)
     elapsed = (pd.Timestamp.utcnow() - started).total_seconds()
@@ -2439,11 +2497,240 @@ def _compute_prediction_bands(
     }
 
 
-def _build_forecast(monthly: pd.DataFrame) -> dict:
+def _build_prediction_distribution(
+    quantities: np.ndarray,
+    labels: list[str],
+    *,
+    horizon: int = 6,
+    include_bootstrap: bool = True,
+) -> dict:
+    def _ensemble_func(q, lbl, horizon=horizon):
+        return _ensemble_forecast(q, lbl, horizon=horizon)
+
+    forecast_values, ensemble_meta = _ensemble_forecast(quantities, labels, horizon=horizon)
+    bootstrap_result = None
+    new_engine_validation: dict = {}
+    new_engine_model = ""
+    if include_bootstrap:
+        try:
+            bootstrap_result = compute_bootstrap_bands(quantities, forecast_values, horizon=horizon)
+            new_engine_validation = bootstrap_result.get("validation", {})
+            new_engine_model = bootstrap_result.get("model_type", "")
+        except Exception:
+            bootstrap_result = None
+            new_engine_validation = {}
+            new_engine_model = ""
+
+    prediction_bands = _compute_prediction_bands(
+        quantities,
+        labels,
+        _ensemble_func,
+        forecast_values,
+        horizon=horizon,
+    )
+    if bootstrap_result is not None:
+        for key in ("p5_quantities", "p10_quantities", "p50_quantities", "p90_quantities", "p95_quantities"):
+            bs_vals = bootstrap_result.get(key)
+            if bs_vals and len(bs_vals) == horizon:
+                existing = prediction_bands.get(key, [])
+                if not existing or prediction_bands.get("selected_band_coverage_pct") is None:
+                    prediction_bands[key] = bs_vals
+
+    return {
+        "forecast_values": forecast_values,
+        "ensemble_meta": ensemble_meta,
+        "prediction_bands": prediction_bands,
+        "new_engine_validation": new_engine_validation,
+        "new_engine_model": new_engine_model,
+    }
+
+
+def _build_candidate_percentile_arrays(
+    prediction_bands: dict,
+    *,
+    ladder: tuple[int, ...] = _PERCENTILE_LADDER,
+) -> dict[int, list[float]]:
+    p50_quantities = prediction_bands.get("p50_quantities", []) or []
+    p90_quantities = prediction_bands.get("p90_quantities", []) or []
+    p95_quantities = prediction_bands.get("p95_quantities", []) or []
+    horizon = max(len(p50_quantities), len(p90_quantities), len(p95_quantities))
+    candidates: dict[int, list[float]] = {int(percentile): [] for percentile in ladder}
+
+    for idx in range(horizon):
+        percentile_map = build_percentile_ladder(
+            {
+                50: _safe_float(p50_quantities[idx]) if idx < len(p50_quantities) else 0.0,
+                90: _safe_float(p90_quantities[idx]) if idx < len(p90_quantities) else 0.0,
+                95: _safe_float(p95_quantities[idx]) if idx < len(p95_quantities) else 0.0,
+            },
+            ladder=ladder,
+        )
+        for percentile, value in percentile_map.items():
+            candidates[int(percentile)].append(round(_safe_float(value), 2))
+
+    return candidates
+
+
+def _build_operational_percentile_layer(
+    quantities: np.ndarray,
+    labels: list[str],
+    *,
+    material: str,
+    material_code: str,
+    plant: str,
+    demand_type: str,
+    forecast_labels: list[str],
+    prediction_bands: dict,
+    p50_quantities: list[float],
+    lower_quantities: list[float],
+    upper_quantities: list[float],
+) -> dict:
+    backtest_storage_ladder = tuple(sorted({*(_PERCENTILE_LADDER), 95}))
+
+    def _candidate_builder(train: np.ndarray, train_labels: list[str], horizon: int = 1) -> dict[int, list[float]]:
+        distribution = _build_prediction_distribution(
+            train,
+            train_labels,
+            horizon=horizon,
+            include_bootstrap=False,
+        )
+        return _build_candidate_percentile_arrays(
+            distribution["prediction_bands"],
+            ladder=backtest_storage_ladder,
+        )
+
+    backtest_rows = walk_forward_percentile_backtest(
+        quantities,
+        labels,
+        _candidate_builder,
+        ladder=backtest_storage_ladder,
+    )
+    backtest_summary = summarize_percentile_backtest(
+        backtest_rows,
+        material=material,
+        material_code=material_code,
+        plant=plant,
+        demand_type=demand_type,
+        ladder=_PERCENTILE_LADDER,
+        weights=_PERCENTILE_SCORE_WEIGHTS,
+    )
+    selection_summary = backtest_summary
+    if _PERCENTILE_SELECTION_LEVEL == "demand_type":
+        selection_summary = aggregate_percentile_summary(
+            backtest_summary,
+            group_fields=("plant", "demand_type"),
+        )
+    backtest_window_start = backtest_rows[0]["period"] if backtest_rows else ""
+    backtest_window_end = backtest_rows[-1]["period"] if backtest_rows else ""
+    selected_record = select_best_percentile(
+        selection_summary,
+        material=material,
+        material_code=material_code,
+        plant=plant,
+        demand_type=demand_type,
+        backtest_window_start=backtest_window_start,
+        backtest_window_end=backtest_window_end,
+        selection_level=_PERCENTILE_SELECTION_LEVEL,
+    )
+
+    live_candidates = _build_candidate_percentile_arrays(prediction_bands)
+    selected_percentile = int(selected_record["selected_percentile"]) if selected_record else 50
+    confidence_by_percentile = summarize_confidence_by_percentile(
+        backtest_rows,
+        material=material,
+        material_code=material_code,
+        plant=plant,
+        demand_type=demand_type,
+        ladder=_PERCENTILE_LADDER,
+        score_weights=_CONFIDENCE_SCORE_WEIGHTS,
+        thresholds=_CONFIDENCE_THRESHOLDS,
+    )
+    confidence_selection_rows = confidence_by_percentile
+    if _PERCENTILE_SELECTION_LEVEL == "demand_type":
+        confidence_selection_rows = aggregate_confidence_summary(
+            confidence_by_percentile,
+            group_fields=("plant", "demand_type"),
+            thresholds=_CONFIDENCE_THRESHOLDS,
+        )
+    selected_confidence = select_confidence_summary(
+        confidence_selection_rows,
+        selected_percentile=selected_percentile,
+        material=material,
+        material_code=material_code,
+        plant=plant,
+        demand_type=demand_type,
+    )
+    selected_forecast_quantities = [
+        round(_safe_float(value), 2)
+        for value in live_candidates.get(selected_percentile, p50_quantities)
+    ]
+    selected_forecast_total_qty = round(sum(selected_forecast_quantities), 2)
+    selected_backtest_rows = build_selected_percentile_backtest_rows(
+        backtest_rows,
+        material=material,
+        material_code=material_code,
+        plant=plant,
+        demand_type=demand_type,
+        selected_percentile=selected_percentile,
+        confidence_score=selected_confidence.get("confidence_score") if selected_confidence else None,
+        confidence_band=selected_confidence.get("confidence_band", "") if selected_confidence else "",
+        ladder=_PERCENTILE_LADDER,
+    )
+    production_rows = build_production_forecast_rows(
+        material=material,
+        material_code=material_code,
+        plant=plant,
+        demand_type=demand_type,
+        forecast_labels=forecast_labels,
+        baseline_p50=p50_quantities,
+        selected_percentile=selected_percentile,
+        percentile_candidates=live_candidates,
+        lower_bound=lower_quantities,
+        upper_bound=upper_quantities,
+    )
+    confidence_score = selected_confidence.get("confidence_score") if selected_confidence else None
+    confidence_band = selected_confidence.get("confidence_band") if selected_confidence else ""
+    for row in production_rows:
+        row["confidence_score"] = confidence_score
+        row["confidence_band"] = confidence_band
+    adjusted_buffer_total_qty = adjust_buffer_by_confidence(
+        sum(max(_safe_float(upper_quantities[idx]) - _safe_float(p50_quantities[idx]), 0.0) for idx in range(len(p50_quantities))),
+        confidence_score,
+    )
+
+    return {
+        "percentile_backtest_summary": backtest_summary,
+        "selected_percentile_record": selected_record,
+        "selected_percentile_table": [selected_record] if selected_record else [],
+        "confidence_by_percentile_table": confidence_by_percentile,
+        "forecast_confidence_summary": [selected_confidence] if selected_confidence else [],
+        "forecast_confidence_record": selected_confidence,
+        "walk_forward_backtest_rows": selected_backtest_rows,
+        "confidence_score": confidence_score,
+        "confidence_band": confidence_band,
+        "selected_percentile": selected_percentile,
+        "selected_percentile_label": f"P{selected_percentile}",
+        "selected_forecast_quantities": selected_forecast_quantities,
+        "selected_forecast_total_qty": selected_forecast_total_qty,
+        "confidence_adjusted_buffer_total_qty": adjusted_buffer_total_qty,
+        "production_forecast_rows": production_rows,
+    }
+
+
+def _build_forecast(
+    monthly: pd.DataFrame,
+    *,
+    material: str = "",
+    material_code: str = "",
+    plant: str = "",
+) -> dict:
     history_labels = monthly.get("label", pd.Series(dtype=str)).tolist()
     history_quantities = [round(_safe_float(v), 2) for v in monthly.get("qty", pd.Series(dtype=float)).tolist()]
 
     _empty_forecast_stub = {
+        "material": material,
+        "material_code": material_code,
+        "plant": plant,
         "forecast_labels": [],
         "forecast_quantities": [],
         "projected_total_qty": 0.0,
@@ -2464,12 +2751,28 @@ def _build_forecast(monthly: pd.DataFrame) -> dict:
         "p5_total_qty": 0.0,
         "p95_total_qty": 0.0,
         "buffer_total_qty": 0.0,
+        "range_width_total_qty": 0.0,
+        "selected_percentile": 50,
+        "selected_percentile_label": "P50",
+        "selected_forecast_quantities": [],
+        "selected_forecast_total_qty": 0.0,
+        "confidence_score": None,
+        "confidence_band": "",
+        "confidence_adjusted_buffer_total_qty": 0.0,
         "band_selection_window_label": "",
         "selected_band_coverage_pct": None,
         "selected_band_target_coverage_pct": None,
         "selected_band_fit_score": None,
         "candidate_bands": [],
         "forecast_rows": [],
+        "percentile_backtest_summary": [],
+        "selected_percentile_record": None,
+        "selected_percentile_table": [],
+        "confidence_by_percentile_table": [],
+        "forecast_confidence_summary": [],
+        "forecast_confidence_record": None,
+        "walk_forward_backtest_rows": [],
+        "production_forecast_rows": [],
     }
 
     if monthly.empty or len(monthly) < _MIN_HISTORY_MONTHS:
@@ -2498,40 +2801,19 @@ def _build_forecast(monthly: pd.DataFrame) -> dict:
 
     # --- Adaptive ensemble forecasting ---
     demand_type = _classify_demand(quantities)
-
-    # Generate ensemble forecast
-    def _ensemble_func(q, lbl, horizon=6):
-        return _ensemble_forecast(q, lbl, horizon=horizon)
-
-    forecast_values, ensemble_meta = _ensemble_forecast(quantities, history_labels, horizon=6)
-
-    # Also run the new engine's model selector for bootstrap-based bands
-    try:
-        bootstrap_result = compute_bootstrap_bands(quantities, forecast_values, horizon=6)
-        new_engine_validation = bootstrap_result.get("validation", {})
-        new_engine_model = bootstrap_result.get("model_type", "")
-    except Exception:
-        bootstrap_result = None
-        new_engine_validation = {}
-        new_engine_model = ""
-
-    forecast_array = np.asarray(forecast_values, dtype=float)
+    distribution = _build_prediction_distribution(
+        quantities,
+        history_labels,
+        horizon=6,
+        include_bootstrap=True,
+    )
+    forecast_values = distribution["forecast_values"]
+    ensemble_meta = distribution["ensemble_meta"]
+    prediction_bands = distribution["prediction_bands"]
+    new_engine_validation = distribution["new_engine_validation"]
+    new_engine_model = distribution["new_engine_model"]
     last_period = monthly["period"].iloc[-1]
     forecast_periods = pd.period_range(last_period + 1, periods=6, freq="M")
-    prediction_bands = _compute_prediction_bands(
-        quantities, history_labels, _ensemble_func,
-        forecast_values, horizon=6,
-    )
-
-    # Merge bootstrap bands into prediction_bands when they provide tighter coverage
-    if bootstrap_result is not None:
-        for key in ("p5_quantities", "p10_quantities", "p50_quantities", "p90_quantities", "p95_quantities"):
-            bs_vals = bootstrap_result.get(key)
-            if bs_vals and len(bs_vals) == 6:
-                existing = prediction_bands.get(key, [])
-                # Use bootstrap values if existing percentile bands fell back to fixed multipliers
-                if not existing or prediction_bands.get("selected_band_coverage_pct") is None:
-                    prediction_bands[key] = bs_vals
     lower_quantities = prediction_bands["selected_lower_quantities"]
     p50_quantities   = prediction_bands["p50_quantities"]
     upper_quantities = prediction_bands["selected_upper_quantities"]
@@ -2554,12 +2836,28 @@ def _build_forecast(monthly: pd.DataFrame) -> dict:
                 "p50_qty": round(p50_qty, 2),
                 "p90_qty": round(p90_qty, 2),
                 "p95_qty": round(p95_qty, 2),
-                "buffer_qty": round(max(p95_qty - p5_qty, 0.0), 2),
+                "buffer_qty": round(max(p95_qty - p50_qty, 0.0), 2),
+                "range_width_qty": round(max(p95_qty - p5_qty, 0.0), 2),
                 # legacy aliases for any existing callers
                 "lower_qty": round(p10_qty, 2),
                 "upper_qty": round(p90_qty, 2),
             }
         )
+
+    forecast_labels = [_format_period_label(period.year, period.month) for period in forecast_periods]
+    percentile_layer = _build_operational_percentile_layer(
+        quantities,
+        history_labels,
+        material=material,
+        material_code=material_code,
+        plant=plant,
+        demand_type=demand_type,
+        forecast_labels=forecast_labels,
+        prediction_bands=prediction_bands,
+        p50_quantities=[round(_safe_float(v), 2) for v in p50_quantities],
+        lower_quantities=[round(_safe_float(v), 2) for v in lower_quantities],
+        upper_quantities=[round(_safe_float(v), 2) for v in upper_quantities],
+    )
 
     method_label = f"Adaptive ensemble ({ensemble_meta.get('selected_method', 'blend')})"
     if new_engine_model:
@@ -2579,10 +2877,13 @@ def _build_forecast(monthly: pd.DataFrame) -> dict:
         }
 
     return {
+        "material": material,
+        "material_code": material_code,
+        "plant": plant,
         "method": method_label,
         "history_labels": monthly["label"].tolist(),
         "history_quantities": [round(_safe_float(v), 2) for v in monthly["qty"].tolist()],
-        "forecast_labels": [_format_period_label(period.year, period.month) for period in forecast_periods],
+        "forecast_labels": forecast_labels,
         "forecast_quantities": [round(_safe_float(v), 2) for v in p50_quantities],
         "projected_total_qty": round(sum(p50_quantities), 2),
         "avg_forecast_qty": round((sum(p50_quantities) / len(p50_quantities)) if p50_quantities else 0.0, 2),
@@ -2603,7 +2904,8 @@ def _build_forecast(monthly: pd.DataFrame) -> dict:
         "upper_total_qty": round(sum(upper_quantities), 2),
         "p5_total_qty":  round(sum(_safe_float(v) for v in p5_quantities), 2),
         "p95_total_qty": round(sum(_safe_float(v) for v in p95_quantities), 2),
-        "buffer_total_qty": round(sum(max(_safe_float(p95_quantities[i]) - _safe_float(p5_quantities[i]), 0.0) for i in range(len(forecast_periods))), 2),
+        "buffer_total_qty": round(sum(max(_safe_float(p95_quantities[i]) - _safe_float(p50_quantities[i]), 0.0) for i in range(len(forecast_periods))), 2),
+        "range_width_total_qty": round(sum(max(_safe_float(p95_quantities[i]) - _safe_float(p5_quantities[i]), 0.0) for i in range(len(forecast_periods))), 2),
         "band_selection_window_label": prediction_bands["band_selection_window_label"],
         "selected_band_coverage_pct": prediction_bands["selected_band_coverage_pct"],
         "selected_band_target_coverage_pct": prediction_bands["selected_band_target_coverage_pct"],
@@ -2612,6 +2914,7 @@ def _build_forecast(monthly: pd.DataFrame) -> dict:
         "forecast_rows": forecast_rows,
         "demand_type": demand_type,
         "ensemble_meta": ensemble_meta,
+        **percentile_layer,
         **validation_info,
     }
 
@@ -3091,6 +3394,15 @@ class _DataStore:
         proc_df = proc[proc["material_desc"] == normalized_material].copy()
         monthly = _monthly_series(cons_df)
         proc_monthly = _monthly_procurement_series(proc_df)
+        material_code = ""
+        if not cons_df.empty and "material_code" in cons_df.columns:
+            cons_codes = cons_df["material_code"].replace("", pd.NA).dropna()
+            if not cons_codes.empty:
+                material_code = _normalize_text(cons_codes.iloc[0])
+        if not material_code and not proc_df.empty and "material_code" in proc_df.columns:
+            proc_codes = proc_df["material_code"].replace("", pd.NA).dropna()
+            if not proc_codes.empty:
+                material_code = _normalize_text(proc_codes.iloc[0])
 
         if not monthly.empty:
             total_qty = round(_safe_float(monthly["qty"].sum()), 2)
@@ -3101,12 +3413,14 @@ class _DataStore:
 
         context = {
             "material": normalized_material,
+            "material_code": material_code,
             "plant": normalized_plant or "",
             "cons_df": cons_df,
             "proc_df": proc_df,
             "monthly": monthly,
             "proc_monthly": proc_monthly,
             "summary": {
+                "material_code": material_code,
                 "total_qty": total_qty,
                 "total_value": round(_safe_float(proc_df["effective_value"].sum()), 2),
                 "active_months": active_months,
@@ -4054,6 +4368,7 @@ class _DataStore:
         context = self._get_material_context(material, plant)
         payload = {
             "material": context["material"],
+            "material_code": context.get("material_code", ""),
             "plant": context["plant"],
             "summary": dict(context["summary"]),
             "consumption": dict(context["consumption"]),
@@ -4080,8 +4395,13 @@ class _DataStore:
         if normalized_section == "forecast":
             forecast_key = _forecast_cache_entry_key(material, plant)
             forecast = self._get_persistent_forecast_cache().get(forecast_key)
-            if forecast is None:
-                forecast = _build_forecast(context["monthly"])
+            if _forecast_cache_needs_refresh(forecast):
+                forecast = _build_forecast(
+                    context["monthly"],
+                    material=context["material"],
+                    material_code=context.get("material_code", ""),
+                    plant=context.get("plant", ""),
+                )
                 try:
                     self._store_persistent_forecast(material, plant, forecast)
                 except Exception:

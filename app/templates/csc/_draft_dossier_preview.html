@@ -1,0 +1,214 @@
+{% set summary_rows = review_context.summary_rows or [] %}
+{% set section_rows = review_context.section_rows or [] %}
+{% set parameter_rows = review_context.parameter_rows or [] %}
+{% set master_rows = review_context.master_rows or [] %}
+{% set material_property_rows = review_context.material_property_rows or [] %}
+{% set storage_rows = review_context.storage_rows or [] %}
+{% set impact_rows = review_context.impact_rows or [] %}
+{% set latest_review_notes = review_context.latest_review_notes %}
+{% set test_proc = namespace(value='—') %}
+{% for parameter in parameter_rows %}
+  {% if test_proc.value == '—' %}
+    {% set proc_text = parameter.procedure_text or '' %}
+    {% set proc_type = parameter.test_procedure_type or '' %}
+    {% if proc_text and proc_text != '—' %}
+      {% set test_proc.value = proc_text %}
+    {% elif proc_type and proc_type != '—' %}
+      {% set test_proc.value = proc_type %}
+    {% endif %}
+  {% endif %}
+{% endfor %}
+
+<div class="csc-dossier-document">
+  <section class="csc-dossier-page csc-dossier-page-primary">
+    <header class="csc-dossier-doc-header">
+      <div class="csc-dossier-brand-lockup">
+        <div class="csc-dossier-brand-wordmark">ongc</div>
+        <div class="csc-dossier-brand-tag">Energy: Now and Next</div>
+      </div>
+      <div class="csc-dossier-doc-title">Corporate Specifications for Oil Field Chemicals</div>
+      <div class="csc-dossier-doc-chip">Draft Dossier</div>
+    </header>
+
+    <div class="csc-dossier-sheet-frame">
+      <table class="csc-dossier-info-table">
+        <tbody>
+          <tr>
+            <th>Chemical Name</th>
+            <td>{{ draft.chemical_name or '—' }}</td>
+          </tr>
+          <tr>
+            <th>Specification No.</th>
+            <td>{{ draft.spec_number or '—' }}</td>
+          </tr>
+          <tr>
+            <th>Test Procedure</th>
+            <td>{{ test_proc.value }}</td>
+          </tr>
+          <tr>
+            <th>Material Code</th>
+            <td>{{ draft.material_code or '—' }}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="csc-dossier-parameter-wrap">
+        <table class="csc-dossier-parameter-table">
+          <thead>
+            <tr>
+              <th class="is-serial">S. No.</th>
+              <th>Parameter</th>
+              <th class="is-separator"></th>
+              <th>Required Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for parameter in parameter_rows %}
+            <tr>
+              <td class="is-serial">{{ loop.index }}</td>
+              <td>
+                <div class="csc-dossier-parameter-name">
+                  {{ parameter.parameter_name or '—' }}
+                  {% if parameter.parameter_type and parameter.parameter_type != '—' %}
+                  <span class="csc-dossier-parameter-type">({{ parameter.parameter_type }})</span>
+                  {% endif %}
+                </div>
+                {% if parameter.conditions and parameter.conditions != '—' %}
+                <div class="csc-dossier-parameter-note">{{ parameter.conditions }}</div>
+                {% endif %}
+              </td>
+              <td class="is-separator">:</td>
+              <td>
+                <div class="csc-dossier-requirement">{{ parameter.final_requirement or parameter.required_value or '—' }}</div>
+                {% if parameter.proposed_value_raw %}
+                <div class="csc-dossier-parameter-note">Proposed: {{ parameter.proposed_value_raw }}</div>
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="4" class="csc-dossier-empty">No parameters are available in this draft.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="csc-dossier-page csc-dossier-page-secondary">
+    <header class="csc-dossier-support-header">
+      <div>
+        <div class="csc-dossier-support-kicker">Supporting Detail</div>
+        <h3>Draft Dossier Summary</h3>
+      </div>
+      <div class="csc-dossier-support-meta">
+        <span class="csc-dossier-pill">v{{ current_version }}</span>
+        <span class="csc-dossier-pill">{{ draft.status|replace('_', ' ')|title if draft.status else 'Drafting' }}</span>
+      </div>
+    </header>
+
+    <section class="csc-dossier-block">
+      <div class="csc-dossier-block-head">Draft Control</div>
+      <div class="csc-dossier-grid">
+        {% for row in summary_rows %}
+        <div class="csc-dossier-field">
+          <span class="csc-dossier-label">{{ row.label }}</span>
+          <span class="csc-dossier-value">
+            {% if row.is_datetime %}
+              {{ row.value | datetime_ist('%d %b %Y, %H:%M') if row.value else '—' }}
+            {% else %}
+              {{ row.value or '—' }}
+            {% endif %}
+          </span>
+        </div>
+        {% endfor %}
+        <div class="csc-dossier-field">
+          <span class="csc-dossier-label">Last Updated</span>
+          <span class="csc-dossier-value">{{ last_updated | datetime_ist('%d %b %Y, %H:%M') if last_updated else '—' }}</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="csc-dossier-block">
+      <div class="csc-dossier-block-head">Narrative Sections</div>
+      <div class="csc-dossier-narrative">
+        {% for section in section_rows %}
+        <article class="csc-dossier-section">
+          <h4>{{ section.label }}</h4>
+          <pre>{{ section.text or '—' }}</pre>
+        </article>
+        {% else %}
+        <div class="csc-dossier-empty">No narrative sections were captured in this draft.</div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <div class="csc-dossier-columns">
+      <section class="csc-dossier-block">
+        <div class="csc-dossier-block-head">Material Master</div>
+        <dl class="csc-dossier-kv">
+          {% for row in master_rows %}
+          <div>
+            <dt>{{ row.label }}</dt>
+            <dd>{{ row.value or '—' }}</dd>
+          </div>
+          {% else %}
+          <div class="csc-dossier-empty">No material master data captured.</div>
+          {% endfor %}
+        </dl>
+      </section>
+
+      <section class="csc-dossier-block">
+        <div class="csc-dossier-block-head">Material Properties</div>
+        <dl class="csc-dossier-kv">
+          {% for row in material_property_rows %}
+          <div>
+            <dt>{{ row.label }}</dt>
+            <dd>{{ row.value or '—' }}</dd>
+          </div>
+          {% else %}
+          <div class="csc-dossier-empty">No material property data captured.</div>
+          {% endfor %}
+        </dl>
+      </section>
+    </div>
+
+    <div class="csc-dossier-columns">
+      <section class="csc-dossier-block">
+        <div class="csc-dossier-block-head">Storage &amp; Handling</div>
+        <dl class="csc-dossier-kv">
+          {% for row in storage_rows %}
+          <div>
+            <dt>{{ row.label }}</dt>
+            <dd>{{ row.value or '—' }}</dd>
+          </div>
+          {% else %}
+          <div class="csc-dossier-empty">No storage and handling data captured.</div>
+          {% endfor %}
+        </dl>
+      </section>
+
+      <section class="csc-dossier-block">
+        <div class="csc-dossier-block-head">Impact Assessment</div>
+        <dl class="csc-dossier-kv">
+          {% for row in impact_rows %}
+          <div>
+            <dt>{{ row.label }}</dt>
+            <dd>{{ row.value or '—' }}</dd>
+          </div>
+          {% else %}
+          <div class="csc-dossier-empty">No impact assessment data captured.</div>
+          {% endfor %}
+        </dl>
+      </section>
+    </div>
+
+    {% if latest_review_notes %}
+    <section class="csc-dossier-block">
+      <div class="csc-dossier-block-head">Latest Review Notes</div>
+      <div class="csc-dossier-notes">{{ latest_review_notes }}</div>
+    </section>
+    {% endif %}
+  </section>
+</div>

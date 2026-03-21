@@ -1309,6 +1309,418 @@
     margin-left: auto;
 }
 
+.csc-dossier-modal {
+    max-width: 1220px;
+    width: min(1220px, calc(100vw - 3rem));
+    max-height: calc(100vh - 3rem);
+    padding: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    border-radius: 22px;
+}
+
+.csc-dossier-modal-header,
+.csc-dossier-modal-footer {
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 7%, white), white);
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: flex-start;
+}
+
+.csc-dossier-modal-kicker {
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--primary);
+}
+
+.csc-dossier-modal-subtitle,
+.csc-dossier-modal-note {
+    margin: 0.25rem 0 0;
+    color: var(--muted);
+    font-size: 0.9rem;
+}
+
+.csc-dossier-modal-close {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--muted);
+    border-radius: 999px;
+    width: 2.3rem;
+    height: 2.3rem;
+    font-size: 1.3rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.csc-dossier-modal-body {
+    padding: 1.25rem;
+    background: #f5f7fb;
+    overflow-y: auto;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.csc-dossier-modal-footer {
+    border-bottom: none;
+    border-top: 1px solid var(--border);
+    background: white;
+    align-items: center;
+}
+
+.csc-dossier-loading,
+.csc-dossier-error {
+    padding: 3rem 1.25rem;
+    text-align: center;
+    color: var(--muted);
+}
+
+.csc-dossier-document {
+    display: grid;
+    gap: 1.5rem;
+}
+
+.csc-dossier-page {
+    width: min(100%, 920px);
+    margin: 0 auto;
+    background: #fff;
+    color: #111827;
+    box-shadow: 0 18px 48px rgba(15, 23, 42, 0.12);
+}
+
+.csc-dossier-page-primary {
+    padding: 2rem 2rem 2.5rem;
+}
+
+.csc-dossier-page-secondary {
+    display: grid;
+    gap: 1rem;
+    padding: 1.4rem;
+    border: 1px solid color-mix(in srgb, var(--primary) 10%, var(--border));
+    border-radius: 22px;
+    background:
+        linear-gradient(180deg, color-mix(in srgb, var(--primary) 3%, transparent), transparent 80%),
+        var(--surface);
+}
+
+.csc-dossier-doc-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: flex-start;
+    margin-bottom: 1.5rem;
+}
+
+.csc-dossier-brand-lockup {
+    min-width: 150px;
+}
+
+.csc-dossier-brand-wordmark {
+    font-size: 3rem;
+    line-height: 0.9;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    text-transform: lowercase;
+    background: linear-gradient(90deg, #d48c93 0%, #8fd17a 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+.csc-dossier-brand-tag {
+    margin-top: 0.2rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #6b7280;
+}
+
+.csc-dossier-doc-title {
+    flex: 1;
+    padding-top: 0.4rem;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 1.05rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    text-align: center;
+    color: #6b7280;
+}
+
+.csc-dossier-doc-chip {
+    align-self: flex-start;
+    padding: 0.38rem 0.7rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--primary) 9%, transparent);
+    border: 1px solid color-mix(in srgb, var(--primary) 18%, var(--border));
+    font-size: 0.76rem;
+    font-weight: 700;
+    color: var(--primary);
+    white-space: nowrap;
+}
+
+.csc-dossier-sheet-frame {
+    min-height: 980px;
+    border: 4px solid #111;
+    padding: 2rem 1.6rem 2.6rem;
+}
+
+.csc-dossier-info-table,
+.csc-dossier-parameter-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.csc-dossier-info-table {
+    margin-bottom: 1rem;
+    font-family: Georgia, "Times New Roman", serif;
+}
+
+.csc-dossier-info-table th,
+.csc-dossier-info-table td {
+    border: 2px solid #111;
+    padding: 0.22rem 0.55rem;
+    font-size: 0.98rem;
+}
+
+.csc-dossier-info-table th {
+    width: 36%;
+    font-weight: 700;
+    text-transform: uppercase;
+    text-align: left;
+}
+
+.csc-dossier-info-table td {
+    font-weight: 700;
+    text-transform: uppercase;
+    text-align: center;
+}
+
+.csc-dossier-parameter-wrap {
+    overflow: auto;
+}
+
+.csc-dossier-parameter-table {
+    font-family: Georgia, "Times New Roman", serif;
+}
+
+.csc-dossier-parameter-table th,
+.csc-dossier-parameter-table td {
+    border: 2px solid #111;
+    padding: 0.24rem 0.48rem;
+    vertical-align: top;
+}
+
+.csc-dossier-parameter-table thead th {
+    font-size: 0.92rem;
+    font-weight: 700;
+    background: #fff;
+}
+
+.csc-dossier-parameter-table .is-serial {
+    width: 62px;
+    text-align: center;
+}
+
+.csc-dossier-parameter-table .is-separator {
+    width: 26px;
+    text-align: center;
+    font-weight: 700;
+}
+
+.csc-dossier-parameter-name,
+.csc-dossier-requirement {
+    font-size: 0.93rem;
+    font-weight: 700;
+    line-height: 1.22;
+}
+
+.csc-dossier-parameter-type {
+    font-style: italic;
+    font-weight: 500;
+    color: #4b5563;
+}
+
+.csc-dossier-parameter-note {
+    margin-top: 0.18rem;
+    font-size: 0.76rem;
+    line-height: 1.3;
+    color: #4b5563;
+}
+
+.csc-dossier-support-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: flex-start;
+    padding-bottom: 0.85rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.csc-dossier-support-kicker {
+    font-size: 0.74rem;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.csc-dossier-support-header h3 {
+    margin: 0.28rem 0 0;
+    font-size: 1.12rem;
+}
+
+.csc-dossier-support-meta {
+    display: inline-flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.csc-dossier-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.34rem 0.62rem;
+    border-radius: 999px;
+    font-size: 0.76rem;
+    font-weight: 700;
+    border: 1px solid color-mix(in srgb, var(--primary) 14%, var(--border));
+    background: color-mix(in srgb, var(--primary) 6%, transparent);
+    color: var(--text);
+}
+
+.csc-dossier-block {
+    border: 1px solid color-mix(in srgb, var(--primary) 10%, var(--border));
+    border-radius: 18px;
+    background: var(--surface);
+    overflow: hidden;
+}
+
+.csc-dossier-block-head {
+    padding: 0.78rem 1rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: color-mix(in srgb, var(--background) 82%, transparent);
+}
+
+.csc-dossier-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 0.8rem;
+    padding: 1rem;
+    align-items: start;
+}
+
+.csc-dossier-field {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-start;
+    gap: 0.28rem;
+    padding: 0.68rem 0.78rem;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--surface) 92%, var(--background));
+}
+
+.csc-dossier-label {
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.csc-dossier-value {
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: var(--text);
+    white-space: pre-wrap;
+    text-align: left;
+    line-height: 1.45;
+}
+
+.csc-dossier-narrative {
+    display: grid;
+    gap: 0.9rem;
+    padding: 1rem;
+}
+
+.csc-dossier-section {
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--surface) 94%, var(--background));
+}
+
+.csc-dossier-section h4 {
+    margin: 0 0 0.55rem;
+    font-size: 0.95rem;
+}
+
+.csc-dossier-section pre,
+.csc-dossier-notes {
+    margin: 0;
+    font: inherit;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    color: var(--text);
+}
+
+.csc-dossier-columns {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+    align-items: start;
+}
+
+.csc-dossier-kv {
+    display: grid;
+    gap: 0.78rem;
+    padding: 1rem;
+}
+
+.csc-dossier-kv div {
+    display: grid;
+    gap: 0.24rem;
+    padding-bottom: 0.78rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.csc-dossier-kv div:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.csc-dossier-kv dt {
+    font-size: 0.74rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.csc-dossier-kv dd {
+    margin: 0;
+    color: var(--text);
+}
+
+.csc-dossier-empty {
+    padding: 1rem;
+    color: var(--muted);
+}
+
+.csc-dossier-notes {
+    padding: 1rem;
+}
+
 @media (max-width: 768px) {
     .csc-modal-overlay {
         align-items: flex-start;
@@ -1318,7 +1730,14 @@
         width: min(100%, calc(100vw - 1.5rem));
         max-height: calc(100vh - 1.5rem);
     }
+    .csc-dossier-modal {
+        width: min(100%, calc(100vw - 1.5rem));
+        max-height: calc(100vh - 1.5rem);
+    }
     .csc-submit-modal-body {
+        padding: 1rem;
+    }
+    .csc-dossier-modal-body {
         padding: 1rem;
     }
     .csc-tab-bar { gap: 0.25rem; }
@@ -1330,6 +1749,22 @@
     .csc-submit-section-grid,
     .csc-change-checklist-grid {
         grid-template-columns: 1fr;
+    }
+    .csc-dossier-columns {
+        grid-template-columns: 1fr;
+    }
+    .csc-dossier-doc-header,
+    .csc-dossier-support-header,
+    .csc-dossier-modal-header,
+    .csc-dossier-modal-footer {
+        flex-direction: column;
+    }
+    .csc-dossier-page-primary {
+        padding: 1rem;
+    }
+    .csc-dossier-sheet-frame {
+        min-height: auto;
+        padding: 1rem 0.75rem 1.25rem;
     }
     .csc-submit-modal-footer {
         flex-direction: column;
@@ -1935,8 +2370,8 @@
     <div class="csc-tab-content" data-tab="preview" role="tabpanel">
         <div class="csc-section-panel">
             <div class="csc-section-header">
-                <h2 class="csc-section-title">Preview & Export</h2>
-                <p class="csc-section-guidance">Review your draft specification and export to Word document for committee submission.</p>
+                <h2 class="csc-section-title">Draft Dossier</h2>
+                <p class="csc-section-guidance">Save the current draft, review the dossier preview in-app, or export the Word dossier for committee submission.</p>
             </div>
 
             {# Preview cards #}
@@ -1961,8 +2396,11 @@
 
             {# Export & Actions #}
             <div class="csc-section-actions" style="flex-wrap: wrap; gap: 1rem;">
-                <button type="button" class="btn btn-primary btn-sm" id="exportDocxBtn">
-                    <i class="bi bi-file-earmark-word"></i> Save Changes and Export
+                <button type="button" class="btn btn-primary btn-sm" id="saveDraftDossierBtn">
+                    <i class="bi bi-check-circle"></i> Save Changes
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm" id="exportDocxBtn">
+                    <i class="bi bi-file-earmark-word"></i> Export Dossier
                 </button>
                 {% if editor_mode == 'committee_head' %}
                 <a href="{{ url_for('csc.review_workbench') }}" class="btn btn-secondary btn-sm">
@@ -2139,6 +2577,26 @@
     </div>
 </div>
 
+<div class="csc-modal-overlay" id="draftDossierModal">
+    <div class="csc-modal csc-dossier-modal">
+        <div class="csc-dossier-modal-header">
+            <div>
+                <div class="csc-dossier-modal-kicker">Draft Dossier</div>
+                <h2 class="csc-modal-title" id="draftDossierTitle">Draft Dossier Preview</h2>
+                <p class="csc-dossier-modal-subtitle" id="draftDossierSubtitle">Rendered from the current saved draft.</p>
+            </div>
+            <button type="button" class="csc-dossier-modal-close" id="draftDossierClose" aria-label="Close draft dossier preview">&times;</button>
+        </div>
+        <div class="csc-dossier-modal-body" id="draftDossierBody">
+            <div class="csc-dossier-loading">Loading draft dossier…</div>
+        </div>
+        <div class="csc-dossier-modal-footer">
+            <div class="csc-dossier-modal-note">Review the saved draft dossier here before exporting or submitting.</div>
+            <button type="button" class="btn btn-secondary btn-sm" id="draftDossierDismiss">Close</button>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block scripts_extra %}
@@ -2157,6 +2615,10 @@
     var draftSpecNumber = {{ (draft.spec_number or '')|tojson }};
     var draftSubsetDisplay = {{ (draft.subset_display or 'Not specified')|tojson }};
     var draftVersion = {{ ('v' ~ (draft.version if draft.version is not none else 1))|tojson }};
+    var editorLockEnabled = {{ 'true' if editor_lock_enabled else 'false' }};
+    var editorLockHeartbeat = null;
+    var editorLockReleased = false;
+    var editorLockConflictHandled = false;
     var submitStep = 1;
     var visitedTabs = { background: true };
     var initialEditorState = null;
@@ -2177,6 +2639,10 @@
     var storageHandlingConfig = {{ storage_handling_fields|tojson }};
     var storageHandlingState = {{ storage_handling_values|tojson }};
     var storageHandlingExpanded = {};
+    var draftDossierModal = document.getElementById('draftDossierModal');
+    var draftDossierTitle = document.getElementById('draftDossierTitle');
+    var draftDossierSubtitle = document.getElementById('draftDossierSubtitle');
+    var draftDossierBody = document.getElementById('draftDossierBody');
 
     function showSaveIndicator(elementId, status, message) {
         var el = document.getElementById(elementId);
@@ -3727,6 +4193,87 @@
     // Section 9: Preview & Export Actions
     // ═══════════════════════════════════════════════════════════════════════════
 
+    function closeDraftDossierModal() {
+        if (!draftDossierModal) return;
+        draftDossierModal.classList.remove('show');
+        if (draftDossierBody) {
+            draftDossierBody.innerHTML = '<div class="csc-dossier-loading">Loading draft dossier…</div>';
+        }
+    }
+
+    function openDraftDossierModal() {
+        if (!draftDossierModal) return;
+        draftDossierModal.classList.add('show');
+    }
+
+    function loadDraftDossierPreview() {
+        openDraftDossierModal();
+        if (draftDossierTitle) draftDossierTitle.textContent = 'Draft Dossier Preview';
+        if (draftDossierSubtitle) draftDossierSubtitle.textContent = 'Rendered from the current saved draft.';
+        if (draftDossierBody) {
+            draftDossierBody.innerHTML = '<div class="csc-dossier-loading">Loading draft dossier…</div>';
+        }
+
+        return fetch('/csc/draft/' + draftId + '/dossier-preview', {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        })
+            .then(function(response) {
+                return response.json().then(function(data) {
+                    if (!response.ok || !data.success) {
+                        throw new Error((data && data.error) || 'Unable to load the draft dossier preview.');
+                    }
+                    return data;
+                });
+            })
+            .then(function(data) {
+                if (draftDossierTitle) draftDossierTitle.textContent = data.title || 'Draft Dossier Preview';
+                if (draftDossierSubtitle) draftDossierSubtitle.textContent = data.subtitle || 'Rendered from the current saved draft.';
+                if (draftDossierBody) {
+                    draftDossierBody.innerHTML = data.html || '<div class="csc-dossier-error">No draft dossier preview is available.</div>';
+                }
+                return data;
+            })
+            .catch(function(error) {
+                if (draftDossierBody) {
+                    draftDossierBody.innerHTML = '<div class="csc-dossier-error">' + escapeHtml(error.message || 'Unable to load the draft dossier preview.') + '</div>';
+                }
+                throw error;
+            });
+    }
+
+    document.getElementById('saveDraftDossierBtn')?.addEventListener('click', function() {
+        var button = this;
+        button.disabled = true;
+        showSaveIndicator('exportIndicator', 'info', hasUnsavedChanges()
+            ? 'Saving changes and preparing draft dossier...'
+            : 'Preparing draft dossier...');
+
+        Promise.resolve()
+            .then(function() {
+                if (!hasUnsavedChanges()) return null;
+                return saveDirtySections().then(function() {
+                    captureInitialEditorState();
+                    updateChangesChecklist();
+                });
+            })
+            .then(function() {
+                return loadDraftDossierPreview();
+            })
+            .then(function() {
+                showSaveIndicator('exportIndicator', 'success', '✓ Saved. Draft dossier opened.');
+            })
+            .catch(function(error) {
+                showSaveIndicator(
+                    'exportIndicator',
+                    'error',
+                    '✗ Save stopped: ' + (error.message || 'Unable to prepare the draft dossier.')
+                );
+            })
+            .finally(function() {
+                button.disabled = false;
+            });
+    });
+
     document.getElementById('exportDocxBtn')?.addEventListener('click', function() {
         var button = this;
         button.disabled = true;
@@ -3815,6 +4362,77 @@
         }
         window.alert(((options && options.title) ? options.title + '\n\n' : '') + ((options && (options.message || options.body)) || ''));
         return Promise.resolve();
+    }
+
+    function handleEditorLockConflict(payload) {
+        if (editorLockConflictHandled) {
+            return Promise.resolve();
+        }
+        editorLockConflictHandled = true;
+        bypassLeavePrompt = true;
+        if (editorLockHeartbeat) {
+            window.clearInterval(editorLockHeartbeat);
+            editorLockHeartbeat = null;
+        }
+        return showWorkflowDialog({
+            tone: 'warning',
+            title: 'Draft Currently In Use',
+            message: (payload && payload.error) || 'Under drafting by another user.',
+            confirmLabel: 'Return to Workbench'
+        }).then(function() {
+            window.location.replace('{{ url_for("csc.workspace") }}');
+        });
+    }
+
+    function pingEditorLock() {
+        if (!editorLockEnabled || editorLockReleased || editorLockConflictHandled) {
+            return Promise.resolve();
+        }
+        return fetch('/csc/api/draft/' + draftId + '/editor-lock/ping', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': csrfToken
+            }
+        })
+            .then(function(response) {
+                return response.json().catch(function() { return {}; }).then(function(data) {
+                    if (response.ok) {
+                        return data;
+                    }
+                    if (response.status === 409) {
+                        return handleEditorLockConflict(data);
+                    }
+                    throw new Error(data.error || 'Unable to refresh the live draft lock.');
+                });
+            })
+            .catch(function(error) {
+                console.warn(error);
+            });
+    }
+
+    function releaseEditorLock() {
+        if (!editorLockEnabled || editorLockReleased) {
+            return;
+        }
+        editorLockReleased = true;
+        if (editorLockHeartbeat) {
+            window.clearInterval(editorLockHeartbeat);
+            editorLockHeartbeat = null;
+        }
+        fetch('/csc/api/draft/' + draftId + '/editor-lock/release', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': csrfToken
+            },
+            keepalive: true
+        }).catch(function() {
+            // Best-effort cleanup. Stale locks expire automatically.
+        });
+    }
+
+    if (editorLockEnabled) {
+        editorLockHeartbeat = window.setInterval(pingEditorLock, 45000);
+        window.addEventListener('pagehide', releaseEditorLock);
     }
 
     function showConfirmModal(title, body, onConfirm) {
@@ -4106,6 +4724,8 @@
 
     document.getElementById('submitReviewCancel')?.addEventListener('click', closeSubmitReviewModal);
     document.getElementById('submitReviewClose')?.addEventListener('click', closeSubmitReviewModal);
+    document.getElementById('draftDossierClose')?.addEventListener('click', closeDraftDossierModal);
+    document.getElementById('draftDossierDismiss')?.addEventListener('click', closeDraftDossierModal);
     document.getElementById('submitReviewBack')?.addEventListener('click', function() {
         setSubmitStep(1);
         document.getElementById('submitReviewError').textContent = '';
@@ -4207,10 +4827,16 @@
             closeLeavePageModal();
         }
     });
+    document.getElementById('draftDossierModal')?.addEventListener('click', function(event) {
+        if (event.target === this) {
+            closeDraftDossierModal();
+        }
+    });
 
     document.addEventListener('keydown', function(event) {
         if (event.key === 'Escape') {
             closeLeavePageModal();
+            closeDraftDossierModal();
         }
     });
 
@@ -4233,6 +4859,7 @@
     });
 
     window.addEventListener('beforeunload', function(event) {
+        releaseEditorLock();
         if (bypassLeavePrompt || !hasUnsavedChanges()) return;
         event.preventDefault();
         event.returnValue = '';

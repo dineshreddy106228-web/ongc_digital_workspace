@@ -2,9 +2,13 @@
 
 from datetime import datetime, timezone
 
+from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import deferred
 
 from app.extensions import db
+
+
+MSDS_BINARY_TYPE = db.LargeBinary().with_variant(mysql.LONGBLOB(), "mysql")
 
 
 class MSDSFile(db.Model):
@@ -28,7 +32,7 @@ class MSDSFile(db.Model):
         default=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
-    data = deferred(db.Column(db.LargeBinary, nullable=False))
+    data = deferred(db.Column(MSDS_BINARY_TYPE, nullable=False))
 
     material = db.relationship("MaterialMaster", lazy="select")
 

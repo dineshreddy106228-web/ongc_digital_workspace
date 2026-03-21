@@ -1,0 +1,206 @@
+{% set summary_rows = review_context.summary_rows or [] %}
+{% set section_rows = review_context.section_rows or [] %}
+{% set parameter_rows = review_context.parameter_rows or [] %}
+{% set material_property_rows = review_context.material_property_rows or [] %}
+{% set storage_rows = review_context.storage_rows or [] %}
+{% set impact_rows = review_context.impact_rows or [] %}
+{% set latest_review_notes = review_context.latest_review_notes %}
+{% set compact_summary_labels = ['Subset', 'Version', 'Material Code', 'Physical State', 'Current Status'] %}
+{% set hidden_section_labels = ['Background Context', 'Version Change Reason'] %}
+{% set test_proc = namespace(value='—') %}
+{% set narrative_count = namespace(value=0) %}
+{% for parameter in parameter_rows %}
+  {% if test_proc.value == '—' %}
+    {% set proc_text = parameter.procedure_text or '' %}
+    {% set proc_type = parameter.test_procedure_type or '' %}
+    {% if proc_text and proc_text != '—' %}
+      {% set test_proc.value = proc_text %}
+    {% elif proc_type and proc_type != '—' %}
+      {% set test_proc.value = proc_type %}
+    {% endif %}
+  {% endif %}
+{% endfor %}
+
+<div class="csc-format-document">
+  <section class="csc-format-page csc-format-page-primary">
+    <header class="csc-format-doc-header">
+      <div class="csc-format-brand-lockup">
+        <div class="csc-format-brand-wordmark">ongc</div>
+        <div class="csc-format-brand-tag">Energy: Now and Next</div>
+      </div>
+      <div class="csc-format-doc-title">Corporate Specifications for Oil Field Chemicals</div>
+    </header>
+
+    <div class="csc-format-sheet-frame">
+      <table class="csc-format-info-table">
+        <tbody>
+          <tr>
+            <th>Chemical Name</th>
+            <td>{{ draft.chemical_name or '—' }}</td>
+          </tr>
+          <tr>
+            <th>Specification No.</th>
+            <td>{{ draft.spec_number or '—' }}</td>
+          </tr>
+          <tr>
+            <th>Test Procedure</th>
+            <td>{{ test_proc.value }}</td>
+          </tr>
+          <tr>
+            <th>Material Code</th>
+            <td>{{ draft.material_code or '—' }}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="csc-format-parameter-wrap">
+        <table class="csc-format-parameter-table">
+          <thead>
+            <tr>
+              <th class="is-serial">S. No.</th>
+              <th>Parameter</th>
+              <th class="is-separator"></th>
+              <th>Required Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for parameter in parameter_rows %}
+            <tr>
+              <td class="is-serial">{{ loop.index }}</td>
+              <td>
+                <div class="csc-format-parameter-name">
+                  {{ parameter.parameter_name or '—' }}
+                  {% if parameter.parameter_type and parameter.parameter_type != '—' %}
+                  <span class="csc-format-parameter-type">({{ parameter.parameter_type }})</span>
+                  {% endif %}
+                </div>
+                {% if parameter.conditions and parameter.conditions != '—' %}
+                <div class="csc-format-parameter-note">{{ parameter.conditions }}</div>
+                {% endif %}
+              </td>
+              <td class="is-separator">:</td>
+              <td>
+                <div class="csc-format-requirement">{{ parameter.final_requirement or parameter.required_value or '—' }}</div>
+                {% if parameter.procedure_text and parameter.procedure_text != '—' %}
+                <div class="csc-format-parameter-note">Procedure: {{ parameter.procedure_text }}</div>
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="4" class="csc-format-empty">No parameters are available in this published specification.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="csc-format-page csc-format-page-secondary">
+    <header class="csc-format-support-header">
+      <div>
+        <div class="csc-format-support-kicker">Supporting Detail</div>
+        <h3>Published Specification Context</h3>
+      </div>
+      <div class="csc-format-support-meta">
+        <span class="csc-format-pill is-published">Published Baseline</span>
+        <span class="csc-format-pill">v{{ current_version }}</span>
+      </div>
+    </header>
+
+    <section class="csc-format-block">
+      <div class="csc-format-block-head">Specification Control</div>
+      <div class="csc-format-grid csc-format-grid-compact">
+        {% for row in summary_rows %}
+        {% if row.label in compact_summary_labels %}
+        <div class="csc-format-field">
+          <span class="csc-format-label">{{ row.label }}</span>
+          <span class="csc-format-value">
+            {% if row.is_datetime %}
+              {{ row.value | datetime_ist('%d %b %Y, %H:%M') if row.value else '—' }}
+            {% else %}
+              {{ row.value or '—' }}
+            {% endif %}
+          </span>
+        </div>
+        {% endif %}
+        {% endfor %}
+        <div class="csc-format-field">
+          <span class="csc-format-label">Latest Published</span>
+          <span class="csc-format-value">{{ latest_published_at | datetime_ist('%d %b %Y, %H:%M') if latest_published_at else '—' }}</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="csc-format-block">
+      <div class="csc-format-block-head">Impact Snapshot</div>
+      <div class="csc-format-impact-grid">
+        {% for row in impact_rows %}
+        <article class="csc-format-impact-card">
+          <span class="csc-format-impact-label">{{ row.label }}</span>
+          <span class="csc-format-impact-value">{{ row.value or '—' }}</span>
+        </article>
+        {% else %}
+        <div class="csc-format-empty">No impact assessment data captured.</div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="csc-format-block">
+      <div class="csc-format-block-head">Specification Notes</div>
+      <div class="csc-format-narrative">
+        {% for section in section_rows %}
+        {% if section.label not in hidden_section_labels %}
+        {% set narrative_count.value = narrative_count.value + 1 %}
+        <article class="csc-format-section">
+          <h4>{{ section.label }}</h4>
+          <pre>{{ section.text or '—' }}</pre>
+        </article>
+        {% endif %}
+        {% endfor %}
+        {% if narrative_count.value == 0 %}
+        <div class="csc-format-empty">No narrative sections were captured in this published specification.</div>
+        {% endif %}
+      </div>
+    </section>
+
+    <div class="csc-format-columns csc-format-columns-compact">
+      <section class="csc-format-block">
+        <div class="csc-format-block-head">Material Properties</div>
+        <dl class="csc-format-kv">
+          {% for row in material_property_rows %}
+          <div>
+            <dt>{{ row.label }}</dt>
+            <dd>{{ row.value or '—' }}</dd>
+          </div>
+          {% else %}
+          <div class="csc-format-empty">No material property data captured.</div>
+          {% endfor %}
+        </dl>
+      </section>
+    </div>
+
+    <div class="csc-format-columns">
+      <section class="csc-format-block">
+        <div class="csc-format-block-head">Storage &amp; Handling</div>
+        <dl class="csc-format-kv">
+          {% for row in storage_rows %}
+          <div>
+            <dt>{{ row.label }}</dt>
+            <dd>{{ row.value or '—' }}</dd>
+          </div>
+          {% else %}
+          <div class="csc-format-empty">No storage and handling data captured.</div>
+          {% endfor %}
+        </dl>
+      </section>
+
+    {% if latest_review_notes %}
+    <section class="csc-format-block">
+      <div class="csc-format-block-head">Latest Review Notes</div>
+      <div class="csc-format-notes">{{ latest_review_notes }}</div>
+    </section>
+    {% endif %}
+  </section>
+</div>
