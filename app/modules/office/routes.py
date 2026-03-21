@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import datetime, date as date_type
+from functools import wraps
 from flask import render_template, redirect, url_for, flash, request, abort, current_app, jsonify
 from flask_login import login_required, current_user
 from sqlalchemy import or_, and_, select
@@ -37,7 +38,7 @@ from app.core.services.recurring_tasks import (
 from app.core.services.rich_text import rich_text_visible_text, sanitize_rich_text
 from app.core.utils.audit import log_action
 from app.core.utils.activity import log_activity
-from app.core.utils.decorators import module_access_required, superuser_required
+from app.core.utils.decorators import module_access_required
 from app.core.permissions import (
     can_view_task,
     can_edit_task,
@@ -75,6 +76,37 @@ TASK_SCHEDULE_MODES = ["ONE_TIME", "RECURRING"]
 def _is_privileged():
     """True for super_user or admin – full task visibility and management access."""
     return current_user.is_super_user() or current_user.has_role(ADMIN_ROLE)
+
+
+def _is_office_power_user():
+    """True when the current user is an office-level power user."""
+    return current_user.is_office_power_user()
+
+
+def _can_access_power_dashboard():
+    """Read-only command dashboard access for superusers and office power users."""
+    return current_user.is_super_user() or _is_office_power_user()
+
+
+def _task_read_access_required(fn):
+    """Allow read access through the task module grant or power-dashboard grant."""
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if not current_user.is_authenticated:
+            flash("Please log in to access this page.", "warning")
+            return redirect(url_for("auth.login"))
+        if not current_user.is_active:
+            flash("Your account has been deactivated.", "danger")
+            return redirect(url_for("auth.login"))
+        if current_user.has_module_access("tasks") or _can_access_power_dashboard():
+            return fn(*args, **kwargs)
+        flash(
+            "You do not have access to this task workspace.",
+            "danger",
+        )
+        abort(403)
+
+    return wrapper
 
 
 def _normalize_task_scope(scope: str | None, default: str = "") -> str:
@@ -216,8 +248,22 @@ def _can_view_recurring_template(template: RecurringTaskTemplate) -> bool:
     scope = _normalize_task_scope(template.task_scope)
     if scope == "GLOBAL":
         return True
-    if scope == "MY" and current_user.id in _recurring_template_participant_and_controller_ids(template):
-        return True
+    if scope == "MY":
+        if (
+            getattr(template, "is_private_self_task", False)
+            and len(_recurring_template_collaborator_user_ids(template)) == 0
+        ):
+            if (
+                getattr(template, "self_task_visible_to_controlling_officer", False)
+                and template.owner
+                and template.owner.controlling_officer_id == current_user.id
+            ):
+                return True
+            return False
+        if template.office_id and current_user.office_id == template.office_id:
+            return True
+        if current_user.id in _recurring_template_participant_and_controller_ids(template):
+            return True
     return False
 
 
@@ -261,6 +307,32 @@ def _active_owner_options():
         )
         return same_office + other_offices
     return base_query.order_by(User.full_name, User.username).all()
+
+
+def _active_local_task_user_options(exclude_user_ids=None, office_id: int | None = None):
+    """Return active users from the provided office for Local Tasks."""
+    excluded_ids = {int(user_id) for user_id in (exclude_user_ids or set()) if user_id}
+
+    target_office_id = current_user.office_id if office_id is None else office_id
+    if target_office_id:
+        candidates = (
+            User.query.filter_by(is_active=True, office_id=target_office_id)
+            .order_by(User.full_name, User.username)
+            .all()
+        )
+    else:
+        candidates = [current_user] if getattr(current_user, "is_active", False) else []
+
+    return [user for user in candidates if int(user.id) not in excluded_ids]
+
+
+def _is_user_in_office(user: User | None, office_id: int | None) -> bool:
+    """Return True when the user belongs to the provided office id."""
+    if user is None:
+        return False
+    if office_id is None:
+        return user.office_id is None
+    return user.office_id == office_id
 
 
 def _parse_due_date(raw_due_date: str):
@@ -374,6 +446,15 @@ def _task_visibility_query():
     )
     conds.append(Task.id.in_(select(collaborator_task_ids_subq.c.task_id)))
 
+    if current_user.office_id is not None:
+        conds.append(
+            and_(
+                Task.task_scope.in_(["MY", "TEAM"]),
+                Task.office_id == current_user.office_id,
+                Task.is_private_self_task.is_(False),
+            )
+        )
+
     # 3. Personal-scope tasks for users I control (subquery avoids large Python lists)
     controlled_ids_subq = (
         db.session.query(User.id)
@@ -389,13 +470,75 @@ def _task_visibility_query():
         and_(
             Task.task_scope.in_(["MY", "TEAM"]),
             or_(
-                Task.owner_id.in_(select(controlled_ids_subq.c.id)),
+                and_(
+                    Task.owner_id.in_(select(controlled_ids_subq.c.id)),
+                    or_(
+                        Task.is_private_self_task.is_(False),
+                        Task.self_task_visible_to_controlling_officer.is_(True),
+                    ),
+                ),
                 Task.id.in_(select(controlled_collaborator_task_ids_subq.c.task_id)),
             ),
         )
     )
 
     return base.filter(or_(*conds))
+
+
+def _task_dashboard_query():
+    """Return the task query backing the command dashboard for the current user."""
+    if current_user.is_super_user():
+        return _task_visibility_query()
+
+    base_query = _task_visibility_query()
+    if not _is_office_power_user() or current_user.office_id is None:
+        return base_query
+
+    visible_task_ids_subq = base_query.with_entities(Task.id).subquery()
+    tagged_task_ids_subq = (
+        db.session.query(TaskOffice.task_id)
+        .filter(TaskOffice.office_id == current_user.office_id)
+        .subquery()
+    )
+
+    office_scope_condition = or_(
+        Task.id.in_(select(visible_task_ids_subq.c.id)),
+        and_(
+            Task.task_scope.in_(["MY", "TEAM"]),
+            Task.office_id == current_user.office_id,
+            Task.is_private_self_task.is_(False),
+        ),
+        and_(
+            Task.task_scope == "GLOBAL",
+            or_(
+                Task.id.in_(select(tagged_task_ids_subq.c.task_id)),
+                Task.office_id == current_user.office_id,
+            ),
+        ),
+    )
+    return Task.query.filter(office_scope_condition)
+
+
+def _task_dashboard_context() -> dict[str, object]:
+    if current_user.is_super_user():
+        return {
+            "title": "Super User Dashboard",
+            "subtitle": "Global workspace mission control across all offices and task streams.",
+            "eyebrow": "Office Management",
+            "badge": "Global Workspace",
+            "local_tasks_label": "Office Tasks",
+            "local_tasks_hint": "All visible office-scoped work items across the workspace.",
+        }
+
+    office_name = getattr(getattr(current_user, "office", None), "office_name", "") or "Office"
+    return {
+        "title": f"Power User Dashboard · {office_name}",
+        "subtitle": "Office-level mission control for the mapped workspace.",
+        "eyebrow": "Office Management",
+        "badge": office_name,
+        "local_tasks_label": "Office Tasks",
+        "local_tasks_hint": "Local office tasks visible across this office command view.",
+    }
 
 
 def _recurring_template_visibility_query():
@@ -415,6 +558,15 @@ def _recurring_template_visibility_query():
     )
     conds.append(RecurringTaskTemplate.id.in_(select(collaborator_template_ids_subq.c.template_id)))
 
+    if current_user.office_id is not None:
+        conds.append(
+            and_(
+                RecurringTaskTemplate.task_scope.in_(["MY", "TEAM"]),
+                RecurringTaskTemplate.office_id == current_user.office_id,
+                RecurringTaskTemplate.is_private_self_task.is_(False),
+            )
+        )
+
     controlled_ids_subq = (
         db.session.query(User.id)
         .filter_by(controlling_officer_id=current_user.id, is_active=True)
@@ -429,7 +581,13 @@ def _recurring_template_visibility_query():
         and_(
             RecurringTaskTemplate.task_scope.in_(["MY", "TEAM"]),
             or_(
-                RecurringTaskTemplate.owner_id.in_(select(controlled_ids_subq.c.id)),
+                and_(
+                    RecurringTaskTemplate.owner_id.in_(select(controlled_ids_subq.c.id)),
+                    or_(
+                        RecurringTaskTemplate.is_private_self_task.is_(False),
+                        RecurringTaskTemplate.self_task_visible_to_controlling_officer.is_(True),
+                    ),
+                ),
                 RecurringTaskTemplate.id.in_(
                     select(controlled_collaborator_template_ids_subq.c.template_id)
                 ),
@@ -632,12 +790,12 @@ def list_tasks():
 # ── Task Dashboard ────────────────────────────────────────────────
 @office_bp.route("/dashboard")
 @login_required
-@module_access_required("tasks")
-@superuser_required
+@_task_read_access_required
 def task_dashboard():
-    """Sectioned summary + calendar view for superusers only."""
+    """Sectioned command dashboard for superusers and office power users."""
+    dashboard_context = _task_dashboard_context()
     all_tasks = (
-        _task_visibility_query()
+        _task_dashboard_query()
         .filter_by(is_active=True)
         .order_by(Task.created_at.desc())
         .all()
@@ -646,7 +804,7 @@ def task_dashboard():
     # ── Summary counts ──────────────────────────────────────────
     global_tasks, my_tasks = _split_tasks_for_dashboard(all_tasks)
     # ── Recent activity (latest 5 updates) ──────────────────────
-    visible_task_ids_subq = _task_visibility_query().with_entities(Task.id).subquery()
+    visible_task_ids_subq = _task_dashboard_query().with_entities(Task.id).subquery()
     recent_updates = (
         TaskUpdate.query
         .filter(TaskUpdate.task_id.in_(select(visible_task_ids_subq.c.id)))
@@ -660,7 +818,7 @@ def task_dashboard():
     # guaranteed to be identical to what the calendar dots show.  ISO date strings
     # sort lexicographically, so string comparison gives correct date order.
     due_soon_rows = (
-        _task_visibility_query()
+        _task_dashboard_query()
         .filter(
             Task.is_active.is_(True),
             Task.due_date.isnot(None),
@@ -684,7 +842,7 @@ def task_dashboard():
 
     # ── Super-user analytics ─────────────────────────────────────
     analytics = None
-    if _is_privileged():
+    if _can_access_power_dashboard():
         today = date_type.today()
         status_counts   = dict(Counter(t.status       for t in all_tasks))
         priority_counts = dict(Counter(t.priority     for t in all_tasks))
@@ -711,11 +869,13 @@ def task_dashboard():
 
     return render_template(
         "tasks/dashboard.html",
+        dashboard_context=dashboard_context,
         global_tasks=global_tasks,
         my_tasks=my_tasks,
         recent_updates=recent_updates,
         due_soon_tasks=due_soon_tasks,
-        is_privileged=_is_privileged(),
+        is_privileged=_can_access_power_dashboard(),
+        show_task_actions=current_user.has_module_access("tasks"),
         analytics=analytics,
         task_statuses=TASK_STATUSES,
         task_priorities=TASK_PRIORITIES,
@@ -725,7 +885,7 @@ def task_dashboard():
 
 @office_bp.route("/calendar-data")
 @login_required
-@module_access_required("tasks")
+@_task_read_access_required
 def calendar_data():
     """Return task due-date items for a specific month in the user's visibility scope."""
     year_raw = request.args.get("year", "").strip()
@@ -741,7 +901,7 @@ def calendar_data():
 
     start_date, end_date = _month_bounds(year, month)
     rows = (
-        _task_visibility_query()
+        _task_dashboard_query()
         .filter(
             Task.is_active.is_(True),
             Task.due_date.isnot(None),
@@ -820,30 +980,21 @@ def create_task():
     owners = _active_owner_options()
 
     def _render_create(form_data):
+        can_assign_local_owner = _is_privileged()
         current_scope = _normalize_task_scope(
             form_data.get("task_scope") if hasattr(form_data, "get") else None,
             default="GLOBAL",
         )
-        selected_owner_id = (
-            (form_data.get("owner_id", "") if hasattr(form_data, "get") else "") or ""
-        ).strip()
-        local_collaborator_options = _active_task_user_options({current_user.id})
-        global_collaborator_options = _active_task_user_options(
-            {int(selected_owner_id)} if selected_owner_id.isdigit() else set()
-        )
-        collaborator_options = (
-            global_collaborator_options if current_scope == "GLOBAL" else local_collaborator_options
-        )
-        collaborator_option_ids = {str(user.id) for user in collaborator_options}
+        collaborator_option_ids = {str(user.id) for user in owners}
         selected_collaborator_ids = _selected_collaborator_ids(
             form_data, collaborator_option_ids
         )
-        max_collaborator_slots = min(len(collaborator_options), 10)
+        max_collaborator_slots = min(len(owners), 10)
         recurrence_context = _recurrence_form_context(form_data)
         return render_template(
             "tasks/create.html",
             owners=owners,
-            collaborator_options=collaborator_options,
+            collaborator_options=owners,
             selected_collaborator_ids=selected_collaborator_ids,
             collaborator_count=_collaborator_count(
                 form_data, selected_collaborator_ids, max_collaborator_slots
@@ -856,11 +1007,17 @@ def create_task():
             recurrence_types=RECURRENCE_TYPES,
             recurrence_weekdays=RECURRENCE_WEEKDAYS,
             can_create_global=_can_create_global_task(),
+            can_assign_local_owner=can_assign_local_owner,
+            current_office_id=current_user.office_id,
             current_scope=current_scope,
             all_offices=Office.query.filter_by(is_active=True).order_by(Office.office_name).all(),
             selected_tagged_offices=(
                 form_data.getlist("tagged_offices")
                 if hasattr(form_data, "getlist") else []
+            ),
+            is_private_self_task=(
+                form_data.get("is_private_self_task", "")
+                if hasattr(form_data, "get") else ""
             ),
             self_task_visible_to_co=(
                 form_data.get("self_task_visible_to_controlling_officer", "")
@@ -891,6 +1048,7 @@ def create_task():
         )
 
         # ── New RBAC fields ──────────────────────────────────────
+        is_private_self_task = request.form.get("is_private_self_task") == "on"
         self_task_visible_to_co = request.form.get(
             "self_task_visible_to_controlling_officer"
         ) == "on"
@@ -928,8 +1086,21 @@ def create_task():
                 owner = User.query.filter_by(id=int(owner_id_raw), is_active=True).first()
                 if owner is None:
                     errors.append("Selected owner was not found or is inactive.")
+        elif owner_id_raw:
+            if not _is_privileged():
+                errors.append("Only admin or superuser can assign another owner on a Local Task.")
+            elif not owner_id_raw.isdigit():
+                errors.append("Selected owner is invalid.")
+            else:
+                owner = User.query.filter_by(id=int(owner_id_raw), is_active=True).first()
+                if owner is None:
+                    errors.append("Selected owner was not found or is inactive.")
         else:
             owner = current_user
+
+        local_office_id = current_user.office_id
+        if task_scope != "GLOBAL" and not _is_user_in_office(owner, local_office_id):
+            errors.append("Local Task owner must belong to your office.")
 
         # ── Validate tagged offices for GLOBAL tasks ─────────────
         tagged_offices = []
@@ -949,10 +1120,6 @@ def create_task():
                     errors.append(
                         "One or more selected offices are invalid or inactive."
                     )
-
-        # self_task_visible flag only applies to self-tasks (zero collaborators)
-        if self_task_visible_to_co and task_scope == "GLOBAL":
-            self_task_visible_to_co = False
 
         due_date = None
         recurrence_start_date = None
@@ -1010,8 +1177,13 @@ def create_task():
                 except ValueError as exc:
                     errors.append(str(exc))
 
-        collaborator_options = _active_task_user_options(
-            {owner.id} if owner and owner.id else ({current_user.id} if task_scope == "MY" else set())
+        collaborator_options = (
+            _active_task_user_options({owner.id} if owner and owner.id else set())
+            if task_scope == "GLOBAL"
+            else _active_local_task_user_options(
+                {owner.id} if owner and owner.id else set(),
+                office_id=local_office_id,
+            )
         )
         collaborator_option_ids = {str(user.id) for user in collaborator_options}
         selected_collaborator_ids = _selected_collaborator_ids(
@@ -1054,6 +1226,21 @@ def create_task():
                     collaborators_by_id[user_id] for user_id in selected_collaborator_ids
                 ]
 
+        if task_scope != "GLOBAL":
+            invalid_office_collaborators = [
+                user.full_name or user.username
+                for user in collaborator_users
+                if not _is_user_in_office(user, local_office_id)
+            ]
+            if invalid_office_collaborators:
+                errors.append("Local Task collaborators must belong to your office.")
+
+        if task_scope == "GLOBAL" or collaborator_users:
+            is_private_self_task = False
+            self_task_visible_to_co = False
+        elif not is_private_self_task:
+            self_task_visible_to_co = False
+
         if errors:
             for err in errors:
                 flash(err, "danger")
@@ -1074,9 +1261,11 @@ def create_task():
                     priority=priority,
                     owner_id=owner.id if owner else None,
                     created_by=current_user.id,
-                    office_id=current_user.office_id if current_user.office_id else None,
+                    office_id=local_office_id,
                     is_active=True,
                     task_scope="GLOBAL" if task_scope == "GLOBAL" else "MY",
+                    is_private_self_task=is_private_self_task,
+                    self_task_visible_to_controlling_officer=self_task_visible_to_co,
                     recurrence_type=recurrence_type,
                     weekly_days=encode_weekday_codes(selected_recurrence_weekdays),
                     monthly_day=recurrence_month_day,
@@ -1147,9 +1336,10 @@ def create_task():
                     due_date=due_date,
                     owner_id=owner.id if owner else None,
                     created_by=current_user.id,
-                    office_id=current_user.office_id if current_user.office_id else None,
+                    office_id=local_office_id if task_scope != "GLOBAL" else (current_user.office_id if current_user.office_id else None),
                     is_active=True,
                     task_scope="GLOBAL" if task_scope == "GLOBAL" else "MY",
+                    is_private_self_task=is_private_self_task,
                     self_task_visible_to_controlling_officer=self_task_visible_to_co,
                 )
                 db.session.add(task)
@@ -1238,7 +1428,7 @@ def create_task():
 # ── Recurring Series Detail / Edit ───────────────────────────────
 @office_bp.route("/series/<int:template_id>")
 @login_required
-@module_access_required("tasks")
+@_task_read_access_required
 def recurring_series_detail(template_id):
     template = RecurringTaskTemplate.query.get_or_404(template_id)
     if not _can_view_recurring_template(template):
@@ -1352,7 +1542,7 @@ def edit_recurring_series(template_id):
 # ── Task Detail ───────────────────────────────────────────────────
 @office_bp.route("/<int:task_id>")
 @login_required
-@module_access_required("tasks")
+@_task_read_access_required
 def task_detail(task_id):
     task = Task.query.get_or_404(task_id)
     if not _can_view_task(task):
@@ -1377,7 +1567,7 @@ def task_detail(task_id):
 
 @office_bp.route("/<int:task_id>/summary")
 @login_required
-@module_access_required("tasks")
+@_task_read_access_required
 def task_summary(task_id):
     task = Task.query.get_or_404(task_id)
     if not _can_view_task(task):
@@ -1478,20 +1668,11 @@ def edit_task(task_id):
             form_data.get("task_scope") if hasattr(form_data, "get") else task.task_scope,
             default=_normalize_task_scope(task.task_scope, default="MY"),
         )
-        selected_owner_id = (
-            (form_data.get("owner_id") if hasattr(form_data, "get") else None)
-            or (str(task.owner_id) if task.owner_id else "")
-        )
-        selected_owner_ids = {int(selected_owner_id)} if str(selected_owner_id).isdigit() else set()
-        if current_scope != "GLOBAL":
-            selected_owner_ids = {int(task.owner_id)} if task.owner_id else set()
-
-        collaborator_options = _active_task_user_options(selected_owner_ids)
-        collaborator_option_ids = {str(user.id) for user in collaborator_options}
+        collaborator_option_ids = {str(user.id) for user in owners}
         selected_collaborator_ids = _selected_collaborator_ids(
             form_data, collaborator_option_ids
         ) if hasattr(form_data, "getlist") and form_data else existing_collaborator_ids
-        max_collaborator_slots = min(len(collaborator_options), 10)
+        max_collaborator_slots = min(len(owners), 10)
 
         # Tagged offices: prefer form submission, fall back to existing
         if hasattr(form_data, "getlist") and form_data:
@@ -1515,7 +1696,7 @@ def edit_task(task_id):
             "tasks/edit.html",
             task=task,
             owners=owners,
-            collaborator_options=collaborator_options,
+            collaborator_options=owners,
             selected_collaborator_ids=selected_collaborator_ids,
             collaborator_count=_collaborator_count(
                 form_data if hasattr(form_data, "get") else {},
@@ -1527,8 +1708,14 @@ def edit_task(task_id):
             task_priorities=TASK_PRIORITIES,
             task_scopes=TASK_SCOPES,
             can_create_global=_can_create_global_task(),
+            current_office_id=task.office_id,
             all_offices=Office.query.filter_by(is_active=True).order_by(Office.office_name).all(),
             selected_tagged_offices=edit_selected_tagged,
+            is_private_self_task=(
+                form_data.get("is_private_self_task", "")
+                if hasattr(form_data, "get") and form_data
+                else ("on" if task.is_private_self_task else "")
+            ),
             self_task_visible_to_co=edit_self_task_vis,
             form_data=form_data,
             recurrence_summary=recurrence_summary,
@@ -1550,6 +1737,7 @@ def edit_task(task_id):
         )
 
         # ── New RBAC fields (edit) ───────────────────────────────
+        edit_is_private_self_task = request.form.get("is_private_self_task") == "on"
         edit_self_task_visible_to_co = request.form.get(
             "self_task_visible_to_controlling_officer"
         ) == "on"
@@ -1594,10 +1782,6 @@ def edit_task(task_id):
                         "One or more selected offices are invalid or inactive."
                     )
 
-        # self_task_visible only applies to MY-scope self-tasks
-        if edit_self_task_visible_to_co and task_scope == "GLOBAL":
-            edit_self_task_visible_to_co = False
-
         due_date = _parse_due_date(due_date_raw)
         if due_date_raw and due_date is None:
             errors.append("Due date must be in YYYY-MM-DD format.")
@@ -1628,7 +1812,22 @@ def edit_task(task_id):
         else:
             owner = current_user
 
-        collaborator_options = _active_task_user_options({owner.id} if owner and owner.id else set())
+        local_office_id = (
+            owner.office_id
+            if task_scope != "GLOBAL" and owner and owner.office_id is not None
+            else (task.office_id if task_scope != "GLOBAL" else task.office_id)
+        )
+        if task_scope != "GLOBAL" and not _is_user_in_office(owner, local_office_id):
+            errors.append("Local Task owner must belong to your office.")
+
+        collaborator_options = (
+            _active_task_user_options({owner.id} if owner and owner.id else set())
+            if task_scope == "GLOBAL"
+            else _active_local_task_user_options(
+                {owner.id} if owner and owner.id else set(),
+                office_id=local_office_id,
+            )
+        )
         collaborator_option_ids = {str(user.id) for user in collaborator_options}
         selected_collaborator_ids = _selected_collaborator_ids(
             request.form, collaborator_option_ids
@@ -1669,6 +1868,21 @@ def edit_task(task_id):
                     collaborators_by_id[user_id] for user_id in selected_collaborator_ids
                 ]
 
+        if task_scope != "GLOBAL":
+            invalid_office_collaborators = [
+                user.full_name or user.username
+                for user in collaborator_users
+                if not _is_user_in_office(user, local_office_id)
+            ]
+            if invalid_office_collaborators:
+                errors.append("Local Task collaborators must belong to your office.")
+
+        if task_scope == "GLOBAL" or collaborator_users:
+            edit_is_private_self_task = False
+            edit_self_task_visible_to_co = False
+        elif not edit_is_private_self_task:
+            edit_self_task_visible_to_co = False
+
         if errors:
             for err in errors:
                 flash(err, "danger")
@@ -1704,6 +1918,14 @@ def edit_task(task_id):
         if task.task_scope != task_scope:
             changed_fields.append(f"scope '{task.task_scope}' -> '{task_scope}'")
             task.task_scope = task_scope
+        if task.office_id != local_office_id and task_scope != "GLOBAL":
+            changed_fields.append(f"office_id '{task.office_id or '-'}' -> '{local_office_id or '-'}'")
+            task.office_id = local_office_id
+        if task.is_private_self_task != edit_is_private_self_task:
+            changed_fields.append(
+                f"is_private_self_task '{task.is_private_self_task}' -> '{edit_is_private_self_task}'"
+            )
+            task.is_private_self_task = edit_is_private_self_task
         if previous_collaborator_ids != new_collaborator_ids:
             changed_fields.append(
                 f"collaborators '{sorted(previous_collaborator_ids)}' -> '{sorted(new_collaborator_ids)}'"

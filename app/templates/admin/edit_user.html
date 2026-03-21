@@ -121,6 +121,9 @@
                   </option>
                 {% endfor %}
               </select>
+              {% if target.is_power_user %}
+              <small class="form-hint">This user is currently assigned as a power user for their office. Changing office or deactivating the account will clear that assignment.</small>
+              {% endif %}
             </div>
           </div>
         </div>

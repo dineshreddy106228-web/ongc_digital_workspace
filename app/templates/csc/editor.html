@@ -4377,7 +4377,7 @@
         return showWorkflowDialog({
             tone: 'warning',
             title: 'Draft Currently In Use',
-            message: (payload && payload.error) || 'Under drafting by another user.',
+            message: (payload && payload.error) || 'Another user is currently editing this draft.',
             confirmLabel: 'Return to Workbench'
         }).then(function() {
             window.location.replace('{{ url_for("csc.workspace") }}');
@@ -4402,7 +4402,7 @@
                     if (response.status === 409) {
                         return handleEditorLockConflict(data);
                     }
-                    throw new Error(data.error || 'Unable to refresh the live draft lock.');
+                    throw new Error(data.error || 'Another user is currently editing this draft.');
                 });
             })
             .catch(function(error) {

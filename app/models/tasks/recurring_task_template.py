@@ -32,6 +32,12 @@ class RecurringTaskTemplate(db.Model):
     status = db.Column(db.String(50), nullable=False, default="Not Started")
     priority = db.Column(db.String(50), nullable=False, default="Medium")
     task_scope = db.Column(db.String(50), nullable=False, default="MY")
+    is_private_self_task = db.Column(
+        db.Boolean, default=False, nullable=False, server_default="0",
+    )
+    self_task_visible_to_controlling_officer = db.Column(
+        db.Boolean, default=False, nullable=False, server_default="0",
+    )
 
     owner_id = db.Column(db.BigInteger, db.ForeignKey("users.id"), nullable=True)
     created_by = db.Column(db.BigInteger, db.ForeignKey("users.id"), nullable=True)

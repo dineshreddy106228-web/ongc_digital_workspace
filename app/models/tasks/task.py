@@ -53,6 +53,9 @@ class Task(db.Model):
     self_task_visible_to_controlling_officer = db.Column(
         db.Boolean, default=False, nullable=False, server_default="0",
     )
+    is_private_self_task = db.Column(
+        db.Boolean, default=False, nullable=False, server_default="0",
+    )
 
     created_at = db.Column(
         db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
@@ -105,8 +108,8 @@ class Task(db.Model):
 
     @property
     def is_self_task(self) -> bool:
-        """A self-task has zero collaborators — owner works alone."""
-        return len(self.collaborator_links) == 0
+        """A self-task is explicitly marked private and has zero collaborators."""
+        return self.is_private_self_task and len(self.collaborator_links) == 0
 
     @property
     def is_global(self) -> bool:

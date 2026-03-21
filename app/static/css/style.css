@@ -3163,6 +3163,338 @@ body.workspace-flyout-open .workspace-backdrop {
     }
 }
 
+/* ---------- Super User Dashboard ---------- */
+.super-briefing {
+    --briefing-ink: #0f172a;
+    --briefing-muted: #526277;
+    --briefing-line: rgba(148, 163, 184, 0.28);
+    --briefing-surface: rgba(255, 255, 255, 0.92);
+    --briefing-shadow: 0 24px 60px rgba(15, 23, 42, 0.10);
+    display: grid;
+    gap: 1.5rem;
+    padding: clamp(1rem, 2vw, 1.5rem);
+    background:
+        radial-gradient(circle at top left, rgba(14, 116, 144, 0.14), transparent 24rem),
+        radial-gradient(circle at top right, rgba(37, 99, 235, 0.10), transparent 26rem),
+        linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(239, 246, 255, 0.9));
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 28px;
+}
+
+.super-briefing-hero,
+.super-briefing-panel,
+.super-drilldown-panel,
+.super-signal-card {
+    background: var(--briefing-surface);
+    border: 1px solid var(--briefing-line);
+    box-shadow: var(--briefing-shadow);
+    backdrop-filter: blur(16px);
+}
+
+.super-briefing-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1.7fr) minmax(300px, 0.8fr);
+    gap: 1.5rem;
+    padding: 1.6rem;
+    border-radius: 24px;
+}
+
+.super-briefing-kicker {
+    font-size: 0.82rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    font-weight: 800;
+    color: #0f766e;
+}
+
+.super-briefing-hero h1 {
+    margin: 0.4rem 0 0.65rem;
+    font-size: clamp(2rem, 4vw, 3.3rem);
+    line-height: 0.95;
+    color: var(--briefing-ink);
+}
+
+.super-briefing-hero p,
+.super-panel-header p,
+.super-watchlist-card p,
+.super-signal-card p,
+.super-drilldown-more,
+.super-drilldown-empty {
+    color: var(--briefing-muted);
+}
+
+.super-briefing-hero-meta {
+    display: grid;
+    gap: 1rem;
+    align-content: space-between;
+}
+
+.super-briefing-refresh {
+    display: grid;
+    gap: 0.35rem;
+    padding: 1rem 1.1rem;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #0f172a, #1d4ed8);
+    color: #f8fafc;
+}
+
+.super-briefing-refresh span {
+    font-size: 0.82rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    opacity: 0.74;
+}
+
+.super-briefing-refresh strong {
+    font-size: 1.2rem;
+}
+
+.super-briefing-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    justify-content: flex-end;
+}
+
+.super-briefing-signal-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+.super-signal-card {
+    border-radius: 20px;
+    padding: 1rem 1.05rem;
+}
+
+.super-signal-card span {
+    display: block;
+    font-size: 0.76rem;
+    text-transform: uppercase;
+    letter-spacing: 0.13em;
+    color: var(--briefing-muted);
+    margin-bottom: 0.35rem;
+    font-weight: 700;
+}
+
+.super-signal-card strong {
+    display: block;
+    font-size: 2rem;
+    line-height: 1;
+    color: var(--briefing-ink);
+    margin-bottom: 0.4rem;
+}
+
+.signal-open { border-top: 4px solid #2563eb; }
+.signal-complete { border-top: 4px solid #16a34a; }
+.signal-risk { border-top: 4px solid #dc2626; }
+.signal-overdue { border-top: 4px solid #f97316; }
+.signal-next { border-top: 4px solid #0ea5e9; }
+.signal-stale { border-top: 4px solid #7c3aed; }
+
+.super-briefing-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.55fr) minmax(340px, 0.9fr);
+    gap: 1.5rem;
+    align-items: start;
+}
+
+.super-briefing-main {
+    display: grid;
+    gap: 1.5rem;
+}
+
+.super-briefing-panel,
+.super-drilldown-panel {
+    border-radius: 24px;
+    padding: 1.35rem;
+}
+
+.super-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: start;
+    gap: 1rem;
+    margin-bottom: 1.1rem;
+}
+
+.super-panel-header h2,
+.super-chart-header h3 {
+    margin: 0;
+    color: var(--briefing-ink);
+}
+
+.super-watchlist-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+.super-watchlist-card {
+    text-align: left;
+    border: 1px solid rgba(148, 163, 184, 0.24);
+    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(241,245,249,0.92));
+    padding: 1rem;
+    cursor: pointer;
+    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.super-watchlist-card:hover,
+.super-watchlist-card.is-active {
+    transform: translateY(-2px);
+    box-shadow: 0 18px 34px rgba(15, 23, 42, 0.12);
+    border-color: rgba(37, 99, 235, 0.42);
+}
+
+.super-watchlist-label,
+.super-chart-header span {
+    display: block;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--briefing-muted);
+    font-weight: 700;
+    margin-bottom: 0.35rem;
+}
+
+.super-watchlist-card strong {
+    display: block;
+    font-size: 2rem;
+    color: var(--briefing-ink);
+    margin-bottom: 0.35rem;
+}
+
+.super-chart-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+.super-chart-card {
+    padding: 1rem;
+    border-radius: 20px;
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,250,252,0.92));
+}
+
+.super-chart-card-wide {
+    grid-column: span 2;
+}
+
+.super-chart-wrap {
+    position: relative;
+    min-height: 280px;
+}
+
+.super-drilldown-panel {
+    position: sticky;
+    top: 1rem;
+    min-height: 500px;
+}
+
+.super-drilldown-count {
+    min-width: 3rem;
+    padding: 0.5rem 0.8rem;
+    border-radius: 999px;
+    background: #0f172a;
+    color: #f8fafc;
+    text-align: center;
+    font-weight: 800;
+}
+
+.super-drilldown-list {
+    display: grid;
+    gap: 0.85rem;
+    max-height: 68vh;
+    overflow: auto;
+    padding-right: 0.25rem;
+}
+
+.super-task-row {
+    display: grid;
+    gap: 0.55rem;
+    padding: 0.95rem 1rem;
+    border-radius: 18px;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,250,252,0.9));
+    color: inherit;
+    text-decoration: none;
+    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.super-task-row:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 14px 30px rgba(15, 23, 42, 0.10);
+    border-color: rgba(37, 99, 235, 0.34);
+}
+
+.super-task-row-topline,
+.super-task-meta,
+.super-task-foot {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+.super-task-title {
+    font-weight: 700;
+    color: var(--briefing-ink);
+}
+
+.super-task-meta,
+.super-task-foot {
+    font-size: 0.88rem;
+    color: var(--briefing-muted);
+    flex-wrap: wrap;
+}
+
+.super-task-priority {
+    border-radius: 999px;
+    padding: 0.26rem 0.6rem;
+    font-size: 0.72rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.priority-low { background: rgba(34, 197, 94, 0.12); color: #15803d; }
+.priority-medium { background: rgba(14, 165, 233, 0.12); color: #0369a1; }
+.priority-high { background: rgba(249, 115, 22, 0.12); color: #c2410c; }
+.priority-critical { background: rgba(220, 38, 38, 0.12); color: #b91c1c; }
+
+@media (max-width: 1260px) {
+    .super-briefing-signal-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .super-briefing-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .super-drilldown-panel {
+        position: static;
+    }
+}
+
+@media (max-width: 860px) {
+    .super-briefing-hero,
+    .super-watchlist-grid,
+    .super-chart-grid,
+    .super-briefing-signal-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .super-chart-card-wide {
+        grid-column: span 1;
+    }
+
+    .super-briefing-actions {
+        justify-content: stretch;
+    }
+}
+
 /* ---------- Activity History Page ---------- */
 .activity-filter-bar {
     display: flex;

@@ -128,7 +128,11 @@
               <select id="owner_id" name="owner_id" class="form-control">
                 <option value="">Unassigned</option>
                 {% for owner in owners %}
-                <option value="{{ owner.id }}" {{ 'selected' if selected_owner == owner.id|string }}>
+                <option
+                  value="{{ owner.id }}"
+                  data-office-id="{{ owner.office_id if owner.office_id is not none else '' }}"
+                  {{ 'selected' if selected_owner == owner.id|string }}
+                >
                   {{ owner.full_name or owner.username }}{% if owner.office %} ({{ owner.office.office_code }}){% endif %}
                 </option>
                 {% endfor %}
@@ -145,7 +149,7 @@
                 {% endif %}
               </select>
               <small class="form-hint">
-                {% if can_create_global %}Global Task requires an owner. {% endif %}Local Task covers self-tasks and user-to-user coordination.
+                {% if can_create_global %}Global Task requires an owner. {% endif %}Local Task stays within one office unless you switch it to Global.
               </small>
             </div>
 
@@ -161,7 +165,7 @@
                 {% endif %}
               </select>
               <small class="form-hint">
-                Collaborators can work on the same task in both Local and Global scopes.
+                Local Task collaborators must belong to the same office. Global Task collaborators can span offices.
                 The task owner cannot be added again as a collaborator.
               </small>
             </div>
@@ -174,7 +178,11 @@
                 <select id="collaborator_id_{{ slot }}" name="collaborator_ids" class="form-control">
                   <option value="">Select collaborator</option>
                   {% for user in collaborator_options %}
-                  <option value="{{ user.id }}" {{ 'selected' if selected_collaborator_id == user.id|string }}>
+                  <option
+                    value="{{ user.id }}"
+                    data-office-id="{{ user.office_id if user.office_id is not none else '' }}"
+                    {{ 'selected' if selected_collaborator_id == user.id|string }}
+                  >
                     {{ user.full_name or user.username }}{% if user.office %} ({{ user.office.office_code }}){% endif %}
                   </option>
                   {% endfor %}
@@ -183,15 +191,26 @@
               {% endfor %}
             {% endif %}
 
+            <div class="form-group" id="self-task-toggle-group" style="display:none; width:100%;">
+              <label class="checkbox-label" style="display:flex; align-items:center; gap:0.5rem;">
+                <input type="checkbox" name="is_private_self_task" id="is_private_self_task"
+                       {{ 'checked' if is_private_self_task == 'on' }}>
+                <span>Treat this as Self Task</span>
+              </label>
+              <small class="form-hint">
+                Unchecked local tasks remain visible to all users mapped to this office. Checked self-tasks remain private to the owner, with optional Controlling Officer visibility.
+              </small>
+            </div>
+
             {# ── Self-task visibility checkbox (LOCAL scope, zero collaborators) ── #}
             <div class="form-group" id="self-task-visible-group" style="display:none; width:100%;">
               <label class="checkbox-label" style="display:flex; align-items:center; gap:0.5rem;">
                 <input type="checkbox" name="self_task_visible_to_controlling_officer" id="self_task_visible_to_co"
                        {{ 'checked' if self_task_visible_to_co == 'on' }}>
-                <span>Make this self-task visible to my Controlling Officer</span>
+                <span>Also make this self-task visible to the owner's Controlling Officer</span>
               </label>
               <small class="form-hint">
-                When checked, your controlling officer can view this self-task even though it has no collaborators.
+                When checked, the task owner and that owner's Controlling Officer can view this self-task.
               </small>
             </div>
 
@@ -232,15 +251,21 @@
   const ownerSelect = document.getElementById('owner_id');
   const collaboratorCount = document.getElementById('collaborator_count');
   const collaboratorSlots = Array.from(document.querySelectorAll('.collaborator-slot'));
-  const localOwnerId = '{{ task.owner_id or current_user.id }}';
+  const currentUserId = '{{ current_user.id }}';
+  const currentOfficeId = {{ current_office_id|tojson }};
+  const selfTaskToggleGroup = document.getElementById('self-task-toggle-group');
+  const selfTaskToggle = document.getElementById('is_private_self_task');
   const selfTaskVisibleGroup = document.getElementById('self-task-visible-group');
   const taggedOfficesGroup = document.getElementById('tagged-offices-group');
 
   function getOwnerId() {
-    if (scopeInput && scopeInput.value === 'GLOBAL') {
-      return ownerSelect?.value || '';
+    if (!ownerSelect) {
+      return currentUserId;
     }
-    return localOwnerId;
+    if (scopeInput && scopeInput.value === 'GLOBAL') {
+      return ownerSelect.value || '';
+    }
+    return ownerSelect.value || currentUserId;
   }
 
   function syncCollaboratorOptions() {
@@ -262,23 +287,33 @@
           option.disabled = false;
           return;
         }
+        const optionOfficeId = option.dataset.officeId || '';
+        const outOfOffice = (!scopeInput || scopeInput.value !== 'GLOBAL') && String(optionOfficeId) !== String(currentOfficeId ?? '');
         const selectedElsewhere = chosenValues.has(option.value) && option.value !== select.value;
-        option.disabled = option.value === ownerId || selectedElsewhere;
+        option.disabled = outOfOffice || option.value === ownerId || selectedElsewhere;
       });
       if (select.value && select.options[select.selectedIndex]?.disabled) {
         select.value = '';
       }
     });
+    syncSelfTaskControls();
   }
 
-  function syncSelfTaskVisible() {
+  function syncSelfTaskControls() {
     const isLocal = !scopeInput || scopeInput.value !== 'GLOBAL';
     const count = Number.parseInt(collaboratorCount?.value || '0', 10) || 0;
     const showSelfTaskOption = isLocal && count === 0;
+    if (selfTaskToggleGroup) {
+      selfTaskToggleGroup.style.display = showSelfTaskOption ? '' : 'none';
+    }
+    if (selfTaskToggle && !showSelfTaskOption) {
+      selfTaskToggle.checked = false;
+    }
+    const showOwnerCoOption = showSelfTaskOption && Boolean(selfTaskToggle?.checked);
     if (selfTaskVisibleGroup) {
-      selfTaskVisibleGroup.style.display = showSelfTaskOption ? '' : 'none';
+      selfTaskVisibleGroup.style.display = showOwnerCoOption ? '' : 'none';
       const checkbox = selfTaskVisibleGroup.querySelector('input[type="checkbox"]');
-      if (checkbox && !showSelfTaskOption) {
+      if (checkbox && !showOwnerCoOption) {
         checkbox.checked = false;
       }
     }
@@ -310,13 +345,26 @@
       }
     });
     syncCollaboratorOptions();
-    syncSelfTaskVisible();
+    syncSelfTaskControls();
   }
 
   function syncScope() {
+    if (ownerSelect) {
+      Array.from(ownerSelect.options).forEach((option) => {
+        if (!option.value) {
+          option.disabled = false;
+          return;
+        }
+        const optionOfficeId = option.dataset.officeId || '';
+        option.disabled = (!scopeInput || scopeInput.value !== 'GLOBAL') && String(optionOfficeId) !== String(currentOfficeId ?? '');
+      });
+      if (ownerSelect.value && ownerSelect.options[ownerSelect.selectedIndex]?.disabled) {
+        ownerSelect.value = '';
+      }
+    }
     syncCollaboratorSlots();
     syncTaggedOffices();
-    syncSelfTaskVisible();
+    syncSelfTaskControls();
   }
 
   if (collaboratorCount) {
@@ -328,6 +376,9 @@
   if (ownerSelect) {
     ownerSelect.addEventListener('change', syncCollaboratorOptions);
   }
+  if (selfTaskToggle) {
+    selfTaskToggle.addEventListener('change', syncSelfTaskControls);
+  }
   collaboratorSlots.forEach((slot) => {
     const select = slot.querySelector('select');
     if (select) {
@@ -336,7 +387,7 @@
   });
   syncCollaboratorSlots();
   syncTaggedOffices();
-  syncSelfTaskVisible();
+  syncSelfTaskControls();
 })();
 </script>
 {% endblock %}

@@ -1,0 +1,388 @@
+{% extends "base.html" %}
+{% block title %}Super User Dashboard – {{ app_name }}{% endblock %}
+
+{% block head_extra %}
+<script nonce="{{ csp_nonce() }}" src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<section class="super-briefing">
+  <div class="super-briefing-hero">
+    <div class="super-briefing-hero-copy">
+      <div class="super-briefing-kicker">Executive Workspace</div>
+      <h1>Super User Dashboard</h1>
+      <p>Morning-meeting command view for the full ONGC digital workspace. Click any chart segment to open the live task drilldown.</p>
+    </div>
+    <div class="super-briefing-hero-meta">
+      <div class="super-briefing-refresh">
+        <span>Last Refreshed</span>
+        <strong>{{ last_refreshed|datetime_ist('%d %b %Y · %I:%M %p') }}</strong>
+      </div>
+      <div class="super-briefing-actions">
+        <a href="{{ url_for('main.dashboard') }}" class="btn btn-secondary">Main Dashboard</a>
+        <a href="{{ url_for('tasks.list_tasks') }}" class="btn btn-primary">Open Task Registry</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="super-briefing-signal-grid">
+    <article class="super-signal-card signal-open">
+      <span>Open Load</span>
+      <strong>{{ briefing.signals.open_tasks }}</strong>
+      <p>Active tasks still in motion.</p>
+    </article>
+    <article class="super-signal-card signal-complete">
+      <span>Completion Rate</span>
+      <strong>{{ briefing.signals.completion_pct }}%</strong>
+      <p>Closed share of the active portfolio.</p>
+    </article>
+    <article class="super-signal-card signal-risk">
+      <span>Critical Open</span>
+      <strong>{{ briefing.signals.critical_open }}</strong>
+      <p>Critical items requiring command attention.</p>
+    </article>
+    <article class="super-signal-card signal-overdue">
+      <span>Overdue</span>
+      <strong>{{ briefing.signals.overdue_tasks }}</strong>
+      <p>Tasks beyond due date.</p>
+    </article>
+    <article class="super-signal-card signal-next">
+      <span>Due In 7 Days</span>
+      <strong>{{ briefing.signals.due_next_7_days }}</strong>
+      <p>Commitments approaching quickly.</p>
+    </article>
+    <article class="super-signal-card signal-stale">
+      <span>Stale Updates</span>
+      <strong>{{ briefing.signals.stale_updates }}</strong>
+      <p>No fresh movement in the last week.</p>
+    </article>
+  </div>
+
+  <div class="super-briefing-layout">
+    <div class="super-briefing-main">
+      <section class="super-briefing-panel super-watchlist-panel">
+        <div class="super-panel-header">
+          <div>
+            <h2>Morning Watchlist</h2>
+            <p>Fast briefing sets for leadership review.</p>
+          </div>
+        </div>
+        <div class="super-watchlist-grid">
+          <button class="super-watchlist-card is-active" type="button" data-drilldown-source="watchlist" data-drilldown-key="critical">
+            <span class="super-watchlist-label">Critical Open</span>
+            <strong>{{ briefing.watchlist.critical.count }}</strong>
+            <p>Highest-risk tasks across the workspace.</p>
+          </button>
+          <button class="super-watchlist-card" type="button" data-drilldown-source="watchlist" data-drilldown-key="overdue">
+            <span class="super-watchlist-label">Overdue</span>
+            <strong>{{ briefing.watchlist.overdue.count }}</strong>
+            <p>Past-due items needing escalation.</p>
+          </button>
+          <button class="super-watchlist-card" type="button" data-drilldown-source="watchlist" data-drilldown-key="stale">
+            <span class="super-watchlist-label">Stale Updates</span>
+            <strong>{{ briefing.watchlist.stale.count }}</strong>
+            <p>Tasks without current reporting cadence.</p>
+          </button>
+        </div>
+      </section>
+
+      <section class="super-briefing-panel">
+        <div class="super-panel-header">
+          <div>
+            <h2>Interactive Portfolio Analytics</h2>
+            <p>Select a bar or chart segment to load the corresponding task list.</p>
+          </div>
+        </div>
+        <div class="super-chart-grid">
+          <article class="super-chart-card super-chart-card-wide">
+            <div class="super-chart-header">
+              <h3>{{ briefing.charts.office_workload.title }}</h3>
+              <span>Open workload by office</span>
+            </div>
+            <div class="super-chart-wrap">
+              <canvas id="briefingOfficeChart"></canvas>
+            </div>
+          </article>
+          <article class="super-chart-card">
+            <div class="super-chart-header">
+              <h3>{{ briefing.charts.status_mix.title }}</h3>
+              <span>Live portfolio balance</span>
+            </div>
+            <div class="super-chart-wrap">
+              <canvas id="briefingStatusChart"></canvas>
+            </div>
+          </article>
+          <article class="super-chart-card">
+            <div class="super-chart-header">
+              <h3>{{ briefing.charts.priority_pressure.title }}</h3>
+              <span>Open severity mix</span>
+            </div>
+            <div class="super-chart-wrap">
+              <canvas id="briefingPriorityChart"></canvas>
+            </div>
+          </article>
+          <article class="super-chart-card">
+            <div class="super-chart-header">
+              <h3>{{ briefing.charts.due_horizon.title }}</h3>
+              <span>Deadline concentration</span>
+            </div>
+            <div class="super-chart-wrap">
+              <canvas id="briefingDueChart"></canvas>
+            </div>
+          </article>
+          <article class="super-chart-card">
+            <div class="super-chart-header">
+              <h3>{{ briefing.charts.aging.title }}</h3>
+              <span>How long open tasks have stayed active</span>
+            </div>
+            <div class="super-chart-wrap">
+              <canvas id="briefingAgingChart"></canvas>
+            </div>
+          </article>
+          <article class="super-chart-card super-chart-card-wide">
+            <div class="super-chart-header">
+              <h3>{{ briefing.charts.owner_workload.title }}</h3>
+              <span>Owner concentration across open tasks</span>
+            </div>
+            <div class="super-chart-wrap">
+              <canvas id="briefingOwnerChart"></canvas>
+            </div>
+          </article>
+        </div>
+      </section>
+    </div>
+
+    <aside class="super-drilldown-panel">
+      <div class="super-panel-header">
+        <div>
+          <h2 id="briefing-drilldown-title">Critical Open</h2>
+          <p id="briefing-drilldown-subtitle">Click any chart segment or watchlist tile to switch the task list.</p>
+        </div>
+        <span class="super-drilldown-count" id="briefing-drilldown-count">{{ briefing.watchlist.critical.count }}</span>
+      </div>
+      <div class="super-drilldown-list" id="briefing-drilldown-list"></div>
+    </aside>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts_extra %}
+<script nonce="{{ csp_nonce() }}">
+(function () {
+  const BRIEFING = {{ briefing | tojson }};
+  const drilldownTitle = document.getElementById('briefing-drilldown-title');
+  const drilldownSubtitle = document.getElementById('briefing-drilldown-subtitle');
+  const drilldownCount = document.getElementById('briefing-drilldown-count');
+  const drilldownList = document.getElementById('briefing-drilldown-list');
+  const watchlistButtons = Array.from(document.querySelectorAll('[data-drilldown-source="watchlist"]'));
+  const charts = [];
+
+  function themeValue(name, fallback) {
+    const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return value || fallback;
+  }
+
+  const palette = {
+    office: themeValue('--primary', '#2563eb'),
+    status: {
+      'Not Started': '#94a3b8',
+      'In Progress': '#3b82f6',
+      'On Hold': '#f59e0b',
+      'Completed': '#22c55e',
+      'Cancelled': '#ef4444',
+    },
+    priority: {
+      'Low': '#22c55e',
+      'Medium': '#38bdf8',
+      'High': '#f97316',
+      'Critical': '#dc2626',
+    },
+    due: {
+      'Overdue': '#dc2626',
+      'Next 7 Days': '#f97316',
+      'Next 30 Days': '#f59e0b',
+      'No Due Date': '#94a3b8',
+      'Stable': '#22c55e',
+    },
+    aging: ['#0f766e', '#2563eb', '#7c3aed', '#dc2626'],
+  };
+
+  function setActiveWatchlist(source, key) {
+    watchlistButtons.forEach((button) => {
+      const isActive = button.dataset.drilldownSource === source && button.dataset.drilldownKey === key;
+      button.classList.toggle('is-active', isActive);
+    });
+  }
+
+  function renderDrilldown(title, subtitle, bucket, source, key) {
+    setActiveWatchlist(source, key);
+    drilldownTitle.textContent = title;
+    drilldownSubtitle.textContent = subtitle;
+    drilldownCount.textContent = bucket.count;
+
+    if (!bucket.items.length) {
+      drilldownList.innerHTML = '<div class="super-drilldown-empty">No tasks in this view.</div>';
+      return;
+    }
+
+    drilldownList.innerHTML = bucket.items.map((task) => `
+      <a href="${task.detail_url}" class="super-task-row">
+        <div class="super-task-row-topline">
+          <span class="super-task-title">${task.title}</span>
+          <span class="super-task-priority priority-${task.priority.toLowerCase()}">${task.priority}</span>
+        </div>
+        <div class="super-task-meta">
+          <span>${task.status}</span>
+          <span>${task.scope === 'GLOBAL' ? 'Global' : 'Local'}</span>
+          <span>${task.owner}</span>
+        </div>
+        <div class="super-task-foot">
+          <span>${task.office}</span>
+          <span>${task.due_date}</span>
+        </div>
+      </a>
+    `).join('');
+
+    if (bucket.has_more) {
+      drilldownList.insertAdjacentHTML(
+        'beforeend',
+        '<div class="super-drilldown-more">Additional tasks exist in this bucket. Open the task registry for the complete list.</div>'
+      );
+    }
+  }
+
+  function renderChart(canvasId, chartType, chartData, colorPicker, sourceLabel) {
+    const element = document.getElementById(canvasId);
+    if (!element) return;
+
+    charts.push(new Chart(element, {
+      type: chartType,
+      data: {
+        labels: chartData.labels,
+        datasets: [{
+          data: chartData.values,
+          backgroundColor: chartData.labels.map((label, index) => colorPicker(label, index)),
+          borderColor: themeValue('--surface', '#ffffff'),
+          borderWidth: chartType === 'doughnut' ? 2 : 0,
+          borderRadius: chartType === 'bar' ? 12 : 0,
+          borderSkipped: false,
+          maxBarThickness: 36,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        onClick: function (_event, elements) {
+          if (!elements.length) return;
+          const label = this.data.labels[elements[0].index];
+          const bucket = chartData.drilldown[label];
+          renderDrilldown(label, `${sourceLabel} · live task drilldown`, bucket, 'chart', label);
+        },
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: {
+              color: themeValue('--chart-text', '#475569'),
+              boxWidth: 12,
+              padding: 14,
+              font: { size: 11 },
+            },
+          },
+          tooltip: {
+            callbacks: {
+              label: function (context) {
+                return `${context.label}: ${context.raw}`;
+              },
+            },
+          },
+        },
+        scales: chartType === 'bar' ? {
+          y: {
+            beginAtZero: true,
+            ticks: { precision: 0, color: themeValue('--chart-text', '#475569') },
+            grid: { color: themeValue('--chart-grid', '#dbe4f0') },
+          },
+          x: {
+            ticks: { color: themeValue('--chart-text', '#475569') },
+            grid: { display: false },
+          },
+        } : {},
+      },
+    }));
+  }
+
+  function destroyCharts() {
+    while (charts.length) {
+      charts.pop().destroy();
+    }
+  }
+
+  function renderCharts() {
+    destroyCharts();
+    renderChart(
+      'briefingOfficeChart',
+      'bar',
+      BRIEFING.charts.office_workload,
+      () => palette.office,
+      'Office workload'
+    );
+    renderChart(
+      'briefingOwnerChart',
+      'bar',
+      BRIEFING.charts.owner_workload,
+      () => '#0f766e',
+      'Owner workload'
+    );
+    renderChart(
+      'briefingStatusChart',
+      'doughnut',
+      BRIEFING.charts.status_mix,
+      (label) => palette.status[label] || '#64748b',
+      'Status mix'
+    );
+    renderChart(
+      'briefingPriorityChart',
+      'bar',
+      BRIEFING.charts.priority_pressure,
+      (label) => palette.priority[label] || '#64748b',
+      'Priority pressure'
+    );
+    renderChart(
+      'briefingDueChart',
+      'doughnut',
+      BRIEFING.charts.due_horizon,
+      (label) => palette.due[label] || '#64748b',
+      'Due horizon'
+    );
+    renderChart(
+      'briefingAgingChart',
+      'bar',
+      BRIEFING.charts.aging,
+      (_label, index) => palette.aging[index % palette.aging.length],
+      'Aging view'
+    );
+  }
+
+  renderCharts();
+
+  watchlistButtons.forEach((button) => {
+    button.addEventListener('click', function () {
+      const key = this.dataset.drilldownKey;
+      const bucket = BRIEFING.watchlist[key];
+      const title = this.querySelector('span')?.textContent?.trim() || key;
+      renderDrilldown(title, 'Morning watchlist · live task drilldown', bucket, 'watchlist', key);
+    });
+  });
+
+  renderDrilldown(
+    'Critical Open',
+    'Morning watchlist · live task drilldown',
+    BRIEFING.watchlist.critical,
+    'watchlist',
+    'critical'
+  );
+
+  document.addEventListener('themechange', renderCharts);
+})();
+</script>
+{% endblock %}

@@ -53,6 +53,7 @@ class User(UserMixin, db.Model):
 
     designation = db.Column(db.String(150), default="")
     employee_code = db.Column(db.String(50), default="")
+    is_power_user = db.Column(db.Boolean, default=False, nullable=False, server_default="0")
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     must_change_password = db.Column(db.Boolean, default=True, nullable=False)
     last_login_at = db.Column(db.DateTime, nullable=True)
@@ -234,6 +235,14 @@ class User(UserMixin, db.Model):
 
     def is_admin_user(self) -> bool:
         return self.has_role(ADMIN_ROLE)
+
+    def is_office_power_user(self) -> bool:
+        """True when this user is an active office-level power user."""
+        return bool(
+            getattr(self, "is_active", False)
+            and getattr(self, "is_power_user", False)
+            and getattr(self, "office_id", None) is not None
+        )
 
     # ── Module access helper ──────────────────────────────────────
     def has_module_access(self, module_code: str) -> bool:

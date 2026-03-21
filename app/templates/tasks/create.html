@@ -155,24 +155,34 @@
                 {% endif %}
               </select>
               <small class="form-hint">
-                <strong>Local Task</strong>: one shared task for coordination between officers, or a self-task when no collaborators are added.
+                <strong>Local Task</strong>: office-bound task visible to users mapped to this office, unless explicitly marked as a self-task.
                 {% if can_create_global %}
                 <strong>Global Task</strong>: one office-wide task visible to everyone with tasks access.
                 {% endif %}
               </small>
             </div>
 
-            <div class="form-group" id="global-owner-group">
-              <label class="form-label" for="owner_id">Task Owner <span class="required">*</span></label>
+            <div class="form-group" id="owner-group">
+              <label class="form-label" for="owner_id">Task Owner <span class="required" id="owner-required-marker">*</span></label>
               <select id="owner_id" name="owner_id" class="form-control">
                 <option value="">Unassigned</option>
                 {% for owner in owners %}
-                <option value="{{ owner.id }}" {{ 'selected' if form_data.get('owner_id', '') == owner.id|string }}>
+                <option
+                  value="{{ owner.id }}"
+                  data-office-id="{{ owner.office_id if owner.office_id is not none else '' }}"
+                  {{ 'selected' if form_data.get('owner_id', '') == owner.id|string }}
+                >
                   {{ owner.full_name or owner.username }}{% if owner.office %} ({{ owner.office.office_code }}){% endif %}
                 </option>
                 {% endfor %}
               </select>
-              <small class="form-hint">Required for Global Task.</small>
+              <small class="form-hint" id="owner-hint">
+                {% if can_assign_local_owner %}
+                Required for Global Task. For Local Task, you can leave this blank to keep yourself as owner or assign another owner.
+                {% else %}
+                Required for Global Task.
+                {% endif %}
+              </small>
             </div>
 
             <div id="local-task-group" style="display:none; width:100%;">
@@ -201,7 +211,7 @@
                 {% endif %}
               </select>
               <small class="form-hint">
-                Add collaborators to either Local Task or Global Task. Choose `0` for a Local self-task.
+                Local Task collaborators must belong to this office. Global Task collaborators can come from any office. Choose `0` when no collaborators are required.
                 The task owner cannot be added again as a collaborator.
               </small>
             </div>
@@ -214,7 +224,11 @@
                 <select id="collaborator_id_{{ slot }}" name="collaborator_ids" class="form-control">
                   <option value="">Select collaborator</option>
                   {% for user in collaborator_options %}
-                  <option value="{{ user.id }}" {{ 'selected' if selected_user_id == user.id|string else '' }}>
+                  <option
+                    value="{{ user.id }}"
+                    data-office-id="{{ user.office_id if user.office_id is not none else '' }}"
+                    {{ 'selected' if selected_user_id == user.id|string else '' }}
+                  >
                     {{ user.full_name or user.username }}{% if user.office %} ({{ user.office.office_code }}){% endif %}
                   </option>
                   {% endfor %}
@@ -225,15 +239,26 @@
             <div class="form-hint" style="width:100%;">No collaborator options are currently available.</div>
             {% endif %}
 
+            <div class="form-group" id="self-task-toggle-group" style="display:none; width:100%;">
+              <label class="checkbox-label" style="display:flex; align-items:center; gap:0.5rem;">
+                <input type="checkbox" name="is_private_self_task" id="is_private_self_task"
+                       {{ 'checked' if is_private_self_task == 'on' }}>
+                <span>Treat this as Self Task</span>
+              </label>
+              <small class="form-hint">
+                Unchecked local tasks remain visible to all users mapped to this office. Checked self-tasks remain private to the owner, with optional Controlling Officer visibility.
+              </small>
+            </div>
+
             {# ── Self-task visibility checkbox (LOCAL scope, zero collaborators) ── #}
             <div class="form-group" id="self-task-visible-group" style="display:none; width:100%;">
               <label class="checkbox-label" style="display:flex; align-items:center; gap:0.5rem;">
                 <input type="checkbox" name="self_task_visible_to_controlling_officer" id="self_task_visible_to_co"
                        {{ 'checked' if self_task_visible_to_co == 'on' }}>
-                <span>Make this self-task visible to my Controlling Officer</span>
+                <span>Also make this self-task visible to the owner's Controlling Officer</span>
               </label>
               <small class="form-hint">
-                When checked, your controlling officer can view this self-task even though it has no collaborators.
+                When checked, the task owner and that owner's Controlling Officer can view this self-task.
               </small>
             </div>
 
@@ -280,13 +305,19 @@
   const recurrenceEndInput = document.getElementById('recurrence_end_date');
   const recurrenceWeekdayInputs = Array.from(document.querySelectorAll('input[name="recurrence_weekdays"]'));
   const recurrenceMonthDayInput = document.getElementById('recurrence_month_day');
-  const ownerGroup = document.getElementById('global-owner-group');
+  const ownerGroup = document.getElementById('owner-group');
   const ownerSelect = document.getElementById('owner_id');
+  const ownerRequiredMarker = document.getElementById('owner-required-marker');
+  const ownerHint = document.getElementById('owner-hint');
   const localGroup = document.getElementById('local-task-group');
   const collaboratorCount = document.getElementById('collaborator_count');
   const collaboratorSlots = Array.from(document.querySelectorAll('.collaborator-slot'));
+  const selfTaskToggleGroup = document.getElementById('self-task-toggle-group');
+  const selfTaskToggle = document.getElementById('is_private_self_task');
   const selfTaskVisibleGroup = document.getElementById('self-task-visible-group');
   const taggedOfficesGroup = document.getElementById('tagged-offices-group');
+  const canAssignLocalOwner = {{ can_assign_local_owner|tojson }};
+  const currentOfficeId = {{ current_office_id|tojson }};
 
   function syncRecurrenceType() {
     const isRecurring = scheduleModeInput.value === 'RECURRING';
@@ -342,6 +373,9 @@
     if (scopeInput.value === 'GLOBAL') {
       return ownerSelect.value || '';
     }
+    if (canAssignLocalOwner) {
+      return ownerSelect.value || '{{ current_user.id }}';
+    }
     return '{{ current_user.id }}';
   }
 
@@ -364,23 +398,33 @@
           option.disabled = false;
           return;
         }
+        const optionOfficeId = option.dataset.officeId || '';
+        const outOfOffice = scopeInput.value !== 'GLOBAL' && String(optionOfficeId) !== String(currentOfficeId ?? '');
         const selectedElsewhere = chosenValues.has(option.value) && option.value !== select.value;
-        option.disabled = option.value === ownerId || selectedElsewhere;
+        option.disabled = outOfOffice || option.value === ownerId || selectedElsewhere;
       });
       if (select.value && select.options[select.selectedIndex]?.disabled) {
         select.value = '';
       }
     });
+    syncSelfTaskControls();
   }
 
-  function syncSelfTaskVisible() {
+  function syncSelfTaskControls() {
     const isLocal = scopeInput.value !== 'GLOBAL';
     const count = Number.parseInt(collaboratorCount?.value || '0', 10) || 0;
     const showSelfTaskOption = isLocal && count === 0;
+    if (selfTaskToggleGroup) {
+      selfTaskToggleGroup.style.display = showSelfTaskOption ? '' : 'none';
+    }
+    if (selfTaskToggle && !showSelfTaskOption) {
+      selfTaskToggle.checked = false;
+    }
+    const showOwnerCoOption = showSelfTaskOption && Boolean(selfTaskToggle?.checked);
     if (selfTaskVisibleGroup) {
-      selfTaskVisibleGroup.style.display = showSelfTaskOption ? '' : 'none';
+      selfTaskVisibleGroup.style.display = showOwnerCoOption ? '' : 'none';
       const checkbox = selfTaskVisibleGroup.querySelector('input[type="checkbox"]');
-      if (checkbox && !showSelfTaskOption) {
+      if (checkbox && !showOwnerCoOption) {
         checkbox.checked = false;
       }
     }
@@ -412,31 +456,56 @@
       }
     });
     syncCollaboratorOptions();
-    syncSelfTaskVisible();
+    syncSelfTaskControls();
   }
 
   function syncScope() {
     const isGlobal = scopeInput.value === 'GLOBAL';
-    ownerGroup.style.display = isGlobal ? '' : 'none';
+    const showOwnerPicker = isGlobal || canAssignLocalOwner;
+    ownerGroup.style.display = showOwnerPicker ? '' : 'none';
     ownerSelect.required = isGlobal;
-    ownerSelect.disabled = !isGlobal;
-    if (!isGlobal) {
+    ownerSelect.disabled = !showOwnerPicker;
+    if (ownerRequiredMarker) {
+      ownerRequiredMarker.style.display = isGlobal ? '' : 'none';
+    }
+    if (ownerHint) {
+      ownerHint.textContent = isGlobal
+        ? 'Required for Global Task.'
+        : canAssignLocalOwner
+        ? 'Optional for Local Task. Leave blank to keep yourself as owner, or choose another owner and add yourself as collaborator if needed.'
+        : 'Local Task stays owned by you.';
+    }
+    if (!showOwnerPicker) {
+      ownerSelect.value = '';
+    }
+    Array.from(ownerSelect.options).forEach((option) => {
+      if (!option.value) {
+        option.disabled = false;
+        return;
+      }
+      const optionOfficeId = option.dataset.officeId || '';
+      option.disabled = !isGlobal && canAssignLocalOwner && String(optionOfficeId) !== String(currentOfficeId ?? '');
+    });
+    if (ownerSelect.value && ownerSelect.options[ownerSelect.selectedIndex]?.disabled) {
       ownerSelect.value = '';
     }
 
-    localGroup.style.display = isGlobal ? 'none' : '';
+    localGroup.style.display = (!isGlobal && !canAssignLocalOwner) ? '' : 'none';
     if (collaboratorCount) {
       collaboratorCount.disabled = collaboratorCount.options.length === 0;
     }
     syncCollaboratorSlots();
     syncTaggedOffices();
-    syncSelfTaskVisible();
+    syncSelfTaskControls();
   }
 
   scopeInput.addEventListener('change', syncScope);
   scheduleModeInput.addEventListener('change', syncScheduleMode);
   recurrenceTypeInput.addEventListener('change', syncRecurrenceType);
   ownerSelect.addEventListener('change', syncCollaboratorOptions);
+  if (selfTaskToggle) {
+    selfTaskToggle.addEventListener('change', syncSelfTaskControls);
+  }
   if (collaboratorCount) {
     collaboratorCount.addEventListener('change', syncCollaboratorSlots);
   }

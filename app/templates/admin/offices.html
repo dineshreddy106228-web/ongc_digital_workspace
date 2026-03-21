@@ -39,6 +39,7 @@
               <th>Office Code</th>
               <th>Office Name</th>
               <th>Location</th>
+              <th>Power Users</th>
               <th>Users</th>
               <th>Status</th>
               <th>Actions</th>
@@ -51,6 +52,9 @@
               <td><strong>{{ o.office_code }}</strong></td>
               <td>{{ o.office_name }}</td>
               <td>{{ o.location or '—' }}</td>
+              <td>
+                {{ o.users.filter_by(is_active=True, is_power_user=True).count() }} / {{ o.power_user_limit }}
+              </td>
               <td>
                 <a href="{{ url_for('admin.office_users', office_id=o.id) }}"
                    class="btn btn-sm btn-secondary"

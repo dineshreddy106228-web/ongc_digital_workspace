@@ -20,6 +20,7 @@ from app.extensions import cache
 from app.models.core.user import User
 from app.models.tasks.task import Task
 from app.models.tasks.task_collaborator import TaskCollaborator
+from app.models.tasks.task_office import TaskOffice
 
 
 CLOSED_TASK_STATUSES = ("Completed", "Cancelled")
@@ -80,6 +81,7 @@ def invalidate_dashboard_summary_metrics(scope: str = "global") -> None:
     """Clear cached dashboard metrics after task writes."""
     cache.delete_memoized(get_dashboard_summary_metrics, scope)
     cache.delete_memoized(get_superuser_dashboard_analytics)
+    cache.delete_memoized(get_superuser_dashboard_briefing)
 
 
 @cache.memoize(timeout=300)
@@ -158,6 +160,221 @@ def get_superuser_dashboard_analytics():
     }
 
 
+def _serialize_dashboard_task(task: Task) -> dict:
+    owner_name = "Unassigned"
+    if getattr(task, "owner", None) is not None:
+        owner_name = _display_user_name(task.owner)
+
+    office_names = []
+    if getattr(task, "office", None) is not None and getattr(task.office, "office_name", None):
+        office_names.append(task.office.office_name)
+    if getattr(task, "tagged_offices", None):
+        office_names.extend(
+            office.office_name
+            for office in task.tagged_offices
+            if getattr(office, "office_name", None)
+        )
+    office_names = list(dict.fromkeys(name for name in office_names if name))
+
+    return {
+        "id": task.id,
+        "title": task.task_title or f"Task #{task.id}",
+        "status": task.status or "Not Started",
+        "priority": task.priority or "Medium",
+        "owner": owner_name,
+        "scope": (task.task_scope or "MY").upper(),
+        "office": ", ".join(office_names) if office_names else "Unassigned Office",
+        "due_date": task.due_date.strftime("%d %b %Y") if task.due_date else "No due date",
+        "detail_url": url_for("tasks.task_detail", task_id=task.id),
+    }
+
+
+def _bucket_task_list(tasks: list[Task], limit: int = 40) -> dict:
+    sorted_tasks = sorted(
+        tasks,
+        key=lambda item: (
+            item.due_date is None,
+            item.due_date or date.max,
+            (item.priority or "").lower(),
+            item.id,
+        ),
+    )
+    serialized = [_serialize_dashboard_task(task) for task in sorted_tasks[:limit]]
+    return {
+        "count": len(sorted_tasks),
+        "items": serialized,
+        "has_more": len(sorted_tasks) > limit,
+    }
+
+
+@cache.memoize(timeout=300)
+def get_superuser_dashboard_briefing():
+    """Return presentation-grade drilldown analytics for the superuser briefing page."""
+    today = date.today()
+    all_active_tasks = (
+        Task.query
+        .options(
+            selectinload(Task.owner),
+            selectinload(Task.office),
+            selectinload(Task.tagged_offices),
+        )
+        .filter(Task.is_active.is_(True))
+        .order_by(Task.created_at.desc())
+        .all()
+    )
+    open_tasks = [task for task in all_active_tasks if task.status not in CLOSED_TASK_STATUSES]
+    completed_tasks = [task for task in all_active_tasks if task.status == "Completed"]
+
+    def _group(tasks: list[Task], key_builder):
+        grouped: dict[str, list[Task]] = {}
+        for task in tasks:
+            grouped.setdefault(key_builder(task), []).append(task)
+        return grouped
+
+    overdue_tasks = [task for task in open_tasks if task.due_date and task.due_date < today]
+    critical_tasks = [task for task in open_tasks if task.priority == "Critical"]
+    due_next_7_tasks = [
+        task for task in open_tasks
+        if task.due_date and today <= task.due_date <= today + timedelta(days=7)
+    ]
+    stale_tasks = [
+        task for task in open_tasks
+        if not getattr(task, "updated_at", None) or task.updated_at.date() <= today - timedelta(days=7)
+    ]
+    unassigned_tasks = [task for task in open_tasks if task.owner is None]
+
+    completion_pct = round(
+        (len(completed_tasks) / len(all_active_tasks) * 100) if all_active_tasks else 0
+    )
+
+    office_groups = _group(
+        open_tasks,
+        lambda task: (
+            task.office.office_name
+            if getattr(task, "office", None) and getattr(task.office, "office_name", None)
+            else (
+                ", ".join(
+                    office.office_name
+                    for office in getattr(task, "tagged_offices", [])
+                    if getattr(office, "office_name", None)
+                )
+                or "Workspace Wide"
+            )
+        ),
+    )
+    owner_groups = _group(
+        open_tasks,
+        lambda task: _display_user_name(task.owner) if getattr(task, "owner", None) else "Unassigned",
+    )
+    status_groups = _group(all_active_tasks, lambda task: task.status or "Not Started")
+    priority_groups = _group(open_tasks, lambda task: task.priority or "Medium")
+
+    due_horizon_groups = {
+        "Overdue": overdue_tasks,
+        "Next 7 Days": due_next_7_tasks,
+        "Next 30 Days": [
+            task for task in open_tasks
+            if task.due_date and today + timedelta(days=8) <= task.due_date <= today + timedelta(days=30)
+        ],
+        "No Due Date": [task for task in open_tasks if task.due_date is None],
+        "Stable": [
+            task for task in open_tasks
+            if task.due_date and task.due_date > today + timedelta(days=30)
+        ],
+    }
+    aging_groups = {
+        "0-7 Days": [task for task in open_tasks if (today - task.created_at.date()).days <= 7],
+        "8-30 Days": [task for task in open_tasks if 8 <= (today - task.created_at.date()).days <= 30],
+        "31-60 Days": [task for task in open_tasks if 31 <= (today - task.created_at.date()).days <= 60],
+        "60+ Days": [task for task in open_tasks if (today - task.created_at.date()).days > 60],
+    }
+
+    def _top_group_rows(grouped: dict[str, list[Task]], limit: int = 8) -> tuple[list[str], list[int], dict]:
+        ordered = sorted(
+            grouped.items(),
+            key=lambda item: (-len(item[1]), item[0].lower()),
+        )
+        top_rows = ordered[:limit]
+        overflow = ordered[limit:]
+        labels = [label for label, _ in top_rows]
+        values = [len(tasks) for _, tasks in top_rows]
+        drilldown = {label: _bucket_task_list(tasks) for label, tasks in top_rows}
+        if overflow:
+            overflow_tasks = []
+            for _, tasks in overflow:
+                overflow_tasks.extend(tasks)
+            labels.append("Others")
+            values.append(len(overflow_tasks))
+            drilldown["Others"] = _bucket_task_list(overflow_tasks)
+        return labels, values, drilldown
+
+    office_labels, office_values, office_drilldown = _top_group_rows(office_groups, limit=8)
+    owner_labels, owner_values, owner_drilldown = _top_group_rows(owner_groups, limit=8)
+
+    status_drilldown = {label: _bucket_task_list(tasks) for label, tasks in status_groups.items()}
+    priority_drilldown = {label: _bucket_task_list(tasks) for label, tasks in priority_groups.items()}
+    due_drilldown = {label: _bucket_task_list(tasks) for label, tasks in due_horizon_groups.items()}
+    aging_drilldown = {label: _bucket_task_list(tasks) for label, tasks in aging_groups.items()}
+
+    watchlist = {
+        "critical": _bucket_task_list(critical_tasks, limit=12),
+        "overdue": _bucket_task_list(overdue_tasks, limit=12),
+        "stale": _bucket_task_list(stale_tasks, limit=12),
+    }
+
+    return {
+        "signals": {
+            "open_tasks": len(open_tasks),
+            "completed_tasks": len(completed_tasks),
+            "completion_pct": completion_pct,
+            "overdue_tasks": len(overdue_tasks),
+            "critical_open": len(critical_tasks),
+            "unassigned_open": len(unassigned_tasks),
+            "due_next_7_days": len(due_next_7_tasks),
+            "stale_updates": len(stale_tasks),
+        },
+        "watchlist": watchlist,
+        "charts": {
+            "office_workload": {
+                "title": "Open Tasks by Office",
+                "labels": office_labels,
+                "values": office_values,
+                "drilldown": office_drilldown,
+            },
+            "owner_workload": {
+                "title": "Open Tasks by Owner",
+                "labels": owner_labels,
+                "values": owner_values,
+                "drilldown": owner_drilldown,
+            },
+            "status_mix": {
+                "title": "Portfolio Status Mix",
+                "labels": list(status_groups.keys()),
+                "values": [len(status_groups[label]) for label in status_groups.keys()],
+                "drilldown": status_drilldown,
+            },
+            "priority_pressure": {
+                "title": "Priority Pressure",
+                "labels": list(priority_groups.keys()),
+                "values": [len(priority_groups[label]) for label in priority_groups.keys()],
+                "drilldown": priority_drilldown,
+            },
+            "due_horizon": {
+                "title": "Due Horizon",
+                "labels": list(due_horizon_groups.keys()),
+                "values": [len(due_horizon_groups[label]) for label in due_horizon_groups.keys()],
+                "drilldown": due_drilldown,
+            },
+            "aging": {
+                "title": "Open Task Aging",
+                "labels": list(aging_groups.keys()),
+                "values": [len(aging_groups[label]) for label in aging_groups.keys()],
+                "drilldown": aging_drilldown,
+            },
+        },
+    }
+
+
 def _task_visibility_query_for_user(user):
     """Mirror Office Management visibility rules for dashboard summaries."""
     base = Task.query
@@ -201,6 +418,38 @@ def _task_visibility_query_for_user(user):
     )
 
     return base.filter(or_(*conds))
+
+
+def _control_center_task_query_for_user(user):
+    """Return the task query for dedicated power/superuser dashboard mode."""
+    if user.is_super_user():
+        return Task.query
+
+    if user.is_office_power_user() and user.office_id is not None:
+        tagged_task_ids_subq = (
+            TaskOffice.query
+            .with_entities(TaskOffice.task_id)
+            .filter(TaskOffice.office_id == user.office_id)
+            .subquery()
+        )
+        return Task.query.filter(
+            or_(
+                and_(
+                    Task.task_scope.in_(["MY", "TEAM"]),
+                    Task.office_id == user.office_id,
+                    Task.is_private_self_task.is_(False),
+                ),
+                and_(
+                    Task.task_scope == "GLOBAL",
+                    or_(
+                        Task.office_id == user.office_id,
+                        Task.id.in_(select(tagged_task_ids_subq.c.task_id)),
+                    ),
+                ),
+            )
+        )
+
+    return _task_visibility_query_for_user(user)
 
 
 def _display_first_name(user) -> str:
@@ -332,7 +581,25 @@ def _dashboard_identity_title(user) -> str:
     return "Corporate Chemistry Digital Workspace"
 
 
-def get_dashboard_workspace_context(user, app=None) -> dict:
+def _dashboard_control_center(user) -> dict | None:
+    if user.is_super_user():
+        return {
+            "label": "Super User Dashboard",
+            "detail": "Global workspace mission control.",
+            "href": url_for("main.superuser_dashboard"),
+        }
+
+    if user.is_office_power_user():
+        return {
+            "label": "Power User Dashboard",
+            "detail": "Office-wide command view.",
+            "href": url_for("main.power_user_dashboard"),
+        }
+
+    return None
+
+
+def get_dashboard_workspace_context(user, app=None, mode: str = "default") -> dict:
     """Build the main workspace dashboard payload for the logged-in user."""
     now_local = datetime.now(timezone.utc).astimezone(INDIA_TIMEZONE)
     today = now_local.date()
@@ -340,7 +607,12 @@ def get_dashboard_workspace_context(user, app=None) -> dict:
     week_end = week_start + timedelta(days=6)
     recent_completion_start = today - timedelta(days=2)
     stale_update_threshold = today - timedelta(days=3)
-    task_module_active = user_can_access_module("office_management", user, app)
+    control_center_mode = mode in {"control_center", "power_user"}
+    power_user_mode = mode == "power_user"
+    task_links_active = user_can_access_module("office_management", user, app)
+    task_module_active = task_links_active or (
+        control_center_mode and (user.is_super_user() or user.is_office_power_user())
+    )
 
     open_tasks = []
     due_today = []
@@ -353,8 +625,13 @@ def get_dashboard_workspace_context(user, app=None) -> dict:
     module_cards = _build_module_showcase(user, app)
 
     if task_module_active:
+        task_query = (
+            _control_center_task_query_for_user(user)
+            if control_center_mode
+            else _task_visibility_query_for_user(user)
+        )
         visible_tasks = (
-            _task_visibility_query_for_user(user)
+            task_query
             .options(selectinload(Task.updates))
             .order_by(Task.created_at.desc())
             .all()
@@ -400,12 +677,25 @@ def get_dashboard_workspace_context(user, app=None) -> dict:
             if task.status in PENDING_UPDATE_STATUSES
         )
 
-    task_list_href = url_for("tasks.list_tasks") if task_module_active else None
+    task_list_href = url_for("tasks.list_tasks") if task_links_active else None
+    identity_title = _dashboard_identity_title(user)
+    identity_subtitle = "Centralized coordination. Real-time visibility. Structured execution."
+    guidance_message = "All updates are reflected in real time. Keep your tasks current."
+    if control_center_mode:
+        if user.is_super_user():
+            identity_title = "Super User Dashboard"
+            identity_subtitle = "Global workspace mission control across all offices."
+            guidance_message = "Global command visibility is active across the full workspace."
+        elif power_user_mode and user.is_office_power_user():
+            office_name = getattr(getattr(user, "office", None), "office_name", "") or "Office"
+            identity_title = "Power User Dashboard"
+            identity_subtitle = f"{office_name} office mission control."
+            guidance_message = f"Only tasks within the {office_name} office scope are shown here."
 
     return {
         "identity": {
-            "title": _dashboard_identity_title(user),
-            "subtitle": "Centralized coordination. Real-time visibility. Structured execution.",
+            "title": identity_title,
+            "subtitle": identity_subtitle,
         },
         "welcome": {
             "greeting": _time_of_day_greeting(now_local),
@@ -414,6 +704,8 @@ def get_dashboard_workspace_context(user, app=None) -> dict:
         },
         "officer_chain": _build_officer_chain(user),
         "task_module_active": task_module_active,
+        "task_links_active": task_links_active,
+        "control_center_mode": control_center_mode,
         "immediate_actions": [
             {
                 "label": "Tasks Due Today",
@@ -471,6 +763,7 @@ def get_dashboard_workspace_context(user, app=None) -> dict:
             },
         ],
         "modules": module_cards,
-        "guidance_message": "All updates are reflected in real time. Keep your tasks current.",
+        "guidance_message": guidance_message,
         "modules_enabled_count": sum(1 for card in module_cards if card["is_available"]),
+        "control_center": _dashboard_control_center(user),
     }

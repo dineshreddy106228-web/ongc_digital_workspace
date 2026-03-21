@@ -1,0 +1,729 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from io import BytesIO
+from pathlib import Path
+import sys
+
+from openpyxl import Workbook
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from app.core.services.csc_type_classification_import import (
+    IMPORTED_JUSTIFICATION_END,
+    IMPORTED_JUSTIFICATION_START,
+    MATERIAL_HANDLING_BACKGROUND_START,
+    MATERIAL_HANDLING_JUSTIFICATION_START,
+    apply_material_handling_core_updates,
+    build_parent_lookup,
+    build_parent_lookup_by_material_code,
+    import_material_handling_workbook,
+    import_type_classification_workbook,
+    parse_material_handling_workbook,
+    parse_type_classification_workbook,
+)
+
+
+@dataclass
+class FakeParameter:
+    sort_order: int
+    parameter_name: str
+    parameter_type: str = "Desirable"
+    test_procedure_type: str = ""
+    test_method: str = ""
+    test_procedure_text: str = ""
+    justification: str = ""
+
+
+@dataclass
+class FakeDraft:
+    id: int
+    spec_number: str
+    material_code: str
+    chemical_name: str
+    parameters: list[FakeParameter] = field(default_factory=list)
+
+
+@dataclass
+class FakeParentDraft:
+    id: int
+    spec_number: str
+    material_code: str
+    chemical_name: str
+
+
+def _make_workbook(sheet_rows: dict[str, list[list[object]]]) -> BytesIO:
+    workbook = Workbook()
+    first_sheet = True
+    for sheet_name, rows in sheet_rows.items():
+        if first_sheet:
+            worksheet = workbook.active
+            worksheet.title = sheet_name
+            first_sheet = False
+        else:
+            worksheet = workbook.create_sheet(title=sheet_name)
+        for row in rows:
+            worksheet.append(row)
+    buffer = BytesIO()
+    workbook.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+
+def _header(include_changes_column: bool = False) -> list[str]:
+    columns = [
+        "Spec Number",
+        "Chemical Name",
+        "Material Code",
+        "Draft ID",
+        "Parameter ID",
+        "S. No.",
+        "Parameter Name",
+        "Requirement",
+        "Current Type",
+        "Type",
+        "Vital Reason 1",
+        "Vital Reason 2",
+        "Vital Reason 3",
+        "Vital Reason 4",
+        "Any more changes proposed ?",
+        "Test Procedure Type",
+        "Test Procedure Text",
+    ]
+    if include_changes_column:
+        columns.append("Proposed Modifications, if any, to Parameters / Requirement")
+    return columns
+
+
+def _material_header() -> list[str]:
+    return [
+        "S. No.",
+        "Chemical Name",
+        "Material Code",
+        "Specification No.",
+        "Proposed New Specification No.",
+        "Unit",
+        "Officers Responsible",
+        "Physical State",
+        "Volatility",
+        "Sunlight Sensitivity",
+        "Moisture Sensitivity",
+        "Temperature Sensitivity",
+        "Reactivity",
+        "Flammable",
+        "Toxic",
+        "Corrosive",
+        "Storage Conditions – General",
+        "Storage Conditions – Special",
+        "Container Type (Packing)",
+        "Container Capacity (Packing)",
+        "Container Description",
+        "Primary Storage Classification",
+        "Remarks (If Any)",
+    ]
+
+
+def test_parse_type_classification_workbook_across_multiple_sheets():
+    workbook_buffer = _make_workbook(
+        {
+            "ONGC-DFC-03-2026": [
+                _header(include_changes_column=True),
+                [
+                    "ONGC/DFC/03/2026",
+                    "BARYTES",
+                    "090001043",
+                    "draft-1",
+                    "param-1",
+                    1,
+                    "Density",
+                    "4.10 (Minimum)",
+                    "Desirable",
+                    "Vital",
+                    "Field Performance",
+                    "",
+                    "",
+                    "",
+                    "No",
+                    "API",
+                    "13A",
+                    "None",
+                ],
+            ],
+            "ONGC-CCA-03-2026": [
+                _header(),
+                [
+                    "ONGC/CCA/03/2026",
+                    "CEMENT",
+                    "100200300",
+                    "draft-2",
+                    "param-2",
+                    "2",
+                    "Setting time",
+                    "60 min",
+                    "Desirable",
+                    "Desirable",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "No",
+                    "",
+                    "",
+                ],
+            ],
+        }
+    )
+
+    parsed = parse_type_classification_workbook(
+        workbook_buffer,
+        "Type_Classification_Exercise_2026_DFC&CCA.xlsx",
+    )
+
+    assert parsed.workbook_name == "Type_Classification_Exercise_2026_DFC&CCA.xlsx"
+    assert [sheet.sheet_name for sheet in parsed.sheets] == [
+        "ONGC-DFC-03-2026",
+        "ONGC-CCA-03-2026",
+    ]
+    assert parsed.subset_codes == ["DFC", "CCA"]
+    assert parsed.sheets[0].rows[0].spec_number == "ONGC/DFC/03/2026"
+    assert parsed.sheets[0].rows[0].material_code == "090001043"
+    assert parsed.sheets[0].rows[0].parameter_serial == 1
+    assert parsed.sheets[0].rows[0].test_procedure_type == "API"
+    assert parsed.sheets[1].rows[0].parameter_serial == 2
+
+
+def test_import_creates_draft_and_normalizes_essential_to_desirable():
+    workbook_buffer = _make_workbook(
+        {
+            "ONGC-DFC-03-2026": [
+                _header(),
+                [
+                    "ONGC/DFC/03/2026",
+                    "BARYTES",
+                    "090001043",
+                    "draft-1",
+                    "param-1",
+                    1,
+                    "Density 4.1",
+                    "4.10 (Minimum)",
+                    "Desirable",
+                    "Essential",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "No",
+                    "",
+                    "",
+                ],
+                [
+                    "ONGC/DFC/03/2026",
+                    "BARYTES",
+                    "090001043",
+                    "draft-1",
+                    "param-2",
+                    2,
+                    "Density 4.2",
+                    "4.20 (Minimum)",
+                    "Desirable",
+                    "Vital",
+                    "Changed from Essential to Vital for field use",
+                    "",
+                    "",
+                    "",
+                    "No",
+                    "astm",
+                    "D-123",
+                ],
+            ]
+        }
+    )
+    workbook = parse_type_classification_workbook(workbook_buffer, "bulk.xlsx")
+
+    parent = FakeParentDraft(
+        id=10,
+        spec_number="ONGC/DFC/03/2026",
+        material_code="090001043",
+        chemical_name="BARYTES",
+    )
+    draft = FakeDraft(
+        id=20,
+        spec_number=parent.spec_number,
+        material_code=parent.material_code,
+        chemical_name=parent.chemical_name,
+        parameters=[
+            FakeParameter(sort_order=1, parameter_name="Density 4.1", parameter_type="Vital"),
+            FakeParameter(sort_order=2, parameter_name="Density 4.2", parameter_type="Desirable"),
+        ],
+    )
+    sections = {"justification": ""}
+
+    summary = import_type_classification_workbook(
+        workbook,
+        build_parent_lookup([parent]),
+        open_draft_for_parent=lambda _parent: (draft, True, None),
+        get_justification_text=lambda _draft: sections["justification"],
+        set_justification_text=lambda _draft, text: sections.__setitem__("justification", text),
+    )
+
+    assert summary.specs_matched == 1
+    assert summary.drafts_created == 1
+    assert summary.drafts_reused == 0
+    assert summary.parameters_matched == 2
+    assert summary.parameters_updated == 2
+    assert summary.justification_entries_created == 1
+    assert draft.parameters[0].parameter_type == "Desirable"
+    assert draft.parameters[1].parameter_type == "Vital"
+    assert draft.parameters[1].test_procedure_type == "ASTIM"
+    assert draft.parameters[1].test_method == "ASTIM"
+    assert draft.parameters[1].test_procedure_text == "D-123"
+    assert "Desirable to Vital" in sections["justification"]
+    assert IMPORTED_JUSTIFICATION_START in sections["justification"]
+    assert IMPORTED_JUSTIFICATION_END in sections["justification"]
+
+
+def test_import_reuses_existing_draft_and_replaces_only_imported_block():
+    workbook_buffer = _make_workbook(
+        {
+            "ONGC-DFC-03-2026": [
+                _header(),
+                [
+                    "ONGC/DFC/03/2026",
+                    "BARYTES",
+                    "090001043",
+                    "draft-1",
+                    "param-2",
+                    2,
+                    "Density 4.2",
+                    "4.20 (Minimum)",
+                    "Desirable",
+                    "Vital",
+                    "Operationally critical",
+                    "",
+                    "",
+                    "",
+                    "No",
+                    "API",
+                    "13A",
+                ],
+            ]
+        }
+    )
+    workbook = parse_type_classification_workbook(workbook_buffer, "replacement.xlsx")
+
+    parent = FakeParentDraft(
+        id=10,
+        spec_number="ONGC/DFC/03/2026",
+        material_code="090001043",
+        chemical_name="BARYTES",
+    )
+    draft = FakeDraft(
+        id=21,
+        spec_number=parent.spec_number,
+        material_code=parent.material_code,
+        chemical_name=parent.chemical_name,
+        parameters=[FakeParameter(sort_order=2, parameter_name="Density 4.2")],
+    )
+    sections = {
+        "justification": (
+            "Manual committee note.\n\n"
+            f"{IMPORTED_JUSTIFICATION_START}\nWorkbook: old.xlsx\n"
+            "Old import content\n"
+            f"{IMPORTED_JUSTIFICATION_END}"
+        )
+    }
+
+    summary = import_type_classification_workbook(
+        workbook,
+        build_parent_lookup([parent]),
+        open_draft_for_parent=lambda _parent: (draft, False, None),
+        get_justification_text=lambda _draft: sections["justification"],
+        set_justification_text=lambda _draft, text: sections.__setitem__("justification", text),
+    )
+
+    assert summary.drafts_created == 0
+    assert summary.drafts_reused == 1
+    assert sections["justification"].startswith("Manual committee note.")
+    assert "replacement.xlsx" in sections["justification"]
+    assert sections["justification"].count(IMPORTED_JUSTIFICATION_START) == 1
+    assert "old.xlsx" not in sections["justification"]
+
+
+def test_import_reports_unmatched_sheets_and_parameter_rows():
+    workbook_buffer = _make_workbook(
+        {
+            "ONGC-DFC-03-2026": [
+                _header(),
+                [
+                    "ONGC/DFC/03/2026",
+                    "BARYTES",
+                    "090001043",
+                    "draft-1",
+                    "param-99",
+                    99,
+                    "Unknown parameter",
+                    "n/a",
+                    "Desirable",
+                    "Vital",
+                    "Needed in field",
+                    "",
+                    "",
+                    "",
+                    "No",
+                    "API",
+                    "13A",
+                ],
+            ],
+            "ONGC-DFC-04-2026": [
+                _header(),
+                [
+                    "ONGC/DFC/04/2026",
+                    "BENTONITE",
+                    "100101003",
+                    "draft-2",
+                    "param-1",
+                    1,
+                    "Physical state",
+                    "Powder",
+                    "Desirable",
+                    "Vital",
+                    "Needed in field",
+                    "",
+                    "",
+                    "",
+                    "No",
+                    "",
+                    "",
+                ],
+            ],
+        }
+    )
+    workbook = parse_type_classification_workbook(workbook_buffer, "report.xlsx")
+
+    parent = FakeParentDraft(
+        id=10,
+        spec_number="ONGC/DFC/03/2026",
+        material_code="090001043",
+        chemical_name="BARYTES",
+    )
+    draft = FakeDraft(
+        id=22,
+        spec_number=parent.spec_number,
+        material_code=parent.material_code,
+        chemical_name=parent.chemical_name,
+        parameters=[FakeParameter(sort_order=1, parameter_name="Known parameter")],
+    )
+    sections = {"justification": ""}
+
+    summary = import_type_classification_workbook(
+        workbook,
+        build_parent_lookup([parent]),
+        open_draft_for_parent=lambda _parent: (draft, False, None),
+        get_justification_text=lambda _draft: sections["justification"],
+        set_justification_text=lambda _draft, text: sections.__setitem__("justification", text),
+    )
+
+    assert len(summary.unmatched_sheets) == 1
+    assert summary.unmatched_sheets[0].sheet_name == "ONGC-DFC-04-2026"
+    assert len(summary.unmatched_parameter_rows) == 1
+    assert summary.unmatched_parameter_rows[0].parameter_serial == 99
+    assert "No draft parameter matched" in summary.unmatched_parameter_rows[0].reason
+
+
+def test_parse_material_handling_workbook_and_normalize_spec_numbers():
+    workbook_buffer = _make_workbook(
+        {
+            "Sheet1": [
+                _material_header(),
+                [
+                    1,
+                    "Aluminum Stearate",
+                    100101102,
+                    "ONGC / MC / 01 / 2015",
+                    "ONGC / DFC / 01 / 2026",
+                    "KG",
+                    "Officer A",
+                    "Solid",
+                    "No",
+                    "No",
+                    "Yes",
+                    "Ambient",
+                    "Stable",
+                    "No",
+                    "Low",
+                    "No",
+                    "Store in dry place",
+                    "",
+                    "HDPE Bags",
+                    "25 Kg",
+                    "New HDPE bag",
+                    "Zone-1: General Stable",
+                    "No major issue",
+                ],
+            ]
+        }
+    )
+
+    parsed = parse_material_handling_workbook(workbook_buffer, "Chemical Properties Register.xlsx")
+
+    assert parsed.workbook_name == "Chemical Properties Register.xlsx"
+    assert len(parsed.rows) == 1
+    assert parsed.rows[0].source_spec_number == "ONGC/MC/01/2015"
+    assert parsed.rows[0].proposed_spec_number == "ONGC/DFC/01/2026"
+    assert parsed.rows[0].material_code == "100101102"
+    assert parsed.subset_codes == ["DFC"]
+
+
+def test_import_material_handling_reuses_separate_draft_stream_and_stages_only_draft_values():
+    workbook_buffer = _make_workbook(
+        {
+            "Sheet1": [
+                _material_header(),
+                [
+                    1,
+                    "Aluminum Stearate",
+                    100101102,
+                    "ONGC / MC / 01 / 2015",
+                    "ONGC / DFC / 01 / 2026",
+                    "KG",
+                    "Officer A",
+                    "Solid",
+                    "No",
+                    "No",
+                    "Yes",
+                    "Ambient",
+                    "Stable",
+                    "No",
+                    "Low",
+                    "No",
+                    "Store in dry place",
+                    "",
+                    "HDPE Bags",
+                    "25 Kg",
+                    "New HDPE bag",
+                    "Zone-1: General Stable",
+                    "Imported remarks",
+                ],
+            ]
+        }
+    )
+    workbook = parse_material_handling_workbook(workbook_buffer, "mh.xlsx")
+
+    parent = FakeParentDraft(
+        id=30,
+        spec_number="ONGC/DFC/01/2026",
+        material_code="100101102",
+        chemical_name="ALUMINIUM STEARATE",
+    )
+    draft = FakeDraft(
+        id=40,
+        spec_number=parent.spec_number,
+        material_code=parent.material_code,
+        chemical_name=parent.chemical_name,
+    )
+    sections = {"background": "", "justification": ""}
+    staged_payloads: list[dict[str, str]] = []
+
+    summary = import_material_handling_workbook(
+        workbook,
+        build_parent_lookup_by_material_code([parent]),
+        open_draft_for_parent=lambda _parent: (draft, False, None),
+        get_background_text=lambda _draft: sections["background"],
+        set_background_text=lambda _draft, text: sections.__setitem__("background", text),
+        get_justification_text=lambda _draft: sections["justification"],
+        set_justification_text=lambda _draft, text: sections.__setitem__("justification", text),
+        stage_master_values=lambda _draft, values: staged_payloads.append(dict(values)) or len(values),
+    )
+
+    assert summary.drafts_created == 0
+    assert summary.drafts_reused == 1
+    assert summary.rows_updated == 1
+    assert draft.chemical_name == "Aluminum Stearate"
+    assert draft.spec_number == "ONGC/DFC/01/2026"
+    assert parent.chemical_name == "ALUMINIUM STEARATE"
+    assert parent.spec_number == "ONGC/DFC/01/2026"
+    assert staged_payloads[0]["physical_state"] == "Solid"
+    assert staged_payloads[0]["container_type"] == "HDPE Bags"
+    assert MATERIAL_HANDLING_BACKGROUND_START in sections["background"]
+    assert MATERIAL_HANDLING_JUSTIFICATION_START in sections["justification"]
+
+
+def test_import_material_handling_reports_unmatched_rows():
+    workbook_buffer = _make_workbook(
+        {
+            "Sheet1": [
+                _material_header(),
+                [
+                    1,
+                    "Unknown Chemical",
+                    999999999,
+                    "ONGC / MC / 99 / 2015",
+                    "ONGC / DFC / 99 / 2026",
+                    "KG",
+                    "Officer A",
+                    "Solid",
+                    "No",
+                    "No",
+                    "Yes",
+                    "Ambient",
+                    "Stable",
+                    "No",
+                    "Low",
+                    "No",
+                    "Store in dry place",
+                    "",
+                    "HDPE Bags",
+                    "25 Kg",
+                    "New HDPE bag",
+                    "Zone-1: General Stable",
+                    "",
+                ],
+            ]
+        }
+    )
+    workbook = parse_material_handling_workbook(workbook_buffer, "mh-unmatched.xlsx")
+
+    summary = import_material_handling_workbook(
+        workbook,
+        build_parent_lookup_by_material_code([]),
+        open_draft_for_parent=lambda _parent: (None, False, None),
+        get_background_text=lambda _draft: "",
+        set_background_text=lambda _draft, text: None,
+        get_justification_text=lambda _draft: "",
+        set_justification_text=lambda _draft, text: None,
+        stage_master_values=lambda _draft, values: 0,
+    )
+
+    assert summary.specs_matched == 0
+    assert len(summary.unmatched_rows) == 1
+    assert summary.unmatched_rows[0].material_code == "999999999"
+
+
+def test_material_handling_core_updates_apply_on_publish():
+    parent = FakeParentDraft(
+        id=50,
+        spec_number="ONGC/DFC/01/2026",
+        material_code="100101102",
+        chemical_name="ALUMINIUM STEARATE",
+    )
+    approved_draft = FakeDraft(
+        id=51,
+        spec_number="ONGC/DFC/05/2026",
+        material_code="100101102",
+        chemical_name="Aluminum Stearate Updated",
+    )
+
+    changed = apply_material_handling_core_updates(parent, approved_draft)
+
+    assert changed is True
+    assert parent.spec_number == "ONGC/DFC/05/2026"
+    assert parent.chemical_name == "Aluminum Stearate Updated"
+
+
+def test_type_and_material_handling_imports_can_target_separate_drafts_for_same_parent():
+    type_workbook = parse_type_classification_workbook(
+        _make_workbook(
+            {
+                "ONGC-DFC-03-2026": [
+                    _header(),
+                    [
+                        "ONGC/DFC/03/2026",
+                        "BARYTES",
+                        "090001043",
+                        "draft-1",
+                        "param-1",
+                        1,
+                        "Density",
+                        "4.10 (Minimum)",
+                        "Desirable",
+                        "Vital",
+                        "Field Performance",
+                        "",
+                        "",
+                        "",
+                        "No",
+                        "API",
+                        "13A",
+                    ],
+                ],
+            }
+        ),
+        "type.xlsx",
+    )
+    material_workbook = parse_material_handling_workbook(
+        _make_workbook(
+            {
+                "Sheet1": [
+                    _material_header(),
+                    [
+                        1,
+                        "Barytes",
+                        90001043,
+                        "ONGC / MC / 03 / 2015",
+                        "ONGC / DFC / 03 / 2026",
+                        "MT",
+                        "Officer A",
+                        "Solid",
+                        "No",
+                        "No",
+                        "Yes",
+                        "Ambient",
+                        "Stable",
+                        "No",
+                        "Low",
+                        "No",
+                        "Store in dry place",
+                        "",
+                        "HDPE Bags",
+                        "50 Kg",
+                        "New HDPE bag",
+                        "Zone-1: General Stable",
+                        "",
+                    ],
+                ],
+            }
+        ),
+        "mh.xlsx",
+    )
+
+    parent = FakeParentDraft(
+        id=60,
+        spec_number="ONGC/DFC/03/2026",
+        material_code="090001043",
+        chemical_name="BARYTES",
+    )
+    type_draft = FakeDraft(
+        id=61,
+        spec_number=parent.spec_number,
+        material_code=parent.material_code,
+        chemical_name=parent.chemical_name,
+        parameters=[FakeParameter(sort_order=1, parameter_name="Density")],
+    )
+    material_draft = FakeDraft(
+        id=62,
+        spec_number=parent.spec_number,
+        material_code=parent.material_code,
+        chemical_name=parent.chemical_name,
+    )
+
+    type_summary = import_type_classification_workbook(
+        type_workbook,
+        build_parent_lookup([parent]),
+        open_draft_for_parent=lambda _parent: (type_draft, True, None),
+        get_justification_text=lambda _draft: "",
+        set_justification_text=lambda _draft, text: None,
+    )
+    material_summary = import_material_handling_workbook(
+        material_workbook,
+        build_parent_lookup_by_material_code([parent]),
+        open_draft_for_parent=lambda _parent: (material_draft, True, None),
+        get_background_text=lambda _draft: "",
+        set_background_text=lambda _draft, text: None,
+        get_justification_text=lambda _draft: "",
+        set_justification_text=lambda _draft, text: None,
+        stage_master_values=lambda _draft, values: len(values),
+    )
+
+    assert type_summary.drafts_created == 1
+    assert material_summary.drafts_created == 1
+    assert type_summary.details[0].draft_id != material_summary.details[0].draft_id

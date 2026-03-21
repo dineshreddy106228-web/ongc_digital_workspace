@@ -199,6 +199,57 @@ def _resolve_officer_selection(raw_id, label, target_user_id=None):
     return officer, None
 
 
+def _parse_power_user_limit(raw_value):
+    cleaned = (raw_value or "").strip()
+    if cleaned == "":
+        return 0, None
+    if not cleaned.isdigit():
+        return 0, "Power user slots must be a non-negative whole number."
+
+    value = int(cleaned)
+    if value < 0:
+        return 0, "Power user slots cannot be negative."
+    if value > 25:
+        return 0, "Power user slots cannot exceed 25 for one office."
+    return value, None
+
+
+def _power_user_candidates_for_office(office_id: int) -> list[User]:
+    return (
+        User.query
+        .options(joinedload(User.role))
+        .filter(User.office_id == office_id, User.is_active.is_(True))
+        .order_by(User.full_name, User.username)
+        .all()
+    )
+
+
+def _resolve_power_user_selection(office_id: int, raw_ids: list[str]) -> tuple[list[int], list[str]]:
+    errors: list[str] = []
+    selected_ids: list[int] = []
+
+    if not raw_ids:
+        return selected_ids, errors
+
+    candidates = {user.id: user for user in _power_user_candidates_for_office(office_id)}
+
+    for raw_id in raw_ids:
+        value = (raw_id or "").strip()
+        if not value:
+            continue
+        if not value.isdigit():
+            errors.append("Select valid power users from the selected office.")
+            continue
+        user_id = int(value)
+        if user_id not in candidates:
+            errors.append("Power users must be active users mapped to this office.")
+            continue
+        if user_id not in selected_ids:
+            selected_ids.append(user_id)
+
+    return selected_ids, errors
+
+
 def _record_dependency_change(changes: list[str], label: str, count: int) -> None:
     if count:
         suffix = "" if count == 1 else "s"
@@ -277,6 +328,8 @@ def _build_user_report_workbook(
         ["Mapped Users", hierarchy_summary["mapped_users"]],
         ["Fully Mapped Users", hierarchy_summary["fully_mapped_users"]],
         ["Office Heads", hierarchy_summary["office_heads"]],
+        ["Power Users", hierarchy_summary["power_users"]],
+        ["Configured Power User Slots", hierarchy_summary["power_user_slots"]],
         ["Active Users", sum(1 for user in users if user.is_active)],
         ["Inactive Users", sum(1 for user in users if not user.is_active)],
         ["Roles", len(roles)],
@@ -309,6 +362,7 @@ def _build_user_report_workbook(
                 user.role.name if user.role else "",
                 user.office.office_name if user.office else "",
                 user.office.office_code if user.office else "",
+                "Yes" if user.is_power_user else "No",
                 _display_user_name(user.controlling_officer) if user.controlling_officer else "",
                 _display_user_name(user.reviewing_officer) if user.reviewing_officer else "",
                 _display_user_name(user.accepting_officer) if user.accepting_officer else "",
@@ -333,6 +387,7 @@ def _build_user_report_workbook(
             "Role",
             "Office",
             "Office Code",
+            "Power User",
             "Controlling Officer",
             "Reviewing Officer",
             "Accepting Officer",
@@ -378,6 +433,8 @@ def _build_user_report_workbook(
                 office.office_name,
                 office.location or "",
                 "Active" if office.is_active else "Inactive",
+                office.power_user_limit,
+                sum(1 for user in office_users if user.is_power_user and user.is_active),
                 len(office_users),
                 sum(1 for user in office_users if user.is_active),
                 _format_excel_datetime(office.created_at),
@@ -386,7 +443,19 @@ def _build_user_report_workbook(
         )
     _write_report_sheet(
         offices_sheet,
-        ["Office ID", "Office Code", "Office Name", "Location", "Status", "Total Users", "Active Users", "Created At", "Updated At"],
+        [
+            "Office ID",
+            "Office Code",
+            "Office Name",
+            "Location",
+            "Status",
+            "Power User Slots",
+            "Assigned Power Users",
+            "Total Users",
+            "Active Users",
+            "Created At",
+            "Updated At",
+        ],
         office_rows,
     )
 
@@ -450,10 +519,9 @@ def _build_user_report_workbook(
 
 ORGANOGRAM_LEVEL_META = {
     "head": {"label": "Office Head", "order": 0},
-    "accepting": {"label": "Accepting Officer", "order": 1},
-    "reviewing": {"label": "Reviewing Officer", "order": 2},
-    "controlling": {"label": "Controlling Officer", "order": 3},
-    "user": {"label": "User", "order": 4},
+    "reviewing": {"label": "Reviewing Officer", "order": 1},
+    "controlling": {"label": "Controlling Officer", "order": 2},
+    "user": {"label": "User", "order": 3},
 }
 
 
@@ -486,10 +554,15 @@ def _organogram_node_sort_key(node: dict):
 
 
 def _build_user_organogram(users):
-    users_by_id = {user.id: user for user in users}
+    organogram_users = [
+        user
+        for user in users
+        if canonicalize_role_name(user.role.name if user.role else None) != ADMIN_ROLE
+    ]
+    users_by_id = {user.id: user for user in organogram_users}
     office_sections = {}
 
-    for user in users:
+    for user in organogram_users:
         office_key = user.office_id or 0
         office_name = user.office.office_name if user.office else "Unassigned Office"
         section = office_sections.setdefault(
@@ -518,15 +591,16 @@ def _build_user_organogram(users):
         key=lambda item: ((item["office_name"] or "").lower(), item["office_id"] or 0),
     ):
         office_users = section["users"]
+        office_user_ids = {user.id for user in office_users}
+        single_user_office = len(office_users) == 1
         officer_reference_ids = {
             int(officer_id)
             for user in office_users
             for officer_id in (
-                user.accepting_officer_id,
                 user.reviewing_officer_id,
                 user.controlling_officer_id,
             )
-            if officer_id is not None and int(officer_id) in users_by_id
+            if officer_id is not None and int(officer_id) in office_user_ids
         }
 
         roots = []
@@ -551,24 +625,30 @@ def _build_user_organogram(users):
             return node
 
         def _head_for_user(user: User):
-            if not user.controlling_officer_id:
+            if not user.controlling_officer_id and not single_user_office:
                 return user
 
-            for officer in (
-                users_by_id.get(user.accepting_officer_id),
-                users_by_id.get(user.reviewing_officer_id),
-                users_by_id.get(user.controlling_officer_id),
+            for officer_id in (
+                user.accepting_officer_id,
+                user.reviewing_officer_id,
+                user.controlling_officer_id,
             ):
+                officer = users_by_id.get(officer_id)
                 if officer is not None and not officer.controlling_officer_id:
                     return officer
 
             return None
 
-        for user in sorted(office_users, key=_user_sort_key):
-            if not user.controlling_officer_id:
-                _ensure_root("head", user)
+        if not single_user_office:
+            for user in sorted(office_users, key=_user_sort_key):
+                if not user.controlling_officer_id:
+                    _ensure_root("head", user)
 
         for user in sorted(office_users, key=_user_sort_key):
+            if single_user_office:
+                _ensure_root("user", user)
+                continue
+
             chain_parent = None
             head_user = _head_for_user(user)
             seen_ids = set()
@@ -577,17 +657,11 @@ def _build_user_organogram(users):
                 chain_parent = _ensure_root("head", head_user)
                 seen_ids.add(head_user.id)
 
-            chain_users = []
-            if head_user is not user:
-                chain_users = [
-                    ("accepting", users_by_id.get(user.accepting_officer_id)),
-                    ("reviewing", users_by_id.get(user.reviewing_officer_id)),
-                    ("controlling", users_by_id.get(user.controlling_officer_id)),
-                ]
-
-            for level, officer in chain_users:
+            for officer_id in (user.reviewing_officer_id, user.controlling_officer_id):
+                officer = users_by_id.get(officer_id)
                 if officer is None or officer.id in seen_ids:
                     continue
+                level = "reviewing" if officer_id == user.reviewing_officer_id else "controlling"
                 chain_parent = (
                     _ensure_root(level, officer)
                     if chain_parent is None
@@ -599,7 +673,8 @@ def _build_user_organogram(users):
                 if user.id not in officer_reference_ids:
                     _ensure_child(chain_parent, "user", user)
             elif user.id not in officer_reference_ids:
-                _ensure_root("head" if not user.controlling_officer_id else "user", user)
+                fallback_level = "head" if not user.controlling_officer_id else "user"
+                _ensure_root(fallback_level, user)
 
         finalized_roots = _finalize(roots)
         organogram.append(
@@ -618,7 +693,7 @@ def _build_user_organogram(users):
                         ]
                     )
                 ),
-                "office_heads": sum(
+                "office_heads": 0 if single_user_office else sum(
                     1 for node in finalized_roots if node["level"] == "head"
                 ),
                 "unmapped_users": sum(
@@ -678,6 +753,8 @@ def users():
             and user.accepting_officer_id
         ),
         "office_heads": sum(section["office_heads"] for section in organogram),
+        "power_users": sum(1 for user in all_users if user.is_power_user and user.is_active),
+        "power_user_slots": sum(office.power_user_limit for office in Office.query.all()),
     }
     return render_template(
         "admin/users.html",
@@ -1180,6 +1257,9 @@ def edit_user(user_id):
         if str(target.office_id) != str(office_id):
             changed_fields.append(f"office_id: {target.office_id} → {office_id}")
             target.office_id = int(office_id)
+            if target.is_power_user:
+                changed_fields.append("power_user: cleared after office reassignment")
+                target.is_power_user = False
         if target.designation != designation:
             changed_fields.append(f"designation: '{target.designation}' → '{designation}'")
             target.designation = designation
@@ -1189,6 +1269,9 @@ def edit_user(user_id):
         if target.is_active != is_active:
             changed_fields.append(f"is_active: {target.is_active} → {is_active}")
             target.is_active = is_active
+            if not is_active and target.is_power_user:
+                changed_fields.append("power_user: cleared because account was deactivated")
+                target.is_power_user = False
 
         # Hierarchy changes
         old_co = target.controlling_officer_id
@@ -1367,6 +1450,8 @@ def toggle_user_active(user_id):
 
     if target.is_active:
         target.is_active = False
+        if target.is_power_user:
+            target.is_power_user = False
         action = "USER_DEACTIVATED"
         verb = "deactivated"
     else:
@@ -1858,6 +1943,8 @@ def add_office():
         office_code = request.form.get("office_code", "").strip().upper()
         office_name = request.form.get("office_name", "").strip()
         location = request.form.get("location", "").strip()
+        power_user_limit_raw = request.form.get("power_user_limit", "").strip()
+        power_user_limit, limit_error = _parse_power_user_limit(power_user_limit_raw)
 
         errors = []
         if not office_code:
@@ -1870,6 +1957,8 @@ def add_office():
             errors.append("Office name cannot exceed 150 characters.")
         if len(location) > 150:
             errors.append("Location cannot exceed 150 characters.")
+        if limit_error:
+            errors.append(limit_error)
 
         if office_code and Office.query.filter_by(office_code=office_code).first():
             errors.append(f"Office code '{office_code}' already exists.")
@@ -1888,6 +1977,7 @@ def add_office():
                 office_code=office_code,
                 office_name=office_name,
                 location=location,
+                power_user_limit=power_user_limit,
                 is_active=True,
             )
             db.session.add(new_office)
@@ -1900,7 +1990,7 @@ def add_office():
                 entity_id=str(new_office.id),
                 details=(
                     f"Admin '{current_user.username}' created office "
-                    f"'{office_name}' ({office_code})."
+                    f"'{office_name}' ({office_code}) with {power_user_limit} power-user slot(s)."
                 ),
                 ip_address=_client_ip(),
                 user_agent=get_user_agent(),
@@ -1910,7 +2000,10 @@ def add_office():
                 "office_created",
                 "office",
                 office_name,
-                details=f"code={office_code}, location={location or '-'}",
+                details=(
+                    f"code={office_code}, location={location or '-'}, "
+                    f"power_user_limit={power_user_limit}"
+                ),
             )
             db.session.commit()
         except SQLAlchemyError:
@@ -1920,6 +2013,8 @@ def add_office():
                 "admin/office_form.html",
                 mode="add",
                 form_data=request.form,
+                power_user_candidates=[],
+                selected_power_user_ids=[],
             )
 
         flash(f"Office '{office_name}' created successfully.", "success")
@@ -1929,6 +2024,8 @@ def add_office():
         "admin/office_form.html",
         mode="add",
         form_data={},
+        power_user_candidates=[],
+        selected_power_user_ids=[],
     )
 
 
@@ -1939,10 +2036,29 @@ def add_office():
 def edit_office(office_id):
     _require_office_management()
     office = Office.query.get_or_404(office_id)
+    office_users = (
+        User.query
+        .options(joinedload(User.role))
+        .filter(User.office_id == office.id)
+        .order_by(User.full_name, User.username)
+        .all()
+    )
+    power_user_candidates = _power_user_candidates_for_office(office.id)
+    current_power_user_ids = [
+        str(user.id)
+        for user in office_users
+        if user.is_power_user
+    ]
 
     if request.method == "POST":
         office_name = request.form.get("office_name", "").strip()
         location = request.form.get("location", "").strip()
+        power_user_limit_raw = request.form.get("power_user_limit", "").strip()
+        selected_power_user_ids, selection_errors = _resolve_power_user_selection(
+            office.id,
+            request.form.getlist("power_user_ids"),
+        )
+        power_user_limit, limit_error = _parse_power_user_limit(power_user_limit_raw)
 
         errors = []
         if not office_name:
@@ -1951,6 +2067,14 @@ def edit_office(office_id):
             errors.append("Office name cannot exceed 150 characters.")
         if len(location) > 150:
             errors.append("Location cannot exceed 150 characters.")
+        if limit_error:
+            errors.append(limit_error)
+        errors.extend(selection_errors)
+        if len(selected_power_user_ids) > power_user_limit:
+            errors.append(
+                f"Select at most {power_user_limit} power user"
+                f"{'' if power_user_limit == 1 else 's'} for this office."
+            )
 
         if errors:
             for err in errors:
@@ -1960,6 +2084,8 @@ def edit_office(office_id):
                 mode="edit",
                 office=office,
                 form_data=request.form,
+                power_user_candidates=power_user_candidates,
+                selected_power_user_ids=[str(user_id) for user_id in selected_power_user_ids],
             )
 
         changed_fields = []
@@ -1969,6 +2095,33 @@ def edit_office(office_id):
         if (office.location or "") != location:
             changed_fields.append(f"location '{office.location or '-'}' → '{location or '-'}'")
             office.location = location
+        if office.power_user_limit != power_user_limit:
+            changed_fields.append(
+                f"power_user_limit '{office.power_user_limit}' → '{power_user_limit}'"
+            )
+            office.power_user_limit = power_user_limit
+
+        previous_power_user_ids = {user.id for user in office_users if user.is_power_user}
+        next_power_user_ids = set(selected_power_user_ids)
+        if previous_power_user_ids != next_power_user_ids:
+            previous_labels = [
+                _display_user_name(user)
+                for user in office_users
+                if user.id in previous_power_user_ids
+            ]
+            next_labels = [
+                _display_user_name(user)
+                for user in office_users
+                if user.id in next_power_user_ids
+            ]
+            changed_fields.append(
+                "power_users "
+                f"'{', '.join(previous_labels) or '-'}' → "
+                f"'{', '.join(next_labels) or '-'}'"
+            )
+
+        for office_user in office_users:
+            office_user.is_power_user = office_user.id in next_power_user_ids
 
         try:
             db.session.flush()
@@ -2002,6 +2155,8 @@ def edit_office(office_id):
                 mode="edit",
                 office=office,
                 form_data=request.form,
+                power_user_candidates=power_user_candidates,
+                selected_power_user_ids=[str(user_id) for user_id in selected_power_user_ids],
             )
 
         flash(f"Office '{office.office_name}' updated successfully.", "success")
@@ -2012,6 +2167,8 @@ def edit_office(office_id):
         mode="edit",
         office=office,
         form_data={},
+        power_user_candidates=power_user_candidates,
+        selected_power_user_ids=current_power_user_ids,
     )
 
 
@@ -2090,7 +2247,7 @@ def office_users(office_id):
             joinedload(User.accepting_officer),
         )
         .filter_by(office_id=office.id)
-        .order_by(User.is_active.desc(), User.full_name, User.username)
+        .order_by(User.is_power_user.desc(), User.is_active.desc(), User.full_name, User.username)
         .all()
     )
     return render_template(

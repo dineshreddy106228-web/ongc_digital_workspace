@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}Power User Dashboard – {{ app_name }}{% endblock %}
+
+{% block content %}
+{% set identity = workspace_context.identity %}
+{% set welcome = workspace_context.welcome %}
+<section class="dashboard dashboard-shell mission-control power-user-dashboard-shell">
+  <div class="dashboard-command-header">
+    <div class="dashboard-command-copy">
+      <div class="dashboard-kicker">Office Command View</div>
+      <h1 class="dashboard-page-title">Power User Dashboard</h1>
+      <p class="dashboard-page-subtitle">{{ identity.subtitle }}</p>
+    </div>
+    <div class="dashboard-command-meta">
+      <div class="dashboard-meta-card dashboard-meta-card-timestamp">
+        <span class="dashboard-meta-label">Last Refreshed</span>
+        <strong>{{ last_refreshed|datetime_ist('%d %b %Y · %I:%M %p') }}</strong>
+      </div>
+      <a href="{{ url_for('main.dashboard') }}" class="btn btn-sm btn-secondary dashboard-mode-toggle">
+        <span class="dashboard-mode-indicator" aria-hidden="true"></span>
+        <span>Main Dashboard</span>
+      </a>
+    </div>
+  </div>
+
+  <div class="dashboard-summary-bar dashboard-summary-bar-command">
+    <div class="dashboard-summary-copy">
+      <h2>{{ welcome.greeting }}, {{ welcome.name }}</h2>
+      <p>{{ welcome.summary }}</p>
+    </div>
+    <div class="dashboard-summary-meta">
+      <div class="dashboard-summary-item">
+        <span>Office Scope</span>
+        <strong>{{ user.office.office_name if user.office else 'Unassigned Office' }}</strong>
+      </div>
+      {% if user.role %}
+      <div class="dashboard-summary-item">
+        <span>Role</span>
+        <strong>{{ user.role.name }}</strong>
+      </div>
+      {% endif %}
+      <div class="dashboard-summary-item">
+        <span>Dashboard</span>
+        <strong>Power User Dashboard</strong>
+      </div>
+    </div>
+  </div>
+
+  <div class="dashboard-main-grid">
+    <div class="dashboard-main-column">
+      <section class="dashboard-section-block dashboard-section-block-actions">
+        <div class="dashboard-section-header">
+          <div>
+            <h2 class="dashboard-section-title">Office Task Pulse</h2>
+            <p class="dashboard-section-subtitle">Only tasks within the corresponding office scope are shown here.</p>
+          </div>
+          {% if workspace_context.task_links_active %}
+          <a href="{{ url_for('tasks.list_tasks') }}" class="dashboard-section-link">Open Office Management</a>
+          {% endif %}
+        </div>
+        <div class="dashboard-kpi-grid">
+          {% for item in workspace_context.immediate_actions %}
+            {% if item.href and workspace_context.task_links_active %}
+            <a href="{{ item.href }}" class="dashboard-kpi-card dashboard-kpi-card-{{ item.tone }}">
+              <span class="dashboard-kpi-label">{{ item.label }}</span>
+              <strong class="dashboard-kpi-value">{{ item.value }}</strong>
+              <span class="dashboard-kpi-detail">{{ item.detail }}</span>
+            </a>
+            {% else %}
+            <div class="dashboard-kpi-card dashboard-kpi-card-{{ item.tone }}">
+              <span class="dashboard-kpi-label">{{ item.label }}</span>
+              <strong class="dashboard-kpi-value">{{ item.value }}</strong>
+              <span class="dashboard-kpi-detail">{{ item.detail }}</span>
+            </div>
+            {% endif %}
+          {% endfor %}
+        </div>
+      </section>
+
+      <section class="dashboard-section-block dashboard-section-block-visibility">
+        <div class="dashboard-section-header">
+          <div>
+            <h2 class="dashboard-section-title">Office Visibility Metrics</h2>
+            <p class="dashboard-section-subtitle">Live metrics constrained to the mapped office.</p>
+          </div>
+        </div>
+        <div class="dashboard-metric-grid">
+          {% for metric in workspace_context.visibility_metrics %}
+          <div class="dashboard-metric-card">
+            <span class="dashboard-metric-label">{{ metric.label }}</span>
+            <strong class="dashboard-metric-value">{{ metric.value }}</strong>
+            <p class="dashboard-metric-detail">{{ metric.detail }}</p>
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+    </div>
+
+    <aside class="dashboard-side-column">
+      <section class="dashboard-side-panel dashboard-side-panel-alerts">
+        <div class="dashboard-section-header">
+          <div>
+            <h2 class="dashboard-section-title">Reporting Line</h2>
+            <p class="dashboard-section-subtitle">Current mapped officer chain for this account.</p>
+          </div>
+        </div>
+        <div class="dashboard-snapshot-list">
+          {% for officer in workspace_context.officer_chain %}
+          <div class="dashboard-snapshot-row">
+            <span>{{ officer.label }}</span>
+            <strong>{{ officer.name }}</strong>
+          </div>
+          {% else %}
+          <div class="dashboard-empty-state">
+            <h3>No officer mappings</h3>
+            <p>This account has no controlling, reviewing, or accepting officer mapped yet.</p>
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+    </aside>
+  </div>
+
+  <div class="dashboard-guidance-strip dashboard-guidance-strip-command">{{ workspace_context.guidance_message }}</div>
+</section>
+{% endblock %}

@@ -63,6 +63,10 @@
   background: color-mix(in srgb, #10b981 15%, transparent);
   color: #047857;
 }
+.csc-status-staging {
+  background: color-mix(in srgb, #7c3aed 14%, transparent);
+  color: #6d28d9;
+}
 .csc-status-rejected {
   background: color-mix(in srgb, #dc3545 15%, transparent);
   color: #b91c1c;
@@ -253,6 +257,87 @@
   margin: 0;
   color: var(--muted);
 }
+.csc-import-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 1.2fr) minmax(320px, 1fr);
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.csc-import-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 1rem 1.1rem;
+}
+.csc-import-card h2,
+.csc-import-card h3 {
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+}
+.csc-import-card p {
+  margin-top: 0;
+}
+.csc-import-form {
+  display: grid;
+  gap: 0.9rem;
+}
+.csc-import-field {
+  display: grid;
+  gap: 0.4rem;
+}
+.csc-import-field input[type="file"] {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm, 6px);
+  padding: 0.85rem;
+  background: var(--surface-alt);
+}
+.csc-import-hint {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+.csc-import-format {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: var(--text);
+}
+.csc-import-format li {
+  margin-bottom: 0.35rem;
+}
+.csc-import-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.9rem;
+}
+.csc-import-summary-stat {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  background: color-mix(in srgb, var(--surface) 84%, transparent);
+  padding: 0.75rem 0.85rem;
+}
+.csc-import-summary-stat-label {
+  display: block;
+  color: var(--muted);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.3rem;
+}
+.csc-import-summary-stat-value {
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+.csc-import-detail {
+  margin-top: 1rem;
+}
+.csc-import-detail summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.csc-import-inline-note {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
 .csc-decision-panel {
   display: none;
 }
@@ -310,6 +395,7 @@
   font-size: 0.78rem;
 }
 @media (max-width: 900px) {
+  .csc-import-grid,
   .csc-review-columns,
   .csc-decision-grid {
     grid-template-columns: 1fr;
@@ -355,6 +441,345 @@
     {% endfor %}
   {% endwith %}
 
+  <div class="csc-import-grid">
+    <div class="csc-import-card">
+      <h2>Type Classification Workbook Import</h2>
+      <p>Upload one `.xlsx` workbook from the Type Classification Exercise. The Secretary Workbench will match each sheet to a published specification, create or reopen the existing workflow draft, and prefill parameter type/test-procedure updates plus the Justification tab.</p>
+      <form
+        class="csc-import-form"
+        method="post"
+        action="{{ url_for('csc.admin_import_type_classification_workbook') }}"
+        enctype="multipart/form-data"
+      >
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="csc-import-field">
+          <label for="typeClassificationWorkbook"><strong>Workbook (.xlsx)</strong></label>
+          <input
+            id="typeClassificationWorkbook"
+            type="file"
+            name="type_classification_workbook"
+            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            required
+          >
+          <div class="csc-import-hint">One workbook = one subset submission file. Blank sheets/rows are skipped automatically.</div>
+        </div>
+        <div>
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-upload"></i>
+            Import Type Classification Workbook
+          </button>
+        </div>
+      </form>
+      <h3>Expected Workbook Format</h3>
+      <ul class="csc-import-format">
+        <li>One sheet per specification.</li>
+        <li>Required matching columns: <strong>Spec Number</strong>, <strong>Material Code</strong>, <strong>S. No.</strong>, <strong>Type</strong>.</li>
+        <li>Imported parameter fields: <strong>Type</strong>, <strong>Test Procedure Type</strong>, <strong>Test Procedure Text</strong>.</li>
+        <li>Justification source columns: <strong>Vital Reason 1</strong> to <strong>Vital Reason 4</strong>.</li>
+        <li>Legacy or workbook values that imply <strong>Essential</strong> are normalized to <strong>Desirable</strong>.</li>
+      </ul>
+    </div>
+
+    <div class="csc-import-card">
+      <h2>Material Handling Workbook Import</h2>
+      <p>Upload one `.xlsx` Chemical Properties Register workbook. The Secretary Workbench will create or reopen the separate Material Handling draft stream, stage the proposed chemical/specification changes, and store material-handling background and justification without altering parameter rows.</p>
+      <form
+        class="csc-import-form"
+        method="post"
+        action="{{ url_for('csc.admin_import_material_handling_workbook') }}"
+        enctype="multipart/form-data"
+      >
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="csc-import-field">
+          <label for="materialHandlingWorkbook"><strong>Workbook (.xlsx)</strong></label>
+          <input
+            id="materialHandlingWorkbook"
+            type="file"
+            name="material_handling_workbook"
+            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            required
+          >
+          <div class="csc-import-hint">Rows are matched primarily by Material Code and staged onto the separate Material Handling draft stream.</div>
+        </div>
+        <div>
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-upload"></i>
+            Import Material Handling Workbook
+          </button>
+        </div>
+      </form>
+      <h3>Expected Workbook Format</h3>
+      <ul class="csc-import-format">
+        <li>One row per specification/material.</li>
+        <li>Required matching columns: <strong>Chemical Name</strong>, <strong>Material Code</strong>, <strong>Specification No.</strong>, <strong>Proposed New Specification No.</strong>.</li>
+        <li>Staged draft fields: proposed <strong>Chemical Name</strong>, proposed <strong>Specification No.</strong>, material properties, storage conditions, and packing fields.</li>
+        <li>Narrative sections are built from officers responsible, remarks, current spec number, and proposed spec number.</li>
+        <li>Import does not update live master data until the approved publish step.</li>
+      </ul>
+    </div>
+  </div>
+
+  {% if latest_import_summary %}
+  <div class="card" style="margin-bottom: 1rem;">
+    <div class="card-body">
+      <div class="csc-import-card" style="padding:0;border:none;background:transparent;">
+        <h2>
+          {% if latest_import_kind == 'material_handling' %}
+          Material Handling Import Summary
+          {% else %}
+          Type Classification Import Summary
+          {% endif %}
+        </h2>
+        <p>
+          <strong>{{ latest_import_summary.workbook_name }}</strong>
+          {% if latest_import_summary.subset_codes %}
+          <span class="csc-import-inline-note">Subset(s): {{ latest_import_summary.subset_codes|join(', ') }}</span>
+          {% endif %}
+        </p>
+        <div class="csc-import-summary-grid">
+          <div class="csc-import-summary-stat">
+            <span class="csc-import-summary-stat-label">
+              {% if latest_import_kind == 'material_handling' %}Rows Processed{% else %}Sheets Processed{% endif %}
+            </span>
+            <span class="csc-import-summary-stat-value">
+              {{ latest_import_summary.rows_processed if latest_import_kind == 'material_handling' else latest_import_summary.sheets_processed }}
+            </span>
+          </div>
+          <div class="csc-import-summary-stat">
+            <span class="csc-import-summary-stat-label">Specs Matched</span>
+            <span class="csc-import-summary-stat-value">{{ latest_import_summary.specs_matched }}</span>
+          </div>
+          <div class="csc-import-summary-stat">
+            <span class="csc-import-summary-stat-label">Drafts Created</span>
+            <span class="csc-import-summary-stat-value">{{ latest_import_summary.drafts_created }}</span>
+          </div>
+          <div class="csc-import-summary-stat">
+            <span class="csc-import-summary-stat-label">Drafts Reused</span>
+            <span class="csc-import-summary-stat-value">{{ latest_import_summary.drafts_reused }}</span>
+          </div>
+          <div class="csc-import-summary-stat">
+            <span class="csc-import-summary-stat-label">
+              {% if latest_import_kind == 'material_handling' %}Rows Updated{% else %}Parameters Matched{% endif %}
+            </span>
+            <span class="csc-import-summary-stat-value">
+              {{ latest_import_summary.rows_updated if latest_import_kind == 'material_handling' else latest_import_summary.parameters_matched }}
+            </span>
+          </div>
+          <div class="csc-import-summary-stat">
+            <span class="csc-import-summary-stat-label">
+              {% if latest_import_kind == 'material_handling' %}Staged Field Updates{% else %}Parameters Updated{% endif %}
+            </span>
+            <span class="csc-import-summary-stat-value">
+              {{ latest_import_summary.staged_field_updates if latest_import_kind == 'material_handling' else latest_import_summary.parameters_updated }}
+            </span>
+          </div>
+          <div class="csc-import-summary-stat">
+            <span class="csc-import-summary-stat-label">
+              {% if latest_import_kind == 'material_handling' %}Unmatched Rows{% else %}Unmatched Sheets{% endif %}
+            </span>
+            <span class="csc-import-summary-stat-value">
+              {{ latest_import_summary.unmatched_rows|length if latest_import_kind == 'material_handling' else latest_import_summary.unmatched_sheets|length }}
+            </span>
+          </div>
+          <div class="csc-import-summary-stat">
+            <span class="csc-import-summary-stat-label">
+              {% if latest_import_kind == 'material_handling' %}Draft Rows{% else %}Unmatched Parameter Rows{% endif %}
+            </span>
+            <span class="csc-import-summary-stat-value">
+              {{ latest_import_summary.details|length if latest_import_kind == 'material_handling' else latest_import_summary.unmatched_parameter_rows|length }}
+            </span>
+          </div>
+          {% if latest_import_kind != 'material_handling' %}
+          <div class="csc-import-summary-stat">
+            <span class="csc-import-summary-stat-label">Justification Entries</span>
+            <span class="csc-import-summary-stat-value">{{ latest_import_summary.justification_entries_created }}</span>
+          </div>
+          {% endif %}
+        </div>
+
+        {% if latest_import_summary.details and latest_import_kind != 'material_handling' %}
+        <details class="csc-import-detail" open>
+          <summary>Matched Specifications</summary>
+          <div class="csc-table-wrap" style="margin-top: 0.75rem;">
+            <table class="csc-table">
+              <thead>
+                <tr>
+                  <th>Sheet</th>
+                  <th>Specification</th>
+                  <th>Material Code</th>
+                  <th>Draft</th>
+                  <th>Workflow Action</th>
+                  <th>Parameters Updated</th>
+                  <th>Justification Entries</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for detail in latest_import_summary.details %}
+                <tr>
+                  <td>{{ detail.sheet_name }}</td>
+                  <td>
+                    <strong>{{ detail.spec_number }}</strong><br>
+                    <span class="csc-import-inline-note">{{ detail.chemical_name or '—' }}</span>
+                  </td>
+                  <td>{{ detail.material_code or '—' }}</td>
+                  <td>
+                    {% if detail.draft_id %}
+                    <a href="{{ url_for('csc.editor', draft_id=detail.draft_id) }}">Draft {{ detail.draft_id }}</a>
+                    {% else %}
+                    —
+                    {% endif %}
+                  </td>
+                  <td>{{ 'Created' if detail.created_new else 'Reused' }}</td>
+                  <td>{{ detail.parameters_updated }} / {{ detail.parameters_matched }}</td>
+                  <td>{{ detail.justification_entries_created }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </details>
+        {% endif %}
+
+        {% if latest_import_summary.details and latest_import_kind == 'material_handling' %}
+        <details class="csc-import-detail" open>
+          <summary>Matched Material Handling Rows</summary>
+          <div class="csc-table-wrap" style="margin-top: 0.75rem;">
+            <table class="csc-table">
+              <thead>
+                <tr>
+                  <th>Row</th>
+                  <th>Current Spec No.</th>
+                  <th>Proposed Spec No.</th>
+                  <th>Chemical</th>
+                  <th>Material Code</th>
+                  <th>Draft</th>
+                  <th>Workflow Action</th>
+                  <th>Staged Fields</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for detail in latest_import_summary.details %}
+                <tr>
+                  <td>{{ detail.row_number }}</td>
+                  <td>{{ detail.source_spec_number or '—' }}</td>
+                  <td>{{ detail.proposed_spec_number or '—' }}</td>
+                  <td>{{ detail.chemical_name or '—' }}</td>
+                  <td>{{ detail.material_code or '—' }}</td>
+                  <td>
+                    {% if detail.draft_id %}
+                    <a href="{{ url_for('csc.editor', draft_id=detail.draft_id) }}">Draft {{ detail.draft_id }}</a>
+                    {% else %}
+                    —
+                    {% endif %}
+                  </td>
+                  <td>{{ 'Created' if detail.created_new else 'Reused' }}</td>
+                  <td>{{ detail.staged_field_count }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </details>
+        {% endif %}
+
+        {% if latest_import_summary.unmatched_sheets and latest_import_kind != 'material_handling' %}
+        <details class="csc-import-detail" open>
+          <summary>Unmatched Sheets Report</summary>
+          <div class="csc-table-wrap" style="margin-top: 0.75rem;">
+            <table class="csc-table">
+              <thead>
+                <tr>
+                  <th>Sheet</th>
+                  <th>Spec No.</th>
+                  <th>Material Code</th>
+                  <th>Reason</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for item in latest_import_summary.unmatched_sheets %}
+                <tr>
+                  <td>{{ item.sheet_name }}</td>
+                  <td>{{ item.spec_number or '—' }}</td>
+                  <td>{{ item.material_code or '—' }}</td>
+                  <td>{{ item.reason }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </details>
+        {% endif %}
+
+        {% if latest_import_summary.unmatched_parameter_rows and latest_import_kind != 'material_handling' %}
+        <details class="csc-import-detail" open>
+          <summary>Unmatched Parameter Rows Report</summary>
+          <div class="csc-table-wrap" style="margin-top: 0.75rem;">
+            <table class="csc-table">
+              <thead>
+                <tr>
+                  <th>Sheet</th>
+                  <th>Row</th>
+                  <th>Spec No.</th>
+                  <th>Material Code</th>
+                  <th>Parameter S.No.</th>
+                  <th>Parameter Name</th>
+                  <th>Reason</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for item in latest_import_summary.unmatched_parameter_rows %}
+                <tr>
+                  <td>{{ item.sheet_name }}</td>
+                  <td>{{ item.row_number }}</td>
+                  <td>{{ item.spec_number or '—' }}</td>
+                  <td>{{ item.material_code or '—' }}</td>
+                  <td>{{ item.parameter_serial or '—' }}</td>
+                  <td>{{ item.parameter_name or '—' }}</td>
+                  <td>{{ item.reason }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </details>
+        {% endif %}
+
+        {% if latest_import_summary.unmatched_rows and latest_import_kind == 'material_handling' %}
+        <details class="csc-import-detail" open>
+          <summary>Unmatched Material Handling Rows Report</summary>
+          <div class="csc-table-wrap" style="margin-top: 0.75rem;">
+            <table class="csc-table">
+              <thead>
+                <tr>
+                  <th>Row</th>
+                  <th>Current Spec No.</th>
+                  <th>Proposed Spec No.</th>
+                  <th>Chemical</th>
+                  <th>Material Code</th>
+                  <th>Reason</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for item in latest_import_summary.unmatched_rows %}
+                <tr>
+                  <td>{{ item.row_number }}</td>
+                  <td>{{ item.source_spec_number or '—' }}</td>
+                  <td>{{ item.proposed_spec_number or '—' }}</td>
+                  <td>{{ item.chemical_name or '—' }}</td>
+                  <td>{{ item.material_code or '—' }}</td>
+                  <td>{{ item.reason }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </details>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   <div class="card">
     <div class="card-body">
       {% if revision_rows %}
@@ -381,6 +806,9 @@
               <td>
                 <div class="csc-spec-meta">
                   <strong>{{ revision.parent_spec.spec_number }}</strong>
+                  <span class="csc-status-badge csc-status-open">
+                    {{ 'Material Handling' if row.workflow_stream == 'material_handling' else 'Type Classification' }}
+                  </span>
                   {% if row.is_new_spec %}
                   <span class="csc-status-badge csc-status-new-spec">New Specification</span>
                   {% endif %}
@@ -405,6 +833,18 @@
                   <i class="bi bi-pencil-square"></i>
                   Edit Draft
                 </a>
+                {% endif %}
+                {% if row.can_open_for_committee %}
+                <button
+                  type="button"
+                  class="csc-btn-sm is-decision"
+                  data-open-staged-revision-id="{{ revision.id }}"
+                  data-open-staged-url="{{ row.open_for_committee_url }}"
+                  data-open-staged-title="{{ revision.parent_spec.spec_number }} — {{ revision.parent_spec.chemical_name or 'Draft Review' }}"
+                >
+                  <i class="bi bi-send-check"></i>
+                  Send to Committee
+                </button>
                 {% endif %}
                 <button
                   type="button"
@@ -707,6 +1147,48 @@
     });
   }
 
+  function openStagedRevision(openUrl, title) {
+    if (!openUrl) {
+      return;
+    }
+    showWorkflowDialog({
+      tone: 'info',
+      title: 'Open For Committee',
+      message: 'Secretary review is complete. This will move the draft from staging to the committee workspace.',
+      confirmLabel: 'Continue'
+    })
+    .then(() => fetch(openUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrfToken
+      },
+      body: JSON.stringify({})
+    }))
+    .then(response => response.json().then(data => ({ ok: response.ok, data })))
+    .then(({ ok, data }) => {
+      if (!ok || !data.success) {
+        throw new Error(data.error || 'Unable to open the staged draft for committee editing.');
+      }
+      return showWorkflowDialog({
+        tone: 'success',
+        title: 'Draft Opened',
+        message: data.message || ((title || 'Draft') + ' is now open for committee editing.'),
+        confirmLabel: 'Refresh Workbench'
+      }).then(() => {
+        window.location.reload();
+      });
+    })
+    .catch(error => {
+      showWorkflowDialog({
+        tone: 'danger',
+        title: 'Workflow Action Failed',
+        message: error.message || 'The staged draft could not be opened for committee editing.',
+        confirmLabel: 'Close'
+      });
+    });
+  }
+
   document.querySelectorAll('[data-review-revision-id]').forEach(button => {
     button.addEventListener('click', function() {
       openReview({
@@ -718,6 +1200,12 @@
         rejectUrl: this.dataset.rejectUrl,
         forceDeleteUrl: this.dataset.forceDeleteUrl
       });
+    });
+  });
+
+  document.querySelectorAll('[data-open-staged-revision-id]').forEach(button => {
+    button.addEventListener('click', function() {
+      openStagedRevision(this.dataset.openStagedUrl, this.dataset.openStagedTitle);
     });
   });
 

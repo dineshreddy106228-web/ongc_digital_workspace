@@ -11,6 +11,7 @@ class Office(db.Model):
     office_code = db.Column(db.String(50), unique=True, nullable=False, index=True)
     office_name = db.Column(db.String(150), nullable=False)
     location = db.Column(db.String(150), default="")
+    power_user_limit = db.Column(db.Integer, default=0, nullable=False, server_default="0")
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = db.Column(

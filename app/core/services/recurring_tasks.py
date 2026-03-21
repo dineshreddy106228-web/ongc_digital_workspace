@@ -130,6 +130,8 @@ def _create_task_instance(template: RecurringTaskTemplate, occurrence_date: date
         office_id=template.office_id,
         is_active=True,
         task_scope=template.task_scope,
+        is_private_self_task=template.is_private_self_task,
+        self_task_visible_to_controlling_officer=template.self_task_visible_to_controlling_officer,
         recurring_template_id=template.id,
         occurrence_date=occurrence_date,
     )

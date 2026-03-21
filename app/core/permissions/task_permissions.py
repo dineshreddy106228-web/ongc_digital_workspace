@@ -102,8 +102,11 @@ def _collaborator_user_ids(task: "Task") -> set[int]:
 
 
 def _is_self_task(task: "Task") -> bool:
-    """A self-task has zero collaborators — owner works alone."""
-    return len(_collaborator_user_ids(task)) == 0
+    """A self-task is explicitly private and has zero collaborators."""
+    return bool(
+        getattr(task, "is_private_self_task", False)
+        and len(_collaborator_user_ids(task)) == 0
+    )
 
 
 def _same_office(user: "User", task: "Task") -> bool:
@@ -210,9 +213,9 @@ def can_view_task(user: "User", task: "Task") -> bool:
     Grant chain (first match wins):
       1. Admin                          → True
       2. Owner                          → True
-      3. Self-task + CO flag off        → deny (owner-only, already covered above)
-      4. Self-task + CO flag on         → controlling officer of owner
-      5. Collaborator                   → True
+      3. Collaborator                   → True
+      4. Local self-task + CO flag on   → controlling officer of owner
+      5. Local self-task                → deny (owner-only, already covered above)
       6. MY-scope: same office          → True
       7. MY-scope: controlling officer
          of any participant             → True
@@ -233,24 +236,19 @@ def can_view_task(user: "User", task: "Task") -> bool:
     if _is_owner(user, task):
         return True
 
-    # 3–4. Self-task visibility
-    if _is_self_task(task):
-        # Only the controlling officer of the owner can view, and only
-        # when the visibility flag is explicitly set.
-        visible_to_co = getattr(task, "self_task_visible_to_controlling_officer", False)
-        if visible_to_co and _is_controlling_officer_of_owner(user, task):
-            return True
-        # No other viewers for a self-task
-        return _deny("can_view_task", user, task)
-
-    # 5. Collaborator
+    # 3. Collaborator
     if _is_collaborator(user, task):
         return True
 
     scope = (getattr(task, "task_scope", "") or "").strip().upper()
 
-    # 6–7. MY-scope (local) visibility
+    # 4–7. MY-scope (local) visibility
     if scope in ("MY", "LOCAL", "TEAM", ""):
+        if _is_self_task(task):
+            visible_to_co = getattr(task, "self_task_visible_to_controlling_officer", False)
+            if visible_to_co and _is_controlling_officer_of_owner(user, task):
+                return True
+            return _deny("can_view_task", user, task)
         if _same_office(user, task):
             return True
         if _is_in_participant_hierarchy(user, task):

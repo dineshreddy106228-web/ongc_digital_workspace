@@ -98,11 +98,27 @@ _BORDER_POS_X = 763_675
 _BORDER_POS_Y = 914_401
 
 _DRAWING_ID_COUNTER = count(9001)
+_BOOKMARK_ID_COUNTER = count(12001)
 
 
 def _next_drawing_id() -> int:
     """Generate deterministic unique drawing ids in this process."""
     return next(_DRAWING_ID_COUNTER)
+
+
+def _next_bookmark_id() -> int:
+    """Generate deterministic bookmark ids in this process."""
+    return next(_BOOKMARK_ID_COUNTER)
+
+
+def _sanitize_bookmark_name(value: str | None, fallback: str) -> str:
+    raw = re.sub(r"[^A-Za-z0-9_]", "_", str(value or "").strip())
+    raw = re.sub(r"_+", "_", raw).strip("_")
+    if not raw:
+        raw = fallback
+    if not raw[0].isalpha():
+        raw = f"BKMK_{raw}"
+    return raw[:40]
 
 
 def _make_border_drawing_xml(drawing_id: int) -> str:
@@ -264,6 +280,7 @@ def build_word_document(
     """
     doc = Document()
     _configure_page(doc)
+    _enable_update_fields_on_open(doc)
     _apply_base_styles(doc)
     _configure_spec_header(doc, logo_path)
 
@@ -299,6 +316,7 @@ def build_flask_review_document(
     """Build a Flask-native workflow review document for one draft or revision."""
     doc = Document()
     _configure_page(doc)
+    _enable_update_fields_on_open(doc)
     _apply_base_styles(doc)
     _configure_spec_header(doc, logo_path)
 
@@ -627,6 +645,7 @@ def build_master_spec_document(
     """
     doc = Document()
     _configure_page(doc)
+    _enable_update_fields_on_open(doc)
     _apply_base_styles(doc)
     _configure_spec_header(doc, logo_path)
 
@@ -666,8 +685,10 @@ def build_master_spec_document(
         if i > 0:
             doc.add_page_break()
 
+        spec_bookmark_name = _master_index_bookmark_name(draft, i + 1)
+
         # Part A — ONGC Spec Sheet
-        _build_spec_sheet(doc, draft, parameters)
+        _build_spec_sheet(doc, draft, parameters, spec_bookmark_name=spec_bookmark_name)
 
         if include_draft_note:
             doc.add_page_break()
@@ -701,11 +722,14 @@ def _build_spec_sheet(
     doc: Document,
     draft: dict[str, Any],
     parameters: list[dict[str, Any]],
+    spec_bookmark_name: str | None = None,
 ) -> None:
     """Build the ONGC Corporate Specification sheet page."""
 
     # ── Double-line page border (DrawingML, behind text) ─────────────────
     border_anchor = doc.add_paragraph()
+    if spec_bookmark_name:
+        _append_bookmark(border_anchor, spec_bookmark_name)
     _add_page_border(doc, border_anchor)
 
     # ── Header info table (4 rows × 2 cols) ──────────────────────────────
@@ -985,7 +1009,7 @@ def _build_master_index_page(
     include_draft_note: bool = False,
     logo_path: str | Path | None = None,
 ) -> None:
-    """Build index page with spec order and starting page numbers."""
+    """Build index page with spec order and dynamic starting page references."""
     logo_path = _find_logo(logo_path)
 
     hdr_tbl = doc.add_table(rows=1, cols=2)
@@ -1057,9 +1081,6 @@ def _build_master_index_page(
         hr.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
     _set_cell_widths(hdr_cells, col_widths)
 
-    pages_per_spec = 2 if include_draft_note else 1
-    first_spec_page = 2
-
     for idx, item in enumerate(all_specs, start=1):
         draft = item.get("draft", {}) or {}
         spec_no = str(draft.get("spec_number", "") or "—")
@@ -1070,25 +1091,36 @@ def _build_master_index_page(
             chem_name = f"{chem_name} [{subset_code}]"
 
         row_cells = tbl.add_row().cells
-        row_data = [
-            str(idx),
-            spec_no,
-            chem_name,
-            material_code,
-            str(first_spec_page + (idx - 1) * pages_per_spec),
-        ]
+        row_data = [str(idx), spec_no, chem_name, material_code]
         for ci, value in enumerate(row_data):
             rp = row_cells[ci].paragraphs[0]
-            if ci in (0, 4):
+            if ci == 0:
                 rp.alignment = WD_ALIGN_PARAGRAPH.CENTER
             rr = rp.add_run(value)
             rr.font.name = _FONT_MAIN
             rr.font.size = Pt(10)
             rr.font.color.rgb = _BLACK
+        page_paragraph = row_cells[4].paragraphs[0]
+        page_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        _append_pageref_field(
+            page_paragraph,
+            _master_index_bookmark_name(draft, idx),
+        )
         _set_cell_widths(row_cells, col_widths)
 
     sp2 = doc.add_paragraph()
     sp2.paragraph_format.space_after = Pt(6)
+
+    note = doc.add_paragraph(
+        "Page numbers update automatically in Word after fields are refreshed. "
+        "If manual formatting changes pagination, press Ctrl+A then F9 in Word."
+    )
+    note.paragraph_format.space_before = Pt(4)
+    nr = note.runs[0]
+    nr.font.name = _FONT_MAIN
+    nr.font.size = Pt(8.5)
+    nr.italic = True
+    nr.font.color.rgb = RGBColor(0x6B, 0x72, 0x80)
 
 
 # ===========================================================================
@@ -1851,6 +1883,63 @@ def _add_master_footer(doc: Document, spec_count: int) -> None:
     _set_footer_page_number(section.footer)
 
 
+def _master_index_bookmark_name(draft: dict[str, Any], position: int) -> str:
+    spec_number = str(draft.get("spec_number", "") or "").strip()
+    return _sanitize_bookmark_name(spec_number, f"MASTER_SPEC_{position}")
+
+
+def _append_bookmark(paragraph, bookmark_name: str) -> None:
+    bookmark_id = str(_next_bookmark_id())
+    start = OxmlElement("w:bookmarkStart")
+    start.set(qn("w:id"), bookmark_id)
+    start.set(qn("w:name"), bookmark_name)
+    paragraph._p.append(start)
+
+    run = paragraph.add_run()
+    run.font.size = Pt(1)
+
+    end = OxmlElement("w:bookmarkEnd")
+    end.set(qn("w:id"), bookmark_id)
+    paragraph._p.append(end)
+
+
+def _append_field(paragraph, instruction: str, fallback_text: str = "") -> None:
+    def _append_fld_char(kind: str) -> None:
+        run = paragraph.add_run()
+        fld = OxmlElement("w:fldChar")
+        fld.set(qn("w:fldCharType"), kind)
+        if kind == "begin":
+            fld.set(qn("w:dirty"), "true")
+        run._r.append(fld)
+
+    _append_fld_char("begin")
+    instr_run = paragraph.add_run()
+    instr = OxmlElement("w:instrText")
+    instr.set(qn("xml:space"), "preserve")
+    instr.text = f" {instruction} "
+    instr_run._r.append(instr)
+    _append_fld_char("separate")
+    if fallback_text:
+        result_run = paragraph.add_run(fallback_text)
+        result_run.font.name = _FONT_MAIN
+        result_run.font.size = Pt(10)
+        result_run.font.color.rgb = _BLACK
+    _append_fld_char("end")
+
+
+def _append_pageref_field(paragraph, bookmark_name: str) -> None:
+    _append_field(paragraph, f'PAGEREF {bookmark_name} \\h', "1")
+
+
+def _enable_update_fields_on_open(doc: Document) -> None:
+    settings = doc.settings.element
+    for child in settings.findall(qn("w:updateFields")):
+        settings.remove(child)
+    update_fields = OxmlElement("w:updateFields")
+    update_fields.set(qn("w:val"), "true")
+    settings.append(update_fields)
+
+
 def _set_footer_page_number(footer) -> None:
     """Set a right-aligned footer PAGE field similar to the cleaned reference file."""
     for para in list(footer.paragraphs):
@@ -1873,21 +1962,13 @@ def _set_footer_page_number(footer) -> None:
     frame.set(qn("w:xAlign"), "right")
     frame.set(qn("w:y"), "1")
     pPr.append(frame)
+    para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
 
-    def _append_fld_char(kind: str) -> None:
-        run = para.add_run()
-        fld = OxmlElement("w:fldChar")
-        fld.set(qn("w:fldCharType"), kind)
-        run._r.append(fld)
-
-    _append_fld_char("begin")
-    instr_run = para.add_run()
-    instr = OxmlElement("w:instrText")
-    instr.set(qn("xml:space"), "preserve")
-    instr.text = " PAGE "
-    instr_run._r.append(instr)
-    _append_fld_char("separate")
-    _append_fld_char("end")
+    label_run = para.add_run("Page ")
+    label_run.font.name = _FONT_MAIN
+    label_run.font.size = Pt(9)
+    label_run.font.color.rgb = _DARK_GRAY
+    _append_field(para, "PAGE", "1")
 
     pad = footer.add_paragraph()
     pad.style = "Footer"

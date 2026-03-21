@@ -10,7 +10,7 @@
 {% block content %}
 {% set identity = workspace_context.identity %}
 {% set welcome = workspace_context.welcome %}
-<section class="dashboard dashboard-shell" id="dashboard-root" data-dashboard-page>
+<section class="dashboard dashboard-shell {{ 'mission-control' if control_center_mode }}" id="dashboard-root" data-dashboard-page>
 
     <div class="dashboard-command-header">
         <div class="dashboard-command-copy">
@@ -24,15 +24,22 @@
                 <span class="dashboard-meta-label">Last Refreshed</span>
                 <strong>{{ last_refreshed|datetime_ist('%d %b %Y · %I:%M %p') }}</strong>
             </div>
-            {% if is_super %}
-            <button
-                type="button"
-                class="btn btn-sm btn-secondary dashboard-mode-toggle js-mission-control-toggle"
-                aria-pressed="false"
+            {% if control_center_mode %}
+            <a
+                href="{{ url_for('main.dashboard') }}"
+                class="btn btn-sm btn-secondary dashboard-mode-toggle"
             >
                 <span class="dashboard-mode-indicator" aria-hidden="true"></span>
-                <span>Mission Control</span>
-            </button>
+                <span>Main Dashboard</span>
+            </a>
+            {% elif workspace_context.control_center %}
+            <a
+                href="{{ workspace_context.control_center.href }}"
+                class="btn btn-sm btn-secondary dashboard-mode-toggle"
+            >
+                <span class="dashboard-mode-indicator" aria-hidden="true"></span>
+                <span>{{ workspace_context.control_center.label }}</span>
+            </a>
             {% endif %}
         </div>
     </div>
@@ -80,9 +87,11 @@
 
                 <div class="dashboard-collapsible-body">
                     {% if task_module_active %}
+                    {% if workspace_context.task_links_active %}
                     <div class="dashboard-collapsible-toolbar">
                         <a href="{{ url_for('tasks.list_tasks') }}" class="dashboard-section-link">Open Office Management</a>
                     </div>
+                    {% endif %}
                     <div class="dashboard-kpi-grid">
                         {% for item in workspace_context.immediate_actions %}
                             {% if item.href %}
@@ -257,30 +266,6 @@
         </div>
 
         <aside class="dashboard-side-column">
-            <section class="dashboard-side-panel dashboard-side-panel-snapshot">
-                <div class="dashboard-section-header">
-                    <div>
-                        <h2 class="dashboard-section-title">Workspace Snapshot</h2>
-                        <p class="dashboard-section-subtitle">Current operating context.</p>
-                    </div>
-                </div>
-
-                <div class="dashboard-snapshot-list">
-                    <div class="dashboard-snapshot-row">
-                        <span>Primary workspace</span>
-                        <strong>Corporate Chemistry</strong>
-                    </div>
-                    <div class="dashboard-snapshot-row">
-                        <span>Available modules</span>
-                        <strong>{{ workspace_context.modules_enabled_count }}</strong>
-                    </div>
-                    <div class="dashboard-snapshot-row">
-                        <span>Task visibility</span>
-                        <strong>{{ "Enabled" if task_module_active else "Not Assigned" }}</strong>
-                    </div>
-                </div>
-            </section>
-
             <section class="dashboard-side-panel dashboard-side-panel-alerts">
                 <div class="dashboard-section-header">
                     <div>
@@ -372,29 +357,6 @@
 {% block scripts_extra %}
 <script nonce="{{ csp_nonce() }}">
 document.addEventListener("DOMContentLoaded", function () {
-    const root = document.querySelector("[data-dashboard-page]");
-    const toggle = document.querySelector(".js-mission-control-toggle");
-
-    {% if is_super %}
-    if (root && toggle) {
-        const storageKey = "ongc-dashboard-mission-control";
-
-        function applyMissionControl(enabled) {
-            root.classList.toggle("mission-control", enabled);
-            toggle.classList.toggle("is-active", enabled);
-            toggle.setAttribute("aria-pressed", String(enabled));
-        }
-
-        applyMissionControl(localStorage.getItem(storageKey) === "true");
-
-        toggle.addEventListener("click", function () {
-            const nextState = !root.classList.contains("mission-control");
-            localStorage.setItem(storageKey, String(nextState));
-            applyMissionControl(nextState);
-        });
-    }
-    {% endif %}
-
     {% if is_super and dashboard_analytics %}
     const ANALYTICS = {{ dashboard_analytics | tojson }};
 

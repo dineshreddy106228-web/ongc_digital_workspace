@@ -100,6 +100,54 @@
               maxlength="150"
             >
           </div>
+
+          <div class="form-group">
+            <label for="power_user_limit" class="form-label">Power User Slots</label>
+            <input
+              type="number"
+              id="power_user_limit"
+              name="power_user_limit"
+              class="form-control"
+              min="0"
+              max="25"
+              value="{{ form_data.get('power_user_limit', office.power_user_limit if mode == 'edit' else 0) }}"
+            >
+            <small class="form-hint">Set how many office-level power users can be assigned for this office.</small>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h3 class="form-section-title">Power User Assignment</h3>
+
+          {% if mode == 'edit' %}
+            {% if power_user_candidates %}
+            <div class="form-group">
+              <label for="power_user_ids" class="form-label">Assigned Power Users</label>
+              <select
+                id="power_user_ids"
+                name="power_user_ids"
+                class="form-control"
+                multiple
+                size="{{ [power_user_candidates|length, 8]|min }}"
+              >
+                {% for candidate in power_user_candidates %}
+                <option
+                  value="{{ candidate.id }}"
+                  {{ 'selected' if candidate.id|string in selected_power_user_ids else '' }}
+                >
+                  {{ candidate.full_name or candidate.username }}
+                  {% if candidate.role %} — {{ candidate.role.name }}{% endif %}
+                </option>
+                {% endfor %}
+              </select>
+              <small class="form-hint">Only active users already mapped to this office can be assigned.</small>
+            </div>
+            {% else %}
+            <p class="form-hint">No active users are currently mapped to this office. Create or assign users first, then return here to nominate power users.</p>
+            {% endif %}
+          {% else %}
+          <p class="form-hint">Create the office first. Power-user assignment becomes available once users are mapped into it.</p>
+          {% endif %}
         </div>
 
         <div class="form-actions">

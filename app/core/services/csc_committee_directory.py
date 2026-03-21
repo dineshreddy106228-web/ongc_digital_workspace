@@ -257,8 +257,6 @@ def _normalize_committee_entry(committee: dict | None, fallback: dict | None) ->
                 "subset_codes": subset_codes,
             }
         )
-        if len(normalized_assignments) >= 4:
-            break
 
     base["committee_users"] = normalized_assignments
     base["committee_user"] = (

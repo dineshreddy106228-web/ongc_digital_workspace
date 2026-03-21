@@ -137,13 +137,20 @@
     background: var(--surface-alt);
     padding: 0.9rem;
 }
+.gs-user-slot-card-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.55rem;
+}
 .gs-user-slot-header {
     font-size: 0.76rem;
     font-weight: 800;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: var(--muted);
-    margin-bottom: 0.55rem;
+    margin-bottom: 0;
 }
 .gs-user-slot-subsets {
     margin-top: 0.7rem;
@@ -406,26 +413,100 @@
                                         </div>
                                         <div class="gs-assignment-block-wide">
                                             <label class="gs-field-label" style="margin-bottom:0.35rem;">Committee Users</label>
-                                            <div class="gs-user-slot-grid">
-                                                {% set committee_assignments = c.get('committee_users', []) %}
-                                                {% for slot in range(4) %}
-                                                {% set slot_assignment = committee_assignments[slot] if slot < committee_assignments|length else {} %}
-                                                {% set selected_user = slot_assignment.get('username', '') %}
-                                                {% set selected_subset_codes = slot_assignment.get('subset_codes', []) %}
-                                                <div class="gs-user-slot-card">
-                                                    <div class="gs-user-slot-header">User {{ slot + 1 }}</div>
+                                            {% set committee_assignments = c.get('committee_users', []) %}
+                                            <div class="gs-user-slot-grid" id="committee-users-{{ c.slug }}" data-committee-slug="{{ c.slug }}" data-next-index="{{ committee_assignments|length if committee_assignments else 1 }}">
+                                                {% if committee_assignments %}
+                                                    {% for slot_assignment in committee_assignments %}
+                                                        {% set selected_user = slot_assignment.get('username', '') %}
+                                                        {% set selected_subset_codes = slot_assignment.get('subset_codes', []) %}
+                                                        <div class="gs-user-slot-card" data-slot-card>
+                                                            <div class="gs-user-slot-card-top">
+                                                                <div class="gs-user-slot-header">User <span data-slot-label>{{ loop.index }}</span></div>
+                                                                <button type="button" class="gs-tag-remove" onclick="removeCommitteeUserSlot(this)" title="Remove user slot">×</button>
+                                                            </div>
+                                                            <select
+                                                                class="gs-select-input"
+                                                                data-role="committee-user-slot"
+                                                            >
+                                                                <option value="">Not assigned</option>
+                                                                {% if selected_user and selected_user not in username_values %}
+                                                                <option value="{{ selected_user }}" selected>{{ selected_user }} (current)</option>
+                                                                {% endif %}
+                                                                {% for option in username_options %}
+                                                                <option value="{{ option.username }}" {{ 'selected' if selected_user == option.username else '' }}>
+                                                                    {{ option.label }}
+                                                                </option>
+                                                                {% endfor %}
+                                                            </select>
+                                                            {% if c.slug == 'material-handling' %}
+                                                            <div class="gs-user-slot-subsets">
+                                                                <div class="gs-user-slot-subtitle">Assigned subsets</div>
+                                                                <div class="gs-subset-picker gs-subset-picker-compact" data-role="committee-user-subsets">
+                                                                    {% for s in all_subsets %}
+                                                                    <button type="button"
+                                                                        class="gs-subset-chip gs-subset-chip-compact {% if s.code in selected_subset_codes %}active{% endif %}"
+                                                                        data-code="{{ s.code }}"
+                                                                        data-label="{{ s.label }}"
+                                                                        onclick="toggleSubset(this)">
+                                                                        <span class="gs-subset-chip-code">{{ s.code }}</span>
+                                                                        {{ s.label }}
+                                                                    </button>
+                                                                    {% endfor %}
+                                                                </div>
+                                                            </div>
+                                                            {% endif %}
+                                                        </div>
+                                                    {% endfor %}
+                                                {% else %}
+                                                    <div class="gs-user-slot-card" data-slot-card>
+                                                        <div class="gs-user-slot-card-top">
+                                                            <div class="gs-user-slot-header">User <span data-slot-label>1</span></div>
+                                                            <button type="button" class="gs-tag-remove" onclick="removeCommitteeUserSlot(this)" title="Remove user slot">×</button>
+                                                        </div>
+                                                        <select
+                                                            class="gs-select-input"
+                                                            data-role="committee-user-slot"
+                                                        >
+                                                            <option value="">Not assigned</option>
+                                                            {% for option in username_options %}
+                                                            <option value="{{ option.username }}">
+                                                                {{ option.label }}
+                                                            </option>
+                                                            {% endfor %}
+                                                        </select>
+                                                        {% if c.slug == 'material-handling' %}
+                                                        <div class="gs-user-slot-subsets">
+                                                            <div class="gs-user-slot-subtitle">Assigned subsets</div>
+                                                            <div class="gs-subset-picker gs-subset-picker-compact" data-role="committee-user-subsets">
+                                                                {% for s in all_subsets %}
+                                                                <button type="button"
+                                                                    class="gs-subset-chip gs-subset-chip-compact"
+                                                                    data-code="{{ s.code }}"
+                                                                    data-label="{{ s.label }}"
+                                                                    onclick="toggleSubset(this)">
+                                                                    <span class="gs-subset-chip-code">{{ s.code }}</span>
+                                                                    {{ s.label }}
+                                                                </button>
+                                                                {% endfor %}
+                                                            </div>
+                                                        </div>
+                                                        {% endif %}
+                                                    </div>
+                                                {% endif %}
+                                            </div>
+                                            <template id="committee-user-template-{{ c.slug }}">
+                                                <div class="gs-user-slot-card" data-slot-card>
+                                                    <div class="gs-user-slot-card-top">
+                                                        <div class="gs-user-slot-header">User <span data-slot-label>__LABEL__</span></div>
+                                                        <button type="button" class="gs-tag-remove" onclick="removeCommitteeUserSlot(this)" title="Remove user slot">×</button>
+                                                    </div>
                                                     <select
-                                                        id="committee-user-{{ c.slug }}-{{ slot }}"
                                                         class="gs-select-input"
                                                         data-role="committee-user-slot"
-                                                        data-slot="{{ slot }}"
                                                     >
                                                         <option value="">Not assigned</option>
-                                                        {% if selected_user and selected_user not in username_values %}
-                                                        <option value="{{ selected_user }}" selected>{{ selected_user }} (current)</option>
-                                                        {% endif %}
                                                         {% for option in username_options %}
-                                                        <option value="{{ option.username }}" {{ 'selected' if selected_user == option.username else '' }}>
+                                                        <option value="{{ option.username }}">
                                                             {{ option.label }}
                                                         </option>
                                                         {% endfor %}
@@ -433,10 +514,10 @@
                                                     {% if c.slug == 'material-handling' %}
                                                     <div class="gs-user-slot-subsets">
                                                         <div class="gs-user-slot-subtitle">Assigned subsets</div>
-                                                        <div class="gs-subset-picker gs-subset-picker-compact" id="committee-user-subsets-{{ c.slug }}-{{ slot }}">
+                                                        <div class="gs-subset-picker gs-subset-picker-compact" data-role="committee-user-subsets">
                                                             {% for s in all_subsets %}
                                                             <button type="button"
-                                                                class="gs-subset-chip gs-subset-chip-compact {% if s.code in selected_subset_codes %}active{% endif %}"
+                                                                class="gs-subset-chip gs-subset-chip-compact"
                                                                 data-code="{{ s.code }}"
                                                                 data-label="{{ s.label }}"
                                                                 onclick="toggleSubset(this)">
@@ -448,12 +529,14 @@
                                                     </div>
                                                     {% endif %}
                                                 </div>
-                                                {% endfor %}
-                                            </div>
+                                            </template>
+                                            <button type="button" class="gs-add-btn" onclick="addCommitteeUserSlot('{{ c.slug }}')">
+                                                <i class="bi bi-plus"></i> Add Committee User
+                                            </button>
                                         </div>
                                     </div>
                                     <p class="gs-assignment-help">
-                                        Up to four committee users can be assigned per committee. All assigned users can access drafts for that committee in the Committee User Workbench. For Material Handling Committee, subset chips under each user define that user's visible subset coverage.
+                                        Add one committee-user assignment per committee member as needed; there is no fixed cap now. All assigned users can access drafts for that committee in the Committee User Workbench. For Material Handling Committee, subset chips under each user define that user's visible subset coverage.
                                     </p>
                                 </div>
 
@@ -591,6 +674,56 @@
         btn.closest('.gs-tag-row').remove();
     };
 
+    window.renumberCommitteeUserSlots = function(slug) {
+        var container = document.getElementById('committee-users-' + slug);
+        if (!container) return;
+        container.querySelectorAll('[data-slot-card]').forEach(function(card, index) {
+            var label = card.querySelector('[data-slot-label]');
+            if (label) label.textContent = String(index + 1);
+        });
+    };
+
+    window.addCommitteeUserSlot = function(slug) {
+        var container = document.getElementById('committee-users-' + slug);
+        var template = document.getElementById('committee-user-template-' + slug);
+        if (!container || !template) return;
+
+        var nextIndex = parseInt(container.dataset.nextIndex || String(container.querySelectorAll('[data-slot-card]').length), 10);
+        if (Number.isNaN(nextIndex)) {
+            nextIndex = container.querySelectorAll('[data-slot-card]').length;
+        }
+
+        container.insertAdjacentHTML(
+            'beforeend',
+            template.innerHTML.replace(/__LABEL__/g, String(nextIndex + 1))
+        );
+        container.dataset.nextIndex = String(nextIndex + 1);
+        window.renumberCommitteeUserSlots(slug);
+
+        var cards = container.querySelectorAll('[data-slot-card]');
+        if (cards.length) {
+            var select = cards[cards.length - 1].querySelector('[data-role="committee-user-slot"]');
+            if (select) select.focus();
+        }
+    };
+
+    window.removeCommitteeUserSlot = function(btn) {
+        var card = btn.closest('[data-slot-card]');
+        if (!card) return;
+        var container = card.parentElement;
+        var slug = container ? container.dataset.committeeSlug : '';
+        card.remove();
+
+        if (container && !container.querySelector('[data-slot-card]') && slug) {
+            window.addCommitteeUserSlot(slug);
+            return;
+        }
+
+        if (slug) {
+            window.renumberCommitteeUserSlots(slug);
+        }
+    };
+
     // ── Build JSON from DOM before form submit ────────────────
     var rawConfig = {{ config_data | tojson }};
 
@@ -623,15 +756,15 @@
             });
             c.subsets = subsets;
             c.committee_users = [];
-            for (var slot = 0; slot < 4; slot += 1) {
-                var slotSelect = panel.querySelector('#committee-user-' + c.slug + '-' + slot);
+            panel.querySelectorAll('#committee-users-' + c.slug + ' [data-slot-card]').forEach(function(card) {
+                var slotSelect = card.querySelector('[data-role="committee-user-slot"]');
                 var username = (slotSelect || {}).value || '';
-                if (!username) continue;
+                if (!username) return;
 
                 var assignment = { username: username };
                 if (c.slug === 'material-handling') {
                     var subsetCodes = [];
-                    panel.querySelectorAll('#committee-user-subsets-' + c.slug + '-' + slot + ' .gs-subset-chip.active').forEach(function(chip) {
+                    card.querySelectorAll('[data-role="committee-user-subsets"] .gs-subset-chip.active').forEach(function(chip) {
                         if (chip.dataset.code && subsetCodes.indexOf(chip.dataset.code) === -1) {
                             subsetCodes.push(chip.dataset.code);
                         }
@@ -639,7 +772,7 @@
                     assignment.subset_codes = subsetCodes;
                 }
                 c.committee_users.push(assignment);
-            }
+            });
             c.committee_user = c.committee_users.length ? c.committee_users[0].username : '';
             c.committee_head = (panel.querySelector('#committee-head-' + c.slug) || {}).value || '';
         });

@@ -115,6 +115,13 @@
         <p class="admin-metric-detail">Top-level users with no controlling officer anchoring each office flow.</p>
       </div>
     </article>
+    <article class="card admin-metric-card">
+      <div class="card-body">
+        <span class="admin-metric-label">Power Users</span>
+        <strong class="admin-metric-value">{{ hierarchy_summary.power_users }}</strong>
+        <p class="admin-metric-detail">{{ hierarchy_summary.power_user_slots }} configured office-level power-user slots across all offices.</p>
+      </div>
+    </article>
   </section>
 
   <div class="card admin-tab-shell">
@@ -200,6 +207,9 @@
               <td>
                 {% if u.office %}
                   {{ u.office.office_name }}
+                  {% if u.is_power_user %}
+                  <div><span class="badge badge-active">Power User</span></div>
+                  {% endif %}
                 {% else %}
                   <span class="text-muted">—</span>
                 {% endif %}
@@ -302,7 +312,7 @@
             <div>
               <h2 class="organogram-title">Reporting Organogram</h2>
               <p class="organogram-subtitle">
-                Office-wise flow chart starting from users with no controlling officer, then drilling down through accepting, reviewing, controlling, and terminal users.
+                Office-wise flow chart excluding admins, rooted at office heads and then drilling through reviewing officers, controlling officers, and terminal users.
               </p>
             </div>
           </div>
@@ -315,7 +325,11 @@
                 <div>
                   <h3 class="organogram-office-title">{{ office.office_name }}</h3>
                   <p class="organogram-office-subtitle">
+                    {% if office.office_heads %}
                     {{ office.office_heads }} office head{{ '' if office.office_heads == 1 else 's' }}, {{ office.mapped_users }} mapped user{{ '' if office.mapped_users == 1 else 's' }}.
+                    {% else %}
+                    {{ office.mapped_users }} mapped user{{ '' if office.mapped_users == 1 else 's' }} in the office chain.
+                    {% endif %}
                   </p>
                 </div>
                 <div class="organogram-office-stats">
@@ -341,7 +355,7 @@
               {% else %}
               <div class="organogram-empty-state">
                 <h3>No reporting hierarchy available</h3>
-                <p>Users without a controlling officer will appear as office heads once reporting mappings are assigned below them.</p>
+                <p>Add reviewing or controlling mappings for non-admin office users to render the reporting flow.</p>
               </div>
               {% endif %}
             </section>
@@ -350,7 +364,7 @@
           {% else %}
           <div class="organogram-empty-state">
             <h3>No reporting hierarchy available</h3>
-            <p>Users without a controlling officer will anchor each office flow once reporting mappings are in place.</p>
+            <p>Add reviewing or controlling mappings for non-admin office users to render the reporting flow.</p>
           </div>
           {% endif %}
         </div>
