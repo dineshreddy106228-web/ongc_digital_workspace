@@ -87,7 +87,7 @@
 }
 
 .organogram-shell {
-  margin-bottom: 1rem;
+  margin-top: 0.4rem;
 }
 
 .organogram-header {
@@ -142,6 +142,22 @@
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
 }
 
+.organogram-card-level-accepting {
+  border-color: color-mix(in srgb, #0f766e 35%, var(--panel-border-strong, #e2e8f0));
+}
+
+.organogram-card-level-reviewing {
+  border-color: color-mix(in srgb, #1d4ed8 35%, var(--panel-border-strong, #e2e8f0));
+}
+
+.organogram-card-level-controlling {
+  border-color: color-mix(in srgb, #b45309 35%, var(--panel-border-strong, #e2e8f0));
+}
+
+.organogram-card-level-user {
+  border-color: color-mix(in srgb, #475569 28%, var(--panel-border-strong, #e2e8f0));
+}
+
 .organogram-card.is-inactive {
   opacity: 0.78;
   background:
@@ -154,6 +170,40 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.75rem;
+}
+
+.organogram-level-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-bottom: 0.45rem;
+  padding: 0.28rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: var(--color-surface-alt, #f8fafc);
+  color: var(--color-text-muted, #666);
+}
+
+.organogram-level-badge-accepting {
+  background: color-mix(in srgb, #ccfbf1 84%, #ffffff);
+  color: #115e59;
+}
+
+.organogram-level-badge-reviewing {
+  background: color-mix(in srgb, #dbeafe 84%, #ffffff);
+  color: #1d4ed8;
+}
+
+.organogram-level-badge-controlling {
+  background: color-mix(in srgb, #fef3c7 86%, #ffffff);
+  color: #92400e;
+}
+
+.organogram-level-badge-user {
+  background: color-mix(in srgb, #e2e8f0 82%, #ffffff);
+  color: #334155;
 }
 
 .organogram-card-topline h3 {
@@ -208,6 +258,47 @@
 .organogram-empty-state p {
   margin: 0.35rem 0 0;
   color: var(--color-text-muted, #666);
+}
+
+.admin-tab-shell {
+  margin-bottom: 1rem;
+}
+
+.admin-tab-list {
+  display: inline-flex;
+  gap: 0.4rem;
+  padding: 0.35rem;
+  margin-bottom: 1rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-surface-alt, #f8fafc) 92%, #ffffff);
+  border: 1px solid var(--color-border, #e2e8f0);
+}
+
+.admin-tab-button {
+  border: 0;
+  background: transparent;
+  color: var(--color-text-muted, #666);
+  padding: 0.65rem 1rem;
+  border-radius: 999px;
+  font-size: 0.84rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.admin-tab-button.is-active {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--color-primary, #1a56db) 18%, #ffffff), #ffffff);
+  color: var(--color-text, #1a1a2e);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+}
+
+.admin-tab-panel {
+  display: none;
+}
+
+.admin-tab-panel.is-active {
+  display: block;
 }
 
 /* ── Data Table ──────────────────────────────────────────────── */
@@ -308,6 +399,19 @@
   .user-management-table thead th,
   .user-management-table td {
     padding: 0.72rem 0.58rem;
+  }
+}
+
+@media (max-width: 900px) {
+  .admin-tab-list {
+    display: grid;
+    width: 100%;
+    border-radius: 1rem;
+  }
+
+  .admin-tab-button {
+    width: 100%;
+    justify-content: center;
   }
 }
 

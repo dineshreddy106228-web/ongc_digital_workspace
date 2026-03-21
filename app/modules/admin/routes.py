@@ -183,62 +183,108 @@ def _resolve_officer_selection(raw_id, label, target_user_id=None):
     return officer, None
 
 
+ORGANOGRAM_LEVEL_META = {
+    "accepting": {"label": "Accepting Officer", "order": 0},
+    "reviewing": {"label": "Reviewing Officer", "order": 1},
+    "controlling": {"label": "Controlling Officer", "order": 2},
+    "user": {"label": "User", "order": 3},
+}
+
+
+def _new_organogram_node(user: User, level: str) -> dict:
+    meta = ORGANOGRAM_LEVEL_META[level]
+    return {
+        "key": f"{level}:{user.id}",
+        "id": user.id,
+        "level": level,
+        "level_label": meta["label"],
+        "level_order": meta["order"],
+        "name": _display_user_name(user),
+        "username": user.username,
+        "role_name": user.role.name if user.role else "No role",
+        "office_name": user.office.office_name if user.office else "No office",
+        "designation": (user.designation or "").strip(),
+        "is_active": user.is_active,
+        "children": [],
+        "_child_index": {},
+    }
+
+
+def _organogram_node_sort_key(node: dict):
+    return (
+        node["level_order"],
+        (node["name"] or "").lower(),
+        (node["username"] or "").lower(),
+        node["id"],
+    )
+
+
 def _build_user_organogram(users):
     users_by_id = {user.id: user for user in users}
-    children_by_parent = {}
-
-    for user in users:
-        parent_id = user.controlling_officer_id
-        if parent_id and parent_id in users_by_id and parent_id != user.id:
-            children_by_parent.setdefault(parent_id, []).append(user)
-
-    for children in children_by_parent.values():
-        children.sort(key=_user_sort_key)
-
-    roots = [
-        user
+    officer_reference_ids = {
+        int(officer_id)
         for user in users
-        if not user.controlling_officer_id
-        or user.controlling_officer_id not in users_by_id
-        or user.controlling_officer_id == user.id
-    ]
-    roots.sort(key=_user_sort_key)
+        for officer_id in (
+            user.accepting_officer_id,
+            user.reviewing_officer_id,
+            user.controlling_officer_id,
+        )
+        if officer_id is not None and int(officer_id) in users_by_id
+    }
 
-    placed_ids = set()
+    roots = []
+    root_index = {}
 
-    def _build_node(user, lineage=None):
-        active_lineage = set(lineage or set())
-        active_lineage.add(user.id)
-        placed_ids.add(user.id)
+    def _ensure_root(level: str, user: User) -> dict:
+        key = f"{level}:{user.id}"
+        node = root_index.get(key)
+        if node is None:
+            node = _new_organogram_node(user, level)
+            root_index[key] = node
+            roots.append(node)
+        return node
 
-        child_nodes = []
-        for child in children_by_parent.get(user.id, []):
-            if child.id in active_lineage:
+    def _ensure_child(parent: dict, level: str, user: User) -> dict:
+        key = f"{level}:{user.id}"
+        node = parent["_child_index"].get(key)
+        if node is None:
+            node = _new_organogram_node(user, level)
+            parent["_child_index"][key] = node
+            parent["children"].append(node)
+        return node
+
+    for user in sorted(users, key=_user_sort_key):
+        chain_parent = None
+        chain_users = [
+            ("accepting", users_by_id.get(user.accepting_officer_id)),
+            ("reviewing", users_by_id.get(user.reviewing_officer_id)),
+            ("controlling", users_by_id.get(user.controlling_officer_id)),
+        ]
+
+        for level, officer in chain_users:
+            if officer is None:
                 continue
-            child_nodes.append(_build_node(child, active_lineage))
+            chain_parent = (
+                _ensure_root(level, officer)
+                if chain_parent is None
+                else _ensure_child(chain_parent, level, officer)
+            )
 
-        return {
-            "id": user.id,
-            "name": _display_user_name(user),
-            "username": user.username,
-            "role_name": user.role.name if user.role else "No role",
-            "office_name": user.office.office_name if user.office else "No office",
-            "designation": (user.designation or "").strip(),
-            "is_active": user.is_active,
-            "reviewing_officer_name": _display_user_name(user.reviewing_officer)
-            if user.reviewing_officer else None,
-            "accepting_officer_name": _display_user_name(user.accepting_officer)
-            if user.accepting_officer else None,
-            "direct_report_count": len(children_by_parent.get(user.id, [])),
-            "children": child_nodes,
-        }
+        if chain_parent is not None:
+            _ensure_child(chain_parent, "user", user)
+        elif user.id not in officer_reference_ids:
+            _ensure_root("user", user)
 
-    organogram = [_build_node(root) for root in roots]
+    def _finalize(nodes: list[dict]) -> list[dict]:
+        nodes.sort(key=_organogram_node_sort_key)
+        finalized = []
+        for node in nodes:
+            node["children"] = _finalize(node["children"])
+            node.pop("_child_index", None)
+            finalized.append(node)
+        return finalized
 
-    for user in sorted((user for user in users if user.id not in placed_ids), key=_user_sort_key):
-        organogram.append(_build_node(user))
-
-    return organogram
+    return _finalize(roots)
 
 
 # ── Users List ───────────────────────────────────────────────────
@@ -258,6 +304,7 @@ def users():
         .order_by(User.created_at.desc())
         .all()
     )
+    organogram = _build_user_organogram(all_users)
     hierarchy_summary = {
         "total_users": len(all_users),
         "mapped_users": sum(
@@ -278,12 +325,12 @@ def users():
             and user.reviewing_officer_id
             and user.accepting_officer_id
         ),
-        "root_users": sum(1 for user in all_users if not user.controlling_officer_id),
+        "accepting_roots": sum(1 for node in organogram if node["level"] == "accepting"),
     }
     return render_template(
         "admin/users.html",
         users=all_users,
-        organogram=_build_user_organogram(all_users),
+        organogram=organogram,
         hierarchy_summary=hierarchy_summary,
     )
 
