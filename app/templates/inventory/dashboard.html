@@ -129,7 +129,7 @@
         <div class="inv-card-body" style="display:flex; gap:0.9rem; justify-content:space-between; align-items:center; flex-wrap:wrap;">
             <div>
                 <strong>MSDS administration</strong>
-                <div class="inv-card-subtitle" style="margin-top:0.2rem;">Upload or replace a material-specific MSDS PDF from the Master Data screen. Materials without an MSDS now show a direct upload link.</div>
+                <div class="inv-card-subtitle" style="margin-top:0.2rem;">Upload material-specific MSDS PDFs into the database from the MSDS Center. Materials without an MSDS show a direct upload link.</div>
             </div>
             <a href="{{ url_for('inventory.msds_page') }}" class="btn btn-sm btn-primary">
                 <i class="bi bi-upload"></i> Open MSDS Upload
@@ -518,9 +518,9 @@
             var vendorMore = vendors.length > 2 ? ' <span class="inv-vendor-more">+' + (vendors.length - 2) + ' more</span>' : '';
             var msdsHtml = material.has_msds
                 ? '<div style="display:flex; gap:0.35rem; flex-wrap:wrap; align-items:center;">' +
-                    '<span class="inv-badge inv-badge-success" title="' + esc(material.msds_filename || 'MSDS available') + '">Available</span>' +
-                    '<a href="/inventory/master-data/msds/' + encodeURIComponent(material.msds_material_code) + '" class="btn btn-sm btn-secondary" target="_blank" rel="noopener">View</a>' +
-                    '<a href="/inventory/master-data/msds/' + encodeURIComponent(material.msds_material_code) + '?download=1" class="btn btn-sm btn-outline">Download</a>' +
+                    '<span class="inv-badge inv-badge-success" title="' + esc(material.msds_filename || 'MSDS available') + '">' + esc((material.msds_count || 1) + ' file' + ((material.msds_count || 1) === 1 ? '' : 's')) + '</span>' +
+                    '<a href="/inventory/msds/' + encodeURIComponent(material.msds_file_id) + '" class="btn btn-sm btn-secondary" target="_blank" rel="noopener">View</a>' +
+                    '<a href="/inventory/msds/' + encodeURIComponent(material.msds_file_id) + '?download=1" class="btn btn-sm btn-outline">Download</a>' +
                   '</div>'
                 : (canUploadMsds
                     ? '<div style="display:flex; gap:0.35rem; flex-wrap:wrap; align-items:center;">' +
@@ -978,10 +978,15 @@
                 ['Demand Type', f.demand_type ? f.demand_type.charAt(0).toUpperCase() + f.demand_type.slice(1) : '—'],
                 ['Recent Active Months', fmtNum(f.recent_active_months, 0) + ' / 6'],
                 ['Backtest Window', f.band_selection_window_label || '—'],
+                ['Selected Percentile', f.selected_percentile_label || 'P50'],
+                ['Confidence', (f.confidence_score != null ? fmtNum(f.confidence_score, 1) + ' · ' + (f.confidence_band || '') : '—')],
                 ['6M P5 Total',  fmtNum(f.p5_total_qty,  2)],
                 ['6M P50 Total', fmtNum(f.p50_total_qty, 2)],
+                ['6M Operational Total', fmtNum(f.selected_forecast_total_qty, 2)],
                 ['6M P95 Total', fmtNum(f.p95_total_qty, 2)],
-                ['6M Buffer (P95 − P5)', fmtNum(f.buffer_total_qty, 2)],
+                ['6M Buffer (P95 − P50)', fmtNum(f.buffer_total_qty, 2)],
+                ['6M Adj Buffer', fmtNum(f.confidence_adjusted_buffer_total_qty, 2)],
+                ['6M Range Width (P95 − P5)', fmtNum(f.range_width_total_qty, 2)],
                 ['History Points', fmtNum(historyValues.length, 0)]
             ]);
 
@@ -993,7 +998,7 @@
         if (forecastRows.length) {
             panelHtml += '<div class="inv-analytics-section">';
             panelHtml += '<h4 class="inv-section-heading">6-Month Demand Forecast with Probability Bands</h4>';
-            panelHtml += '<p class="inv-card-subtitle" style="margin-bottom:0.5rem;">Buffer = P95 − P5 per month. Procure at least the P50 quantity; hold buffer stock equal to the Buffer column to cover demand uncertainty.</p>';
+            panelHtml += '<p class="inv-card-subtitle" style="margin-bottom:0.5rem;">Buffer = P95 − P50 per month. Procure at least the P50 quantity; hold buffer stock equal to the Buffer column to cover upside demand risk. Range Width = P95 − P5 and shows total forecast uncertainty.</p>';
             panelHtml += '<div class="inv-expand-table-wrap"><table class="inv-expand-table">';
             panelHtml += '<thead><tr>';
             panelHtml += '<th>Month</th>';
@@ -1002,9 +1007,10 @@
             panelHtml += '<th class="text-right" title="50th percentile median forecast" style="background:rgba(217,119,6,0.06);">P50 <span class="inv-muted inv-small">(Expected)</span></th>';
             panelHtml += '<th class="text-right" title="90th percentile">P90</th>';
             panelHtml += '<th class="text-right" title="95th percentile — 5% chance demand exceeds this">P95 <span class="inv-muted inv-small">(High)</span></th>';
-            panelHtml += '<th class="text-right" title="Buffer stock required: P95 minus P5">Buffer <span class="inv-muted inv-small">(P95−P5)</span></th>';
+            panelHtml += '<th class="text-right" title="Buffer stock required above expected plan: P95 minus P50">Buffer <span class="inv-muted inv-small">(P95−P50)</span></th>';
+            panelHtml += '<th class="text-right" title="Total uncertainty spread: P95 minus P5">Range Width <span class="inv-muted inv-small">(P95−P5)</span></th>';
             panelHtml += '</tr></thead><tbody>';
-            var p5Tot = 0, p10Tot = 0, p50Tot = 0, p90Tot = 0, p95Tot = 0, bufTot = 0;
+            var p5Tot = 0, p10Tot = 0, p50Tot = 0, p90Tot = 0, p95Tot = 0, bufTot = 0, rangeTot = 0;
             forecastRows.forEach(function(row) {
                 var p5q  = row.p5_qty  || 0;
                 var p10q = row.p10_qty || 0;
@@ -1012,7 +1018,8 @@
                 var p90q = row.p90_qty || 0;
                 var p95q = row.p95_qty || 0;
                 var buf  = row.buffer_qty || 0;
-                p5Tot += p5q; p10Tot += p10q; p50Tot += p50q; p90Tot += p90q; p95Tot += p95q; bufTot += buf;
+                var range = row.range_width_qty || 0;
+                p5Tot += p5q; p10Tot += p10q; p50Tot += p50q; p90Tot += p90q; p95Tot += p95q; bufTot += buf; rangeTot += range;
                 panelHtml += '<tr>';
                 panelHtml += '<td><strong>' + esc(row.period) + '</strong></td>';
                 panelHtml += '<td class="text-right inv-num">' + fmtNum(p5q, 2) + '</td>';
@@ -1021,6 +1028,7 @@
                 panelHtml += '<td class="text-right inv-num">' + fmtNum(p90q, 2) + '</td>';
                 panelHtml += '<td class="text-right inv-num">' + fmtNum(p95q, 2) + '</td>';
                 panelHtml += '<td class="text-right inv-num" style="font-weight:600;color:#b45309;">' + fmtNum(buf, 2) + '</td>';
+                panelHtml += '<td class="text-right inv-num">' + fmtNum(range, 2) + '</td>';
                 panelHtml += '</tr>';
             });
             // Totals row
@@ -1032,6 +1040,7 @@
             panelHtml += '<td class="text-right inv-num">' + fmtNum(p90Tot, 2) + '</td>';
             panelHtml += '<td class="text-right inv-num">' + fmtNum(p95Tot, 2) + '</td>';
             panelHtml += '<td class="text-right inv-num" style="color:#b45309;">' + fmtNum(bufTot, 2) + '</td>';
+            panelHtml += '<td class="text-right inv-num">' + fmtNum(rangeTot, 2) + '</td>';
             panelHtml += '</tr>';
             panelHtml += '</tbody></table></div></div>';
         }

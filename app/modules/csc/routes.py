@@ -42,7 +42,7 @@ import json
 import logging
 import io
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError, ProgrammingError
@@ -167,6 +167,8 @@ EDITOR_ISSUE_LABELS = [
     "Test Procedure Gaps",
     "Safety/Environmental Concern",
 ]
+EDITOR_LOCK_SECTION_NAME = "__editor_lock_json__"
+EDITOR_LOCK_TIMEOUT = timedelta(minutes=3)
 
 
 def _coerce_admin_boolean(value) -> bool:
@@ -379,6 +381,198 @@ def _copy_draft_content(source: CSCDraft, target: CSCDraft) -> None:
 # ──────────────────────────────────────────────────────────────────────────────
 
 
+def _get_committee_user_assignments(committee: dict[str, object] | None) -> list[dict[str, object]]:
+    assignments = []
+    seen_usernames = set()
+    source_list = []
+    if isinstance(committee, dict):
+        source_list = committee.get("committee_users") or []
+        if not source_list and str(committee.get("committee_user") or "").strip():
+            source_list = [{"username": str(committee.get("committee_user") or "").strip()}]
+
+    for entry in source_list:
+        if isinstance(entry, dict):
+            username = str(entry.get("username") or "").strip()
+            raw_subset_codes = entry.get("subset_codes") or []
+        else:
+            username = str(entry or "").strip()
+            raw_subset_codes = []
+        username_key = username.lower()
+        if not username or username_key in seen_usernames:
+            continue
+        seen_usernames.add(username_key)
+        subset_codes = []
+        for code in raw_subset_codes:
+            normalized_code = str(code or "").strip().upper()
+            if normalized_code and normalized_code not in subset_codes:
+                subset_codes.append(normalized_code)
+        assignments.append({"username": username, "subset_codes": subset_codes})
+    return assignments
+
+
+def _get_committee_user_assignment_for_username(
+    committee: dict[str, object] | None,
+    username: str | None,
+) -> dict[str, object] | None:
+    username_key = str(username or "").strip().lower()
+    if not username_key:
+        return None
+    for assignment in _get_committee_user_assignments(committee):
+        if str(assignment.get("username") or "").strip().lower() == username_key:
+            return assignment
+    return None
+
+
+def _resolve_committee_user_subset_codes(
+    committee: dict[str, object] | None,
+    assignment: dict[str, object] | None = None,
+) -> list[str]:
+    if not isinstance(committee, dict):
+        return []
+    if str(committee.get("slug") or "").strip() == "material-handling" and assignment is not None:
+        return [
+            str(code or "").strip().upper()
+            for code in (assignment.get("subset_codes") or [])
+            if str(code or "").strip()
+        ]
+    return [
+        str((subset or {}).get("code") or "").strip().upper()
+        for subset in (committee.get("subsets") or [])
+        if str((subset or {}).get("code") or "").strip()
+    ]
+
+
+def _parse_editor_lock_timestamp(value: str | None) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _get_editor_lock_section(draft: CSCDraft) -> CSCSection | None:
+    if not getattr(draft, "id", None):
+        return None
+    return draft.sections.filter_by(section_name=EDITOR_LOCK_SECTION_NAME).first()
+
+
+def _load_editor_lock_payload(draft: CSCDraft) -> dict[str, object]:
+    section = _get_editor_lock_section(draft)
+    if section is None or not (section.section_text or "").strip():
+        return {}
+    try:
+        payload = json.loads(section.section_text)
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _clear_editor_lock(draft: CSCDraft) -> None:
+    section = _get_editor_lock_section(draft)
+    if section is not None:
+        db.session.delete(section)
+
+
+def _save_editor_lock_payload(draft: CSCDraft, payload: dict[str, object]) -> dict[str, object]:
+    section = _get_editor_lock_section(draft)
+    serialized = json.dumps(payload)
+    if section is None:
+        section = CSCSection(
+            draft_id=draft.id,
+            section_name=EDITOR_LOCK_SECTION_NAME,
+            section_text=serialized,
+            sort_order=-999,
+        )
+        db.session.add(section)
+    else:
+        section.section_text = serialized
+    return payload
+
+
+def _get_active_editor_lock_payload(draft: CSCDraft) -> dict[str, object] | None:
+    payload = _load_editor_lock_payload(draft)
+    if not payload:
+        return None
+    last_seen_at = _parse_editor_lock_timestamp(payload.get("last_seen_at"))
+    if last_seen_at is None:
+        return None
+    if datetime.now(timezone.utc) - last_seen_at > EDITOR_LOCK_TIMEOUT:
+        return None
+    return payload
+
+
+def _editor_lock_holder_label(payload: dict[str, object] | None) -> str:
+    if not payload:
+        return ""
+    display_name = str(payload.get("display_name") or "").strip()
+    username = str(payload.get("username") or "").strip()
+    if display_name and username and display_name.lower() != username.lower():
+        return f"{display_name} ({username})"
+    return display_name or username
+
+
+def _committee_editor_lock_enabled_for_draft(draft: CSCDraft, editor_mode: str | None = None) -> bool:
+    mode = (editor_mode or "").strip().lower()
+    if current_user.is_super_user():
+        return False
+    if mode == "committee_head":
+        return False
+    if draft.parent_draft_id is None or draft.is_admin_draft:
+        return False
+    revision = _get_revision_for_child(draft.id)
+    return revision is not None and _is_open_revision_state(revision.status)
+
+
+def _get_blocking_editor_lock(draft: CSCDraft, editor_mode: str | None = None) -> dict[str, object] | None:
+    if not _committee_editor_lock_enabled_for_draft(draft, editor_mode):
+        return None
+    payload = _get_active_editor_lock_payload(draft)
+    if not payload:
+        return None
+    if int(payload.get("user_id") or 0) == int(current_user.id):
+        return None
+    return payload
+
+
+def _acquire_editor_lock(draft: CSCDraft) -> tuple[bool, dict[str, object] | None]:
+    active_payload = _get_active_editor_lock_payload(draft)
+    if active_payload and int(active_payload.get("user_id") or 0) not in {0, int(current_user.id)}:
+        return False, active_payload
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    payload = {
+        "user_id": int(current_user.id),
+        "username": current_user.username,
+        "display_name": (current_user.full_name or current_user.username or "").strip(),
+        "locked_at": active_payload.get("locked_at") if active_payload else now_iso,
+        "last_seen_at": now_iso,
+    }
+    _save_editor_lock_payload(draft, payload)
+    return True, payload
+
+
+def _refresh_editor_lock(draft: CSCDraft) -> tuple[bool, dict[str, object] | None]:
+    active_payload = _get_active_editor_lock_payload(draft)
+    if active_payload and int(active_payload.get("user_id") or 0) not in {0, int(current_user.id)}:
+        return False, active_payload
+    if not active_payload:
+        return _acquire_editor_lock(draft)
+    active_payload["last_seen_at"] = datetime.now(timezone.utc).isoformat()
+    _save_editor_lock_payload(draft, active_payload)
+    return True, active_payload
+
+
+def _release_editor_lock_if_owned(draft: CSCDraft) -> None:
+    active_payload = _get_active_editor_lock_payload(draft)
+    if active_payload and int(active_payload.get("user_id") or 0) == int(current_user.id):
+        _clear_editor_lock(draft)
+
+
 def _can_edit_draft(draft: CSCDraft) -> bool:
     """Check if current user can edit this draft."""
     revision = _get_revision_for_child(draft.id)
@@ -480,7 +674,11 @@ def _draft_in_current_user_committee_scope(draft: CSCDraft) -> bool:
         return True
     revision = _get_revision_for_child(draft.id)
     committee_slug = _get_revision_committee_slug(revision) if revision else None
-    return bool(committee_slug and committee_slug in allowed_committee_slugs)
+    if not committee_slug or committee_slug not in allowed_committee_slugs:
+        return False
+    if committee_slug != "material-handling":
+        return True
+    return bool((draft.subset or "").strip().upper() in set(_get_effective_committee_user_subset_codes()))
 
 
 def _ensure_current_user_can_access_subset(subset_code: str | None) -> None:
@@ -508,12 +706,19 @@ def _get_current_user_committee_records() -> list[dict[str, object]]:
     records = []
     for committee in [payload["ROOT_COMMITTEE"], *payload["CHILD_COMMITTEES"]]:
         roles = []
-        if str(committee.get("committee_user") or "").strip().lower() == username_key:
+        assignment = _get_committee_user_assignment_for_username(committee, username_key)
+        if assignment is not None:
             roles.append("committee_user")
         if str(committee.get("committee_head") or "").strip().lower() == username_key:
             roles.append("committee_head")
         if roles:
-            records.append({"committee": committee, "roles": roles})
+            records.append(
+                {
+                    "committee": committee,
+                    "roles": roles,
+                    "committee_user_assignment": assignment,
+                }
+            )
     return records
 
 
@@ -564,8 +769,10 @@ def _get_current_user_committee_user_subset_codes() -> list[str]:
             continue
         if committee_slug in {"coordination", "corporate-specification-committee"}:
             continue
-        for subset in committee.get("subsets") or []:
-            code = str((subset or {}).get("code") or "").strip().upper()
+        for code in _resolve_committee_user_subset_codes(
+            committee,
+            record.get("committee_user_assignment"),
+        ):
             if code:
                 subset_codes.add(code)
     ordered_codes = [code for code in SPEC_SUBSET_ORDER if code in subset_codes]
@@ -787,11 +994,23 @@ def _get_committee_user_ids_for_committee_slug(committee_slug: str | None, role_
     for committee in get_committee_config_payload().get("CHILD_COMMITTEES", []):
         if str(committee.get("slug") or "").strip() != slug:
             continue
-        username = str(committee.get(role_field) or "").strip()
-        if not username:
-            return []
-        user = User.query.filter_by(username=username, is_active=True).first()
-        return [user.id] if user else []
+        usernames = []
+        if role_field == "committee_user":
+            usernames = [
+                str((assignment or {}).get("username") or "").strip()
+                for assignment in _get_committee_user_assignments(committee)
+            ]
+        else:
+            usernames = [str(committee.get("committee_head") or "").strip()]
+
+        user_ids = []
+        for username in usernames:
+            if not username:
+                continue
+            user = User.query.filter_by(username=username, is_active=True).first()
+            if user:
+                user_ids.append(user.id)
+        return list(dict.fromkeys(user_ids))
     return []
 
 
@@ -803,15 +1022,27 @@ def _get_committee_user_display_label_for_committee_slug(committee_slug: str | N
     for committee in get_committee_config_payload().get("CHILD_COMMITTEES", []):
         if str(committee.get("slug") or "").strip() != slug:
             continue
-        username = str(committee.get(role_field) or "").strip()
-        if not username:
-            return ""
-        user = User.query.filter_by(username=username, is_active=True).first()
-        if not user:
-            return username
-        if (user.full_name or "").strip():
-            return f"{user.full_name} ({user.username})"
-        return user.username
+        if role_field == "committee_user":
+            usernames = [
+                str((assignment or {}).get("username") or "").strip()
+                for assignment in _get_committee_user_assignments(committee)
+            ]
+        else:
+            usernames = [str(committee.get("committee_head") or "").strip()]
+
+        labels = []
+        for username in usernames:
+            if not username:
+                continue
+            user = User.query.filter_by(username=username, is_active=True).first()
+            if not user:
+                labels.append(username)
+                continue
+            if (user.full_name or "").strip():
+                labels.append(f"{user.full_name} ({user.username})")
+            else:
+                labels.append(user.username)
+        return ", ".join(labels)
     return ""
 
 
@@ -1355,9 +1586,11 @@ def _build_parameter_review_rows_for_draft(
         )
         revised_conditions = _display_review_value(parameter.parameter_conditions)
 
+        requirement_changed = source_requirement != revised_requirement
+
         changed = any(
             [
-                source_requirement != revised_requirement,
+                requirement_changed,
                 source_type != revised_type,
                 source_unit != revised_unit,
                 source_test_procedure_type != revised_test_procedure_type,
@@ -1378,8 +1611,12 @@ def _build_parameter_review_rows_for_draft(
                 ),
                 "required_value": source_requirement,
                 "revised_requirement": revised_requirement,
-                "proposed_value": revised_requirement if changed else "No change submitted",
-                "proposed_value_raw": revised_requirement if changed else "",
+                "proposed_value": (
+                    revised_requirement
+                    if requirement_changed
+                    else ("No value change submitted" if changed else "No change submitted")
+                ),
+                "proposed_value_raw": revised_requirement if requirement_changed else "",
                 "change_status": "Revised" if changed else "Retained",
                 "test_procedure_type": revised_test_procedure_type,
                 "source_test_procedure_type": source_test_procedure_type,
@@ -1633,7 +1870,7 @@ def _build_workflow_meta_lines(
         f"Workflow Status: {drafting_status.replace('_', ' ').title()}",
     ]
     if committee_user_label:
-        lines.append(f"Assigned User: {committee_user_label}")
+        lines.append(f"Assigned User(s): {committee_user_label}")
     return lines
 
 
@@ -2340,7 +2577,7 @@ def landing():
 @module_access_required("csc")
 def msds_page():
     """MSDS center within Material Master Management."""
-    from app.core.services.inventory_msds import MSDSError, list_msds_documents
+    from app.core.services.msds_service import MSDSError, get_msds_material_index
 
     rows = []
     try:
@@ -2348,20 +2585,18 @@ def msds_page():
     except Exception:
         logger.exception("Failed to load material master rows for CSC MSDS Center")
         flash("Material master rows could not be loaded right now.", "warning")
-    msds_documents = []
     try:
-        msds_documents = list_msds_documents()
+        msds_by_material = get_msds_material_index([row.material for row in rows])
     except MSDSError as exc:
         flash(str(exc), "warning")
-    msds_by_material = {
-        document.material_code: document for document in msds_documents
-    }
+        msds_by_material = {}
     return render_template(
         "csc/msds.html",
         rows=rows,
         total=len(rows),
         msds_by_material=msds_by_material,
-        msds_count=len(msds_documents),
+        msds_count=sum(len(files) for files in msds_by_material.values()),
+        msds_material_total=len(msds_by_material),
         prefill_material_code=(request.args.get("material_code") or "").strip(),
     )
 
@@ -2370,18 +2605,14 @@ def msds_page():
 @login_required
 @module_access_required("csc")
 def upload_msds():
-    """Upload or replace an MSDS PDF from Material Master Management."""
-    from app.core.services.inventory_msds import MSDSError, store_msds_document
+    """Upload an MSDS PDF from Material Master Management."""
+    from app.core.services.msds_service import MSDSError, store_msds_document
 
     material_code = request.form.get("material_code", "").strip()
     file_obj = request.files.get("msds_file")
 
     try:
-        store_msds_document(
-            material_code=material_code,
-            file_obj=file_obj,
-            uploaded_by=getattr(current_user, "id", None),
-        )
+        store_msds_document(material_code=material_code, file_obj=file_obj)
         db.session.commit()
     except MSDSError as exc:
         db.session.rollback()
@@ -2397,54 +2628,59 @@ def upload_msds():
     return redirect(url_for("csc.msds_page", material_code=material_code))
 
 
-@csc_bp.route("/msds/<path:material_code>")
+@csc_bp.route("/msds/<int:file_id>")
 @login_required
 @module_access_required("csc")
-def open_msds(material_code: str):
+def open_msds(file_id: int):
     """Open or download an MSDS PDF from Material Master Management."""
-    from app.core.services.inventory_msds import MSDSError, open_msds_file
+    from app.core.services.msds_service import MSDSError, MSDSNotFoundError, get_msds_file
 
     download = (request.args.get("download") or "").strip().lower() in {"1", "true", "yes"}
     try:
-        document, file_stream = open_msds_file(material_code)
+        document = get_msds_file(file_id, include_data=True)
+    except MSDSNotFoundError as exc:
+        abort(404, description=str(exc))
     except MSDSError as exc:
-        flash(str(exc), "warning")
-        return redirect(request.referrer or url_for("csc.msds_page"))
+        abort(500, description=str(exc))
 
     return send_file(
-        file_stream,
-        mimetype=document.mime_type or "application/pdf",
+        io.BytesIO(document.data),
+        mimetype=document.content_type or "application/pdf",
         as_attachment=download,
-        download_name=document.original_filename,
+        download_name=document.filename,
         max_age=0,
     )
 
 
-@csc_bp.route("/msds/<path:material_code>/delete", methods=["POST"])
+@csc_bp.route("/msds/<int:file_id>/delete", methods=["POST"])
 @login_required
 @module_access_required("csc")
-def delete_msds(material_code: str):
+def delete_msds(file_id: int):
     """Delete a stored MSDS PDF from Material Master Management."""
-    from app.core.services.inventory_msds import MSDSError, delete_msds_document
+    from app.core.services.msds_service import MSDSError, delete_msds_file, get_msds_file
 
     try:
-        deleted = delete_msds_document(material_code)
+        msds_file = get_msds_file(file_id)
+        deleted = delete_msds_file(file_id)
         if not deleted:
-            flash(f"No MSDS PDF is stored for material '{material_code}'.", "info")
-            return redirect(url_for("csc.msds_page", material_code=material_code))
+            flash("The selected MSDS file no longer exists.", "info")
+            return redirect(url_for("csc.msds_page"))
         db.session.commit()
     except MSDSError as exc:
         db.session.rollback()
         flash(str(exc), "danger")
-        return redirect(url_for("csc.msds_page", material_code=material_code))
+        return redirect(url_for("csc.msds_page"))
     except Exception:
         db.session.rollback()
-        logger.exception("Failed to delete MSDS PDF for material=%s", material_code)
+        logger.exception("Failed to delete MSDS PDF for file_id=%s", file_id)
         flash("Could not delete the MSDS PDF.", "danger")
-        return redirect(url_for("csc.msds_page", material_code=material_code))
+        return redirect(url_for("csc.msds_page"))
 
-    flash(f"MSDS PDF deleted for material '{material_code}'.", "success")
-    return redirect(url_for("csc.msds_page", material_code=material_code))
+    flash(
+        f"MSDS PDF '{msds_file.filename}' deleted for material '{msds_file.material_code}'.",
+        "success",
+    )
+    return redirect(url_for("csc.msds_page", material_code=msds_file.material_code))
 
 
 @csc_bp.route("/office-orders/<slug>")
@@ -2717,21 +2953,25 @@ def api_drafts():
 
         response = jsonify({
             "drafts": [
-                {
-                    "id": d.id,
-                    "spec_number": d.spec_number,
-                    "chemical_name": d.chemical_name,
-                    "status": _status_db_to_ui_value(d.status),
-                    "drafting_status": (_get_revision_for_child(d.id).status if _get_revision_for_child(d.id) else ""),
-                    "draft_type": _draft_type_label(d),
-                    "subset": d.subset,
-                    "subset_label": d.subset_label,
-                    "subset_display": d.subset_display,
-                    "version": d.version,
-                    "can_edit": _can_edit_draft(d),
-                    "created_at": d.created_at.isoformat(),
-                    "updated_at": d.updated_at.isoformat(),
-                }
+                (
+                    lambda blocking_lock: {
+                        "id": d.id,
+                        "spec_number": d.spec_number,
+                        "chemical_name": d.chemical_name,
+                        "status": _status_db_to_ui_value(d.status),
+                        "drafting_status": (_get_revision_for_child(d.id).status if _get_revision_for_child(d.id) else ""),
+                        "draft_type": _draft_type_label(d),
+                        "subset": d.subset,
+                        "subset_label": d.subset_label,
+                        "subset_display": d.subset_display,
+                        "version": d.version,
+                        "can_edit": _can_edit_draft(d) and not blocking_lock,
+                        "locked_by_other": bool(blocking_lock),
+                        "locked_by_label": _editor_lock_holder_label(blocking_lock),
+                        "created_at": d.created_at.isoformat(),
+                        "updated_at": d.updated_at.isoformat(),
+                    }
+                )(_get_blocking_editor_lock(d, "committee_user"))
                 for d in drafts
             ],
             "total": len(drafts),
@@ -2757,6 +2997,16 @@ def editor(draft_id: int):
             return redirect(url_for("csc.workspace"))
 
         editor_mode = "committee_head" if _can_current_user_edit_draft_as_committee_head(draft) else "committee_user"
+        if _committee_editor_lock_enabled_for_draft(draft, editor_mode):
+            acquired, blocking_lock = _acquire_editor_lock(draft)
+            if not acquired:
+                flash(
+                    f"Under drafting by {_editor_lock_holder_label(blocking_lock) or 'another user'}.",
+                    "info",
+                )
+                db.session.rollback()
+                return redirect(url_for("csc.workspace"))
+            db.session.commit()
 
         section_rows = draft.sections.order_by(CSCSection.sort_order).all()
         sections = {section.section_name: section.section_text or "" for section in section_rows}
@@ -2871,11 +3121,63 @@ def editor(draft_id: int):
             workflow_scope=workflow_scope,
             workflow_scope_summary=_summarize_workflow_scope(workflow_scope),
             draft_type_label=_draft_type_label(draft),
+            editor_lock_enabled=_committee_editor_lock_enabled_for_draft(draft, editor_mode),
         )
     except Exception as e:
         logger.error(f"Error loading editor: {e}")
         flash("Error loading draft editor.", "danger")
         return redirect(url_for("csc.workspace"))
+
+
+@csc_bp.route("/api/draft/<int:draft_id>/editor-lock/ping", methods=["POST"])
+@login_required
+@module_access_required("csc")
+def ping_editor_lock(draft_id: int):
+    """Refresh the live committee-user editor lock for an open draft."""
+    try:
+        draft = db.session.get(CSCDraft, draft_id)
+        if not draft:
+            return jsonify({"error": "Draft not found"}), 404
+        if not _can_edit_draft(draft):
+            return jsonify({"error": "Unauthorized"}), 403
+        if not _committee_editor_lock_enabled_for_draft(draft, "committee_user"):
+            return jsonify({"success": True, "lock_enabled": False})
+
+        acquired, payload = _refresh_editor_lock(draft)
+        if not acquired:
+            db.session.rollback()
+            holder_label = _editor_lock_holder_label(payload) or "another user"
+            return jsonify(
+                {
+                    "error": f"Under drafting by {holder_label}.",
+                    "locked_by": holder_label,
+                }
+            ), 409
+
+        db.session.commit()
+        return jsonify({"success": True, "lock_enabled": True})
+    except Exception as e:
+        logger.error(f"Error refreshing editor lock: {e}")
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+
+@csc_bp.route("/api/draft/<int:draft_id>/editor-lock/release", methods=["POST"])
+@login_required
+@module_access_required("csc")
+def release_editor_lock(draft_id: int):
+    """Release the live committee-user editor lock when the editor closes."""
+    try:
+        draft = db.session.get(CSCDraft, draft_id)
+        if not draft:
+            return jsonify({"success": True})
+        _release_editor_lock_if_owned(draft)
+        db.session.commit()
+        return jsonify({"success": True})
+    except Exception as e:
+        logger.error(f"Error releasing editor lock: {e}")
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
 
 
 @csc_bp.route("/api/draft/<int:draft_id>")
@@ -3450,16 +3752,16 @@ def submit_revision(draft_id: int):
         for record in committee_payload.get("CHILD_COMMITTEES", []):
             if record.get("slug") != "coordination":
                 continue
-            for field_name in ("committee_user", "committee_head"):
-                username = str(record.get(field_name) or "").strip()
-                if not username:
-                    continue
-                governance_user = User.query.filter_by(username=username, is_active=True).first()
-                if governance_user:
-                    governance_user_ids.append(governance_user.id)
+            governance_user_ids.extend(
+                _get_committee_user_ids_for_committee_slug("coordination", "committee_user")
+            )
+            governance_user_ids.extend(
+                _get_committee_user_ids_for_committee_slug("coordination", "committee_head")
+            )
+            break
 
         _notify_users(
-            head_user_ids + governance_user_ids,
+            list(dict.fromkeys(head_user_ids + governance_user_ids)),
             title="Draft submitted for committee-head review",
             message=f"{draft.spec_number} — {draft.chemical_name} was submitted for committee-head review.",
             severity="info",
@@ -3552,6 +3854,36 @@ def export_docx(draft_id: int):
         return redirect(url_for("csc.workspace"))
 
 
+@csc_bp.route("/draft/<int:draft_id>/dossier-preview")
+@login_required
+@module_access_required("csc")
+def draft_dossier_preview(draft_id: int):
+    """Return an in-app dossier preview for the current draft."""
+    draft = db.session.get(CSCDraft, draft_id)
+    if not draft:
+        abort(404)
+
+    if not _can_edit_draft(draft):
+        return jsonify({"success": False, "error": "You do not have permission to preview this draft."}), 403
+
+    review_context = _build_draft_export_review_context(draft)
+    html = render_template(
+        "csc/_draft_dossier_preview.html",
+        draft=draft,
+        review_context=review_context,
+        current_version=(draft.version if draft.version is not None else 1),
+        last_updated=draft.updated_at,
+    )
+    return jsonify(
+        {
+            "success": True,
+            "title": draft.spec_number or "Draft Dossier",
+            "subtitle": draft.chemical_name or "Draft dossier preview",
+            "html": html,
+        }
+    )
+
+
 @csc_bp.route("/workspace/new-revision/<int:parent_id>", methods=["POST"])
 @login_required
 @module_access_required("csc")
@@ -3616,7 +3948,7 @@ def create_revision(parent_id: int):
                 title="Draft created for revision",
                 message=(
                     f"{parent_draft.spec_number} — {parent_draft.chemical_name} "
-                    "has been created for revision and assigned to you."
+                    "has been created for revision and assigned to your committee workspace."
                 ),
                 severity="info",
                 link=url_for("csc.workspace"),
@@ -3630,8 +3962,8 @@ def create_revision(parent_id: int):
             "workflow_meta_lines": workflow_meta_lines,
             "title": "Draft Created for Revision" if created_new else "Workflow Already Exists",
             "message": (
-                "Draft created for revision and sent to user - "
-                + (committee_user_label or "Committee User not assigned")
+                "Draft created for revision and sent to committee user(s) - "
+                + (committee_user_label or "Committee Users not assigned")
                 if created_new
                 else f"A workflow already exists for {parent_draft.spec_number}."
             ),
@@ -3773,7 +4105,7 @@ def admin_open_self_drafts_bulk():
                     title="Draft created for revision",
                     message=(
                         f"{parent_draft.spec_number} — {parent_draft.chemical_name} "
-                        "has been created for revision and assigned to you."
+                        "has been created for revision and assigned to your committee workspace."
                     ),
                     severity="info",
                     link=url_for("csc.workspace"),
@@ -4065,6 +4397,45 @@ def published_spec_detail(draft_id: int):
         review_context=review_context,
         active_revision=_get_active_revision_for_parent(draft.id),
         version_map=_build_published_version_map(draft),
+    )
+
+
+@csc_bp.route("/published-specs/<int:draft_id>/preview")
+@login_required
+@module_access_required("csc")
+def published_spec_preview(draft_id: int):
+    """Return an in-app CSC Format A preview for a published specification."""
+    draft = db.session.get(CSCDraft, draft_id)
+    if not draft or draft.parent_draft_id is not None:
+        abort(404)
+
+    review_context = _build_draft_export_review_context(draft)
+    current_snapshot = (
+        draft.spec_versions.filter_by(spec_version=draft.spec_version)
+        .order_by(CSCSpecVersion.created_at.desc())
+        .first()
+    )
+    latest_published_at = (
+        current_snapshot.created_at
+        if current_snapshot is not None
+        else draft.updated_at
+    )
+
+    html = render_template(
+        "csc/_format_a_preview.html",
+        draft=draft,
+        review_context=review_context,
+        active_revision=_get_active_revision_for_parent(draft.id),
+        latest_published_at=latest_published_at,
+        current_version=format_spec_version(draft.spec_version),
+    )
+    return jsonify(
+        {
+            "success": True,
+            "title": draft.spec_number,
+            "subtitle": draft.chemical_name or "Published specification preview",
+            "html": html,
+        }
     )
 
 
@@ -4676,7 +5047,9 @@ def review_workbench():
 @module_admin_required("csc")
 def admin_msds_diagnostics():
     """Report live web-process MSDS diagnostics for Railway debugging."""
-    from app.core.services.inventory_msds import list_msds_documents
+    from sqlalchemy import inspect
+
+    from app.core.services.msds_service import list_msds_files
 
     payload: dict[str, object] = {
         "app_environment_name": current_app.config.get("APP_ENVIRONMENT_NAME"),
@@ -4699,13 +5072,9 @@ def admin_msds_diagnostics():
         payload["migration_head"] = f"error: {exc}"
 
     try:
-        payload["current_database"] = db.session.execute(text("SELECT DATABASE()")).scalar()
-        payload["msds_table_present"] = bool(
-            db.session.execute(
-                text("SHOW TABLES LIKE 'inventory_msds_documents'")
-            ).fetchone()
-        )
-        documents = list_msds_documents()
+        payload["current_database"] = db.engine.url.database
+        payload["msds_table_present"] = "msds_files" in inspect(db.engine).get_table_names()
+        documents = list_msds_files()
         payload["msds_query_ok"] = True
         payload["msds_count"] = len(documents)
     except Exception as exc:

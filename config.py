@@ -15,6 +15,20 @@ def _as_bool(value: str | None, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _normalize_database_url(value: str | None) -> str | None:
+    """Normalize Railway/Postgres URLs while keeping local MySQL DB_* support."""
+    if value is None:
+        return None
+    clean_value = value.strip()
+    if not clean_value:
+        return None
+    if clean_value.startswith("postgres://"):
+        return "postgresql+psycopg://" + clean_value[len("postgres://") :]
+    if clean_value.startswith("postgresql://") and "+psycopg" not in clean_value:
+        return "postgresql+psycopg://" + clean_value[len("postgresql://") :]
+    return clean_value
+
+
 class Config:
     """Central configuration – values come from .env, never hard-coded."""
 
@@ -33,7 +47,10 @@ class Config:
     DB_SSL_MODE = os.environ.get("DB_SSL_MODE") or os.environ.get("MYSQL_SSL_MODE")
     DB_SSL_CA = os.environ.get("DB_SSL_CA") or os.environ.get("MYSQL_SSL_CA")
 
-    SQLALCHEMY_DATABASE_URI = (
+    DATABASE_URL = _normalize_database_url(
+        os.environ.get("SQLALCHEMY_DATABASE_URI") or os.environ.get("DATABASE_URL")
+    )
+    SQLALCHEMY_DATABASE_URI = DATABASE_URL or (
         f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}"
         f"@{DB_HOST}:{DB_PORT}/{DB_NAME}?charset=utf8mb4"
     )

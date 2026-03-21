@@ -223,6 +223,21 @@ tr.is-saving td { opacity: 0.6; }
   flex-wrap: wrap;
   align-items: center;
 }
+.msds-file-stack {
+  display: grid;
+  gap: 0.45rem;
+}
+.msds-file-item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  background: color-mix(in srgb, var(--surface) 94%, white);
+  padding: 0.55rem 0.65rem;
+}
+.msds-file-meta {
+  margin-top: 0.2rem;
+  font-size: 0.74rem;
+  color: var(--muted);
+}
 
 @media (max-width: 980px) {
   .msds-grid,
@@ -245,7 +260,8 @@ tr.is-saving td { opacity: 0.6; }
     <div class="inv-header-actions">
       <span class="md-superuser-badge"><i class="bi bi-shield-lock"></i> Superuser only</span>
       <span class="inv-badge inv-badge-info">{{ total }} materials</span>
-      <span class="inv-badge inv-badge-success">{{ msds_count }} MSDS stored</span>
+      <span class="inv-badge inv-badge-success">{{ msds_count }} MSDS files stored</span>
+      <span class="inv-badge inv-badge-muted">{{ msds_material_total }} materials covered</span>
       {% if extra_keys %}
       <span class="inv-badge inv-badge-muted">{{ extra_keys | length }} extra column(s)</span>
       {% endif %}
@@ -297,8 +313,8 @@ tr.is-saving td { opacity: 0.6; }
       <h2 class="md-import-title">MSDS PDF Storage</h2>
     </div>
     <p class="md-import-subtitle">
-      Upload a material-specific MSDS PDF. The file is stored on disk in the configured <code>MSDS_STORAGE_DIR</code> folder,
-      while MySQL keeps only the metadata and file reference.
+      Upload a material-specific MSDS PDF. The file bytes and metadata are stored directly in the application database,
+      so Railway deploys no longer depend on a writable local uploads directory.
     </p>
     <div class="msds-grid">
       <div>
@@ -327,11 +343,11 @@ tr.is-saving td { opacity: 0.6; }
       <div style="display:grid; gap:0.75rem;">
         <div class="msds-stat">
           <div class="msds-stat-label">Storage Pattern</div>
-          <div class="msds-stat-value">PDF on disk, metadata in MySQL</div>
+          <div class="msds-stat-value">PDF bytes and metadata stored in the database</div>
         </div>
         <div class="msds-stat">
-          <div class="msds-stat-label">Replacement Behavior</div>
-          <div class="msds-stat-value">A new upload replaces the previous MSDS for that material</div>
+          <div class="msds-stat-label">Upload Behavior</div>
+          <div class="msds-stat-value">Each upload adds a new MSDS version for that material</div>
         </div>
       </div>
     </div>
@@ -388,7 +404,7 @@ tr.is-saving td { opacity: 0.6; }
           </thead>
           <tbody>
             {% for row in rows %}
-            {% set msds_doc = msds_by_material.get(row.material) %}
+            {% set msds_files = msds_by_material.get(row.material, []) %}
             <tr class="inv-row-main" data-code="{{ row.material }}">
 
               {# Material – always read-only (PK) #}
@@ -523,18 +539,29 @@ tr.is-saving td { opacity: 0.6; }
               {% endfor %}
 
               <td class="md-col-med">
-                {% if msds_doc %}
-                <div class="msds-link-list">
-                  <span class="msds-status-pill is-present"><i class="bi bi-check-circle-fill"></i> Stored</span>
-                  <a href="{{ url_for('inventory.open_msds', material_code=row.material) }}" class="btn btn-sm btn-secondary">View</a>
-                  <a href="{{ url_for('inventory.open_msds', material_code=row.material, download=1) }}" class="btn btn-sm btn-outline">Download</a>
-                  <form method="POST" action="{{ url_for('inventory.delete_msds', material_code=row.material) }}" onsubmit="return confirm('Delete the stored MSDS PDF for {{ row.material }}?');" style="display:inline;">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="btn btn-sm btn-outline" style="color: var(--danger,#dc3545); border-color: color-mix(in srgb, var(--danger,#dc3545) 35%, transparent);">Delete</button>
-                  </form>
+                {% if msds_files %}
+                <div class="msds-link-list" style="margin-bottom:0.5rem;">
+                  <span class="msds-status-pill is-present"><i class="bi bi-check-circle-fill"></i> {{ msds_files|length }} stored</span>
+                  <a href="{{ url_for('inventory.msds_page', material_code=row.material) }}" class="btn btn-sm btn-outline">Upload Another</a>
                 </div>
-                <div style="font-size:0.74rem; color:var(--muted); margin-top:0.35rem;">
-                  {{ msds_doc.original_filename }} · {{ "{:,.0f}".format(msds_doc.file_size_bytes / 1024) }} KB
+                <div class="msds-file-stack">
+                  {% for msds_file in msds_files %}
+                  <div class="msds-file-item">
+                    <div><strong>{{ msds_file.filename }}</strong></div>
+                    <div class="msds-file-meta">
+                      {{ "{:,.0f}".format(msds_file.file_size / 1024) }} KB ·
+                      {{ msds_file.uploaded_at|datetime_ist("%d %b %Y %I:%M %p") }}
+                    </div>
+                    <div class="msds-link-list" style="margin-top:0.4rem;">
+                      <a href="{{ url_for('inventory.get_msds_file', file_id=msds_file.id) }}" class="btn btn-sm btn-secondary">View</a>
+                      <a href="{{ url_for('inventory.get_msds_file', file_id=msds_file.id, download=1) }}" class="btn btn-sm btn-outline">Download</a>
+                      <form method="POST" action="{{ url_for('inventory.delete_msds', file_id=msds_file.id) }}" onsubmit="return confirm('Delete the stored MSDS PDF {{ msds_file.filename }} for {{ row.material }}?');" style="display:inline;">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn btn-sm btn-outline" style="color: var(--danger,#dc3545); border-color: color-mix(in srgb, var(--danger,#dc3545) 35%, transparent);">Delete</button>
+                      </form>
+                    </div>
+                  </div>
+                  {% endfor %}
                 </div>
                 {% else %}
                 <span class="msds-status-pill is-missing"><i class="bi bi-dash-circle"></i> Not Stored</span>

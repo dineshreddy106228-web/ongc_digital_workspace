@@ -45,8 +45,10 @@ def register_cli(app):
     # so a production instance without pandas can still boot cleanly.
     if app.config.get("ENABLE_INVENTORY", False):
         from app.cli.inventory import (  # noqa: PLC0415
+            inventory_migrate_legacy_msds,
             inventory_prune_procurement_low_value,
             inventory_seed_audit,
         )
         app.cli.add_command(inventory_seed_audit)
         app.cli.add_command(inventory_prune_procurement_low_value)
+        app.cli.add_command(inventory_migrate_legacy_msds)

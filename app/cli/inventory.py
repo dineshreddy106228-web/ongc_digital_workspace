@@ -3,8 +3,10 @@ from __future__ import annotations
 """Inventory-specific CLI commands."""
 
 import json
+from pathlib import Path
 
 import click
+from flask import current_app
 from flask.cli import with_appcontext
 
 from app.core.services.inventory_seed_audit import (
@@ -13,6 +15,14 @@ from app.core.services.inventory_seed_audit import (
     delete_procurement_rows_below_threshold,
     get_procurement_rows_below_threshold,
 )
+from app.core.services.msds_service import (
+    MSDSError,
+    get_legacy_msds_storage_root,
+    iter_legacy_msds_records,
+    msds_file_exists,
+    store_msds_bytes,
+)
+from app.extensions import db
 
 
 def _print_summary(report: dict) -> None:
@@ -129,3 +139,118 @@ def inventory_prune_procurement_low_value(threshold: float, apply: bool) -> None
 
     deleted = delete_procurement_rows_below_threshold(threshold)
     click.echo(f"Deleted {deleted['count']} procurement row(s).")
+
+
+@click.command("inventory-migrate-legacy-msds")
+@click.option(
+    "--source-dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="Directory containing legacy filesystem MSDS PDFs.",
+)
+@click.option(
+    "--strategy",
+    type=click.Choice(["legacy-table", "filename"], case_sensitive=False),
+    default="legacy-table",
+    show_default=True,
+    help="Use legacy metadata table mappings or derive material codes from PDF filenames.",
+)
+@click.option("--dry-run", is_flag=True, help="Preview imports without writing to msds_files.")
+@with_appcontext
+def inventory_migrate_legacy_msds(
+    source_dir: Path | None,
+    strategy: str,
+    dry_run: bool,
+) -> None:
+    """Import legacy filesystem-backed MSDS PDFs into the msds_files table."""
+
+    root = source_dir or get_legacy_msds_storage_root()
+    if not root.exists():
+        raise click.ClickException(f"Legacy MSDS directory was not found: {root}")
+
+    imported = 0
+    skipped = 0
+    missing = 0
+    failed = 0
+
+    try:
+        if strategy == "legacy-table":
+            records = list(iter_legacy_msds_records())
+            if not records:
+                click.echo("No legacy MSDS metadata rows were found.")
+                return
+
+            for record in records:
+                source_path = root / str(record["storage_path"])
+                if not source_path.exists():
+                    missing += 1
+                    click.echo(f"Missing file: {source_path}")
+                    continue
+
+                file_bytes = source_path.read_bytes()
+                if msds_file_exists(
+                    material_code=record["material_code"],
+                    filename=record["original_filename"],
+                    file_size=len(file_bytes),
+                    uploaded_at=record["uploaded_at"],
+                ):
+                    skipped += 1
+                    continue
+
+                if dry_run:
+                    imported += 1
+                    continue
+
+                store_msds_bytes(
+                    material_code=record["material_code"],
+                    filename=record["original_filename"],
+                    file_bytes=file_bytes,
+                    content_type=record["mime_type"],
+                    uploaded_at=record["uploaded_at"],
+                )
+                imported += 1
+        else:
+            for source_path in sorted(root.rglob("*.pdf")):
+                material_code = source_path.stem.strip()
+                file_bytes = source_path.read_bytes()
+                if msds_file_exists(
+                    material_code=material_code,
+                    filename=source_path.name,
+                    file_size=len(file_bytes),
+                ):
+                    skipped += 1
+                    continue
+
+                if dry_run:
+                    imported += 1
+                    continue
+
+                store_msds_bytes(
+                    material_code=material_code,
+                    filename=source_path.name,
+                    file_bytes=file_bytes,
+                    content_type="application/pdf",
+                )
+                imported += 1
+
+        if dry_run:
+            db.session.rollback()
+        else:
+            db.session.commit()
+    except MSDSError as exc:
+        db.session.rollback()
+        raise click.ClickException(str(exc)) from exc
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.exception("Failed to migrate legacy MSDS files")
+        failed += 1
+        raise click.ClickException(str(exc)) from exc
+
+    click.echo(f"Source directory: {root}")
+    click.echo(f"Strategy: {strategy}")
+    click.echo(f"Imported: {imported}")
+    click.echo(f"Skipped duplicates: {skipped}")
+    click.echo(f"Missing files: {missing}")
+    click.echo(f"Failures: {failed}")
+    if dry_run:
+        click.echo("Dry run only. No records were written.")
