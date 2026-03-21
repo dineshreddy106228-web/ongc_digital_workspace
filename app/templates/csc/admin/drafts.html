@@ -41,10 +41,29 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
+.csc-sticky-scroll {
+  position: sticky;
+  top: 0.75rem;
+  z-index: 6;
+  overflow-x: auto;
+  overflow-y: hidden;
+  height: 1rem;
+  margin-bottom: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 88%, var(--surface-alt));
+  box-shadow: var(--shadow-sm);
+}
+.csc-sticky-scroll[hidden] {
+  display: none;
+}
+.csc-sticky-scroll-inner {
+  height: 1px;
+}
 .csc-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.9rem;
+  font-size: 0.81rem;
 }
 .csc-table thead {
   background: var(--background);
@@ -52,9 +71,18 @@
 }
 .csc-table th,
 .csc-table td {
-  padding: 0.75rem;
+  padding: 0.48rem 0.5rem;
   text-align: left;
   border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.csc-table th {
+  font-size: 0.76rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.csc-table td {
+  line-height: 1.35;
 }
 .csc-table tbody tr:hover {
   background: color-mix(in srgb, var(--primary) 5%, transparent);
@@ -63,10 +91,11 @@
 .csc-drafting-pill {
   display: inline-flex;
   align-items: center;
-  padding: 0.25rem 0.6rem;
+  padding: 0.16rem 0.42rem;
   border-radius: 999px;
-  font-size: 0.78rem;
+  font-size: 0.68rem;
   font-weight: 600;
+  white-space: nowrap;
 }
 .csc-status-published {
   background: color-mix(in srgb, #10b981 15%, transparent);
@@ -100,15 +129,49 @@
 .csc-action-btn {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  padding: 0.4rem 0.75rem;
+  gap: 0.3rem;
+  padding: 0.28rem 0.48rem;
   border-radius: var(--radius-sm, 6px);
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--primary);
   text-decoration: none;
   cursor: pointer;
-  margin-left: 0.35rem;
+  margin-left: 0.2rem;
+  font-size: 0.74rem;
+}
+.csc-action-link i,
+.csc-action-btn i {
+  font-size: 0.72rem;
+}
+.csc-table td strong {
+  font-weight: 700;
+}
+.csc-row-serial {
+  width: 44px;
+}
+.csc-col-spec {
+  width: 148px;
+}
+.csc-col-chemical {
+  min-width: 180px;
+}
+.csc-col-code {
+  width: 104px;
+}
+.csc-col-status,
+.csc-col-draft-status {
+  width: 96px;
+}
+.csc-col-version {
+  width: 58px;
+}
+.csc-col-actions {
+  width: 250px;
+}
+.csc-table td small {
+  font-size: 0.74rem;
+  line-height: 1.35;
 }
 .csc-inline-form {
   display: inline-flex;
@@ -377,21 +440,21 @@
   <div class="card">
     <div class="card-body">
       {% if workflow_rows %}
+      <div class="csc-sticky-scroll" id="draftsHorizontalScroll" hidden aria-label="Horizontal table scroll">
+        <div class="csc-sticky-scroll-inner" id="draftsHorizontalScrollInner"></div>
+      </div>
       <div class="csc-table-wrap">
         <table class="csc-table">
           <thead>
             <tr>
-              <th style="width: 60px;">S. No.</th>
-              <th>Spec Number</th>
-              <th>Chemical Name</th>
-              <th>Committee</th>
-              <th>Material Code</th>
-              <th>Physical State</th>
-              <th>Status</th>
-              <th>Drafting Status</th>
-              <th>Version</th>
-              <th>Submitted At</th>
-              <th style="width: 360px; text-align: right;">Actions</th>
+              <th class="csc-row-serial">#</th>
+              <th class="csc-col-spec">Spec No.</th>
+              <th class="csc-col-chemical">Chemical</th>
+              <th class="csc-col-code">Code</th>
+              <th class="csc-col-status">Status</th>
+              <th class="csc-col-draft-status">Draft</th>
+              <th class="csc-col-version">Ver.</th>
+              <th class="csc-col-actions" style="text-align: right;">Actions</th>
             </tr>
           </thead>
           <tbody id="draftsTableBody">
@@ -406,18 +469,7 @@
               <td class="csc-row-serial"><code>{{ loop.index }}</code></td>
               <td><strong>{{ draft.spec_number }}</strong></td>
               <td>{{ draft.chemical_name or '—' }}</td>
-              <td>
-                <strong>{{ row.committee_title }}</strong>
-                {% if row.committee_track == 'subset' %}
-                <small style="display:block; color: var(--muted);">Subset Committee Workflow</small>
-                {% elif row.committee_track == 'material_handling' %}
-                <small style="display:block; color: var(--muted);">Material Handling Workflow</small>
-                {% elif row.active_revision_count %}
-                <small style="display:block; color: var(--muted);">{{ row.active_revision_count }} active workflow draft(s)</small>
-                {% endif %}
-              </td>
               <td>{{ draft.material_code or '—' }}</td>
-              <td>{{ row.physical_state or '—' }}</td>
               <td>
                 <span class="csc-status-pill csc-status-{{ (row.display_status or 'published')|lower }}">
                   {{ row.display_status or 'Published' }}
@@ -433,14 +485,13 @@
                 {% endif %}
               </td>
               <td>v{{ draft.version if draft.version is not none else '0' }}</td>
-              <td>{{ row.submitted_at | datetime_ist('%d %b %Y, %H:%M') if row.submitted_at else '—' }}</td>
               <td class="csc-actions">
                 <a href="{{ url_for('csc.published_spec_detail', draft_id=draft.id) }}" class="csc-action-link">
-                  <i class="bi bi-eye"></i> View Published Spec
+                  <i class="bi bi-eye"></i> View Spec
                 </a>
                 {% if revision and revision.child_draft and revision.child_draft.is_admin_draft and revision.child_draft.created_by_id == current_user.id and revision.status in ['open', 'returned'] %}
                 <a href="{{ url_for('csc.editor', draft_id=revision.child_draft.id) }}" class="csc-action-link">
-                  <i class="bi bi-box-arrow-up-right"></i> Open My Draft
+                  <i class="bi bi-box-arrow-up-right"></i> My Draft
                 </a>
                 {% endif %}
                 {% if row.can_generate_more %}
@@ -450,19 +501,19 @@
                   data-parent-id="{{ draft.id }}"
                   data-spec-number="{{ draft.spec_number }}"
                 >
-                  <i class="bi bi-ui-checks-grid"></i> Configure Workflow
+                  <i class="bi bi-ui-checks-grid"></i> Workflow
                 </button>
                 {% if not revision %}
                 <form method="post" action="{{ url_for('csc.admin_open_self_draft', parent_id=draft.id) }}" class="csc-inline-form">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button type="submit" class="csc-action-btn">
-                    <i class="bi bi-pencil-square"></i> Create My Draft
+                    <i class="bi bi-pencil-square"></i> Create Draft
                   </button>
                 </form>
                 {% endif %}
                 {% elif revision and revision.status == 'head_approved' %}
                 <a href="{{ url_for('csc.admin_revisions') }}" class="csc-action-link">
-                  <i class="bi bi-clipboard-check"></i> Publish in Secretary Workbench
+                  <i class="bi bi-clipboard-check"></i> Publish
                 </a>
                 {% elif revision %}
                 <span class="csc-action-link" style="cursor: default; color: var(--muted);">
@@ -656,6 +707,9 @@
 
   const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
   const rows = Array.from(document.querySelectorAll('#draftsTableBody tr'));
+  const tableWrap = document.querySelector('.csc-table-wrap');
+  const stickyScroll = document.getElementById('draftsHorizontalScroll');
+  const stickyScrollInner = document.getElementById('draftsHorizontalScrollInner');
   const statusFilter = document.getElementById('filterStatus');
   const subsetFilter = document.getElementById('filterSubset');
   const searchFilter = document.getElementById('filterSearch');
@@ -675,6 +729,42 @@
   const parameterScopeGroup = document.getElementById('parameterScopeGroup');
   const workflowTrackInputs = Array.from(document.querySelectorAll('input[name="workflowTrack"]'));
   let singleSelectionId = null;
+  let syncingHorizontalScroll = false;
+
+  function syncHorizontalScrollState() {
+    if (!tableWrap || !stickyScroll || !stickyScrollInner) {
+      return;
+    }
+    const hasOverflow = tableWrap.scrollWidth > tableWrap.clientWidth + 4;
+    stickyScroll.hidden = !hasOverflow;
+    if (!hasOverflow) {
+      stickyScroll.scrollLeft = 0;
+      return;
+    }
+    stickyScrollInner.style.width = tableWrap.scrollWidth + 'px';
+    if (Math.abs(stickyScroll.scrollLeft - tableWrap.scrollLeft) > 1) {
+      stickyScroll.scrollLeft = tableWrap.scrollLeft;
+    }
+  }
+
+  if (tableWrap && stickyScroll) {
+    tableWrap.addEventListener('scroll', function() {
+      if (syncingHorizontalScroll) return;
+      syncingHorizontalScroll = true;
+      stickyScroll.scrollLeft = tableWrap.scrollLeft;
+      syncingHorizontalScroll = false;
+    });
+
+    stickyScroll.addEventListener('scroll', function() {
+      if (syncingHorizontalScroll) return;
+      syncingHorizontalScroll = true;
+      tableWrap.scrollLeft = stickyScroll.scrollLeft;
+      syncingHorizontalScroll = false;
+    });
+
+    window.addEventListener('resize', syncHorizontalScrollState);
+    window.addEventListener('load', syncHorizontalScrollState);
+  }
 
   function showWorkflowDialog(options) {
     if (window.showAppDialog) {
@@ -719,6 +809,7 @@
       row.style.display = matchStatus && matchSubset && matchSearch ? '' : 'none';
     });
     renumberVisibleRows();
+    syncHorizontalScrollState();
   }
 
   function resetWorkflowScope() {
@@ -817,6 +908,7 @@
   subsetFilter?.addEventListener('change', applyFilters);
   searchFilter?.addEventListener('input', applyFilters);
   renumberVisibleRows();
+  syncHorizontalScrollState();
 
   openWorkflowPlanner?.addEventListener('click', function() {
     openWorkflowModal(null);
@@ -931,6 +1023,7 @@
 
   syncParameterScopeState();
   syncWorkflowCount();
+  syncHorizontalScrollState();
 })();
 </script>
 {% endblock %}

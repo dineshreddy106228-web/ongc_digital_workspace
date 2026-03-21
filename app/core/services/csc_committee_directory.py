@@ -29,6 +29,7 @@ ROOT_COMMITTEE = {
     "members_note": "Apex committee members are defined through the governing office order.",
     "office_orders": ["csc-governing-office-order"],
     "committee_user": "",
+    "committee_users": [],
     "committee_head": "",
 }
 
@@ -55,6 +56,7 @@ CHILD_COMMITTEES = [
         "members_note": "Members are notified through the applicable office order.",
         "office_orders": ["review-committees-corporate-specification"],
         "committee_user": "",
+        "committee_users": [],
         "committee_head": "",
     },
     {
@@ -71,6 +73,7 @@ CHILD_COMMITTEES = [
         "members_note": "Members are notified through the applicable office order.",
         "office_orders": ["review-committees-corporate-specification"],
         "committee_user": "",
+        "committee_users": [],
         "committee_head": "",
     },
     {
@@ -86,6 +89,7 @@ CHILD_COMMITTEES = [
         "members_note": "Members are notified through the applicable office order.",
         "office_orders": ["review-committees-corporate-specification"],
         "committee_user": "",
+        "committee_users": [],
         "committee_head": "",
     },
     {
@@ -102,6 +106,7 @@ CHILD_COMMITTEES = [
         "members_note": "Members are notified through the applicable office order.",
         "office_orders": ["review-committees-corporate-specification"],
         "committee_user": "",
+        "committee_users": [],
         "committee_head": "",
     },
     {
@@ -119,6 +124,7 @@ CHILD_COMMITTEES = [
         "members_note": "Members are notified through the applicable office order.",
         "office_orders": ["review-committees-corporate-specification"],
         "committee_user": "",
+        "committee_users": [],
         "committee_head": "",
     },
     {
@@ -142,6 +148,7 @@ CHILD_COMMITTEES = [
         "members_note": "Members are notified through the applicable office order.",
         "office_orders": ["storage-conditions-material-handling"],
         "committee_user": "",
+        "committee_users": [],
         "committee_head": "",
     },
 ]
@@ -205,7 +212,6 @@ def _normalize_committee_entry(committee: dict | None, fallback: dict | None) ->
         for order_slug in (base.get("office_orders") or [])
         if str(order_slug).strip()
     ]
-    base["committee_user"] = str(base.get("committee_user") or "").strip()
     base["committee_head"] = str(base.get("committee_head") or "").strip()
 
     normalized_subsets = []
@@ -219,6 +225,45 @@ def _normalize_committee_entry(committee: dict | None, fallback: dict | None) ->
         if code:
             normalized_subsets.append({"code": code, "label": label or code})
     base["subsets"] = normalized_subsets
+
+    all_subset_codes = [subset["code"] for subset in normalized_subsets]
+    incoming_assignments = base.get("committee_users") or []
+    if not incoming_assignments and str(base.get("committee_user") or "").strip():
+        incoming_assignments = [{"username": str(base.get("committee_user") or "").strip()}]
+
+    normalized_assignments = []
+    seen_usernames = set()
+    for entry in incoming_assignments:
+        if isinstance(entry, dict):
+            username = str(entry.get("username") or "").strip()
+            raw_subset_codes = entry.get("subset_codes") or []
+        else:
+            username = str(entry or "").strip()
+            raw_subset_codes = []
+        username_key = username.lower()
+        if not username or username_key in seen_usernames:
+            continue
+        seen_usernames.add(username_key)
+
+        subset_codes = []
+        for code in raw_subset_codes:
+            normalized_code = str(code or "").strip().upper()
+            if normalized_code and normalized_code in all_subset_codes and normalized_code not in subset_codes:
+                subset_codes.append(normalized_code)
+
+        normalized_assignments.append(
+            {
+                "username": username,
+                "subset_codes": subset_codes,
+            }
+        )
+        if len(normalized_assignments) >= 4:
+            break
+
+    base["committee_users"] = normalized_assignments
+    base["committee_user"] = (
+        normalized_assignments[0]["username"] if normalized_assignments else str(base.get("committee_user") or "").strip()
+    )
     return base
 
 
@@ -298,14 +343,27 @@ def get_committee_access_for_username(username: str | None) -> dict[str, object]
     committee_titles = []
 
     for committee in [payload["ROOT_COMMITTEE"], *payload["CHILD_COMMITTEES"]]:
-        committee_user = str(committee.get("committee_user") or "").strip().lower()
+        matched_committee_user = None
+        for assignment in committee.get("committee_users") or []:
+            assignment_username = str((assignment or {}).get("username") or "").strip().lower()
+            if assignment_username == username_key:
+                matched_committee_user = assignment or {}
+                break
         committee_head = str(committee.get("committee_head") or "").strip().lower()
-        if username_key not in {committee_user, committee_head}:
+        if matched_committee_user is None and username_key != committee_head:
             continue
 
         committee_slugs.append(committee.get("slug") or "")
         committee_titles.append(committee.get("title") or "")
-        for subset in committee.get("subsets") or []:
+        if matched_committee_user is not None and committee.get("slug") == "material-handling":
+            effective_subsets = [
+                {"code": code}
+                for code in ((matched_committee_user or {}).get("subset_codes") or [])
+            ]
+        else:
+            effective_subsets = committee.get("subsets") or []
+
+        for subset in effective_subsets:
             code = str((subset or {}).get("code") or "").strip().upper()
             if code:
                 subset_codes.add(code)

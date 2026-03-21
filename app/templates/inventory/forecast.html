@@ -15,7 +15,7 @@
             <h1 class="inv-module-title"><i class="bi bi-graph-up-arrow"></i> Demand Forecast</h1>
             <p class="inv-module-subtitle">
                 6-month demand forecast with a backtested percentile interval and monthly buffer plan.
-                Buffer = selected upper band &minus; selected lower band per month.
+                Buffer = P95 &minus; P50. Range Width = P95 &minus; P5.
             </p>
         </div>
         <div class="inv-header-actions">
@@ -119,7 +119,7 @@
                     <div class="card-body">
                         <h3 class="inv-section-heading" style="margin-bottom:0.25rem;">6-Month Demand Forecast</h3>
                         <p class="inv-card-subtitle" style="margin-bottom:0.75rem;">
-                            Use the <strong>P50</strong> quantity as the expected demand plan. The <strong>Buffer</strong> column is the gap between the selected lower and upper percentile forecasts.
+                            Use the <strong>P50</strong> quantity as the expected demand plan. The <strong>Buffer</strong> column shows upside protection above plan (<strong>P95 - P50</strong>). <strong>Range Width</strong> shows the full uncertainty spread (<strong>P95 - P5</strong>).
                         </p>
                         <div class="inv-expand-table-wrap">
                             <table class="inv-expand-table" id="forecastTable">
@@ -133,6 +133,9 @@
                                         <th class="text-right" id="forecastUpperHeader">Upper Band</th>
                                         <th class="text-right" id="forecastBufferHeader">
                                             Buffer
+                                        </th>
+                                        <th class="text-right" id="forecastRangeHeader">
+                                            Range Width
                                         </th>
                                     </tr>
                                 </thead>
@@ -167,6 +170,7 @@
 
     var API_MATERIALS = '{{ url_for("inventory.api_materials") }}';
     var API_ANALYTICS = '{{ url_for("inventory.api_analytics", material="__MAT__") }}';
+    var API_BACKTEST_EXPORT = '{{ url_for("inventory.forecast_backtest_export", material="__MAT__") }}';
     var plant = (new URLSearchParams(window.location.search)).get('plant') || '';
 
     var allMaterials = [];
@@ -294,14 +298,20 @@
         var upperLabel = f.selected_upper_label || 'Upper';
         document.getElementById('forecastLowerHeader').innerHTML = esc(lowerLabel) + ' <span class="inv-muted inv-small">(Lower)</span>';
         document.getElementById('forecastUpperHeader').innerHTML = esc(upperLabel) + ' <span class="inv-muted inv-small">(Upper)</span>';
-        document.getElementById('forecastBufferHeader').innerHTML = 'Buffer <span class="inv-muted inv-small">(' + esc(upperLabel) + '&minus;' + esc(lowerLabel) + ')</span>';
+        document.getElementById('forecastBufferHeader').innerHTML = 'Buffer <span class="inv-muted inv-small">(P95&minus;P50)</span>';
+        document.getElementById('forecastRangeHeader').innerHTML = 'Range Width <span class="inv-muted inv-small">(P95&minus;P5)</span>';
 
         document.getElementById('forecastKpiRow').innerHTML =
             kpiItem('Selected Band', selectedBandLabel || '—') +
+            kpiItem('Op Percentile', f.selected_percentile_label || 'P50') +
+            kpiItem('Confidence', (f.confidence_score != null ? fmtNum(f.confidence_score, 1) + ' · ' + esc(f.confidence_band || '') : '—')) +
             kpiItem(lowerLabel + ' Total', fmtNum(f.lower_total_qty, 2)) +
             kpiItem('P50 Total', fmtNum(f.p50_total_qty, 2)) +
+            kpiItem('Op 6M Total', fmtNum(f.selected_forecast_total_qty, 2)) +
             kpiItem(upperLabel + ' Total', fmtNum(f.upper_total_qty, 2)) +
-            kpiItem('6M Buffer', fmtNum(f.buffer_total_qty, 2));
+            kpiItem('6M Buffer', fmtNum(f.buffer_total_qty, 2)) +
+            kpiItem('Adj Buffer', fmtNum(f.confidence_adjusted_buffer_total_qty, 2)) +
+            kpiItem('6M Range Width', fmtNum(f.range_width_total_qty, 2));
 
         // ── Chart ────────────────────────────────────────────────────────
         var histLabels  = f.history_labels    || [];
@@ -401,21 +411,23 @@
         var rows = f.forecast_rows || [];
         var tbody = document.getElementById('forecastTableBody');
         if (!rows.length) {
-            tbody.innerHTML = '<tr><td colspan="5" class="inv-muted" style="text-align:center;padding:0.75rem;">No forecast rows.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" class="inv-muted" style="text-align:center;padding:0.75rem;">No forecast rows.</td></tr>';
         } else {
-            var lowerT = 0, p50T = 0, upperT = 0, bufT = 0;
+            var lowerT = 0, p50T = 0, upperT = 0, bufT = 0, rangeT = 0;
             var html = rows.map(function (row) {
                 var lower = row.lower_qty || 0;
                 var p50 = row.p50_qty || 0;
                 var upper = row.upper_qty || 0;
                 var buf = row.buffer_qty || 0;
-                lowerT += lower; p50T += p50; upperT += upper; bufT += buf;
+                var range = row.range_width_qty || 0;
+                lowerT += lower; p50T += p50; upperT += upper; bufT += buf; rangeT += range;
                 return '<tr>' +
                     '<td><strong>' + esc(row.period) + '</strong></td>' +
                     '<td class="text-right inv-num">' + fmtNum(lower, 2) + '</td>' +
                     '<td class="text-right inv-num" style="background:rgba(217,119,6,0.06);font-weight:600;">' + fmtNum(p50, 2) + '</td>' +
                     '<td class="text-right inv-num">' + fmtNum(upper, 2) + '</td>' +
                     '<td class="text-right inv-num" style="font-weight:600;color:#b45309;">' + fmtNum(buf, 2) + '</td>' +
+                    '<td class="text-right inv-num">' + fmtNum(range, 2) + '</td>' +
                     '</tr>';
             }).join('');
             html += '<tr style="border-top:2px solid rgba(15,23,42,0.15);font-weight:700;">' +
@@ -424,13 +436,18 @@
                 '<td class="text-right inv-num" style="background:rgba(217,119,6,0.06);">' + fmtNum(p50T, 2) + '</td>' +
                 '<td class="text-right inv-num">' + fmtNum(upperT, 2) + '</td>' +
                 '<td class="text-right inv-num" style="color:#b45309;">' + fmtNum(bufT, 2) + '</td>' +
+                '<td class="text-right inv-num">' + fmtNum(rangeT, 2) + '</td>' +
                 '</tr>';
             tbody.innerHTML = html;
         }
 
         // ── Backtest detail ──────────────────────────────────────────────
         var candidateBands = f.candidate_bands || [];
+        var backtestExportHref = API_BACKTEST_EXPORT.replace('__MAT__', encodeURIComponent(material)) + (plant ? '?plant=' + encodeURIComponent(plant) : '');
         var btHtml = '';
+        btHtml += '<div style="display:flex;justify-content:flex-end;margin-bottom:0.75rem;">' +
+            '<a class="btn btn-sm btn-outline-primary" href="' + backtestExportHref + '">' +
+            '<i class="bi bi-download"></i> Download Full Walk-Forward Excel</a></div>';
         if (f.band_selection_window_label) {
             btHtml += '<div class="inv-muted" style="margin-bottom:0.5rem;font-size:0.8125rem;">Backtest window: ' + esc(f.band_selection_window_label) + '</div>';
         }

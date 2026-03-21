@@ -140,9 +140,399 @@
   background: var(--surface);
   font-weight: 600;
 }
+.csc-library-actions {
+  display: inline-flex;
+  justify-content: flex-end;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
 .csc-library-action:hover {
   border-color: color-mix(in srgb, var(--primary) 28%, var(--border));
   background: color-mix(in srgb, var(--primary) 5%, transparent);
+}
+.csc-spec-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(15, 23, 42, 0.58);
+  padding: 1.5rem;
+}
+.csc-spec-modal.active {
+  display: block;
+}
+.csc-spec-modal-shell {
+  width: min(1320px, calc(100vw - 3rem));
+  max-height: calc(100vh - 3rem);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 4%, var(--surface)), var(--surface));
+  border: 1px solid color-mix(in srgb, var(--primary) 12%, var(--border));
+  border-radius: 22px;
+  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.24);
+  overflow: hidden;
+}
+.csc-spec-modal-header,
+.csc-spec-modal-footer {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+.csc-spec-modal-footer {
+  border-bottom: none;
+  border-top: 1px solid var(--border);
+  align-items: center;
+}
+.csc-spec-modal-title {
+  margin: 0;
+  font-size: 1.2rem;
+}
+.csc-spec-modal-subtitle {
+  margin: 0.3rem 0 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+.csc-spec-modal-close {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+.csc-spec-modal-body {
+  padding: 1.25rem;
+  overflow: auto;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--background) 28%, transparent), transparent 18%),
+    var(--surface-alt, #f8fafc);
+}
+.csc-spec-modal-loading,
+.csc-spec-modal-error {
+  padding: 3rem 1.25rem;
+  text-align: center;
+  color: var(--muted);
+}
+.csc-format-document {
+  display: grid;
+  gap: 1.5rem;
+}
+.csc-format-page {
+  width: min(100%, 920px);
+  margin: 0 auto;
+  background: #fff;
+  color: #111827;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.12);
+}
+.csc-format-page-primary {
+  padding: 2rem 2rem 2.5rem;
+}
+.csc-format-page-secondary {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1.2rem;
+  border: 1px solid color-mix(in srgb, var(--primary) 10%, var(--border));
+  border-radius: 22px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--primary) 3%, transparent), transparent 80%),
+    var(--surface);
+}
+.csc-format-doc-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  margin-bottom: 1.5rem;
+}
+.csc-format-brand-lockup {
+  min-width: 150px;
+}
+.csc-format-brand-wordmark {
+  font-size: 3rem;
+  line-height: 0.9;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+  background: linear-gradient(90deg, #d48c93 0%, #8fd17a 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.csc-format-brand-tag {
+  margin-top: 0.2rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #6b7280;
+}
+.csc-format-doc-title {
+  flex: 1;
+  padding-top: 0.4rem;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.05rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  text-align: center;
+  color: #6b7280;
+}
+.csc-format-sheet-frame {
+  min-height: 980px;
+  border: 4px solid #111;
+  padding: 2rem 1.6rem 2.6rem;
+}
+.csc-format-info-table,
+.csc-format-parameter-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.csc-format-info-table {
+  margin-bottom: 1rem;
+  font-family: Georgia, "Times New Roman", serif;
+}
+.csc-format-info-table th,
+.csc-format-info-table td {
+  border: 2px solid #111;
+  padding: 0.22rem 0.55rem;
+  font-size: 0.98rem;
+}
+.csc-format-info-table th {
+  width: 36%;
+  font-weight: 700;
+  text-transform: uppercase;
+  text-align: left;
+}
+.csc-format-info-table td {
+  font-weight: 700;
+  text-transform: uppercase;
+  text-align: center;
+}
+.csc-format-parameter-wrap {
+  overflow: auto;
+}
+.csc-format-parameter-table {
+  font-family: Georgia, "Times New Roman", serif;
+}
+.csc-format-parameter-table th,
+.csc-format-parameter-table td {
+  border: 2px solid #111;
+  padding: 0.24rem 0.48rem;
+  vertical-align: top;
+}
+.csc-format-parameter-table thead th {
+  font-size: 0.92rem;
+  font-weight: 700;
+  background: #fff;
+}
+.csc-format-parameter-table .is-serial {
+  width: 62px;
+  text-align: center;
+}
+.csc-format-parameter-table .is-separator {
+  width: 26px;
+  text-align: center;
+  font-weight: 700;
+}
+.csc-format-parameter-name,
+.csc-format-requirement {
+  font-size: 0.93rem;
+  font-weight: 700;
+  line-height: 1.22;
+}
+.csc-format-parameter-type {
+  font-style: italic;
+  font-weight: 500;
+  color: #4b5563;
+}
+.csc-format-parameter-note {
+  margin-top: 0.18rem;
+  font-size: 0.76rem;
+  line-height: 1.3;
+  color: #4b5563;
+}
+.csc-format-support-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid var(--border);
+}
+.csc-format-support-kicker {
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.csc-format-support-header h3 {
+  margin: 0.28rem 0 0;
+  font-size: 1.12rem;
+}
+.csc-format-support-meta {
+  display: inline-flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.csc-format-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.34rem 0.62rem;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  border: 1px solid color-mix(in srgb, var(--primary) 14%, var(--border));
+  background: color-mix(in srgb, var(--primary) 6%, transparent);
+  color: var(--text);
+}
+.csc-format-pill.is-published {
+  background: color-mix(in srgb, #10b981 12%, transparent);
+  color: #047857;
+  border-color: color-mix(in srgb, #10b981 24%, var(--border));
+}
+.csc-format-block {
+  border: 1px solid color-mix(in srgb, var(--primary) 10%, var(--border));
+  border-radius: 18px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.csc-format-block-head {
+  padding: 0.68rem 0.9rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--background) 82%, transparent);
+}
+.csc-format-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0.7rem;
+  padding: 0.85rem;
+}
+.csc-format-grid-compact {
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+}
+.csc-format-field {
+  display: grid;
+  gap: 0.28rem;
+  padding: 0.58rem 0.68rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 92%, var(--background));
+}
+.csc-format-label {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.csc-format-value {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+.csc-format-impact-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.65rem;
+  padding: 0.85rem;
+}
+.csc-format-impact-card {
+  display: grid;
+  gap: 0.24rem;
+  padding: 0.6rem 0.68rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 94%, var(--background));
+}
+.csc-format-impact-label {
+  font-size: 0.67rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.csc-format-impact-value {
+  font-size: 0.84rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text);
+}
+.csc-format-narrative {
+  display: grid;
+  gap: 0.7rem;
+  padding: 0.85rem;
+}
+.csc-format-section {
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 94%, var(--background));
+}
+.csc-format-section h4 {
+  margin: 0 0 0.55rem;
+  font-size: 0.88rem;
+}
+.csc-format-section pre,
+.csc-format-notes {
+  margin: 0;
+  font: inherit;
+  line-height: 1.48;
+  white-space: pre-wrap;
+  color: var(--text);
+  font-size: 0.84rem;
+}
+.csc-format-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+.csc-format-columns-compact {
+  gap: 0.85rem;
+}
+.csc-format-kv {
+  display: grid;
+  gap: 0.62rem;
+  padding: 0.85rem;
+}
+.csc-format-kv div {
+  display: grid;
+  gap: 0.24rem;
+  padding-bottom: 0.62rem;
+  border-bottom: 1px solid var(--border);
+}
+.csc-format-kv div:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.csc-format-kv dt {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.csc-format-kv dd {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.84rem;
+}
+.csc-format-empty {
+  padding: 0.85rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+.csc-format-notes {
+  padding: 0.85rem;
 }
 .csc-library-empty {
   padding: 3rem 1.25rem;
@@ -159,6 +549,36 @@
   .csc-library-input,
   .csc-library-select {
     width: 100%;
+  }
+  .csc-format-page-primary,
+  .csc-format-page-secondary {
+    width: 100%;
+  }
+  .csc-format-columns {
+    grid-template-columns: 1fr;
+  }
+  .csc-spec-modal {
+    padding: 0.75rem;
+  }
+  .csc-spec-modal-shell {
+    width: calc(100vw - 1.5rem);
+    max-height: calc(100vh - 1.5rem);
+  }
+  .csc-spec-modal-header,
+  .csc-spec-modal-body,
+  .csc-spec-modal-footer {
+    padding: 0.9rem;
+  }
+  .csc-format-doc-header,
+  .csc-format-support-header {
+    flex-direction: column;
+  }
+  .csc-format-page-primary {
+    padding: 1rem;
+  }
+  .csc-format-sheet-frame {
+    min-height: auto;
+    padding: 1rem 0.75rem 1.25rem;
   }
 }
 </style>
@@ -272,9 +692,18 @@
               </td>
               <td>{{ row.latest_published_at | datetime_ist('%d %b %Y, %H:%M') if row.latest_published_at else '—' }}</td>
               <td style="text-align:right;">
-                <a href="{{ url_for('csc.published_spec_detail', draft_id=draft.id) }}" class="csc-library-action">
-                  <i class="bi bi-diagram-3"></i> Open Version Map
-                </a>
+                <div class="csc-library-actions">
+                  <button
+                    type="button"
+                    class="csc-library-action js-open-spec-preview"
+                    data-preview-url="{{ url_for('csc.published_spec_preview', draft_id=draft.id) }}"
+                  >
+                    <i class="bi bi-file-earmark-text"></i> View Specification
+                  </button>
+                  <a href="{{ url_for('csc.published_spec_detail', draft_id=draft.id) }}" class="csc-library-action">
+                    <i class="bi bi-diagram-3"></i> Open Version Map
+                  </a>
+                </div>
               </td>
             </tr>
             {% endfor %}
@@ -290,6 +719,27 @@
     </section>
   </div>
 </div>
+
+<div id="publishedSpecModal" class="csc-spec-modal" aria-hidden="true">
+  <div class="csc-spec-modal-shell" role="dialog" aria-modal="true" aria-labelledby="publishedSpecModalTitle">
+    <div class="csc-spec-modal-header">
+      <div>
+        <h2 class="csc-spec-modal-title" id="publishedSpecModalTitle">Specification Preview</h2>
+        <p class="csc-spec-modal-subtitle" id="publishedSpecModalSubtitle">CSC Format A preview</p>
+      </div>
+      <button type="button" class="csc-spec-modal-close" id="publishedSpecModalClose" aria-label="Close specification preview">
+        <i class="bi bi-x-lg"></i>
+      </button>
+    </div>
+    <div class="csc-spec-modal-body" id="publishedSpecModalBody">
+      <div class="csc-spec-modal-loading">Loading specification preview…</div>
+    </div>
+    <div class="csc-spec-modal-footer">
+      <div class="csc-spec-modal-subtitle">Rendered from the current published CSC record.</div>
+      <button type="button" class="btn btn-secondary" id="publishedSpecModalDismiss">Close</button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts_extra %}
@@ -298,6 +748,13 @@
   const rows = Array.from(document.querySelectorAll('#publishedSpecsTableBody tr'));
   const subsetFilter = document.getElementById('publishedSpecSubset');
   const searchInput = document.getElementById('publishedSpecSearch');
+  const previewButtons = Array.from(document.querySelectorAll('.js-open-spec-preview'));
+  const previewModal = document.getElementById('publishedSpecModal');
+  const previewModalTitle = document.getElementById('publishedSpecModalTitle');
+  const previewModalSubtitle = document.getElementById('publishedSpecModalSubtitle');
+  const previewModalBody = document.getElementById('publishedSpecModalBody');
+  const closePreviewButton = document.getElementById('publishedSpecModalClose');
+  const dismissPreviewButton = document.getElementById('publishedSpecModalDismiss');
 
   function applyFilters() {
     const subset = (subsetFilter?.value || '').toLowerCase();
@@ -310,8 +767,59 @@
     });
   }
 
+  function closePreviewModal() {
+    previewModal?.classList.remove('active');
+    previewModal?.setAttribute('aria-hidden', 'true');
+    if (previewModalBody) {
+      previewModalBody.innerHTML = '<div class="csc-spec-modal-loading">Loading specification preview…</div>';
+    }
+  }
+
+  function openPreviewModal(button) {
+    const previewUrl = button?.dataset.previewUrl;
+    if (!previewUrl || !previewModal) {
+      return;
+    }
+    previewModal.classList.add('active');
+    previewModal.setAttribute('aria-hidden', 'false');
+    previewModalTitle.textContent = 'Specification Preview';
+    previewModalSubtitle.textContent = 'Loading CSC Format A preview…';
+    previewModalBody.innerHTML = '<div class="csc-spec-modal-loading">Loading specification preview…</div>';
+
+    fetch(previewUrl, {
+      headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+      .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
+      .then(({ ok, data }) => {
+        if (!ok || !data.success) {
+          throw new Error(data.error || 'Failed to load the specification preview.');
+        }
+        previewModalTitle.textContent = data.title || 'Specification Preview';
+        previewModalSubtitle.textContent = data.subtitle || 'CSC Format A preview';
+        previewModalBody.innerHTML = data.html || '<div class="csc-spec-modal-error">No preview data available.</div>';
+      })
+      .catch((error) => {
+        previewModalBody.innerHTML = '<div class="csc-spec-modal-error">' + error.message + '</div>';
+      });
+  }
+
   subsetFilter?.addEventListener('change', applyFilters);
   searchInput?.addEventListener('input', applyFilters);
+  previewButtons.forEach((button) => {
+    button.addEventListener('click', () => openPreviewModal(button));
+  });
+  closePreviewButton?.addEventListener('click', closePreviewModal);
+  dismissPreviewButton?.addEventListener('click', closePreviewModal);
+  previewModal?.addEventListener('click', (event) => {
+    if (event.target === previewModal) {
+      closePreviewModal();
+    }
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && previewModal?.classList.contains('active')) {
+      closePreviewModal();
+    }
+  });
 })();
 </script>
 {% endblock %}

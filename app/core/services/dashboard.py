@@ -256,7 +256,9 @@ def _build_module_showcase(user, app=None) -> list[dict]:
         if definition is None:
             continue
 
-        if key == "inventory":
+        feature_ready = is_module_enabled(key, app) and is_module_registered(key, app)
+
+        if key == "inventory" and not feature_ready:
             cards.append(
                 {
                     "key": key,
@@ -273,7 +275,6 @@ def _build_module_showcase(user, app=None) -> list[dict]:
             )
             continue
 
-        feature_ready = is_module_enabled(key, app) and is_module_registered(key, app)
         clickable = user_can_access_module(key, user, app)
         cards.append(
             {

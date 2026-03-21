@@ -277,7 +277,9 @@
             const actionHtml = draft.can_edit
                 ? '<a href="' + editorUrlBase + draft.id + '" class="csc-action-btn"><i class="bi bi-pencil"></i> Edit</a>'
                 : '<span class="csc-action-note">' + (
-                    (draft.drafting_status || '').toLowerCase() === 'submitted'
+                    draft.locked_by_other
+                        ? ('Under drafting by ' + (draft.locked_by_label || 'another user'))
+                        : (draft.drafting_status || '').toLowerCase() === 'submitted'
                         ? 'Under Committee Head Review'
                         : 'Awaiting Secretary Action'
                 ) + '</span>';
