@@ -89,6 +89,11 @@ def superuser_dashboard():
         .all()
     )
     reporting_organogram = _build_user_organogram(reporting_users)
+    reporting_organogram = [
+        office
+        for office in reporting_organogram
+        if int(office.get("mapped_users") or 0) > 0
+    ]
     last_refreshed = datetime.now(timezone.utc).astimezone(INDIA_TIMEZONE)
     return render_template(
         "main/superuser_dashboard.html",
