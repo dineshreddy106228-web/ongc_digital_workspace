@@ -4,12 +4,193 @@
 
 {% block head_extra %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+<style>
+  .committee-control-card,
+  .committee-spotlight-card,
+  .committee-empty-card {
+    margin-bottom: 1rem;
+  }
+  .committee-control-shell {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    align-items: end;
+  }
+  .committee-control-copy {
+    max-width: 48rem;
+  }
+  .committee-control-kicker {
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-text-muted, #6b7280);
+    margin-bottom: 0.35rem;
+  }
+  .committee-control-title {
+    margin: 0;
+    font-size: 1.2rem;
+  }
+  .committee-control-subtitle {
+    margin: 0.35rem 0 0;
+    color: var(--color-text-muted, #6b7280);
+  }
+  .committee-filter-inline-form {
+    display: flex;
+    gap: 0.85rem;
+    flex-wrap: wrap;
+    align-items: end;
+  }
+  .committee-filter-inline-form .form-group {
+    min-width: 20rem;
+    margin: 0;
+  }
+  .committee-spotlight-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(20rem, 0.9fr);
+    gap: 1.25rem;
+  }
+  .committee-spotlight-panel {
+    border: 1px solid var(--border-color, rgba(15, 23, 42, 0.08));
+    border-radius: 20px;
+    padding: 1.1rem 1.15rem;
+    background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(247,249,252,0.96));
+  }
+  .committee-spotlight-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: start;
+    margin-bottom: 0.9rem;
+  }
+  .committee-spotlight-kind {
+    display: inline-flex;
+    padding: 0.25rem 0.6rem;
+    border-radius: 999px;
+    background: rgba(37, 99, 235, 0.08);
+    color: #1d4ed8;
+    font-size: 0.76rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .committee-spotlight-name {
+    margin: 0.35rem 0 0;
+    font-size: 1.45rem;
+    line-height: 1.2;
+  }
+  .committee-spotlight-summary {
+    margin: 0;
+    color: var(--color-text-muted, #6b7280);
+    max-width: 46rem;
+  }
+  .committee-spotlight-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.85rem;
+    margin-top: 1rem;
+  }
+  .committee-spotlight-stat {
+    border: 1px solid var(--border-color, rgba(15, 23, 42, 0.08));
+    border-radius: 16px;
+    padding: 0.85rem 0.9rem;
+    background: rgba(255,255,255,0.82);
+  }
+  .committee-spotlight-stat-label {
+    display: block;
+    font-size: 0.78rem;
+    color: var(--color-text-muted, #6b7280);
+    margin-bottom: 0.25rem;
+  }
+  .committee-spotlight-stat-value {
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: var(--color-text-strong, #0f172a);
+  }
+  .committee-spotlight-section + .committee-spotlight-section {
+    margin-top: 1rem;
+  }
+  .committee-spotlight-section-title {
+    margin: 0 0 0.55rem;
+    font-size: 0.84rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--color-text-muted, #6b7280);
+  }
+  .committee-spotlight-chip-row,
+  .committee-spotlight-order-row {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+  .committee-spotlight-chip,
+  .committee-spotlight-order {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.35rem 0.7rem;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.06);
+    color: var(--color-text-strong, #0f172a);
+    font-size: 0.82rem;
+    font-weight: 600;
+  }
+  .committee-spotlight-member-list {
+    display: grid;
+    gap: 0.65rem;
+  }
+  .committee-spotlight-member {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: center;
+    padding: 0.8rem 0.9rem;
+    border-radius: 14px;
+    background: rgba(15, 23, 42, 0.04);
+  }
+  .committee-spotlight-member strong,
+  .committee-spotlight-lead-value {
+    color: var(--color-text-strong, #0f172a);
+  }
+  .committee-spotlight-member span,
+  .committee-spotlight-lead-label,
+  .committee-spotlight-empty {
+    color: var(--color-text-muted, #6b7280);
+  }
+  .committee-spotlight-lead {
+    display: grid;
+    gap: 0.35rem;
+  }
+  .committee-task-context {
+    margin-bottom: 0.85rem;
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--border-color, rgba(15, 23, 42, 0.08));
+    border-radius: 14px;
+    background: rgba(37, 99, 235, 0.05);
+    color: var(--color-text-muted, #475569);
+  }
+  .committee-task-context strong {
+    color: var(--color-text-strong, #0f172a);
+  }
+  @media (max-width: 980px) {
+    .committee-spotlight-shell {
+      grid-template-columns: 1fr;
+    }
+    .committee-spotlight-stat-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .committee-filter-inline-form .form-group {
+      min-width: 100%;
+    }
+  }
+</style>
 {% endblock %}
 
 {% block content %}
 <div class="page-wrapper">
 
-  {% call page_header("Committee Management", "Review all mapped committees and track committee work from a single landing page.", "Committee", directory_summary.total ~ " Committees", "info") %}
+  {% call page_header("Committee Management", "Review committee assignments through a mapped, filter-driven workbench and manage committee tasks from one place.", "Committee", directory_summary.total ~ " Visible Committees", "info") %}
     {% if can_create %}
     <a href="{{ url_for('committee.create_task') }}" class="btn btn-primary btn-sm">
       <i class="bi bi-plus-lg"></i>
@@ -54,81 +235,152 @@
       <div class="committee-section-head">
         <div>
           <h2 class="committee-section-title">Mapped Committees</h2>
-          <p class="committee-section-subtitle">Current committee structures, heads, and mapped member coverage.</p>
+          <p class="committee-section-subtitle">One committee at a time, scoped to the committees mapped with the signed-in user unless the viewer is privileged.</p>
         </div>
         <div class="committee-directory-totals">
-          <span class="status-pill status-pill-info">{{ directory_summary.total }} live committees</span>
-          <span class="committee-directory-inline-meta">{{ directory_summary.linked_orders }} office-order links</span>
+          <span class="status-pill status-pill-info">{{ directory_summary.total }} visible committees</span>
+          {% if can_view_all_committees %}
+          <span class="committee-directory-inline-meta">{{ directory_summary_all.total }} total configured</span>
+          {% endif %}
         </div>
       </div>
 
-      <div class="committee-directory-grid">
-        {% for committee in committee_directory %}
-        <article class="committee-directory-item committee-tone-{{ committee.tone }}">
-          <div class="committee-directory-item-head">
-            <div>
-              <span class="committee-directory-kind">{{ committee.kind }}</span>
-              <h3 class="committee-directory-name">{{ committee.title }}</h3>
-            </div>
-            <span class="committee-directory-count">{{ committee.member_count }} member{{ '' if committee.member_count == 1 else 's' }}</span>
-          </div>
-
-          <p class="committee-directory-summary">{{ committee.summary }}</p>
-
-          <dl class="committee-directory-meta-grid">
-            <div class="committee-directory-meta-item">
-              <dt>Committee Head</dt>
-              <dd>{{ committee.head_name }}</dd>
-            </div>
-            <div class="committee-directory-meta-item">
-              <dt>Subset Coverage</dt>
-              <dd>{{ committee.subset_count }}</dd>
-            </div>
-            <div class="committee-directory-meta-item">
-              <dt>Mapped Members</dt>
-              <dd>{{ committee.member_count }}</dd>
-            </div>
-            <div class="committee-directory-meta-item">
-              <dt>Office Orders</dt>
-              <dd>{{ committee.office_order_count }}</dd>
-            </div>
-          </dl>
-
-          <div class="committee-directory-detail-block">
-            <div class="committee-directory-detail-label">Coverage</div>
-            {% if committee.subset_labels %}
-            <div class="committee-directory-chip-row">
-              {% for label in committee.subset_labels %}
-              <span class="committee-directory-chip">{{ label }}</span>
-              {% endfor %}
-            </div>
-            {% else %}
-            <p class="committee-directory-empty">Committee-wide coverage.</p>
-            {% endif %}
-          </div>
-
-          <div class="committee-directory-detail-block">
-            <div class="committee-directory-detail-label">Mapped Members</div>
-            {% if committee.member_assignments %}
-            <div class="committee-directory-member-list">
-              {% for member in committee.member_assignments %}
-              <div class="committee-directory-member">
-                <strong>{{ member.name }}</strong>
-                {% if member.subset_codes %}
-                <span>{{ member.subset_codes|join(', ') }}</span>
+      <div class="card committee-control-card">
+        <div class="card-body">
+          <div class="committee-control-shell">
+            <div class="committee-control-copy">
+              <div class="committee-control-kicker">Committee Selector</div>
+              <h3 class="committee-control-title">
+                {% if can_view_all_committees %}
+                Filter across all committees
                 {% else %}
-                <span>General coverage</span>
+                Filter across your mapped committees
+                {% endif %}
+              </h3>
+              <p class="committee-control-subtitle">
+                {% if can_view_all_committees %}
+                Super users and admins can move across the full directory. Standard committee users only see committees explicitly mapped to them.
+                {% else %}
+                Only committees mapped to your username are available here. The workbench shows a single committee profile at a time.
+                {% endif %}
+              </p>
+            </div>
+            <form method="GET" action="{{ url_for('committee.list_tasks') }}" class="committee-filter-inline-form">
+              <div class="form-group">
+                <label class="form-label" for="committeeFilter">Committee</label>
+                <select name="committee" id="committeeFilter" class="form-control" onchange="this.form.submit()" {{ 'disabled' if not committee_filter_options }}>
+                  {% if not committee_filter_options %}
+                  <option value="">No mapped committees</option>
+                  {% endif %}
+                  {% for option in committee_filter_options %}
+                  <option value="{{ option.slug }}" {{ 'selected' if filters.committee == option.slug }}>{{ option.title }} · {{ option.kind }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <noscript>
+                <button type="submit" class="btn btn-secondary btn-sm">Open Committee</button>
+              </noscript>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      {% if selected_committee %}
+      <article class="card committee-spotlight-card committee-tone-{{ selected_committee.tone }}">
+        <div class="card-body">
+          <div class="committee-spotlight-shell">
+            <div class="committee-spotlight-panel">
+              <div class="committee-spotlight-head">
+                <div>
+                  <span class="committee-spotlight-kind">{{ selected_committee.kind }}</span>
+                  <h3 class="committee-spotlight-name">{{ selected_committee.title }}</h3>
+                </div>
+                <span class="status-pill status-pill-info">{{ selected_committee.member_count }} mapped member{{ '' if selected_committee.member_count == 1 else 's' }}</span>
+              </div>
+              <p class="committee-spotlight-summary">{{ selected_committee.summary }}</p>
+
+              <div class="committee-spotlight-stat-grid">
+                <div class="committee-spotlight-stat">
+                  <span class="committee-spotlight-stat-label">Committee Head</span>
+                  <span class="committee-spotlight-stat-value">{{ selected_committee.head_name }}</span>
+                </div>
+                <div class="committee-spotlight-stat">
+                  <span class="committee-spotlight-stat-label">Subset Coverage</span>
+                  <span class="committee-spotlight-stat-value">{{ selected_committee.subset_count }}</span>
+                </div>
+                <div class="committee-spotlight-stat">
+                  <span class="committee-spotlight-stat-label">Mapped Members</span>
+                  <span class="committee-spotlight-stat-value">{{ selected_committee.member_count }}</span>
+                </div>
+                <div class="committee-spotlight-stat">
+                  <span class="committee-spotlight-stat-label">Office Orders</span>
+                  <span class="committee-spotlight-stat-value">{{ selected_committee.office_order_count }}</span>
+                </div>
+              </div>
+
+              <div class="committee-spotlight-section">
+                <h4 class="committee-spotlight-section-title">Coverage</h4>
+                {% if selected_committee.subset_labels %}
+                <div class="committee-spotlight-chip-row">
+                  {% for label in selected_committee.subset_labels %}
+                  <span class="committee-spotlight-chip">{{ label }}</span>
+                  {% endfor %}
+                </div>
+                {% else %}
+                <p class="committee-spotlight-empty">Committee-wide coverage.</p>
                 {% endif %}
               </div>
-              {% endfor %}
             </div>
-            {% else %}
-            <p class="committee-directory-empty">No mapped members yet.</p>
-            {% endif %}
+
+            <div class="committee-spotlight-panel">
+              <div class="committee-spotlight-section">
+                <h4 class="committee-spotlight-section-title">Leadership</h4>
+                <div class="committee-spotlight-lead">
+                  <span class="committee-spotlight-lead-label">Assigned Committee Head</span>
+                  <strong class="committee-spotlight-lead-value">{{ selected_committee.head_name }}</strong>
+                </div>
+              </div>
+
+              <div class="committee-spotlight-section">
+                <h4 class="committee-spotlight-section-title">Mapped Members</h4>
+                {% if selected_committee.member_assignments %}
+                <div class="committee-spotlight-member-list">
+                  {% for member in selected_committee.member_assignments %}
+                  <div class="committee-spotlight-member">
+                    <strong>{{ member.name }}</strong>
+                    <span>{{ member.subset_codes|join(', ') if member.subset_codes else 'General coverage' }}</span>
+                  </div>
+                  {% endfor %}
+                </div>
+                {% else %}
+                <p class="committee-spotlight-empty">No mapped members are configured for this committee yet.</p>
+                {% endif %}
+              </div>
+
+              <div class="committee-spotlight-section">
+                <h4 class="committee-spotlight-section-title">Office Order Links</h4>
+                {% if selected_committee.office_orders %}
+                <div class="committee-spotlight-order-row">
+                  {% for order_slug in selected_committee.office_orders %}
+                  <span class="committee-spotlight-order">{{ order_slug }}</span>
+                  {% endfor %}
+                </div>
+                {% else %}
+                <p class="committee-spotlight-empty">No office-order references linked.</p>
+                {% endif %}
+              </div>
+            </div>
           </div>
-        </article>
-        {% endfor %}
-      </div>
+        </div>
+      </article>
+      {% else %}
+      <article class="card committee-empty-card">
+        <div class="card-body">
+          <h3 class="committee-control-title">No mapped committees available</h3>
+          <p class="committee-control-subtitle">No committee mapping is currently assigned to this user in the committee directory.</p>
+        </div>
+      </article>
+      {% endif %}
     </div>
   </section>
 
@@ -147,6 +399,7 @@
     <div class="card committee-filter-card">
       <div class="card-body">
         <form method="GET" action="{{ url_for('committee.list_tasks') }}" class="committee-filter-form">
+          <input type="hidden" name="committee" value="{{ filters.committee }}">
           <div class="form-row">
             <div class="form-group">
               <label class="form-label" for="statusFilter">Status</label>
@@ -193,11 +446,22 @@
 
           <div class="task-form-actions committee-filter-actions">
             <button type="submit" class="btn btn-secondary btn-sm">Apply Filters</button>
+            {% if filters.committee %}
+            <a href="{{ url_for('committee.list_tasks', committee=filters.committee) }}" class="btn btn-secondary btn-sm">Clear</a>
+            {% else %}
             <a href="{{ url_for('committee.list_tasks') }}" class="btn btn-secondary btn-sm">Clear</a>
+            {% endif %}
           </div>
         </form>
       </div>
     </div>
+
+    {% if selected_committee %}
+    <div class="committee-task-context">
+      <strong>Committee in focus:</strong> {{ selected_committee.title }}.
+      The task table remains committee-workspace scoped; the selector above controls the mapped-committee profile being reviewed.
+    </div>
+    {% endif %}
 
     <div class="card committee-table-card">
       <div class="table-wrapper">

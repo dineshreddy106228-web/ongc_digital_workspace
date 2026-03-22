@@ -216,6 +216,22 @@ def _display_user_name(user: User | None, fallback: str | None = None) -> str:
     return str(fallback or "—").strip() or "—"
 
 
+def _username_key(value: str | None) -> str:
+    return str(value or "").strip().lower()
+
+
+def _committee_is_mapped_to_username(committee: dict[str, object], username: str | None) -> bool:
+    username_key = _username_key(username)
+    if not username_key:
+        return False
+    if _username_key(committee.get("committee_head")) == username_key:
+        return True
+    for assignment in committee.get("committee_users") or []:
+        if _username_key((assignment or {}).get("username")) == username_key:
+            return True
+    return False
+
+
 def _build_committee_directory_context() -> tuple[list[dict], dict[str, int]]:
     directory = get_committee_directory()
     mapped_usernames = set()
@@ -283,6 +299,10 @@ def _build_committee_directory_context() -> tuple[list[dict], dict[str, int]]:
             for order_slug in (committee.get("office_orders") or [])
             if str(order_slug).strip()
         ]
+        is_mapped_to_current_user = _committee_is_mapped_to_username(
+            committee,
+            getattr(current_user, "username", ""),
+        )
         linked_orders += len(office_orders)
 
         committee_cards.append(
@@ -298,6 +318,8 @@ def _build_committee_directory_context() -> tuple[list[dict], dict[str, int]]:
                 "subset_labels": subset_labels,
                 "subset_count": len(subset_labels),
                 "office_order_count": len(office_orders),
+                "office_orders": office_orders,
+                "is_mapped_to_current_user": is_mapped_to_current_user,
             }
         )
 
@@ -309,6 +331,48 @@ def _build_committee_directory_context() -> tuple[list[dict], dict[str, int]]:
     }
 
 
+def _scoped_committee_directory_view(
+    committee_directory: list[dict],
+    selected_slug: str | None,
+) -> tuple[list[dict], dict[str, int], list[dict], dict | None, str]:
+    can_view_all = _is_superuser() or _is_admin()
+    visible_committees = (
+        list(committee_directory)
+        if can_view_all
+        else [committee for committee in committee_directory if committee.get("is_mapped_to_current_user")]
+    )
+    visible_committees.sort(key=lambda committee: str(committee.get("title") or "").lower())
+
+    visible_summary = {
+        "total": len(visible_committees),
+        "mapped_heads": sum(1 for committee in visible_committees if committee.get("head_name") and committee.get("head_name") != "Not assigned"),
+        "mapped_members": sum(int(committee.get("member_count") or 0) for committee in visible_committees),
+        "linked_orders": sum(int(committee.get("office_order_count") or 0) for committee in visible_committees),
+    }
+
+    filter_options = [
+        {
+            "slug": str(committee.get("slug") or ""),
+            "title": str(committee.get("title") or "Committee"),
+            "kind": str(committee.get("kind") or "Committee"),
+        }
+        for committee in visible_committees
+        if str(committee.get("slug") or "").strip()
+    ]
+
+    selected_slug = str(selected_slug or "").strip()
+    valid_slugs = {option["slug"] for option in filter_options}
+    if selected_slug not in valid_slugs and filter_options:
+        selected_slug = filter_options[0]["slug"]
+
+    selected_committee = next(
+        (committee for committee in visible_committees if committee.get("slug") == selected_slug),
+        None,
+    )
+
+    return visible_committees, visible_summary, filter_options, selected_committee, selected_slug
+
+
 # ── List Tasks ────────────────────────────────────────────────────
 
 @bp.route("/")
@@ -316,6 +380,7 @@ def _build_committee_directory_context() -> tuple[list[dict], dict[str, int]]:
 @login_required
 @committee_access_required()
 def list_tasks():
+    committee_filter = request.args.get("committee", "").strip()
     status_filter = request.args.get("status", "").strip().lower()
     priority_filter = request.args.get("priority", "").strip().lower()
     office_filter = request.args.get("office_id", "").strip()
@@ -358,17 +423,31 @@ def list_tasks():
     tasks = query.order_by(CommitteeTask.created_at.desc()).all()
     offices = Office.query.filter_by(is_active=True).order_by(Office.office_name).all()
     committee_directory, directory_summary = _build_committee_directory_context()
+    (
+        visible_committee_directory,
+        visible_directory_summary,
+        committee_filter_options,
+        selected_committee,
+        selected_committee_slug,
+    ) = _scoped_committee_directory_view(
+        committee_directory,
+        committee_filter,
+    )
 
     return render_template(
         "committee/list.html",
         tasks=tasks,
         summary=_build_list_summary(tasks),
-        committee_directory=committee_directory,
-        directory_summary=directory_summary,
+        committee_directory=visible_committee_directory,
+        directory_summary=visible_directory_summary,
+        directory_summary_all=directory_summary,
+        committee_filter_options=committee_filter_options,
+        selected_committee=selected_committee,
         offices=offices,
         statuses=COMMITTEE_STATUSES,
         priorities=COMMITTEE_PRIORITIES,
         filters={
+            "committee": selected_committee_slug,
             "status": status_filter,
             "priority": priority_filter,
             "office_id": office_filter,
@@ -378,6 +457,7 @@ def list_tasks():
         can_create=_can_create_task(),
         is_admin=_is_admin(),
         is_superuser=_is_superuser(),
+        can_view_all_committees=_is_superuser() or _is_admin(),
     )
 
 
