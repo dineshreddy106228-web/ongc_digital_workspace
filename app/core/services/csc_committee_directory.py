@@ -186,6 +186,13 @@ DEFAULT_COMMITTEE_BY_SLUG = {
     committee["slug"]: json.loads(json.dumps(committee))
     for committee in [DEFAULT_ROOT_COMMITTEE, *DEFAULT_CHILD_COMMITTEES]
 }
+CANONICAL_COMMITTEE_TITLES = {
+    "coordination": "Governance Committee",
+    "committee-1": "Specification Review Committee 1",
+    "committee-2": "Specification Review Committee 2",
+    "committee-3": "Specification Review Committee 3",
+    "committee-4": "Specification Review Committee 4",
+}
 
 
 def _clone_json(value):
@@ -199,8 +206,9 @@ def _normalize_committee_entry(committee: dict | None, fallback: dict | None) ->
         if value is not None:
             base[key] = value
 
-    if base.get("slug") == "coordination":
-        base["title"] = "Governance Committee"
+    slug = str(base.get("slug") or "").strip()
+    if slug in CANONICAL_COMMITTEE_TITLES:
+        base["title"] = CANONICAL_COMMITTEE_TITLES[slug]
 
     base["members"] = [
         str(member).strip()
