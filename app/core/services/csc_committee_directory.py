@@ -61,7 +61,7 @@ CHILD_COMMITTEES = [
     },
     {
         "slug": "committee-1",
-        "title": "Material Subset Management Committee 1",
+        "title": "Specification Review Committee 1",
         "kind": "Subset Committee",
         "tone": "blue",
         "summary": "Oversight for drilling fluid and cement-related master materials.",
@@ -78,7 +78,7 @@ CHILD_COMMITTEES = [
     },
     {
         "slug": "committee-2",
-        "title": "Material Subset Management Committee 2",
+        "title": "Specification Review Committee 2",
         "kind": "Subset Committee",
         "tone": "green",
         "summary": "Oversight for well stimulation materials.",
@@ -94,7 +94,7 @@ CHILD_COMMITTEES = [
     },
     {
         "slug": "committee-3",
-        "title": "Material Subset Management Committee 3",
+        "title": "Specification Review Committee 3",
         "kind": "Subset Committee",
         "tone": "teal",
         "summary": "Oversight for production and water injection chemicals.",
@@ -111,7 +111,7 @@ CHILD_COMMITTEES = [
     },
     {
         "slug": "committee-4",
-        "title": "Material Subset Management Committee 4",
+        "title": "Specification Review Committee 4",
         "kind": "Subset Committee",
         "tone": "amber",
         "summary": "Oversight for well maker, utility, and LPG plant chemicals.",

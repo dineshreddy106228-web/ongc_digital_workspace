@@ -98,7 +98,7 @@
   </div>
 
   <!-- Status Update (inline) -->
-  {% if can_interact %}
+  {% if can_change_status %}
   <div class="card" style="margin-bottom: 1.25rem;">
     <div class="card-body">
       <div class="section-heading">
@@ -163,11 +163,11 @@
   </div>
 
   <!-- Add Comment Form -->
-  {% if can_interact %}
+  {% if can_add_update %}
   <div class="card">
     <div class="card-body">
       <div class="section-heading">
-        <h2 class="section-heading-title">Add Comment</h2>
+        <h2 class="section-heading-title">Add Update</h2>
       </div>
       <form id="committee-comment-form" method="POST" action="{{ url_for('committee.add_comment', task_id=task.id) }}" enctype="multipart/form-data">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

@@ -22,6 +22,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.utils import secure_filename
 
 from app.extensions import db
+from app.core.services.csc_committee_directory import get_committee_directory
 from app.models.committee.committee_task import CommitteeTask
 from app.models.committee.committee_task_member import CommitteeTaskMember
 from app.models.committee.task_comment import TaskComment
@@ -68,6 +69,22 @@ def _can_access_all_offices() -> bool:
 
 def _is_member_of_task(task: CommitteeTask) -> bool:
     return any(m.user_id == current_user.id for m in task.members)
+
+
+def _can_create_task() -> bool:
+    return _is_superuser()
+
+
+def _can_edit_task() -> bool:
+    return _is_superuser()
+
+
+def _can_change_task_status() -> bool:
+    return _is_superuser()
+
+
+def _can_add_task_update(task: CommitteeTask) -> bool:
+    return _is_superuser() or _is_member_of_task(task)
 
 
 def _upload_dir() -> str:
@@ -193,6 +210,105 @@ def _build_list_summary(tasks: list[CommitteeTask]) -> dict[str, int]:
     }
 
 
+def _display_user_name(user: User | None, fallback: str | None = None) -> str:
+    if user is not None:
+        return (user.full_name or user.username or fallback or "—").strip()
+    return str(fallback or "—").strip() or "—"
+
+
+def _build_committee_directory_context() -> tuple[list[dict], dict[str, int]]:
+    directory = get_committee_directory()
+    mapped_usernames = set()
+
+    for committee in directory:
+        committee_head = str(committee.get("committee_head") or "").strip()
+        if committee_head:
+            mapped_usernames.add(committee_head)
+        for assignment in committee.get("committee_users") or []:
+            username = str((assignment or {}).get("username") or "").strip()
+            if username:
+                mapped_usernames.add(username)
+
+    user_lookup = {}
+    if mapped_usernames:
+        mapped_users = (
+            User.query.filter(
+                User.username.in_(sorted(mapped_usernames)),
+            )
+            .all()
+        )
+        user_lookup = {
+            (user.username or "").strip().lower(): user
+            for user in mapped_users
+            if (user.username or "").strip()
+        }
+
+    committee_cards = []
+    mapped_heads = 0
+    mapped_members = 0
+    linked_orders = 0
+
+    for committee in directory:
+        committee_head_username = str(committee.get("committee_head") or "").strip()
+        committee_head_user = user_lookup.get(committee_head_username.lower()) if committee_head_username else None
+        if committee_head_username:
+            mapped_heads += 1
+
+        subset_labels = [
+            str((subset or {}).get("label") or (subset or {}).get("code") or "").strip()
+            for subset in (committee.get("subsets") or [])
+            if str((subset or {}).get("label") or (subset or {}).get("code") or "").strip()
+        ]
+
+        member_assignments = []
+        for assignment in committee.get("committee_users") or []:
+            username = str((assignment or {}).get("username") or "").strip()
+            if not username:
+                continue
+            member_user = user_lookup.get(username.lower())
+            member_assignments.append(
+                {
+                    "name": _display_user_name(member_user, username),
+                    "subset_codes": [
+                        str(code).strip().upper()
+                        for code in ((assignment or {}).get("subset_codes") or [])
+                        if str(code).strip()
+                    ],
+                }
+            )
+
+        mapped_members += len(member_assignments)
+        office_orders = [
+            str(order_slug).strip()
+            for order_slug in (committee.get("office_orders") or [])
+            if str(order_slug).strip()
+        ]
+        linked_orders += len(office_orders)
+
+        committee_cards.append(
+            {
+                "slug": committee.get("slug") or "",
+                "title": committee.get("title") or "Committee",
+                "kind": committee.get("kind") or "Committee",
+                "tone": committee.get("tone") or "indigo",
+                "summary": committee.get("summary") or "",
+                "head_name": _display_user_name(committee_head_user, committee_head_username or "Not assigned"),
+                "member_assignments": member_assignments,
+                "member_count": len(member_assignments),
+                "subset_labels": subset_labels,
+                "subset_count": len(subset_labels),
+                "office_order_count": len(office_orders),
+            }
+        )
+
+    return committee_cards, {
+        "total": len(committee_cards),
+        "mapped_heads": mapped_heads,
+        "mapped_members": mapped_members,
+        "linked_orders": linked_orders,
+    }
+
+
 # ── List Tasks ────────────────────────────────────────────────────
 
 @bp.route("/")
@@ -241,11 +357,14 @@ def list_tasks():
 
     tasks = query.order_by(CommitteeTask.created_at.desc()).all()
     offices = Office.query.filter_by(is_active=True).order_by(Office.office_name).all()
+    committee_directory, directory_summary = _build_committee_directory_context()
 
     return render_template(
         "committee/list.html",
         tasks=tasks,
         summary=_build_list_summary(tasks),
+        committee_directory=committee_directory,
+        directory_summary=directory_summary,
         offices=offices,
         statuses=COMMITTEE_STATUSES,
         priorities=COMMITTEE_PRIORITIES,
@@ -256,7 +375,7 @@ def list_tasks():
             "due_from": due_from,
             "due_to": due_to,
         },
-        can_write=_can_write(),
+        can_create=_can_create_task(),
         is_admin=_is_admin(),
         is_superuser=_is_superuser(),
     )
@@ -268,6 +387,9 @@ def list_tasks():
 @login_required
 @committee_access_required()
 def create_task():
+    if not _can_create_task():
+        abort(403)
+
     offices = Office.query.filter_by(is_active=True).order_by(Office.office_name).all()
 
     if request.method == "POST":
@@ -406,16 +528,17 @@ def task_detail(task_id):
         .all()
     )
 
-    is_creator = task.created_by == current_user.id
-    can_edit = is_creator or _is_admin() or _is_superuser()
-    can_interact = _can_write() and (_is_member_of_task(task) or _is_admin() or _is_superuser())
+    can_edit = _can_edit_task()
+    can_change_status = _can_change_task_status()
+    can_add_update = _can_add_task_update(task)
 
     return render_template(
         "committee/detail.html",
         task=task,
         comments=comments,
         can_edit=can_edit,
-        can_interact=can_interact,
+        can_change_status=can_change_status,
+        can_add_update=can_add_update,
         is_superuser=_is_superuser(),
         statuses=COMMITTEE_STATUSES,
     )
@@ -437,16 +560,17 @@ def task_summary(task_id):
         .all()
     )
 
-    is_creator = task.created_by == current_user.id
-    can_edit = is_creator or _is_admin() or _is_superuser()
-    can_interact = _can_write() and (_is_member_of_task(task) or _is_admin() or _is_superuser())
+    can_edit = _can_edit_task()
+    can_change_status = _can_change_task_status()
+    can_add_update = _can_add_task_update(task)
 
     return render_template(
         "committee/_committee_summary_panel.html",
         task=task,
         comments=comments,
         can_edit=can_edit,
-        can_interact=can_interact,
+        can_change_status=can_change_status,
+        can_add_update=can_add_update,
     )
 
 
@@ -458,7 +582,7 @@ def task_summary(task_id):
 def add_comment(task_id):
     task = CommitteeTask.query.get_or_404(task_id)
 
-    if not (_is_member_of_task(task) or _is_admin() or _is_superuser()):
+    if not _can_add_task_update(task):
         abort(403)
 
     body = request.form.get("body", "").strip()
@@ -504,7 +628,7 @@ def add_comment(task_id):
 def update_status(task_id):
     task = CommitteeTask.query.get_or_404(task_id)
 
-    if not (_is_member_of_task(task) or _is_admin() or _is_superuser()):
+    if not _can_change_task_status():
         abort(403)
 
     new_status = request.form.get("status", "").strip().lower()
@@ -532,8 +656,7 @@ def update_status(task_id):
 def edit_task(task_id):
     task = CommitteeTask.query.get_or_404(task_id)
 
-    is_creator = task.created_by == current_user.id
-    if not (is_creator or _is_admin() or _is_superuser()):
+    if not _can_edit_task():
         abort(403)
 
     offices = Office.query.filter_by(is_active=True).order_by(Office.office_name).all()

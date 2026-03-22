@@ -169,7 +169,7 @@
                             <span class="dashboard-workspace-summary">{{ committee_workspace.summary.total }} total tasks · {{ committee_workspace.summary.due_next_7_days }} due in 7 days</span>
                         </div>
                         <div class="dashboard-workspace-actions">
-                            <a href="{{ committee_workspace.list_url }}" class="dashboard-section-link">Open Committee Tasks</a>
+                            <a href="{{ committee_workspace.list_url }}" class="dashboard-section-link">Open Committee Management</a>
                             {% if committee_workspace.can_create %}
                             <a href="{{ committee_workspace.create_url }}" class="btn btn-sm btn-secondary">Create Task</a>
                             {% endif %}
@@ -210,7 +210,8 @@
                             >
                                 <div class="dashboard-queue-copy">
                                     <strong>{{ item.title }}</strong>
-                                    <span>{{ item.office }} · {{ item.member_count }} member{{ '' if item.member_count == 1 else 's' }}</span>
+                                    <span>Head: {{ item.committee_head }}</span>
+                                    <span>{{ item.office }} · {{ item.member_count }} assignee{{ '' if item.member_count == 1 else 's' }}</span>
                                 </div>
                                 <div class="dashboard-queue-meta">
                                     <span class="task-badge status-{{ item.status_key|replace('_', '-') }}">{{ item.status }}</span>

@@ -122,7 +122,7 @@ MODULES = [
     },
     {
         "key": "committee",
-        "name": "Committee Tasks",
+        "name": "Committee Management",
         "permission_code": "committee",
         "blueprint_import": "app.modules.committee:committee_bp",
         "url_prefix": "/committee",
@@ -132,8 +132,8 @@ MODULES = [
         "dashboard_visible": True,
         "roles_allowed": [ADMIN_ROLE, SUPERUSER_ROLE, USER_ROLE],
         "status": "active",
-        "description": "Committee-scoped task management with member assignment, comments, and attachments",
-        "nav_label": "Committee Tasks",
+        "description": "Committee directory and task management with mapped heads, member assignment, comments, and attachments",
+        "nav_label": "Committee Management",
         "icon": "🏛️",
     },
     {

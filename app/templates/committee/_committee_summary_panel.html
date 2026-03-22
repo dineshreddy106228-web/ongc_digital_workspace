@@ -129,8 +129,10 @@
     {% if can_edit %}
     <a href="{{ url_for('committee.edit_task', task_id=task.id) }}" class="btn btn-secondary">Edit Task</a>
     {% endif %}
-    {% if can_interact %}
+    {% if can_change_status %}
     <a href="{{ url_for('committee.task_detail', task_id=task.id) }}#committee-status-form" class="btn btn-secondary">Update Status</a>
+    {% endif %}
+    {% if can_add_update %}
     <a href="{{ url_for('committee.task_detail', task_id=task.id) }}#committee-comment-form" class="btn btn-primary">Add Update</a>
     {% endif %}
   </div>

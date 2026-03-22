@@ -239,6 +239,15 @@ def _committee_visibility_query_for_user(user):
 
 
 def _serialize_committee_task(task: CommitteeTask) -> dict:
+    committee_head = "Not assigned"
+    assignee_count = 0
+
+    for member in getattr(task, "members", []) or []:
+        if member.role == "committee_head" and getattr(member, "user", None):
+            committee_head = member.user.full_name or member.user.username or committee_head
+        elif member.role == "assignee":
+            assignee_count += 1
+
     return {
         "id": task.id,
         "title": task.title or f"Committee Task #{task.id}",
@@ -247,7 +256,8 @@ def _serialize_committee_task(task: CommitteeTask) -> dict:
         "status_key": (task.status or "open").lower(),
         "priority_key": (task.priority or "medium").lower(),
         "office": task.office.office_name if getattr(task, "office", None) else "Unassigned Office",
-        "member_count": len(getattr(task, "members", []) or []),
+        "committee_head": committee_head,
+        "member_count": assignee_count,
         "due_date": task.due_date.strftime("%d %b %Y") if task.due_date else "No due date",
         "detail_url": url_for("committee.task_detail", task_id=task.id),
         "summary_url": url_for("committee.task_summary", task_id=task.id),
@@ -291,11 +301,11 @@ def _build_committee_workspace_context(user) -> dict | None:
         office_name = getattr(getattr(user, "office", None), "office_name", None) or "Your office"
         scope_label = office_name
         subtitle = f"Committee assignments visible within {office_name}."
-    can_create = bool((user.is_super_user() or user.is_admin_user()) or getattr(user, "office_id", None) is not None)
+    can_create = bool(user.is_super_user())
 
     return {
         "available": True,
-        "title": "Committee Tasks",
+        "title": "Committee Management",
         "subtitle": subtitle,
         "scope_label": scope_label,
         "list_url": url_for("committee.list_tasks"),

@@ -281,6 +281,7 @@ _MATERIAL_CLASSIFICATION_FALLBACK_OPTIONS = {
         "New Jute bags strong enough to withstand rigours of transit and storage",
         "Multi walled new paper bags with at least two innermost layers, suitably water proofed, strong enough to withstand rigours of transit and storage",
         "New HDPE bag with moisture proof inner insert of polythene, strong enough to withstand rigours of transit and storage",
+        "only HDPE Bags without inner lining",
         "New HDPE carbuoy with air tight lid, strong enough to withstand rigours of transit and storage",
         "New HDPE container with air tight lid, strong enough to withstand rigours of transit and storage",
         "New HDPE drums with leak proof stoppers, strong enough to withstand rigours of transit and storage",

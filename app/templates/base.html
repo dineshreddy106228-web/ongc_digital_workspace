@@ -47,12 +47,12 @@
                 <a
                     href="{{ url_for('committee.list_tasks') }}"
                     class="workspace-rail-item {{ 'is-active' if request.endpoint and request.endpoint.startswith('committee.') else '' }}"
-                    aria-label="Committee Tasks"
-                    title="Committee Tasks"
+                    aria-label="Committee Management"
+                    title="Committee Management"
                 >
                     <span class="workspace-rail-icon" aria-hidden="true"><i class="bi bi-people"></i></span>
-                    <span class="workspace-rail-label sr-only">Committee</span>
-                    <span class="workspace-hover-label" aria-hidden="true">Committee</span>
+                    <span class="workspace-rail-label sr-only">Committee Management</span>
+                    <span class="workspace-hover-label" aria-hidden="true">Committee Management</span>
                     {% if committee_open_count %}
                     <span class="notification-count-badge">
                         {{ committee_open_count if committee_open_count < 100 else "99+" }}
