@@ -124,7 +124,12 @@
             {% for task in tasks %}
             <tr>
               <td>
-                <a href="{{ url_for('committee.task_detail', task_id=task.id) }}" class="task-row-title">
+                <a
+                  href="{{ url_for('committee.task_detail', task_id=task.id) }}"
+                  class="task-row-title"
+                  data-task-summary-url="{{ url_for('committee.task_summary', task_id=task.id) }}"
+                  data-task-summary-title="{{ task.title }}"
+                >
                   {{ task.title }}
                 </a>
               </td>
@@ -157,7 +162,14 @@
               </td>
               <td>
                 <div class="actions-cell">
-                  <a href="{{ url_for('committee.task_detail', task_id=task.id) }}" class="btn btn-sm btn-secondary">View</a>
+                  <a
+                    href="{{ url_for('committee.task_detail', task_id=task.id) }}"
+                    class="btn btn-sm btn-secondary"
+                    data-task-summary-url="{{ url_for('committee.task_summary', task_id=task.id) }}"
+                    data-task-summary-title="{{ task.title }}"
+                  >
+                    View
+                  </a>
                 </div>
               </td>
             </tr>
@@ -174,4 +186,5 @@
   </div>
 
 </div>
+{% include "tasks/_task_summary_modal.html" %}
 {% endblock %}

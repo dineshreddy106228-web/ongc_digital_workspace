@@ -421,6 +421,35 @@ def task_detail(task_id):
     )
 
 
+@bp.route("/<int:task_id>/summary")
+@login_required
+@committee_access_required()
+def task_summary(task_id):
+    task = CommitteeTask.query.get_or_404(task_id)
+
+    if _is_committee_member() and task.office_id != current_user.office_id:
+        if not _is_member_of_task(task):
+            abort(403)
+
+    comments = (
+        TaskComment.query.filter_by(task_id=task.id)
+        .order_by(TaskComment.created_at.desc())
+        .all()
+    )
+
+    is_creator = task.created_by == current_user.id
+    can_edit = is_creator or _is_admin() or _is_superuser()
+    can_interact = _can_write() and (_is_member_of_task(task) or _is_admin() or _is_superuser())
+
+    return render_template(
+        "committee/_committee_summary_panel.html",
+        task=task,
+        comments=comments,
+        can_edit=can_edit,
+        can_interact=can_interact,
+    )
+
+
 # ── Add Comment ───────────────────────────────────────────────────
 
 @bp.route("/<int:task_id>/comment", methods=["POST"])

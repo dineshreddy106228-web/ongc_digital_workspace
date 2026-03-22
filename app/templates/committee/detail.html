@@ -104,7 +104,7 @@
       <div class="section-heading">
         <h2 class="section-heading-title">Update Status</h2>
       </div>
-      <form method="POST" action="{{ url_for('committee.update_status', task_id=task.id) }}" style="display:flex; gap:0.75rem; align-items:flex-end; flex-wrap:wrap;">
+      <form id="committee-status-form" method="POST" action="{{ url_for('committee.update_status', task_id=task.id) }}" style="display:flex; gap:0.75rem; align-items:flex-end; flex-wrap:wrap;">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="form-group" style="min-width:160px;">
           <select name="status" class="form-select">
@@ -169,7 +169,7 @@
       <div class="section-heading">
         <h2 class="section-heading-title">Add Comment</h2>
       </div>
-      <form method="POST" action="{{ url_for('committee.add_comment', task_id=task.id) }}" enctype="multipart/form-data">
+      <form id="committee-comment-form" method="POST" action="{{ url_for('committee.add_comment', task_id=task.id) }}" enctype="multipart/form-data">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
         <div class="form-group">

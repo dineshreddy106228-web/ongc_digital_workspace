@@ -202,7 +202,12 @@
                         </div>
                         <div class="dashboard-queue-list">
                             {% for item in committee_workspace["items"] %}
-                            <a href="{{ item.detail_url }}" class="dashboard-queue-row">
+                            <a
+                                href="{{ item.detail_url }}"
+                                class="dashboard-queue-row"
+                                data-task-summary-url="{{ item.summary_url }}"
+                                data-task-summary-title="{{ item.title }}"
+                            >
                                 <div class="dashboard-queue-copy">
                                     <strong>{{ item.title }}</strong>
                                     <span>{{ item.office }} · {{ item.member_count }} member{{ '' if item.member_count == 1 else 's' }}</span>
@@ -461,6 +466,9 @@
     <div class="dashboard-guidance-strip dashboard-guidance-strip-command">{{ workspace_context.guidance_message }}</div>
 
 </section>
+{% if show_committee_workspace %}
+{% include "tasks/_task_summary_modal.html" %}
+{% endif %}
 {% endblock %}
 
 {% block scripts_extra %}

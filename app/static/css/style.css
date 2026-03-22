@@ -1872,6 +1872,10 @@ body.workspace-flyout-open .workspace-backdrop {
     gap: 1rem;
 }
 
+.dashboard-workspace-panel[hidden] {
+    display: none !important;
+}
+
 .dashboard-workspace-toolbar {
     display: flex;
     align-items: center;

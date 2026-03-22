@@ -1,0 +1,137 @@
+{% set head_namespace = namespace(name='—') %}
+{% set assignee_namespace = namespace(names=[]) %}
+{% for member in task.members %}
+  {% if member.role == 'committee_head' %}
+    {% set head_namespace.name = member.user.full_name or member.user.username %}
+  {% elif member.role == 'assignee' %}
+    {% set assignee_namespace.names = assignee_namespace.names + [member.user.full_name or member.user.username] %}
+  {% endif %}
+{% endfor %}
+
+<div class="task-summary-panel">
+  <div class="task-summary-hero">
+    <div class="task-summary-hero-copy">
+      <div class="task-summary-eyebrow">Committee Task #{{ task.id }}</div>
+      <h2 class="task-summary-title">{{ task.title }}</h2>
+      <p class="task-summary-subtitle">Committee workflow item for {{ task.office.office_name if task.office else 'Unassigned Office' }}.</p>
+    </div>
+    <div class="task-summary-hero-meta">
+      <span class="task-badge status-{{ task.status|lower|replace('_', '-') }}">{{ task.status|replace('_', ' ')|title }}</span>
+      <span class="task-badge priority-{{ task.priority|lower }}">{{ task.priority|title }}</span>
+    </div>
+  </div>
+
+  <div class="task-summary-stat-grid">
+    <div class="task-summary-stat-card">
+      <div class="task-summary-stat-label">Committee Head</div>
+      <div class="task-summary-stat-value">{{ head_namespace.name }}</div>
+    </div>
+    <div class="task-summary-stat-card">
+      <div class="task-summary-stat-label">Due Date</div>
+      <div class="task-summary-stat-value">{{ task.due_date.strftime('%d %b %Y') if task.due_date else '—' }}</div>
+    </div>
+    <div class="task-summary-stat-card">
+      <div class="task-summary-stat-label">Office</div>
+      <div class="task-summary-stat-value">{{ task.office.office_name if task.office else '—' }}</div>
+    </div>
+    <div class="task-summary-stat-card">
+      <div class="task-summary-stat-label">Updates</div>
+      <div class="task-summary-stat-value">{{ comments|length }}</div>
+    </div>
+  </div>
+
+  <div class="task-summary-section-grid">
+    <section class="task-summary-section">
+      <div class="task-summary-section-header">
+        <h3>Task Snapshot</h3>
+      </div>
+      <dl class="task-summary-fact-grid">
+        <div class="task-summary-fact">
+          <dt>Created By</dt>
+          <dd>{{ task.creator.full_name or task.creator.username if task.creator else '—' }}</dd>
+        </div>
+        <div class="task-summary-fact">
+          <dt>Created On</dt>
+          <dd>{{ task.created_at|datetime_ist('%d %b %Y') if task.created_at else '—' }}</dd>
+        </div>
+        <div class="task-summary-fact">
+          <dt>Updated On</dt>
+          <dd>{{ task.updated_at|datetime_ist('%d %b %Y') if task.updated_at else '—' }}</dd>
+        </div>
+        <div class="task-summary-fact">
+          <dt>Status</dt>
+          <dd>{{ task.status|replace('_', ' ')|title }}</dd>
+        </div>
+      </dl>
+
+      <div class="task-summary-copy-block">
+        <div class="task-summary-copy-label">Description</div>
+        <div class="rich-text-content preserve-whitespace">
+          {% if task.description %}
+          <p>{{ task.description }}</p>
+          {% else %}
+          <p>No description has been added yet.</p>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="task-summary-copy-block">
+        <div class="task-summary-copy-label">Assigned Members</div>
+        {% if assignee_namespace.names %}
+        <div class="task-summary-chip-row">
+          {% for name in assignee_namespace.names %}
+          <span class="task-summary-chip">{{ name }}</span>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p>No assignees are linked yet.</p>
+        {% endif %}
+      </div>
+    </section>
+
+    <section class="task-summary-section">
+      <div class="task-summary-section-header">
+        <h3>Updates</h3>
+        <span class="task-summary-section-note">{{ comments|length }} entries</span>
+      </div>
+      {% if comments %}
+      <div class="task-summary-timeline">
+        {% for comment in comments %}
+        <article class="task-summary-timeline-item">
+          <div class="task-summary-timeline-rail"></div>
+          <div class="task-summary-timeline-content">
+            <div class="task-summary-timeline-top">
+              <div class="task-summary-timeline-user">
+                {{ comment.author.full_name or comment.author.username if comment.author else '—' }}
+              </div>
+              <div class="task-summary-timeline-date">
+                {{ comment.created_at|datetime_ist('%d %b %Y') if comment.created_at else '—' }}
+              </div>
+            </div>
+            <p class="task-summary-timeline-text">{{ comment.body }}</p>
+            {% if comment.attachment_path %}
+            <div class="task-summary-copy-block" style="margin-top:0.75rem;">
+              <a href="{{ url_for('committee.download_attachment', filename=comment.attachment_path) }}" class="btn btn-sm btn-secondary">Download Attachment</a>
+            </div>
+            {% endif %}
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="task-summary-empty">No updates have been recorded yet.</div>
+      {% endif %}
+    </section>
+  </div>
+
+  <div class="task-summary-footer">
+    <a href="{{ url_for('committee.task_detail', task_id=task.id) }}" class="btn btn-secondary">Open Full Page</a>
+    {% if can_edit %}
+    <a href="{{ url_for('committee.edit_task', task_id=task.id) }}" class="btn btn-secondary">Edit Task</a>
+    {% endif %}
+    {% if can_interact %}
+    <a href="{{ url_for('committee.task_detail', task_id=task.id) }}#committee-status-form" class="btn btn-secondary">Update Status</a>
+    <a href="{{ url_for('committee.task_detail', task_id=task.id) }}#committee-comment-form" class="btn btn-primary">Add Update</a>
+    {% endif %}
+  </div>
+</div>

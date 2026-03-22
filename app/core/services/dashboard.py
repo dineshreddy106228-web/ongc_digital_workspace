@@ -250,6 +250,7 @@ def _serialize_committee_task(task: CommitteeTask) -> dict:
         "member_count": len(getattr(task, "members", []) or []),
         "due_date": task.due_date.strftime("%d %b %Y") if task.due_date else "No due date",
         "detail_url": url_for("committee.task_detail", task_id=task.id),
+        "summary_url": url_for("committee.task_summary", task_id=task.id),
     }
 
 
