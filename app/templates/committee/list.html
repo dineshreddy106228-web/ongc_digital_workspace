@@ -5,6 +5,76 @@
 {% block head_extra %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
 <style>
+  .committee-shell-theme {
+    --committee-ink: #0f172a;
+    --committee-muted: #5b6b82;
+    --committee-border: rgba(15, 23, 42, 0.08);
+    --committee-surface: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(247,250,252,0.98));
+    --committee-elevated: 0 18px 40px rgba(15, 23, 42, 0.08);
+    --committee-accent: #2563eb;
+    --committee-accent-soft: rgba(37, 99, 235, 0.08);
+    --committee-hero: linear-gradient(135deg, #0f172a 0%, #17355c 54%, #1d4ed8 100%);
+  }
+  .committee-shell-theme .admin-metric-card,
+  .committee-filter-card,
+  .committee-table-card,
+  .committee-directory-card,
+  .committee-control-card,
+  .committee-spotlight-card,
+  .committee-empty-card {
+    border: 1px solid var(--committee-border);
+    box-shadow: var(--committee-elevated);
+    background: var(--committee-surface);
+  }
+  .committee-shell-theme .admin-metric-card {
+    overflow: hidden;
+    position: relative;
+  }
+  .committee-shell-theme .admin-metric-card::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 4px;
+    background: linear-gradient(180deg, #1d4ed8, #0f766e);
+  }
+  .committee-shell-theme .admin-metric-value,
+  .committee-shell-theme .committee-section-title,
+  .committee-shell-theme .committee-control-title,
+  .committee-shell-theme .committee-spotlight-name {
+    color: var(--committee-ink);
+  }
+  .committee-shell-theme .admin-metric-detail,
+  .committee-shell-theme .committee-section-subtitle,
+  .committee-shell-theme .committee-control-subtitle,
+  .committee-shell-theme .committee-directory-inline-meta {
+    color: var(--committee-muted);
+  }
+  .committee-task-section,
+  .committee-directory-card {
+    margin-bottom: 1.35rem;
+  }
+  .committee-task-section .committee-section-head,
+  .committee-directory-card .committee-section-head {
+    margin-bottom: 1rem;
+    padding: 1rem 1.1rem;
+    border-radius: 20px;
+    background: var(--committee-hero);
+    box-shadow: 0 20px 44px rgba(15, 23, 42, 0.14);
+  }
+  .committee-task-section .committee-section-title,
+  .committee-task-section .committee-section-subtitle,
+  .committee-directory-card .committee-section-title,
+  .committee-directory-card .committee-section-subtitle,
+  .committee-task-section .committee-directory-inline-meta,
+  .committee-directory-card .committee-directory-inline-meta {
+    color: #e2e8f0;
+  }
+  .committee-task-section .status-pill,
+  .committee-directory-card .status-pill {
+    background: rgba(255, 255, 255, 0.14);
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.2);
+  }
   .committee-control-card,
   .committee-spotlight-card,
   .committee-empty-card {
@@ -25,7 +95,7 @@
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--color-text-muted, #6b7280);
+    color: var(--committee-muted);
     margin-bottom: 0.35rem;
   }
   .committee-control-title {
@@ -34,7 +104,7 @@
   }
   .committee-control-subtitle {
     margin: 0.35rem 0 0;
-    color: var(--color-text-muted, #6b7280);
+    color: var(--committee-muted);
   }
   .committee-filter-inline-form {
     display: flex;
@@ -52,10 +122,10 @@
     gap: 1.25rem;
   }
   .committee-spotlight-panel {
-    border: 1px solid var(--border-color, rgba(15, 23, 42, 0.08));
+    border: 1px solid var(--committee-border);
     border-radius: 20px;
     padding: 1.1rem 1.15rem;
-    background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(247,249,252,0.96));
+    background: linear-gradient(180deg, rgba(255,255,255,0.99), rgba(241,245,249,0.96));
   }
   .committee-spotlight-head {
     display: flex;
@@ -68,7 +138,7 @@
     display: inline-flex;
     padding: 0.25rem 0.6rem;
     border-radius: 999px;
-    background: rgba(37, 99, 235, 0.08);
+    background: var(--committee-accent-soft);
     color: #1d4ed8;
     font-size: 0.76rem;
     font-weight: 700;
@@ -82,7 +152,7 @@
   }
   .committee-spotlight-summary {
     margin: 0;
-    color: var(--color-text-muted, #6b7280);
+    color: var(--committee-muted);
     max-width: 46rem;
   }
   .committee-spotlight-stat-grid {
@@ -92,21 +162,21 @@
     margin-top: 1rem;
   }
   .committee-spotlight-stat {
-    border: 1px solid var(--border-color, rgba(15, 23, 42, 0.08));
+    border: 1px solid var(--committee-border);
     border-radius: 16px;
     padding: 0.85rem 0.9rem;
-    background: rgba(255,255,255,0.82);
+    background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(239,246,255,0.9));
   }
   .committee-spotlight-stat-label {
     display: block;
     font-size: 0.78rem;
-    color: var(--color-text-muted, #6b7280);
+    color: var(--committee-muted);
     margin-bottom: 0.25rem;
   }
   .committee-spotlight-stat-value {
     font-size: 1.3rem;
     font-weight: 700;
-    color: var(--color-text-strong, #0f172a);
+    color: var(--committee-ink);
   }
   .committee-spotlight-section + .committee-spotlight-section {
     margin-top: 1rem;
@@ -117,7 +187,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: var(--color-text-muted, #6b7280);
+    color: var(--committee-muted);
   }
   .committee-spotlight-chip-row,
   .committee-spotlight-order-row {
@@ -131,8 +201,8 @@
     align-items: center;
     padding: 0.35rem 0.7rem;
     border-radius: 999px;
-    background: rgba(15, 23, 42, 0.06);
-    color: var(--color-text-strong, #0f172a);
+    background: rgba(15, 23, 42, 0.05);
+    color: var(--committee-ink);
     font-size: 0.82rem;
     font-weight: 600;
   }
@@ -147,16 +217,16 @@
     align-items: center;
     padding: 0.8rem 0.9rem;
     border-radius: 14px;
-    background: rgba(15, 23, 42, 0.04);
+    background: linear-gradient(180deg, rgba(248,250,252,1), rgba(241,245,249,1));
   }
   .committee-spotlight-member strong,
   .committee-spotlight-lead-value {
-    color: var(--color-text-strong, #0f172a);
+    color: var(--committee-ink);
   }
   .committee-spotlight-member span,
   .committee-spotlight-lead-label,
   .committee-spotlight-empty {
-    color: var(--color-text-muted, #6b7280);
+    color: var(--committee-muted);
   }
   .committee-spotlight-lead {
     display: grid;
@@ -165,13 +235,41 @@
   .committee-task-context {
     margin-bottom: 0.85rem;
     padding: 0.9rem 1rem;
-    border: 1px solid var(--border-color, rgba(15, 23, 42, 0.08));
+    border: 1px solid rgba(37, 99, 235, 0.14);
     border-radius: 14px;
-    background: rgba(37, 99, 235, 0.05);
-    color: var(--color-text-muted, #475569);
+    background: linear-gradient(135deg, rgba(219,234,254,0.72), rgba(239,246,255,0.92));
+    color: #475569;
   }
   .committee-task-context strong {
-    color: var(--color-text-strong, #0f172a);
+    color: var(--committee-ink);
+  }
+  .committee-filter-card .card-body,
+  .committee-control-card .card-body {
+    background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(245,248,252,0.96));
+    border-radius: 18px;
+  }
+  .committee-filter-form .form-control,
+  .committee-filter-inline-form .form-control {
+    border-color: rgba(148, 163, 184, 0.45);
+    background: rgba(255,255,255,0.98);
+    box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.02);
+  }
+  .committee-filter-form .form-control:focus,
+  .committee-filter-inline-form .form-control:focus {
+    border-color: rgba(37, 99, 235, 0.55);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  }
+  .committee-table-card .data-table thead th {
+    background: linear-gradient(180deg, rgba(226,232,240,0.92), rgba(241,245,249,0.96));
+    color: var(--committee-ink);
+    border-bottom: 1px solid var(--committee-border);
+  }
+  .committee-table-card .data-table tbody tr:hover {
+    background: rgba(239, 246, 255, 0.56);
+  }
+  .committee-table-card .task-row-title {
+    color: #1d4ed8;
+    font-weight: 700;
   }
   @media (max-width: 980px) {
     .committee-spotlight-shell {
@@ -188,7 +286,7 @@
 {% endblock %}
 
 {% block content %}
-<div class="page-wrapper">
+<div class="page-wrapper committee-shell-theme">
 
   {% call page_header("Committee Management", "Review committee assignments through a mapped, filter-driven workbench and manage committee tasks from one place.", "Committee", directory_summary.total ~ " Visible Committees", "info") %}
     {% if can_create %}
@@ -230,12 +328,168 @@
     </article>
   </div>
 
+  <section class="committee-task-section">
+    <div class="committee-section-head">
+      <div>
+        <h2 class="committee-section-title">Committee Tasks</h2>
+        <p class="committee-section-subtitle">Operational queue first, with filters and quick access aligned to the committee workbench.</p>
+      </div>
+      <div class="committee-directory-totals">
+        <span class="status-pill status-pill-info">{{ summary.total }} tasks</span>
+        <span class="committee-directory-inline-meta">{{ summary.overdue }} overdue</span>
+      </div>
+    </div>
+
+    <div class="card committee-filter-card">
+      <div class="card-body">
+        <form method="GET" action="{{ url_for('committee.list_tasks') }}" class="committee-filter-form">
+          <input type="hidden" name="committee" value="{{ filters.committee }}">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="statusFilter">Status</label>
+              <select name="status" id="statusFilter" class="form-control">
+                <option value="">All</option>
+                {% for s in statuses %}
+                <option value="{{ s }}" {{ 'selected' if filters.status == s }}>{{ s|replace('_', ' ')|title }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="priorityFilter">Priority</label>
+              <select name="priority" id="priorityFilter" class="form-control">
+                <option value="">All</option>
+                {% for p in priorities %}
+                <option value="{{ p }}" {{ 'selected' if filters.priority == p }}>{{ p|title }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            {% if is_admin or is_superuser %}
+            <div class="form-group">
+              <label class="form-label" for="officeFilter">Office</label>
+              <select name="office_id" id="officeFilter" class="form-control">
+                <option value="">All Offices</option>
+                {% for office in offices %}
+                <option value="{{ office.id }}" {{ 'selected' if filters.office_id == office.id|string }}>{{ office.office_name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            {% endif %}
+
+            <div class="form-group">
+              <label class="form-label" for="dueFrom">Due From</label>
+              <input type="date" name="due_from" id="dueFrom" class="form-control" value="{{ filters.due_from }}">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="dueTo">Due To</label>
+              <input type="date" name="due_to" id="dueTo" class="form-control" value="{{ filters.due_to }}">
+            </div>
+          </div>
+
+          <div class="task-form-actions committee-filter-actions">
+            <button type="submit" class="btn btn-secondary btn-sm">Apply Filters</button>
+            {% if filters.committee %}
+            <a href="{{ url_for('committee.list_tasks', committee=filters.committee) }}" class="btn btn-secondary btn-sm">Clear</a>
+            {% else %}
+            <a href="{{ url_for('committee.list_tasks') }}" class="btn btn-secondary btn-sm">Clear</a>
+            {% endif %}
+          </div>
+        </form>
+      </div>
+    </div>
+
+    {% if selected_committee %}
+    <div class="committee-task-context">
+      <strong>Committee in focus:</strong> {{ selected_committee.title }}.
+      Review tasks first, then use the committee profile below to validate leadership, member mapping, and subset coverage.
+    </div>
+    {% endif %}
+
+    <div class="card committee-table-card">
+      <div class="table-wrapper">
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th>Status</th>
+                <th>Priority</th>
+                <th>Office</th>
+                <th>Committee Head</th>
+                <th>Due Date</th>
+                <th>Members</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% if tasks %}
+              {% for task in tasks %}
+              {% set head_namespace = namespace(name='—') %}
+              {% set assignee_namespace = namespace(names=[]) %}
+              {% for m in task.members %}
+                {% if m.role == 'committee_head' %}
+                  {% set head_namespace.name = m.user.full_name or m.user.username %}
+                {% elif m.role == 'assignee' %}
+                  {% set assignee_namespace.names = assignee_namespace.names + [m.user.full_name or m.user.username] %}
+                {% endif %}
+              {% endfor %}
+              <tr>
+                <td>
+                  <a
+                    href="{{ url_for('committee.task_detail', task_id=task.id) }}"
+                    class="task-row-title"
+                    data-task-summary-url="{{ url_for('committee.task_summary', task_id=task.id) }}"
+                    data-task-summary-title="{{ task.title }}"
+                  >
+                    {{ task.title }}
+                  </a>
+                </td>
+                <td><span class="task-badge status-{{ task.status|lower|replace('_', '-') }}">{{ task.status|replace('_', ' ')|title }}</span></td>
+                <td><span class="task-badge priority-{{ task.priority|lower }}">{{ task.priority|title }}</span></td>
+                <td>{{ task.office.office_name if task.office else '—' }}</td>
+                <td>{{ head_namespace.name }}</td>
+                <td>{{ task.due_date.strftime('%d %b %Y') if task.due_date else '—' }}</td>
+                <td>
+                  {% if assignee_namespace.names %}
+                  <span class="committee-member-inline-list">{{ assignee_namespace.names|join(', ') }}</span>
+                  {% else %}
+                  —
+                  {% endif %}
+                </td>
+                <td>
+                  <div class="actions-cell">
+                    <a
+                      href="{{ url_for('committee.task_detail', task_id=task.id) }}"
+                      class="btn btn-sm btn-secondary"
+                      data-task-summary-url="{{ url_for('committee.task_summary', task_id=task.id) }}"
+                      data-task-summary-title="{{ task.title }}"
+                    >
+                      View
+                    </a>
+                  </div>
+                </td>
+              </tr>
+              {% endfor %}
+              {% else %}
+              <tr>
+                <td colspan="8" class="table-empty-row">No committee tasks found. {% if can_create %}Create one to get started.{% endif %}</td>
+              </tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section class="card committee-directory-card">
     <div class="card-body">
       <div class="committee-section-head">
         <div>
-          <h2 class="committee-section-title">Mapped Committees</h2>
-          <p class="committee-section-subtitle">One committee at a time, scoped to the committees mapped with the signed-in user unless the viewer is privileged.</p>
+          <h2 class="committee-section-title">Committee Map</h2>
+          <p class="committee-section-subtitle">Mapped committee structure, shown one committee at a time and scoped to the signed-in user unless the viewer is privileged.</p>
         </div>
         <div class="committee-directory-totals">
           <span class="status-pill status-pill-info">{{ directory_summary.total }} visible committees</span>
@@ -266,6 +520,11 @@
               </p>
             </div>
             <form method="GET" action="{{ url_for('committee.list_tasks') }}" class="committee-filter-inline-form">
+              <input type="hidden" name="status" value="{{ filters.status }}">
+              <input type="hidden" name="priority" value="{{ filters.priority }}">
+              <input type="hidden" name="office_id" value="{{ filters.office_id }}">
+              <input type="hidden" name="due_from" value="{{ filters.due_from }}">
+              <input type="hidden" name="due_to" value="{{ filters.due_to }}">
               <div class="form-group">
                 <label class="form-label" for="committeeFilter">Committee</label>
                 <select name="committee" id="committeeFilter" class="form-control" onchange="this.form.submit()" {{ 'disabled' if not committee_filter_options }}>
@@ -381,162 +640,6 @@
         </div>
       </article>
       {% endif %}
-    </div>
-  </section>
-
-  <section class="committee-task-section">
-    <div class="committee-section-head">
-      <div>
-        <h2 class="committee-section-title">Task List</h2>
-        <p class="committee-section-subtitle">Committee tasks with quick filters, committee head visibility, and summary-card access.</p>
-      </div>
-      <div class="committee-directory-totals">
-        <span class="status-pill status-pill-info">{{ summary.total }} tasks</span>
-        <span class="committee-directory-inline-meta">{{ summary.overdue }} overdue</span>
-      </div>
-    </div>
-
-    <div class="card committee-filter-card">
-      <div class="card-body">
-        <form method="GET" action="{{ url_for('committee.list_tasks') }}" class="committee-filter-form">
-          <input type="hidden" name="committee" value="{{ filters.committee }}">
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label" for="statusFilter">Status</label>
-              <select name="status" id="statusFilter" class="form-control">
-                <option value="">All</option>
-                {% for s in statuses %}
-                <option value="{{ s }}" {{ 'selected' if filters.status == s }}>{{ s|replace('_', ' ')|title }}</option>
-                {% endfor %}
-              </select>
-            </div>
-
-            <div class="form-group">
-              <label class="form-label" for="priorityFilter">Priority</label>
-              <select name="priority" id="priorityFilter" class="form-control">
-                <option value="">All</option>
-                {% for p in priorities %}
-                <option value="{{ p }}" {{ 'selected' if filters.priority == p }}>{{ p|title }}</option>
-                {% endfor %}
-              </select>
-            </div>
-
-            {% if is_admin or is_superuser %}
-            <div class="form-group">
-              <label class="form-label" for="officeFilter">Office</label>
-              <select name="office_id" id="officeFilter" class="form-control">
-                <option value="">All Offices</option>
-                {% for office in offices %}
-                <option value="{{ office.id }}" {{ 'selected' if filters.office_id == office.id|string }}>{{ office.office_name }}</option>
-                {% endfor %}
-              </select>
-            </div>
-            {% endif %}
-
-            <div class="form-group">
-              <label class="form-label" for="dueFrom">Due From</label>
-              <input type="date" name="due_from" id="dueFrom" class="form-control" value="{{ filters.due_from }}">
-            </div>
-
-            <div class="form-group">
-              <label class="form-label" for="dueTo">Due To</label>
-              <input type="date" name="due_to" id="dueTo" class="form-control" value="{{ filters.due_to }}">
-            </div>
-          </div>
-
-          <div class="task-form-actions committee-filter-actions">
-            <button type="submit" class="btn btn-secondary btn-sm">Apply Filters</button>
-            {% if filters.committee %}
-            <a href="{{ url_for('committee.list_tasks', committee=filters.committee) }}" class="btn btn-secondary btn-sm">Clear</a>
-            {% else %}
-            <a href="{{ url_for('committee.list_tasks') }}" class="btn btn-secondary btn-sm">Clear</a>
-            {% endif %}
-          </div>
-        </form>
-      </div>
-    </div>
-
-    {% if selected_committee %}
-    <div class="committee-task-context">
-      <strong>Committee in focus:</strong> {{ selected_committee.title }}.
-      The task table remains committee-workspace scoped; the selector above controls the mapped-committee profile being reviewed.
-    </div>
-    {% endif %}
-
-    <div class="card committee-table-card">
-      <div class="table-wrapper">
-        <div class="table-responsive">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Title</th>
-                <th>Status</th>
-                <th>Priority</th>
-                <th>Office</th>
-                <th>Committee Head</th>
-                <th>Due Date</th>
-                <th>Members</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% if tasks %}
-              {% for task in tasks %}
-              {% set head_namespace = namespace(name='—') %}
-              {% set assignee_namespace = namespace(names=[]) %}
-              {% for m in task.members %}
-                {% if m.role == 'committee_head' %}
-                  {% set head_namespace.name = m.user.full_name or m.user.username %}
-                {% elif m.role == 'assignee' %}
-                  {% set assignee_namespace.names = assignee_namespace.names + [m.user.full_name or m.user.username] %}
-                {% endif %}
-              {% endfor %}
-              <tr>
-                <td>
-                  <a
-                    href="{{ url_for('committee.task_detail', task_id=task.id) }}"
-                    class="task-row-title"
-                    data-task-summary-url="{{ url_for('committee.task_summary', task_id=task.id) }}"
-                    data-task-summary-title="{{ task.title }}"
-                  >
-                    {{ task.title }}
-                  </a>
-                </td>
-                <td><span class="task-badge status-{{ task.status|lower|replace('_', '-') }}">{{ task.status|replace('_', ' ')|title }}</span></td>
-                <td><span class="task-badge priority-{{ task.priority|lower }}">{{ task.priority|title }}</span></td>
-                <td>{{ task.office.office_name if task.office else '—' }}</td>
-                <td>{{ head_namespace.name }}</td>
-                <td>{{ task.due_date.strftime('%d %b %Y') if task.due_date else '—' }}</td>
-                <td>
-                  {% if assignee_namespace.names %}
-                  <span class="committee-member-inline-list">{{ assignee_namespace.names|join(', ') }}</span>
-                  {% else %}
-                  —
-                  {% endif %}
-                </td>
-                <td>
-                  <div class="actions-cell">
-                    <a
-                      href="{{ url_for('committee.task_detail', task_id=task.id) }}"
-                      class="btn btn-sm btn-secondary"
-                      data-task-summary-url="{{ url_for('committee.task_summary', task_id=task.id) }}"
-                      data-task-summary-title="{{ task.title }}"
-                    >
-                      View
-                    </a>
-                  </div>
-                </td>
-              </tr>
-              {% endfor %}
-              {% else %}
-              <tr>
-                <td colspan="8" class="table-empty-row">No committee tasks found. {% if can_create %}Create one to get started.{% endif %}</td>
-              </tr>
-              {% endif %}
-            </tbody>
-          </table>
-        </div>
-      </div>
     </div>
   </section>
 
