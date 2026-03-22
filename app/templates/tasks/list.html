@@ -4,12 +4,69 @@
 
 {% block head_extra %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+<style>
+  .task-list-table-wrap {
+    overflow-x: hidden;
+  }
+  .task-list-table {
+    width: 100%;
+    table-layout: fixed;
+  }
+  .task-col-title {
+    width: 50%;
+  }
+  .task-col-status {
+    width: 10%;
+  }
+  .task-col-priority {
+    width: 10%;
+  }
+  .task-col-due {
+    width: 12%;
+  }
+  .task-col-office {
+    width: 12%;
+  }
+  .task-col-actions {
+    width: 16%;
+  }
+  .task-cell-truncate {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .task-list-table .task-row-title {
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .task-list-table .actions-cell {
+    white-space: nowrap;
+  }
+  .task-list-table .task-row-origin {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  @media (max-width: 980px) {
+    .task-list-table-wrap {
+      overflow-x: auto;
+    }
+    .task-list-table {
+      table-layout: auto;
+      min-width: 820px;
+    }
+  }
+</style>
 {% endblock %}
 
 {% macro task_row(task, task_permissions) %}
 {% set perms = task_permissions.get(task.id, {}) %}
 <tr>
-  <td>
+  <td class="task-col-title">
     <div class="task-row-title-group">
       {% if task.task_scope == 'GLOBAL' %}
       <span class="scope-tag scope-global" title="Global Task">🌐</span>
@@ -22,6 +79,7 @@
           class="task-row-title"
           data-task-summary-url="{{ url_for('tasks.task_summary', task_id=task.id) }}"
           data-task-summary-title="{{ task.task_title }}"
+          title="{{ task.task_title }}"
         >
           {{ task.task_title }}
         </a>
@@ -39,23 +97,15 @@
       </div>
     </div>
   </td>
-  <td><span class="task-badge status-{{ task.status|lower|replace(' ', '-') }}">{{ task.status }}</span></td>
-  <td><span class="task-badge priority-{{ task.priority|lower }}">{{ task.priority }}</span></td>
-  <td>{{ task.owner.full_name if task.owner and task.owner.full_name else (task.owner.username if task.owner else '—') }}</td>
-  <td>
-    {% if task.collaborator_links %}
-      <ol style="margin: 0; padding-left: 1.25rem;">
-        {% for link in task.collaborator_links %}
-        <li>{{ link.user.full_name or link.user.username }}</li>
-        {% endfor %}
-      </ol>
-    {% else %}
-      —
-    {% endif %}
+  <td class="task-col-status"><span class="task-badge status-{{ task.status|lower|replace(' ', '-') }}">{{ task.status }}</span></td>
+  <td class="task-col-priority"><span class="task-badge priority-{{ task.priority|lower }}">{{ task.priority }}</span></td>
+  <td class="task-col-due">{{ task.due_date.strftime('%d %b %Y') if task.due_date else '—' }}</td>
+  <td class="task-col-office">
+    <span class="task-cell-truncate" title="{{ task.office.office_name if task.office else '—' }}">
+      {{ task.office.office_name if task.office else '—' }}
+    </span>
   </td>
-  <td>{{ task.due_date.strftime('%d %b %Y') if task.due_date else '—' }}</td>
-  <td>{{ task.office.office_name if task.office else '—' }}</td>
-  <td>
+  <td class="task-col-actions">
     <div class="actions-cell">
       <a
         href="{{ url_for('tasks.task_detail', task_id=task.id) }}"
@@ -77,18 +127,16 @@
 {% endmacro %}
 
 {% macro task_table(task_list, task_permissions, empty_msg) %}
-<div class="table-responsive">
-  <table class="data-table">
+<div class="table-responsive task-list-table-wrap">
+  <table class="data-table task-list-table">
     <thead>
       <tr>
-        <th>Title</th>
-        <th>Status</th>
-        <th>Priority</th>
-        <th>Owner</th>
-        <th>Collaborators</th>
-        <th>Due Date</th>
-        <th>Office</th>
-        <th>Actions</th>
+        <th class="task-col-title">Title</th>
+        <th class="task-col-status">Status</th>
+        <th class="task-col-priority">Priority</th>
+        <th class="task-col-due">Due Date</th>
+        <th class="task-col-office">Office</th>
+        <th class="task-col-actions">Actions</th>
       </tr>
     </thead>
     <tbody>
@@ -98,7 +146,7 @@
         {% endfor %}
       {% else %}
       <tr>
-        <td colspan="8" class="table-empty-row">
+        <td colspan="6" class="table-empty-row">
           {{ empty_msg }}
         </td>
       </tr>

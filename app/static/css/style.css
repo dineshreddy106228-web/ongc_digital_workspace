@@ -662,9 +662,10 @@ body.workspace-flyout-open .workspace-main {
 }
 
 .workspace-header-title-signature {
-    font-size: .96rem;
-    font-weight: 600;
+    font-size: .82rem;
+    font-weight: 500;
     letter-spacing: .02em;
+    color: rgba(238, 242, 248, 0.82);
 }
 
 .workspace-header-subtitle {
