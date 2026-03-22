@@ -264,6 +264,62 @@
     color: var(--committee-ink);
     border-bottom: 1px solid var(--committee-border);
   }
+  .committee-table-card .table-responsive {
+    overflow-x: hidden;
+  }
+  .committee-table-card .data-table {
+    width: 100%;
+    table-layout: fixed;
+  }
+  .committee-col-title {
+    width: 30%;
+  }
+  .committee-col-status {
+    width: 8%;
+  }
+  .committee-col-priority {
+    width: 8%;
+  }
+  .committee-col-office {
+    width: 20%;
+  }
+  .committee-col-head {
+    width: 12%;
+  }
+  .committee-col-due {
+    width: 9%;
+  }
+  .committee-col-members {
+    width: 7%;
+  }
+  .committee-col-actions {
+    width: 6%;
+  }
+  .committee-cell-truncate {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .committee-member-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 3.2rem;
+    padding: 0.32rem 0.55rem;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.06);
+    color: var(--committee-ink);
+    font-size: 0.78rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .committee-date-cell {
+    white-space: nowrap;
+  }
+  .committee-actions-cell {
+    white-space: nowrap;
+  }
   .committee-table-card .data-table tbody tr:hover {
     background: rgba(239, 246, 255, 0.56);
   }
@@ -280,6 +336,13 @@
     }
     .committee-filter-inline-form .form-group {
       min-width: 100%;
+    }
+    .committee-table-card .table-responsive {
+      overflow-x: auto;
+    }
+    .committee-table-card .data-table {
+      table-layout: auto;
+      min-width: 880px;
     }
   }
 </style>
@@ -413,14 +476,14 @@
           <table class="data-table">
             <thead>
               <tr>
-                <th>Title</th>
-                <th>Status</th>
-                <th>Priority</th>
-                <th>Office</th>
-                <th>Committee Head</th>
-                <th>Due Date</th>
-                <th>Members</th>
-                <th>Actions</th>
+                <th class="committee-col-title">Title</th>
+                <th class="committee-col-status">Status</th>
+                <th class="committee-col-priority">Priority</th>
+                <th class="committee-col-office">Office</th>
+                <th class="committee-col-head">Committee Head</th>
+                <th class="committee-col-due">Due Date</th>
+                <th class="committee-col-members">Assignees</th>
+                <th class="committee-col-actions">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -436,29 +499,38 @@
                 {% endif %}
               {% endfor %}
               <tr>
-                <td>
+                <td class="committee-col-title">
                   <a
                     href="{{ url_for('committee.task_detail', task_id=task.id) }}"
-                    class="task-row-title"
+                    class="task-row-title committee-cell-truncate"
                     data-task-summary-url="{{ url_for('committee.task_summary', task_id=task.id) }}"
                     data-task-summary-title="{{ task.title }}"
+                    title="{{ task.title }}"
                   >
                     {{ task.title }}
                   </a>
                 </td>
-                <td><span class="task-badge status-{{ task.status|lower|replace('_', '-') }}">{{ task.status|replace('_', ' ')|title }}</span></td>
-                <td><span class="task-badge priority-{{ task.priority|lower }}">{{ task.priority|title }}</span></td>
-                <td>{{ task.office.office_name if task.office else '—' }}</td>
-                <td>{{ head_namespace.name }}</td>
-                <td>{{ task.due_date.strftime('%d %b %Y') if task.due_date else '—' }}</td>
-                <td>
+                <td class="committee-col-status"><span class="task-badge status-{{ task.status|lower|replace('_', '-') }}">{{ task.status|replace('_', ' ')|title }}</span></td>
+                <td class="committee-col-priority"><span class="task-badge priority-{{ task.priority|lower }}">{{ task.priority|title }}</span></td>
+                <td class="committee-col-office">
+                  <span class="committee-cell-truncate" title="{{ task.office.office_name if task.office else '—' }}">
+                    {{ task.office.office_name if task.office else '—' }}
+                  </span>
+                </td>
+                <td class="committee-col-head">
+                  <span class="committee-cell-truncate" title="{{ head_namespace.name }}">
+                    {{ head_namespace.name }}
+                  </span>
+                </td>
+                <td class="committee-col-due committee-date-cell">{{ task.due_date.strftime('%d %b %Y') if task.due_date else '—' }}</td>
+                <td class="committee-col-members">
                   {% if assignee_namespace.names %}
-                  <span class="committee-member-inline-list">{{ assignee_namespace.names|join(', ') }}</span>
+                  <span class="committee-member-count">{{ assignee_namespace.names|length }}</span>
                   {% else %}
                   —
                   {% endif %}
                 </td>
-                <td>
+                <td class="committee-col-actions committee-actions-cell">
                   <div class="actions-cell">
                     <a
                       href="{{ url_for('committee.task_detail', task_id=task.id) }}"

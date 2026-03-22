@@ -102,6 +102,14 @@
                             {% endfor %}
                         </div>
                         <div class="notifications-popover-footer">
+                            {% if unread_notification_count %}
+                            <form method="POST" action="{{ url_for('notifications.read_all') }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-sm btn-secondary">
+                                    Mark all as read
+                                </button>
+                            </form>
+                            {% endif %}
                             <a href="{{ url_for('notifications.index') }}" class="btn btn-sm btn-secondary">
                                 Open notifications
                             </a>

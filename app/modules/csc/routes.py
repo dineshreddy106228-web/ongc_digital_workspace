@@ -302,20 +302,20 @@ def _can_current_user_edit_draft_as_committee_head(draft: CSCDraft) -> bool:
     return bool(committee_slug) and committee_slug in set(_get_current_user_committee_head_slugs())
 
 
-def _notify_superusers(title: str, message: str, link: str | None = None, severity: str = "info") -> None:
-    created = False
-    for user in User.query.all():
-        if user.is_super_user():
-            create_notification(
-                user_id=user.id,
-                title=title,
-                message=message,
-                severity=severity,
-                link=link,
-            )
-            created = True
-    if created:
-        db.session.commit()
+def _notify_material_master_admins(
+    title: str,
+    message: str,
+    link: str | None = None,
+    severity: str = "info",
+) -> None:
+    """Notify only users explicitly assigned as CSC module admins."""
+    _notify_users(
+        [user.id for user in _get_material_master_admin_users()],
+        title=title,
+        message=message,
+        severity=severity,
+        link=link,
+    )
 
 
 def _notify_users(user_ids: list[int | None], title: str, message: str, link: str | None = None, severity: str = "info") -> None:
@@ -6449,8 +6449,7 @@ def committee_head_approve_revision(revision_id: int):
                 remarks=reviewer_notes,
             )
 
-        _notify_users(
-            [user.id for user in _get_material_master_admin_users()],
+        _notify_material_master_admins(
             title="Draft ready for Secretary review",
             message=(
                 f"{revision.parent_draft.spec_number} — {revision.parent_draft.chemical_name} "
