@@ -9,7 +9,7 @@
 {% block content %}
 <div class="page-wrapper">
 
-  {% call page_header("Create Committee Task", "Create a committee-scoped task with office-based assignment, clear due dates, and optional supporting files.", "Committee", "New Task", "info") %}
+  {% call page_header("Create Committee Task", "Create a committee-scoped task with a primary office, one committee head, and members from any office.", "Committee", "New Task", "info") %}
     <a href="{{ url_for('committee.list_tasks') }}" class="btn btn-secondary btn-sm">
       <i class="bi bi-arrow-left"></i>
       <span>Back to List</span>
@@ -81,7 +81,7 @@
 
                 {% if is_admin or is_superuser %}
                 <div class="form-group">
-                  <label class="form-label" for="office_id">Office</label>
+                  <label class="form-label" for="office_id">Primary Office</label>
                   <select name="office_id" id="office_id" class="form-control js-committee-office-select">
                     {% for office in offices %}
                     <option
@@ -92,30 +92,46 @@
                     </option>
                     {% endfor %}
                   </select>
-                  <small class="form-hint">Member options will refresh automatically when the office changes.</small>
+                  <small class="form-hint">This is the owning office for reporting and dashboard grouping. Committee members can still be added from any office.</small>
                 </div>
                 {% else %}
                 <div class="form-group">
-                  <label class="form-label">Office Scope</label>
+                  <label class="form-label">Primary Office</label>
                   <div class="committee-readonly-field">{{ current_user.office.office_name if current_user.office else 'Unassigned Office' }}</div>
-                  <small class="form-hint">Committee users create tasks inside their mapped office scope.</small>
+                  <small class="form-hint">This task stays mapped to your office, but members and the committee head can be chosen across offices.</small>
                 </div>
                 {% endif %}
+              </div>
+
+              <div class="form-group committee-member-group">
+                <label class="form-label">Committee Head <span class="required">*</span></label>
+                <div
+                  id="committeeHeadPicker"
+                  data-committee-user-picker
+                  data-mode="single"
+                  data-name="committee_head_id"
+                  data-api-url="{{ url_for('committee.api_office_members', office_id=0) }}"
+                  {% if form_data and form_data.get('committee_head_id') %}data-selected="{{ form_data.get('committee_head_id') }}"{% endif %}
+                >
+                  <select name="committee_head_id" class="form-control committee-member-native-select"></select>
+                </div>
+                <small class="form-hint">Select one committee head from any active user across all offices.</small>
               </div>
 
               <div class="form-group committee-member-group">
                 <label class="form-label">Assign Members</label>
                 <div
                   id="committeeMemberPicker"
+                  data-committee-user-picker
+                  data-mode="multiple"
                   data-name="member_ids"
                   data-api-url="{{ url_for('committee.api_office_members', office_id=0) }}"
-                  {% if not is_admin and not is_superuser and current_user.office_id %}data-office-id="{{ current_user.office_id }}"{% endif %}
                   {% if form_data and form_data.getlist('member_ids') %}data-selected="{{ form_data.getlist('member_ids')|join(',') }}"{% endif %}
                 >
                   <select multiple name="member_ids" class="form-control committee-member-native-select">
                   </select>
                 </div>
-                <small class="form-hint">Only active users from the selected office can be assigned.</small>
+                <small class="form-hint">Assign any number of active users across offices. Use the picker office filter to narrow large lists.</small>
               </div>
             </div>
 
@@ -152,6 +168,7 @@
           <ul class="committee-side-list">
             <li>The task appears in the Committee Tasks landing dashboard tab for eligible users.</li>
             <li>Assigned members can update status and add comments directly from the task detail page.</li>
+            <li>The committee head is stored separately so the responsibility is visible at task level.</li>
             <li>Attachments are stored with the task trail so the committee can reference the source file later.</li>
           </ul>
         </div>
@@ -163,7 +180,8 @@
           <h3>Before you submit</h3>
           <ul class="committee-side-list">
             <li>Keep the title action-based and specific.</li>
-            <li>Set the office first so the right member list loads.</li>
+            <li>Choose the primary office for reporting, then set one committee head.</li>
+            <li>Add members from any office that must contribute to the task.</li>
             <li>Use the description for deliverables, not for broad meeting notes.</li>
           </ul>
         </div>

@@ -97,16 +97,21 @@ def create_app(config_class=Config):
             ).lower()
             try:
                 from app.models.committee.committee_task import CommitteeTask
+                from app.models.committee.committee_task_member import CommitteeTaskMember
+                from sqlalchemy import or_
                 if role_name in ("superuser", "admin"):
                     # Global count across all offices
                     committee_open = CommitteeTask.query.filter(
                         CommitteeTask.status != "done"
                     ).count()
                 elif role_name == "user" and current_user.has_module_access("committee"):
-                    # Scoped to the user's office only
+                    # Scoped to the user's office and directly assigned committee tasks.
                     committee_open = CommitteeTask.query.filter(
                         CommitteeTask.status != "done",
-                        CommitteeTask.office_id == current_user.office_id,
+                        or_(
+                            CommitteeTask.office_id == current_user.office_id,
+                            CommitteeTask.members.any(CommitteeTaskMember.user_id == current_user.id),
+                        ),
                     ).count()
             except Exception:
                 committee_open = 0

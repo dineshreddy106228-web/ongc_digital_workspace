@@ -58,13 +58,28 @@
         </div>
 
         <div class="detail-field">
+          <div class="form-label">Committee Head</div>
+          <div class="detail-value">
+            {% set head_namespace = namespace(name='') %}
+            {% for m in task.members %}
+              {% if m.role == 'committee_head' %}
+                {% set head_namespace.name = m.user.full_name or m.user.username %}
+              {% endif %}
+            {% endfor %}
+            {{ head_namespace.name or '—' }}
+          </div>
+        </div>
+
+        <div class="detail-field">
           <div class="form-label">Assigned Members</div>
           <div class="detail-value">
-            {% if task.members %}
+            {% set assignee_namespace = namespace(names=[]) %}
             {% for m in task.members %}
-              {{ m.user.full_name or m.user.username }} ({{ m.role }}){% if not loop.last %}, {% endif %}
+              {% if m.role == 'assignee' %}
+                {% set assignee_namespace.names = assignee_namespace.names + [m.user.full_name or m.user.username] %}
+              {% endif %}
             {% endfor %}
-            {% else %}—{% endif %}
+            {{ assignee_namespace.names|join(', ') if assignee_namespace.names else '—' }}
           </div>
         </div>
 

@@ -17,6 +17,7 @@ from flask import (
     url_for,
 )
 from flask_login import current_user, login_required
+from sqlalchemy import or_
 from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.utils import secure_filename
 
@@ -102,7 +103,7 @@ def _resolve_office_id(office_id_raw: str | None, fallback: int | None = None) -
     return fallback if fallback is not None else getattr(current_user, "office_id", None)
 
 
-def _load_member_users_for_office(member_ids_raw, office_id: int | None) -> tuple[list[User], list[str]]:
+def _load_active_users_by_ids(member_ids_raw) -> tuple[list[User], list[str]]:
     member_ids = sorted({int(mid) for mid in member_ids_raw if str(mid).strip().isdigit()})
     if not member_ids:
         return [], []
@@ -120,13 +121,61 @@ def _load_member_users_for_office(member_ids_raw, office_id: int | None) -> tupl
         errors.append("One or more selected members are invalid or inactive.")
         return [], errors
 
-    if office_id is not None:
-        invalid_members = [user for user in member_users if user.office_id != office_id]
-        if invalid_members:
-            errors.append("Assigned members must belong to the selected office.")
-            return [], errors
-
     return member_users, errors
+
+
+def _load_committee_head_user(head_user_id_raw: str | None) -> tuple[User | None, list[str]]:
+    raw = str(head_user_id_raw or "").strip()
+    if not raw:
+        return None, ["Committee head is required."]
+    if not raw.isdigit():
+        return None, ["Selected committee head is invalid."]
+
+    committee_head_user = User.query.filter_by(id=int(raw), is_active=True).first()
+    if committee_head_user is None:
+        return None, ["Selected committee head is invalid or inactive."]
+    return committee_head_user, []
+
+
+def _sync_task_members(
+    *,
+    task_id: int,
+    creator_id: int,
+    member_users: list[User],
+    committee_head_user: User,
+) -> None:
+    added_user_ids: set[int] = set()
+
+    db.session.add(
+        CommitteeTaskMember(
+            task_id=task_id,
+            user_id=committee_head_user.id,
+            role="committee_head",
+        )
+    )
+    added_user_ids.add(committee_head_user.id)
+
+    if creator_id not in added_user_ids:
+        db.session.add(
+            CommitteeTaskMember(
+                task_id=task_id,
+                user_id=creator_id,
+                role="creator",
+            )
+        )
+        added_user_ids.add(creator_id)
+
+    for user in member_users:
+        if user.id in added_user_ids:
+            continue
+        db.session.add(
+            CommitteeTaskMember(
+                task_id=task_id,
+                user_id=user.id,
+                role="assignee",
+            )
+        )
+        added_user_ids.add(user.id)
 
 
 def _build_list_summary(tasks: list[CommitteeTask]) -> dict[str, int]:
@@ -159,9 +208,14 @@ def list_tasks():
 
     query = CommitteeTask.query
 
-    # Scoping: committee_member sees own office only
+    # Scoping: committee members see their office tasks plus tasks assigned to them.
     if _is_committee_member():
-        query = query.filter(CommitteeTask.office_id == current_user.office_id)
+        query = query.filter(
+            or_(
+                CommitteeTask.office_id == current_user.office_id,
+                CommitteeTask.members.any(CommitteeTaskMember.user_id == current_user.id),
+            )
+        )
     elif office_filter and office_filter.isdigit():
         query = query.filter(CommitteeTask.office_id == int(office_filter))
 
@@ -222,6 +276,7 @@ def create_task():
         priority = request.form.get("priority", "medium").strip().lower()
         due_date_raw = request.form.get("due_date", "").strip()
         office_id_raw = request.form.get("office_id", "").strip()
+        committee_head_id_raw = request.form.get("committee_head_id", "").strip()
         member_ids_raw = request.form.getlist("member_ids")
 
         errors = []
@@ -247,7 +302,10 @@ def create_task():
         if not office_id:
             errors.append("An office must be associated with the task.")
 
-        member_users, member_errors = _load_member_users_for_office(member_ids_raw, office_id)
+        committee_head_user, committee_head_errors = _load_committee_head_user(committee_head_id_raw)
+        errors.extend(committee_head_errors)
+
+        member_users, member_errors = _load_active_users_by_ids(member_ids_raw)
         errors.extend(member_errors)
 
         # Attachment
@@ -284,25 +342,12 @@ def create_task():
             db.session.add(task)
             db.session.flush()
 
-            # Creator as 'creator' member
-            db.session.add(
-                CommitteeTaskMember(
-                    task_id=task.id,
-                    user_id=current_user.id,
-                    role="creator",
-                )
+            _sync_task_members(
+                task_id=task.id,
+                creator_id=current_user.id,
+                member_users=member_users,
+                committee_head_user=committee_head_user,
             )
-            # Assigned members
-            for user in member_users:
-                if user.id == current_user.id:
-                    continue  # already added as creator
-                db.session.add(
-                    CommitteeTaskMember(
-                        task_id=task.id,
-                        user_id=user.id,
-                        role="assignee",
-                    )
-                )
 
             # If attachment was provided, add as first comment
             if attachment_path:
@@ -471,6 +516,7 @@ def edit_task(task_id):
         status = request.form.get("status", task.status).strip().lower()
         due_date_raw = request.form.get("due_date", "").strip()
         office_id_raw = request.form.get("office_id", "").strip()
+        committee_head_id_raw = request.form.get("committee_head_id", "").strip()
         member_ids_raw = request.form.getlist("member_ids")
 
         errors = []
@@ -493,7 +539,10 @@ def edit_task(task_id):
                 errors.append("Due date must be YYYY-MM-DD.")
 
         office_id = _resolve_office_id(office_id_raw, fallback=task.office_id)
-        member_users, member_errors = _load_member_users_for_office(member_ids_raw, office_id)
+        committee_head_user, committee_head_errors = _load_committee_head_user(committee_head_id_raw)
+        errors.extend(committee_head_errors)
+
+        member_users, member_errors = _load_active_users_by_ids(member_ids_raw)
         errors.extend(member_errors)
 
         if errors:
@@ -522,24 +571,12 @@ def edit_task(task_id):
             CommitteeTaskMember.query.filter_by(task_id=task.id).delete(
                 synchronize_session=False
             )
-            # Always keep creator
-            db.session.add(
-                CommitteeTaskMember(
-                    task_id=task.id,
-                    user_id=task.created_by,
-                    role="creator",
-                )
+            _sync_task_members(
+                task_id=task.id,
+                creator_id=task.created_by,
+                member_users=member_users,
+                committee_head_user=committee_head_user,
             )
-            for user in member_users:
-                if user.id == task.created_by:
-                    continue
-                db.session.add(
-                    CommitteeTaskMember(
-                        task_id=task.id,
-                        user_id=user.id,
-                        role="assignee",
-                    )
-                )
 
             db.session.commit()
         except SQLAlchemyError:
@@ -578,17 +615,18 @@ def edit_task(task_id):
 @login_required
 @committee_access_required()
 def api_office_members(office_id):
-    users = (
-        User.query.filter_by(office_id=office_id, is_active=True)
-        .order_by(User.full_name, User.username)
-        .all()
-    )
+    query = User.query.filter_by(is_active=True)
+    if office_id:
+        query = query.filter_by(office_id=office_id)
+    users = query.order_by(User.full_name, User.username).all()
     return jsonify(
         [
             {
                 "id": u.id,
                 "name": u.full_name or u.username,
                 "username": u.username,
+                "office_id": u.office_id,
+                "office_name": u.office.office_name if getattr(u, "office", None) else "Unassigned Office",
             }
             for u in users
         ]

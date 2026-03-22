@@ -228,9 +228,14 @@ def _committee_visibility_query_for_user(user):
         return base
 
     if getattr(user, "office_id", None) is None:
-        return base.filter(CommitteeTask.id.is_(None))
+        return base.filter(CommitteeTask.members.any(user_id=user.id))
 
-    return base.filter(CommitteeTask.office_id == user.office_id)
+    return base.filter(
+        or_(
+            CommitteeTask.office_id == user.office_id,
+            CommitteeTask.members.any(user_id=user.id),
+        )
+    )
 
 
 def _serialize_committee_task(task: CommitteeTask) -> dict:

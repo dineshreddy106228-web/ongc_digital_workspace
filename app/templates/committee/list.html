@@ -135,7 +135,21 @@
               <td>
                 {% if task.members %}
                 <span class="committee-member-inline-list">
-                  {% for m in task.members %}{{ m.user.full_name or m.user.username }}{% if not loop.last %}, {% endif %}{% endfor %}
+                  {% set head_namespace = namespace(name='') %}
+                  {% set assignee_namespace = namespace(names=[]) %}
+                  {% for m in task.members %}
+                    {% if m.role == 'committee_head' %}
+                      {% set head_namespace.name = m.user.full_name or m.user.username %}
+                    {% elif m.role == 'assignee' %}
+                      {% set assignee_namespace.names = assignee_namespace.names + [m.user.full_name or m.user.username] %}
+                    {% endif %}
+                  {% endfor %}
+                  {% if head_namespace.name %}<strong>Head:</strong> {{ head_namespace.name }}{% endif %}
+                  {% if assignee_namespace.names %}
+                    {% if head_namespace.name %}<br>{% endif %}
+                    {{ assignee_namespace.names|join(', ') }}
+                  {% endif %}
+                  {% if not head_namespace.name and not assignee_namespace.names %}—{% endif %}
                 </span>
                 {% else %}
                 —
