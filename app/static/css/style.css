@@ -3613,6 +3613,55 @@ body.workspace-flyout-open .workspace-backdrop {
     justify-content: flex-end;
 }
 
+.super-tab-bar {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    padding: 0.45rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.72);
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+    width: fit-content;
+}
+
+.super-tab-button {
+    appearance: none;
+    border: 0;
+    border-radius: 999px;
+    padding: 0.78rem 1.2rem;
+    background: transparent;
+    color: var(--briefing-muted);
+    font-size: 0.92rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.super-tab-button:hover,
+.super-tab-button:focus-visible {
+    background: rgba(255, 255, 255, 0.82);
+    color: var(--briefing-ink);
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+    outline: none;
+}
+
+.super-tab-button.is-active {
+    background: linear-gradient(135deg, #0f172a, #2563eb);
+    color: #f8fafc;
+    box-shadow: 0 16px 36px rgba(37, 99, 235, 0.22);
+}
+
+.super-tab-panel {
+    display: grid;
+    gap: 1.5rem;
+}
+
+.super-tab-panel[hidden] {
+    display: none !important;
+}
+
 .super-briefing-signal-grid {
     display: grid;
     grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -3665,6 +3714,10 @@ body.workspace-flyout-open .workspace-backdrop {
 .super-drilldown-panel {
     border-radius: 24px;
     padding: 1.35rem;
+}
+
+.super-committee-panel {
+    margin-top: 0;
 }
 
 .super-panel-header {
@@ -3841,6 +3894,16 @@ body.workspace-flyout-open .workspace-backdrop {
     .super-chart-grid,
     .super-briefing-signal-grid {
         grid-template-columns: 1fr;
+    }
+
+    .super-tab-bar {
+        width: 100%;
+        border-radius: 22px;
+    }
+
+    .super-tab-button {
+        flex: 1 1 0;
+        text-align: center;
     }
 
     .super-chart-card-wide {
