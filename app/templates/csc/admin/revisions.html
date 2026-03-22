@@ -338,6 +338,58 @@
   color: var(--muted);
   font-size: 0.85rem;
 }
+.csc-import-preview-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+}
+.csc-import-preview-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+.csc-import-preview-badge.is-ready {
+  background: color-mix(in srgb, #10b981 15%, transparent);
+  color: #047857;
+}
+.csc-import-preview-badge.is-blocked {
+  background: color-mix(in srgb, #dc2626 12%, transparent);
+  color: #b91c1c;
+}
+.csc-import-compare-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 0.9rem;
+}
+.csc-import-compare-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  padding: 0.85rem 0.95rem;
+  background: color-mix(in srgb, var(--surface) 84%, transparent);
+}
+.csc-import-compare-card h4 {
+  margin: 0 0 0.5rem;
+}
+.csc-import-compare-pre {
+  margin: 0;
+  white-space: pre-wrap;
+  font: inherit;
+}
+.csc-import-compare-table td.is-changed,
+.csc-import-compare-table th.is-changed {
+  background: color-mix(in srgb, #f59e0b 12%, transparent);
+}
+.csc-import-compare-summary {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
 .csc-decision-panel {
   display: none;
 }
@@ -396,6 +448,7 @@
 }
 @media (max-width: 900px) {
   .csc-import-grid,
+  .csc-import-compare-grid,
   .csc-review-columns,
   .csc-decision-grid {
     grid-template-columns: 1fr;
@@ -512,11 +565,168 @@
       <h3>Expected Workbook Format</h3>
       <ul class="csc-import-format">
         <li>One row per specification/material.</li>
-        <li>Required matching columns: <strong>Chemical Name</strong>, <strong>Material Code</strong>, <strong>Specification No.</strong>, <strong>Proposed New Specification No.</strong>.</li>
-        <li>Staged draft fields: proposed <strong>Chemical Name</strong>, proposed <strong>Specification No.</strong>, material properties, storage conditions, and packing fields.</li>
-        <li>Narrative sections are built from officers responsible, remarks, current spec number, and proposed spec number.</li>
+        <li>Required matching columns: <strong>Material Code</strong> and <strong>Proposed New Specification No.</strong>. <strong>Chemical Name</strong> and <strong>Specification No.</strong> are optional and will fall back to the matched parent specification when omitted.</li>
+        <li>Staged draft fields: proposed <strong>Specification No.</strong>, optional proposed <strong>Chemical Name</strong>, material properties, storage conditions, and packing fields.</li>
+        <li>Narrative sections are built from workbook data plus the matched parent specification for any omitted current-spec or chemical-name values.</li>
         <li>Import does not update live master data until the approved publish step.</li>
       </ul>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if can_import_workbooks and pending_material_handling_preview %}
+  <div class="card" style="margin-bottom: 1rem;">
+    <div class="card-body">
+      <div class="csc-import-card" style="padding:0;border:none;background:transparent;">
+        <h2>Material Handling Review Staging</h2>
+        <p>
+          <strong>{{ pending_material_handling_preview.workbook_name }}</strong>
+          {% if pending_material_handling_preview.subset_codes %}
+          <span class="csc-import-inline-note">Subset(s): {{ pending_material_handling_preview.subset_codes|join(', ') }}</span>
+          {% endif %}
+        </p>
+        <div class="csc-import-summary-grid">
+          <div class="csc-import-summary-stat">
+            <span class="csc-import-summary-stat-label">Rows Parsed</span>
+            <span class="csc-import-summary-stat-value">{{ pending_material_handling_preview.rows_processed }}</span>
+          </div>
+          <div class="csc-import-summary-stat">
+            <span class="csc-import-summary-stat-label">Ready To Stage</span>
+            <span class="csc-import-summary-stat-value">{{ pending_material_handling_preview.ready_rows }}</span>
+          </div>
+          <div class="csc-import-summary-stat">
+            <span class="csc-import-summary-stat-label">Create Draft</span>
+            <span class="csc-import-summary-stat-value">{{ pending_material_handling_preview.create_candidates }}</span>
+          </div>
+          <div class="csc-import-summary-stat">
+            <span class="csc-import-summary-stat-label">Reuse Draft</span>
+            <span class="csc-import-summary-stat-value">{{ pending_material_handling_preview.reuse_candidates }}</span>
+          </div>
+          <div class="csc-import-summary-stat">
+            <span class="csc-import-summary-stat-label">Issues</span>
+            <span class="csc-import-summary-stat-value">{{ pending_material_handling_preview.issue_count }}</span>
+          </div>
+        </div>
+
+        <div class="csc-import-preview-actions">
+          <form method="post" action="{{ url_for('csc.admin_confirm_material_handling_workbook_import') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="preview_token" value="{{ pending_material_handling_preview.token }}">
+            <button type="submit" class="btn btn-primary" {% if not pending_material_handling_preview.ready_rows %}disabled{% endif %}>
+              <i class="bi bi-check2-square"></i>
+              Accept All Staging And Push To Committee Users
+            </button>
+          </form>
+          <form method="post" action="{{ url_for('csc.admin_cancel_material_handling_workbook_import') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="preview_token" value="{{ pending_material_handling_preview.token }}">
+            <button type="submit" class="btn btn-outline-secondary">
+              <i class="bi bi-x-circle"></i>
+              Discard Review
+            </button>
+          </form>
+        </div>
+
+        {% if pending_material_handling_preview.preview_rows %}
+        <details class="csc-import-detail" open>
+          <summary>Row-By-Row Secretary Comparison</summary>
+          {% for row in pending_material_handling_preview.preview_rows %}
+          <details class="csc-import-detail" {% if loop.first %}open{% endif %}>
+            <summary>
+              <span class="csc-import-compare-summary">
+                <strong>Row {{ row.row_number }}</strong>
+                <span>{{ row.material_code }}</span>
+                <span>{{ row.chemical_name or '—' }}</span>
+                <span class="csc-import-preview-badge {{ 'is-ready' if row.ready else 'is-blocked' }}">{{ row.workflow_action }}</span>
+                <span class="csc-import-inline-note">{{ row.changed_field_count }} field(s) differ</span>
+              </span>
+            </summary>
+            {% if row.reason %}
+            <p class="csc-row-note">{{ row.reason }}</p>
+            {% endif %}
+            <div class="csc-table-wrap" style="margin-top: 0.75rem;">
+              <table class="csc-table csc-import-compare-table">
+                <thead>
+                  <tr>
+                    <th>Field</th>
+                    <th>Current Extracted/App Value</th>
+                    <th>Workbook Exact Value</th>
+                    <th>Effective Staged Value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for item in row.comparisons %}
+                  <tr>
+                    <td class="{{ 'is-changed' if item.changed else '' }}">{{ item.label }}</td>
+                    <td>{{ item.current_value or '—' }}</td>
+                    <td>{{ item.workbook_value or '—' }}</td>
+                    <td class="{{ 'is-changed' if item.changed else '' }}">{{ item.staged_value or '—' }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            <div class="csc-import-compare-grid">
+              <div class="csc-import-compare-card">
+                <h4>Background</h4>
+                <div class="csc-import-inline-note" style="margin-bottom:0.45rem;">Current section</div>
+                <pre class="csc-import-compare-pre">{{ row.background_current or '—' }}</pre>
+              </div>
+              <div class="csc-import-compare-card">
+                <h4>Background After Import</h4>
+                <div class="csc-import-inline-note" style="margin-bottom:0.45rem;">Result after workbook staging</div>
+                <pre class="csc-import-compare-pre">{{ row.background_result or '—' }}</pre>
+              </div>
+              <div class="csc-import-compare-card">
+                <h4>Justification</h4>
+                <div class="csc-import-inline-note" style="margin-bottom:0.45rem;">Current section</div>
+                <pre class="csc-import-compare-pre">{{ row.justification_current or '—' }}</pre>
+              </div>
+              <div class="csc-import-compare-card">
+                <h4>Justification After Import</h4>
+                <div class="csc-import-inline-note" style="margin-bottom:0.45rem;">Result after workbook staging</div>
+                <pre class="csc-import-compare-pre">{{ row.justification_result or '—' }}</pre>
+              </div>
+            </div>
+          </details>
+          {% endfor %}
+        </details>
+        {% endif %}
+
+        {% if pending_material_handling_preview.preview_issues %}
+        <details class="csc-import-detail" open>
+          <summary>Rows With Issues</summary>
+          <div class="csc-table-wrap" style="margin-top: 0.75rem;">
+            <table class="csc-table">
+              <thead>
+                <tr>
+                  <th>Issue Type</th>
+                  <th>Row</th>
+                  <th>Current Spec No.</th>
+                  <th>Proposed Spec No.</th>
+                  <th>Chemical</th>
+                  <th>Material Code</th>
+                  <th>Reason</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for item in pending_material_handling_preview.preview_issues %}
+                <tr>
+                  <td>{{ item.issue_type }}</td>
+                  <td>{{ item.row_number }}</td>
+                  <td>{{ item.source_spec_number or '—' }}</td>
+                  <td>{{ item.proposed_spec_number or '—' }}</td>
+                  <td>{{ item.chemical_name or '—' }}</td>
+                  <td>{{ item.material_code or '—' }}</td>
+                  <td>{{ item.reason }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </details>
+        {% endif %}
+      </div>
     </div>
   </div>
   {% endif %}

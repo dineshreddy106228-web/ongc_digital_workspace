@@ -2638,10 +2638,10 @@
     var impactChecklistState = {{ (impact.get('checklist_state', {}) if impact else {})|tojson }};
     var impactExpandedFlags = {};
     var materialPropertiesConfig = {{ material_properties_fields|tojson }};
-    var materialPropertiesState = {{ material_properties_values|tojson }};
+    var materialPropertiesInitialState = {{ material_properties_values|tojson }};
     var materialPropertiesExpanded = {};
     var storageHandlingConfig = {{ storage_handling_fields|tojson }};
-    var storageHandlingState = {{ storage_handling_values|tojson }};
+    var storageHandlingInitialState = {{ storage_handling_values|tojson }};
     var storageHandlingExpanded = {};
     var draftDossierModal = document.getElementById('draftDossierModal');
     var draftDossierTitle = document.getElementById('draftDossierTitle');
@@ -2698,6 +2698,20 @@
     function getFieldDefaultValue(field) {
         return field && typeof field.default_value === 'string' ? field.default_value : '';
     }
+
+    function buildInitialGridState(config, state) {
+        var nextState = Object.assign({}, state || {});
+        config.forEach(function(field) {
+            var fieldName = field.field_name;
+            if (!normalizedValue(nextState[fieldName]) && getFieldDefaultValue(field)) {
+                nextState[fieldName] = getFieldDefaultValue(field);
+            }
+        });
+        return nextState;
+    }
+
+    var materialPropertiesState = buildInitialGridState(materialPropertiesConfig, materialPropertiesInitialState);
+    var storageHandlingState = buildInitialGridState(storageHandlingConfig, storageHandlingInitialState);
 
     function shouldShowGridField(field, state) {
         if (!field || !field.show_if) return true;

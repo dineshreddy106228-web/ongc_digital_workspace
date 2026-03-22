@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
 import sys
+from unittest.mock import patch
 
 from openpyxl import Workbook
 
@@ -12,8 +13,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from app.core.services.csc_type_classification_import import (
     IMPORTED_JUSTIFICATION_END,
     IMPORTED_JUSTIFICATION_START,
-    MATERIAL_HANDLING_BACKGROUND_START,
-    MATERIAL_HANDLING_JUSTIFICATION_START,
     apply_material_handling_core_updates,
     build_parent_lookup,
     build_parent_lookup_by_material_code,
@@ -21,6 +20,16 @@ from app.core.services.csc_type_classification_import import (
     import_type_classification_workbook,
     parse_material_handling_workbook,
     parse_type_classification_workbook,
+)
+from app.modules.csc.routes import (
+    _default_proposed_changes_section_text,
+    _default_recommendation_section_text,
+    _default_section_rows,
+    _discard_staged_material_handling_workbook_payload,
+    _load_staged_material_handling_workbook_payload,
+    _material_handling_preview_comparisons,
+    _resolve_material_handling_row_for_preview,
+    _stage_material_handling_workbook_payload,
 )
 
 
@@ -95,32 +104,43 @@ def _header(include_changes_column: bool = False) -> list[str]:
     return columns
 
 
-def _material_header() -> list[str]:
-    return [
-        "S. No.",
-        "Chemical Name",
-        "Material Code",
-        "Specification No.",
-        "Proposed New Specification No.",
-        "Unit",
-        "Officers Responsible",
-        "Physical State",
-        "Volatility",
-        "Sunlight Sensitivity",
-        "Moisture Sensitivity",
-        "Temperature Sensitivity",
-        "Reactivity",
-        "Flammable",
-        "Toxic",
-        "Corrosive",
-        "Storage Conditions – General",
-        "Storage Conditions – Special",
-        "Container Type (Packing)",
-        "Container Capacity (Packing)",
-        "Container Description",
-        "Primary Storage Classification",
-        "Remarks (If Any)",
-    ]
+def _material_header(
+    *,
+    include_chemical_name: bool = True,
+    include_source_spec_number: bool = True,
+    include_officers_responsible: bool = True,
+) -> list[str]:
+    columns = ["S. No."]
+    if include_chemical_name:
+        columns.append("Chemical Name")
+    columns.append("Material Code")
+    if include_source_spec_number:
+        columns.append("Specification No.")
+    columns.extend(
+        [
+            "Proposed New Specification No.",
+            "Unit",
+            "Physical State",
+            "Volatility",
+            "Sunlight Sensitivity",
+            "Moisture Sensitivity",
+            "Temperature Sensitivity",
+            "Reactivity",
+            "Flammable",
+            "Toxic",
+            "Corrosive",
+            "Storage Conditions – General",
+            "Storage Conditions – Special",
+            "Container Type (Packing)",
+            "Container Capacity (Packing)",
+            "Container Description",
+            "Primary Storage Classification",
+            "Remarks (If Any)",
+        ]
+    )
+    if include_officers_responsible:
+        columns.insert(columns.index("Unit") + 1, "Officers Responsible")
+    return columns
 
 
 def test_parse_type_classification_workbook_across_multiple_sheets():
@@ -474,6 +494,51 @@ def test_parse_material_handling_workbook_and_normalize_spec_numbers():
     assert parsed.subset_codes == ["DFC"]
 
 
+def test_parse_material_handling_workbook_accepts_uploaded_shape_without_optional_columns():
+    workbook_buffer = _make_workbook(
+        {
+            "Sheet1": [
+                _material_header(
+                    include_chemical_name=False,
+                    include_source_spec_number=False,
+                    include_officers_responsible=False,
+                ),
+                [
+                    1,
+                    100101102,
+                    "ONGC / DFC / 01 / 2026",
+                    "KG",
+                    "Solid",
+                    "No",
+                    "No",
+                    "Yes",
+                    "Ambient",
+                    "Stable",
+                    "No",
+                    "Low",
+                    "No",
+                    "Store in dry place",
+                    "",
+                    "HDPE Bags",
+                    "25 Kg",
+                    "New HDPE bag",
+                    "Zone-1: General Stable",
+                    "No major issue",
+                ],
+            ]
+        }
+    )
+
+    parsed = parse_material_handling_workbook(workbook_buffer, "uploaded-shape.xlsx")
+
+    assert len(parsed.rows) == 1
+    assert parsed.invalid_rows == []
+    assert parsed.rows[0].chemical_name == ""
+    assert parsed.rows[0].source_spec_number == ""
+    assert parsed.rows[0].proposed_spec_number == "ONGC/DFC/01/2026"
+    assert parsed.rows[0].material_code == "100101102"
+
+
 def test_import_material_handling_reuses_separate_draft_stream_and_stages_only_draft_values():
     workbook_buffer = _make_workbook(
         {
@@ -544,8 +609,80 @@ def test_import_material_handling_reuses_separate_draft_stream_and_stages_only_d
     assert parent.spec_number == "ONGC/DFC/01/2026"
     assert staged_payloads[0]["physical_state"] == "Solid"
     assert staged_payloads[0]["container_type"] == "HDPE Bags"
-    assert MATERIAL_HANDLING_BACKGROUND_START in sections["background"]
-    assert MATERIAL_HANDLING_JUSTIFICATION_START in sections["justification"]
+    assert "Material Code: 100101102" in sections["background"]
+    assert "[" not in sections["background"]
+    assert "Proposed specification number - ONGC/DFC/01/2026" in sections["justification"]
+    assert "[" not in sections["justification"]
+
+
+def test_import_material_handling_backfills_parent_values_when_workbook_omits_them():
+    workbook_buffer = _make_workbook(
+        {
+            "Sheet1": [
+                _material_header(
+                    include_chemical_name=False,
+                    include_source_spec_number=False,
+                    include_officers_responsible=False,
+                ),
+                [
+                    1,
+                    100101102,
+                    "ONGC / DFC / 05 / 2026",
+                    "KG",
+                    "Solid",
+                    "No",
+                    "No",
+                    "Yes",
+                    "Ambient",
+                    "Stable",
+                    "No",
+                    "Low",
+                    "No",
+                    "Store in dry place",
+                    "",
+                    "HDPE Bags",
+                    "25 Kg",
+                    "New HDPE bag",
+                    "Zone-1: General Stable",
+                    "Imported remarks",
+                ],
+            ]
+        }
+    )
+    workbook = parse_material_handling_workbook(workbook_buffer, "mh-uploaded.xlsx")
+
+    parent = FakeParentDraft(
+        id=31,
+        spec_number="ONGC/DFC/01/2026",
+        material_code="100101102",
+        chemical_name="ALUMINIUM STEARATE",
+    )
+    draft = FakeDraft(
+        id=41,
+        spec_number=parent.spec_number,
+        material_code=parent.material_code,
+        chemical_name=parent.chemical_name,
+    )
+    sections = {"background": "", "justification": ""}
+
+    summary = import_material_handling_workbook(
+        workbook,
+        build_parent_lookup_by_material_code([parent]),
+        open_draft_for_parent=lambda _parent: (draft, True, None),
+        get_background_text=lambda _draft: sections["background"],
+        set_background_text=lambda _draft, text: sections.__setitem__("background", text),
+        get_justification_text=lambda _draft: sections["justification"],
+        set_justification_text=lambda _draft, text: sections.__setitem__("justification", text),
+        stage_master_values=lambda _draft, values: len(values),
+    )
+
+    assert summary.specs_matched == 1
+    assert summary.details[0].source_spec_number == "ONGC/DFC/01/2026"
+    assert summary.details[0].chemical_name == "ALUMINIUM STEARATE"
+    assert draft.spec_number == "ONGC/DFC/05/2026"
+    assert draft.chemical_name == "ALUMINIUM STEARATE"
+    assert "Current Specification Number: ONGC/DFC/01/2026" in sections["background"]
+    assert "Chemical Name: ALUMINIUM STEARATE" in sections["background"]
 
 
 def test_import_material_handling_reports_unmatched_rows():
@@ -727,3 +864,132 @@ def test_type_and_material_handling_imports_can_target_separate_drafts_for_same_
     assert type_summary.drafts_created == 1
     assert material_summary.drafts_created == 1
     assert type_summary.details[0].draft_id != material_summary.details[0].draft_id
+
+
+def test_material_handling_section_defaults_cover_background_changes_and_reason():
+    defaults = {
+        section_name: text
+        for section_name, text, _sort_order in _default_section_rows("material_handling")
+    }
+
+    assert defaults["background"].startswith("Background /")
+    assert defaults["proposed_changes"] == _default_proposed_changes_section_text("material_handling")
+    assert "material handling" in defaults["proposed_changes"].lower()
+    assert defaults["recommendation"] == _default_recommendation_section_text("material_handling")
+    assert "updated specification numbering" in defaults["recommendation"].lower()
+
+
+def test_material_handling_staged_payload_round_trip():
+    workbook = parse_material_handling_workbook(
+        _make_workbook(
+            {
+                "Sheet1": [
+                    _material_header(
+                        include_chemical_name=False,
+                        include_source_spec_number=False,
+                        include_officers_responsible=False,
+                    ),
+                    [
+                        1,
+                        100101102,
+                        "ONGC / DFC / 01 / 2026",
+                        "KG",
+                        "Solid",
+                        "No",
+                        "No",
+                        "Yes",
+                        "Ambient",
+                        "Stable",
+                        "No",
+                        "Low",
+                        "No",
+                        "Store in dry place",
+                        "",
+                        "HDPE Bags",
+                        "25 Kg",
+                        "New HDPE bag",
+                        "Zone-1: General Stable",
+                        "No major issue",
+                    ],
+                ]
+            }
+        ),
+        "preview.xlsx",
+    )
+
+    token = _stage_material_handling_workbook_payload(workbook)
+    try:
+        loaded = _load_staged_material_handling_workbook_payload(token)
+        assert loaded.workbook_name == "preview.xlsx"
+        assert len(loaded.rows) == 1
+        assert loaded.rows[0].material_code == "100101102"
+        assert loaded.rows[0].proposed_spec_number == "ONGC/DFC/01/2026"
+    finally:
+        _discard_staged_material_handling_workbook_payload(token)
+
+
+def test_material_handling_preview_comparisons_show_current_workbook_and_staged_values():
+    workbook = parse_material_handling_workbook(
+        _make_workbook(
+            {
+                "Sheet1": [
+                    _material_header(
+                        include_chemical_name=False,
+                        include_source_spec_number=False,
+                        include_officers_responsible=False,
+                    ),
+                    [
+                        1,
+                        100101102,
+                        "ONGC / DFC / 05 / 2026",
+                        "KG",
+                        "Solid",
+                        "No",
+                        "No",
+                        "Yes",
+                        "Ambient",
+                        "Stable",
+                        "No",
+                        "Low",
+                        "No",
+                        "Store in dry place",
+                        "",
+                        "HDPE Bags",
+                        "25 Kg",
+                        "New HDPE bag",
+                        "Zone-1: General Stable",
+                        "Imported remarks",
+                    ],
+                ]
+            }
+        ),
+        "preview-compare.xlsx",
+    )
+    parent = FakeParentDraft(
+        id=70,
+        spec_number="ONGC/DFC/01/2026",
+        material_code="100101102",
+        chemical_name="ALUMINIUM STEARATE",
+    )
+    resolved = _resolve_material_handling_row_for_preview(workbook.rows[0], parent)
+
+    with patch(
+        "app.modules.csc.routes.get_master_form_values",
+        return_value={
+            "physical_state": "Liquid",
+            "container_type": "Drum",
+            "storage_conditions_general": "Legacy storage guidance",
+        },
+    ):
+        comparisons = _material_handling_preview_comparisons(parent, workbook.rows[0], resolved)
+
+    by_label = {item["label"]: item for item in comparisons}
+    assert by_label["Specification No."]["current_value"] == "ONGC/DFC/01/2026"
+    assert by_label["Specification No."]["workbook_value"] == "ONGC/DFC/05/2026"
+    assert by_label["Specification No."]["staged_value"] == "ONGC/DFC/05/2026"
+    assert by_label["Specification No."]["changed"] is True
+    assert by_label["Chemical Name"]["current_value"] == "ALUMINIUM STEARATE"
+    assert by_label["Chemical Name"]["workbook_value"] == ""
+    assert by_label["Chemical Name"]["staged_value"] == "ALUMINIUM STEARATE"
+    assert by_label["Physical State"]["current_value"] == "Liquid"
+    assert by_label["Physical State"]["staged_value"] == "Solid"

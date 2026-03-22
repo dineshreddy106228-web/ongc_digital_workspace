@@ -38,10 +38,15 @@ Endpoints:
 
 from __future__ import annotations
 
+from dataclasses import asdict
 import json
 import logging
 import io
+import os
 import re
+import shutil
+import tempfile
+import uuid
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -80,8 +85,6 @@ from app.core.services.notifications import create_notification
 from app.core.services.csc_utils import (
     ADMIN_STAGE_DRAFTING,
     ADMIN_STAGE_PUBLISHED,
-    DEFAULT_BACKGROUND_VERSION_HISTORY,
-    DEFAULT_VERSION_CHANGE_REASON,
     IMPACT_CHECKLIST_FLAGS,
     SPEC_SUBSET_LABELS,
     SPEC_SUBSET_ORDER,
@@ -148,15 +151,27 @@ from app.core.services.csc_export import (
     build_master_spec_document,
 )
 from app.core.services.csc_type_classification_import import (
+    MATERIAL_HANDLING_BACKGROUND_END,
+    MATERIAL_HANDLING_BACKGROUND_START,
+    MATERIAL_HANDLING_JUSTIFICATION_END,
+    MATERIAL_HANDLING_JUSTIFICATION_START,
     MATERIAL_HANDLING_STREAM,
     TYPE_CLASSIFICATION_STREAM,
     MaterialHandlingImportSummary,
+    MaterialHandlingRowIssue,
+    MaterialHandlingWorkbookRow,
+    ParsedMaterialHandlingWorkbook,
     TypeClassificationImportSummary,
     apply_material_handling_core_updates,
+    build_material_handling_background_text,
+    build_material_handling_justification_text,
     build_parent_lookup,
     build_parent_lookup_by_material_code,
+    canonicalize_spec_number,
     import_type_classification_workbook,
     import_material_handling_workbook,
+    material_code_lookup_key,
+    merge_material_handling_section_block,
     parse_type_classification_workbook,
     parse_material_handling_workbook,
 )
@@ -167,6 +182,11 @@ WORKFLOW_SCOPE_SECTION_NAME = "__workflow_scope_json__"
 WORKFLOW_COMMITTEE_SECTION_NAME = "__workflow_committee_slug__"
 WORKFLOW_STREAM_SECTION_NAME = "__workflow_stream_name__"
 DRAFT_ORIGIN_SECTION_NAME = "__draft_origin_json__"
+MATERIAL_HANDLING_IMPORT_STAGING_ROOT = os.path.join(
+    tempfile.gettempdir(),
+    "csc_material_handling_import_staging",
+)
+SYSTEM_BRACKET_LINE_RE = re.compile(r"^\s*\[[^\n\]]+\]\s*$", re.MULTILINE)
 WORKFLOW_TRACK_SUBSET = "subset"
 WORKFLOW_TRACK_MATERIAL_HANDLING = "material_handling"
 WORKFLOW_SCOPE_DEFAULT = {
@@ -1269,13 +1289,7 @@ def _find_conflicting_root_spec(spec_number: str) -> CSCDraft | None:
 
 def _seed_sections_for_new_spec(draft: CSCDraft, source_label: str) -> None:
     """Create initial narrative sections for a newly ingested specification."""
-    section_rows = [
-        ("background", _default_background_section_text(), 10),
-        ("existing_spec", _default_existing_spec_section_text(), 20),
-        ("changes", "Complete the proposed changes narrative for this new specification before submission.", 30),
-        ("justification", _default_justification_section_text(), 60),
-        ("recommendation", _default_recommendation_section_text(), 70),
-    ]
+    section_rows = list(_default_section_rows(TYPE_CLASSIFICATION_STREAM))
     for section_name, section_text, sort_order in section_rows:
         db.session.add(
             CSCSection(
@@ -1308,6 +1322,22 @@ def _default_existing_spec_section_text() -> str:
     )
 
 
+def _default_proposed_changes_section_text(stream_name: str | None = None) -> str:
+    if stream_name == MATERIAL_HANDLING_STREAM:
+        return "\n".join(
+            [
+                "Proposed Changes /",
+                "Update the material handling, storage conditions, and packing controls as per the uploaded workbook.",
+                "Replace the current specification number with the proposed new specification number after committee approval.",
+            ]
+        )
+
+    return (
+        "Proposed Changes /\n"
+        "Complete the proposed changes narrative for this specification before submission."
+    )
+
+
 def _default_justification_section_text(stream_name: str | None = None) -> str:
     if stream_name == MATERIAL_HANDLING_STREAM:
         return "\n".join(
@@ -1325,7 +1355,13 @@ def _default_justification_section_text(stream_name: str | None = None) -> str:
     )
 
 
-def _default_recommendation_section_text() -> str:
+def _default_recommendation_section_text(stream_name: str | None = None) -> str:
+    if stream_name == MATERIAL_HANDLING_STREAM:
+        return (
+            "Version Change Reason/\n"
+            "Migration to 2026 version with revised material handling, storage conditions, "
+            "packing controls, and updated specification numbering."
+        )
     return (
         "Version Change Reason/\n"
         "Migration to 2026 version with type classification of all parameters into Vital and Desirable. "
@@ -1333,12 +1369,20 @@ def _default_recommendation_section_text() -> str:
     )
 
 
+def _default_section_rows(stream_name: str | None = None) -> list[tuple[str, str, int]]:
+    return [
+        ("background", _default_background_section_text(), 10),
+        ("existing_spec", _default_existing_spec_section_text(), 20),
+        ("proposed_changes", _default_proposed_changes_section_text(stream_name), 30),
+        ("justification", _default_justification_section_text(stream_name), 60),
+        ("recommendation", _default_recommendation_section_text(stream_name), 70),
+    ]
+
+
 def _ensure_default_draft_sections(draft: CSCDraft, stream_name: str | None = None) -> None:
     section_defaults = {
-        "background": (_default_background_section_text(), 10),
-        "existing_spec": (_default_existing_spec_section_text(), 20),
-        "justification": (_default_justification_section_text(stream_name), 60),
-        "recommendation": (_default_recommendation_section_text(), 70),
+        section_name: (default_text, sort_order)
+        for section_name, default_text, sort_order in _default_section_rows(stream_name)
     }
 
     existing_sections = {
@@ -1362,6 +1406,15 @@ def _ensure_default_draft_sections(draft: CSCDraft, stream_name: str | None = No
             section.section_text = default_text
         if not section.sort_order:
             section.sort_order = sort_order
+
+
+def _section_name_aliases(section_name: str | None) -> list[str]:
+    normalized = str(section_name or "").strip()
+    if normalized == "changes":
+        return ["changes", "proposed_changes"]
+    if normalized == "proposed_changes":
+        return ["proposed_changes", "changes"]
+    return [normalized] if normalized else []
 
 
 def _seed_parameters_from_extracted_spec(draft: CSCDraft, spec: SpecDocument) -> None:
@@ -2236,7 +2289,7 @@ def _apply_approved_revision_stream_to_parent(
         _merge_child_sections_into_parent(
             parent_draft,
             child_draft,
-            section_names=["background", "changes", "justification", "recommendation"],
+            section_names=["background", "proposed_changes", "justification", "recommendation"],
             stream_name=stream_name,
         )
         master_payload["chemical_name"] = parent_draft.chemical_name or ""
@@ -2246,7 +2299,7 @@ def _apply_approved_revision_stream_to_parent(
         _merge_child_sections_into_parent(
             parent_draft,
             child_draft,
-            section_names=["existing_spec", "changes", "justification", "recommendation"],
+            section_names=["existing_spec", "proposed_changes", "justification", "recommendation"],
             stream_name=stream_name,
         )
 
@@ -2343,6 +2396,7 @@ def _build_revision_review_context(revision: CSCRevision) -> dict[str, object]:
         "background": "Background Context",
         "existing_spec": "Existing Specification Summary",
         "changes": "Proposed Changes",
+        "proposed_changes": "Proposed Changes",
         "recommendation": "Version Change Reason",
     }
     sections = [
@@ -2435,6 +2489,7 @@ def _build_draft_export_review_context(draft: CSCDraft) -> dict[str, object]:
         "background": "Background Context",
         "existing_spec": "Existing Specification Summary",
         "changes": "Proposed Changes",
+        "proposed_changes": "Proposed Changes",
         "recommendation": "Version Change Reason",
     }
     section_rows = [
@@ -3440,14 +3495,19 @@ def editor(draft_id: int):
                 return redirect(url_for("csc.workspace"))
             db.session.commit()
 
+        workflow_stream = _infer_workflow_stream_name(draft)
+        section_defaults = {
+            section_name: default_text
+            for section_name, default_text, _sort_order in _default_section_rows(workflow_stream)
+        }
         section_rows = draft.sections.order_by(CSCSection.sort_order).all()
         sections = {section.section_name: section.section_text or "" for section in section_rows}
-        sections["background"] = (
-            sections.get("background", "").strip() or DEFAULT_BACKGROUND_VERSION_HISTORY
-        )
-        sections["recommendation"] = (
-            sections.get("recommendation", "").strip() or DEFAULT_VERSION_CHANGE_REASON
-        )
+        for section_name, default_text in section_defaults.items():
+            sections[section_name] = sections.get(section_name, "").strip() or default_text
+        sections = {
+            section_name: _strip_system_bracket_lines(section_text or "")
+            for section_name, section_text in sections.items()
+        }
 
         issue_rows = draft.issue_flags.order_by(CSCIssueFlag.sort_order).all()
         issues = []
@@ -5330,6 +5390,7 @@ def admin_revisions():
 def _render_admin_revisions_workbench(
     latest_import_summary: TypeClassificationImportSummary | MaterialHandlingImportSummary | None = None,
     latest_import_kind: str | None = None,
+    pending_material_handling_preview: dict[str, object] | None = None,
 ):
     """Render the Secretary workbench with an optional workbook import summary."""
     try:
@@ -5402,6 +5463,7 @@ def _render_admin_revisions_workbench(
             intro_message="Only the assigned Material Master Management Admins can access this dashboard. New workflow drafts enter Secretary staging first. After Secretary edits are complete, send them to committee users by moving them to Open. Publish remains limited to committee-head-approved drafts.",
             latest_import_summary=latest_import_summary,
             latest_import_kind=latest_import_kind,
+            pending_material_handling_preview=pending_material_handling_preview,
             decision_stage=WORKFLOW_DRAFTING_HEAD_APPROVED,
             decision_mode="module_admin",
             review_subtitle_pending="Review the verified snapshot below, then publish, return, or delete without editing the submitted draft.",
@@ -5420,6 +5482,293 @@ def _render_admin_revisions_workbench(
         logger.error(f"Error loading revisions: {e}")
         flash("Error loading revisions.", "danger")
         return redirect(url_for("csc.admin_index"))
+
+
+def _material_handling_import_staging_paths(token: str) -> dict[str, str]:
+    root = os.path.join(MATERIAL_HANDLING_IMPORT_STAGING_ROOT, token)
+    return {
+        "root": root,
+        "payload": os.path.join(root, "payload.json"),
+    }
+
+
+def _stage_material_handling_workbook_payload(workbook: ParsedMaterialHandlingWorkbook) -> str:
+    token = uuid.uuid4().hex
+    paths = _material_handling_import_staging_paths(token)
+    os.makedirs(paths["root"], exist_ok=True)
+    payload = {
+        "workbook_name": workbook.workbook_name,
+        "rows": [asdict(row) for row in workbook.rows],
+        "invalid_rows": [asdict(row) for row in workbook.invalid_rows],
+    }
+    with open(paths["payload"], "w", encoding="utf-8") as handle:
+        json.dump(payload, handle)
+    return token
+
+
+def _load_staged_material_handling_workbook_payload(token: str) -> ParsedMaterialHandlingWorkbook:
+    paths = _material_handling_import_staging_paths(token)
+    if not os.path.exists(paths["payload"]):
+        raise ValueError("The staged material handling review is no longer available. Upload the workbook again.")
+    with open(paths["payload"], "r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    return ParsedMaterialHandlingWorkbook(
+        workbook_name=str(payload.get("workbook_name") or "material_handling.xlsx"),
+        rows=[
+            MaterialHandlingWorkbookRow(**row_payload)
+            for row_payload in (payload.get("rows") or [])
+            if isinstance(row_payload, dict)
+        ],
+        invalid_rows=[
+            MaterialHandlingRowIssue(**row_payload)
+            for row_payload in (payload.get("invalid_rows") or [])
+            if isinstance(row_payload, dict)
+        ],
+    )
+
+
+def _discard_staged_material_handling_workbook_payload(token: str | None) -> None:
+    if not token:
+        return
+    paths = _material_handling_import_staging_paths(token)
+    if os.path.isdir(paths["root"]):
+        shutil.rmtree(paths["root"], ignore_errors=True)
+
+
+def _preview_text_value(value: object) -> str:
+    return str(value or "").strip()
+
+
+def _strip_system_bracket_lines(text: str) -> str:
+    cleaned = SYSTEM_BRACKET_LINE_RE.sub("", text or "")
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
+def _resolve_material_handling_row_for_preview(
+    row: MaterialHandlingWorkbookRow,
+    parent_draft: CSCDraft,
+) -> MaterialHandlingWorkbookRow:
+    return MaterialHandlingWorkbookRow(
+        row_number=row.row_number,
+        source_spec_number=row.source_spec_number or canonicalize_spec_number(parent_draft.spec_number),
+        proposed_spec_number=row.proposed_spec_number,
+        chemical_name=row.chemical_name or _preview_text_value(parent_draft.chemical_name),
+        material_code=row.material_code,
+        unit=row.unit,
+        officers_responsible=row.officers_responsible,
+        physical_state=row.physical_state,
+        volatility=row.volatility,
+        sunlight_sensitivity=row.sunlight_sensitivity,
+        moisture_sensitivity=row.moisture_sensitivity,
+        temperature_sensitivity=row.temperature_sensitivity,
+        reactivity=row.reactivity,
+        flammable=row.flammable,
+        toxic=row.toxic,
+        corrosive=row.corrosive,
+        storage_conditions_general=row.storage_conditions_general,
+        storage_conditions_special=row.storage_conditions_special,
+        container_type=row.container_type,
+        container_capacity=row.container_capacity,
+        container_description=row.container_description,
+        primary_storage_classification=row.primary_storage_classification,
+        remarks=row.remarks,
+    )
+
+
+def _predict_material_handling_import_target(parent_draft: CSCDraft) -> dict[str, object]:
+    committee_slug = _resolve_requested_workflow_committee_slug(
+        parent_draft,
+        WORKFLOW_TRACK_MATERIAL_HANDLING,
+    )
+    if not committee_slug:
+        return {
+            "ready": False,
+            "reason": "No committee is configured for the material handling workflow track.",
+            "target_draft": None,
+            "draft_id": None,
+            "workflow_action": "Blocked",
+            "created_new": False,
+        }
+
+    active_revisions = _get_active_revisions_for_parent(parent_draft.id)
+    existing_for_committee = _get_active_revision_for_parent_committee(parent_draft.id, committee_slug)
+    if existing_for_committee and existing_for_committee.child_draft:
+        return {
+            "ready": True,
+            "reason": "",
+            "target_draft": existing_for_committee.child_draft,
+            "draft_id": existing_for_committee.child_draft.id,
+            "workflow_action": "Reuse Draft",
+            "created_new": False,
+        }
+
+    if len(active_revisions) >= 2:
+        return {
+            "ready": False,
+            "reason": "Only two active workflow drafts are allowed per specification at a time.",
+            "target_draft": parent_draft,
+            "draft_id": None,
+            "workflow_action": "Blocked",
+            "created_new": False,
+        }
+
+    return {
+        "ready": True,
+        "reason": "",
+        "target_draft": parent_draft,
+        "draft_id": None,
+        "workflow_action": "Create Draft",
+        "created_new": True,
+    }
+
+
+def _material_handling_preview_comparisons(
+    target_draft: CSCDraft,
+    workbook_row: MaterialHandlingWorkbookRow,
+    resolved_row: MaterialHandlingWorkbookRow,
+) -> list[dict[str, object]]:
+    current_master_values = get_master_form_values(target_draft)
+    rows = [
+        ("Current Spec Reference", canonicalize_spec_number(target_draft.spec_number), workbook_row.source_spec_number, resolved_row.source_spec_number),
+        ("Specification No.", canonicalize_spec_number(target_draft.spec_number), workbook_row.proposed_spec_number, resolved_row.proposed_spec_number),
+        ("Chemical Name", _preview_text_value(target_draft.chemical_name), workbook_row.chemical_name, resolved_row.chemical_name),
+        ("Material Code", _preview_text_value(target_draft.material_code), workbook_row.material_code, resolved_row.material_code),
+        ("Unit", "", workbook_row.unit, resolved_row.unit),
+        ("Officers Responsible", "", workbook_row.officers_responsible, resolved_row.officers_responsible),
+        ("Physical State", _preview_text_value(current_master_values.get("physical_state")), workbook_row.physical_state, resolved_row.physical_state),
+        ("Volatility", _preview_text_value(current_master_values.get("volatility")), workbook_row.volatility, resolved_row.volatility),
+        ("Sunlight Sensitivity", _preview_text_value(current_master_values.get("sunlight_sensitivity")), workbook_row.sunlight_sensitivity, resolved_row.sunlight_sensitivity),
+        ("Moisture Sensitivity", _preview_text_value(current_master_values.get("moisture_sensitivity")), workbook_row.moisture_sensitivity, resolved_row.moisture_sensitivity),
+        ("Temperature Sensitivity", _preview_text_value(current_master_values.get("temperature_sensitivity")), workbook_row.temperature_sensitivity, resolved_row.temperature_sensitivity),
+        ("Reactivity", _preview_text_value(current_master_values.get("reactivity")), workbook_row.reactivity, resolved_row.reactivity),
+        ("Flammable", _preview_text_value(current_master_values.get("flammable")), workbook_row.flammable, resolved_row.flammable),
+        ("Toxic", _preview_text_value(current_master_values.get("toxic")), workbook_row.toxic, resolved_row.toxic),
+        ("Corrosive", _preview_text_value(current_master_values.get("corrosive")), workbook_row.corrosive, resolved_row.corrosive),
+        ("Storage Conditions - General", _preview_text_value(current_master_values.get("storage_conditions_general")), workbook_row.storage_conditions_general, resolved_row.storage_conditions_general),
+        ("Storage Conditions - Special", _preview_text_value(current_master_values.get("storage_conditions_special")), workbook_row.storage_conditions_special, resolved_row.storage_conditions_special),
+        ("Container Type", _preview_text_value(current_master_values.get("container_type")), workbook_row.container_type, resolved_row.container_type),
+        ("Container Capacity", _preview_text_value(current_master_values.get("container_capacity")), workbook_row.container_capacity, resolved_row.container_capacity),
+        ("Container Description", _preview_text_value(current_master_values.get("container_description")), workbook_row.container_description, resolved_row.container_description),
+        ("Primary Storage Classification", _preview_text_value(current_master_values.get("primary_storage_classification")), workbook_row.primary_storage_classification, resolved_row.primary_storage_classification),
+        ("Remarks", "", workbook_row.remarks, resolved_row.remarks),
+    ]
+    comparisons: list[dict[str, object]] = []
+    for label, current_value, workbook_value, staged_value in rows:
+        current_text = _preview_text_value(current_value)
+        workbook_text = _preview_text_value(workbook_value)
+        staged_text = _preview_text_value(staged_value)
+        comparisons.append(
+            {
+                "label": label,
+                "current_value": current_text,
+                "workbook_value": workbook_text,
+                "staged_value": staged_text,
+                "changed": current_text != staged_text,
+            }
+        )
+    return comparisons
+
+
+def _build_material_handling_import_preview(
+    workbook: ParsedMaterialHandlingWorkbook,
+    parent_lookup: dict[str, CSCDraft],
+) -> dict[str, object]:
+    preview_rows: list[dict[str, object]] = []
+    preview_issues: list[dict[str, object]] = [
+        {
+            "issue_type": "Invalid Workbook Row",
+            "row_number": row.row_number,
+            "source_spec_number": row.source_spec_number,
+            "proposed_spec_number": row.proposed_spec_number,
+            "chemical_name": row.chemical_name,
+            "material_code": row.material_code,
+            "reason": row.reason,
+        }
+        for row in workbook.invalid_rows
+    ]
+
+    create_candidates = 0
+    reuse_candidates = 0
+    ready_rows = 0
+
+    for workbook_row in workbook.rows:
+        parent_draft = parent_lookup.get(material_code_lookup_key(workbook_row.material_code))
+        if parent_draft is None:
+            preview_issues.append(
+                {
+                    "issue_type": "No Parent Match",
+                    "row_number": workbook_row.row_number,
+                    "source_spec_number": workbook_row.source_spec_number,
+                    "proposed_spec_number": workbook_row.proposed_spec_number,
+                    "chemical_name": workbook_row.chemical_name,
+                    "material_code": workbook_row.material_code,
+                    "reason": "No published parent specification matched this Material Code.",
+                }
+            )
+            continue
+
+        target_prediction = _predict_material_handling_import_target(parent_draft)
+        target_draft = target_prediction.get("target_draft") or parent_draft
+        resolved_row = _resolve_material_handling_row_for_preview(workbook_row, parent_draft)
+        current_background = _get_draft_section_text(target_draft, "background")
+        current_justification = _get_draft_section_text(target_draft, "justification")
+        preview_rows.append(
+            {
+                "row_number": workbook_row.row_number,
+                "parent_draft_id": parent_draft.id,
+                "parent_spec_number": parent_draft.spec_number,
+                "draft_id": target_prediction.get("draft_id"),
+                "material_code": workbook_row.material_code,
+                "chemical_name": resolved_row.chemical_name,
+                "workflow_action": target_prediction.get("workflow_action"),
+                "ready": bool(target_prediction.get("ready")),
+                "reason": target_prediction.get("reason") or "",
+                "changed_field_count": 0,
+                "comparisons": [],
+                "background_current": _strip_system_bracket_lines(current_background),
+                "background_result": _strip_system_bracket_lines(merge_material_handling_section_block(
+                    current_background,
+                    build_material_handling_background_text(resolved_row),
+                    start_marker=MATERIAL_HANDLING_BACKGROUND_START,
+                    end_marker=MATERIAL_HANDLING_BACKGROUND_END,
+                )),
+                "justification_current": _strip_system_bracket_lines(current_justification),
+                "justification_result": _strip_system_bracket_lines(merge_material_handling_section_block(
+                    current_justification,
+                    build_material_handling_justification_text(resolved_row),
+                    start_marker=MATERIAL_HANDLING_JUSTIFICATION_START,
+                    end_marker=MATERIAL_HANDLING_JUSTIFICATION_END,
+                )),
+            }
+        )
+        preview_rows[-1]["comparisons"] = _material_handling_preview_comparisons(
+            target_draft,
+            workbook_row,
+            resolved_row,
+        )
+        preview_rows[-1]["changed_field_count"] = sum(
+            1 for item in preview_rows[-1]["comparisons"] if item.get("changed")
+        )
+        if target_prediction.get("created_new"):
+            create_candidates += 1
+        elif target_prediction.get("ready"):
+            reuse_candidates += 1
+        if target_prediction.get("ready"):
+            ready_rows += 1
+
+    return {
+        "token": "",
+        "workbook_name": workbook.workbook_name,
+        "subset_codes": list(workbook.subset_codes),
+        "rows_processed": len(workbook.rows),
+        "ready_rows": ready_rows,
+        "create_candidates": create_candidates,
+        "reuse_candidates": reuse_candidates,
+        "issue_count": len(preview_issues) + sum(1 for row in preview_rows if not row.get("ready")),
+        "preview_rows": preview_rows,
+        "preview_issues": preview_issues,
+    }
 
 
 def _type_classification_import_scope() -> dict[str, bool]:
@@ -5447,20 +5796,33 @@ def _material_handling_import_scope() -> dict[str, bool]:
 
 
 def _get_draft_section_text(draft: CSCDraft, section_name: str) -> str:
-    section = CSCSection.query.filter_by(draft_id=draft.id, section_name=section_name).first()
-    return section.section_text or "" if section else ""
+    for candidate_name in _section_name_aliases(section_name):
+        section = CSCSection.query.filter_by(draft_id=draft.id, section_name=candidate_name).first()
+        if section is not None:
+            return section.section_text or ""
+    return ""
 
 
 def _set_draft_section_text(draft: CSCDraft, section_name: str, section_text: str) -> None:
-    section = CSCSection.query.filter_by(draft_id=draft.id, section_name=section_name).first()
+    alias_names = _section_name_aliases(section_name)
+    canonical_name = alias_names[0] if alias_names else section_name
+    section_sort_orders = {
+        section_name: sort_order
+        for section_name, _default_text, sort_order in _default_section_rows(_infer_workflow_stream_name(draft))
+    }
+    section = None
+    for candidate_name in alias_names:
+        section = CSCSection.query.filter_by(draft_id=draft.id, section_name=candidate_name).first()
+        if section is not None:
+            break
     if section is None:
         if not section_text:
             return
         section = CSCSection(
             draft_id=draft.id,
-            section_name=section_name,
+            section_name=canonical_name,
             section_text=section_text,
-            sort_order=60 if section_name == "justification" else 0,
+            sort_order=section_sort_orders.get(canonical_name, 0),
         )
         db.session.add(section)
         return
@@ -5489,6 +5851,71 @@ def _stage_material_handling_master_values(draft: CSCDraft, staged_values: dict[
         if (before_values.get(key) or "") != (after_values.get(key) or ""):
             changed_count += 1
     return changed_count
+
+
+def _apply_material_handling_workbook_import(
+    workbook: ParsedMaterialHandlingWorkbook,
+) -> MaterialHandlingImportSummary:
+    material_codes = list(
+        {
+            row.material_code
+            for row in workbook.rows
+            if (row.material_code or "").strip()
+        }
+    )
+    parent_drafts: list[CSCDraft] = []
+    if material_codes:
+        parent_drafts = (
+            CSCDraft.query.filter(CSCDraft.parent_draft_id.is_(None))
+            .filter(CSCDraft.material_code.in_(material_codes))
+            .all()
+        )
+    parent_lookup = build_parent_lookup_by_material_code(parent_drafts)
+
+    import_summary = import_material_handling_workbook(
+        workbook,
+        parent_lookup,
+        open_draft_for_parent=lambda parent_draft: _open_committee_workflow_draft_for_parent(
+            parent_draft,
+            _material_handling_import_scope(),
+            WORKFLOW_TRACK_MATERIAL_HANDLING,
+        ),
+        get_background_text=lambda draft: _get_draft_section_text(draft, "background"),
+        set_background_text=lambda draft, text: _set_draft_section_text(draft, "background", text),
+        get_justification_text=lambda draft: _get_draft_section_text(draft, "justification"),
+        set_justification_text=lambda draft, text: _set_draft_section_text(draft, "justification", text),
+        stage_master_values=lambda draft, values: _stage_material_handling_master_values(draft, values),
+    )
+
+    touched_parent_ids: set[int] = set()
+    for detail in import_summary.details:
+        if detail.parent_draft_id:
+            touched_parent_ids.add(detail.parent_draft_id)
+    for parent_id in touched_parent_ids:
+        parent_draft = db.session.get(CSCDraft, parent_id)
+        if parent_draft is not None:
+            parent_draft.updated_at = datetime.now(timezone.utc)
+    db.session.commit()
+
+    for detail in import_summary.details:
+        if detail.parent_draft_id:
+            _create_audit_entry(
+                detail.parent_draft_id,
+                "Material handling workbook imported",
+                new_value=json.dumps(
+                    {
+                        "workbook_name": import_summary.workbook_name,
+                        "row_number": detail.row_number,
+                        "source_spec_number": detail.source_spec_number,
+                        "proposed_spec_number": detail.proposed_spec_number,
+                        "child_draft_id": detail.draft_id,
+                        "created_new": detail.created_new,
+                        "staged_field_count": detail.staged_field_count,
+                    }
+                ),
+            )
+
+    return import_summary
 
 
 @csc_bp.route("/admin/revisions/import-type-classification", methods=["POST"])
@@ -5606,7 +6033,7 @@ def admin_import_type_classification_workbook():
 @module_access_required("csc")
 @module_admin_required("csc")
 def admin_import_material_handling_workbook():
-    """Import one material handling workbook into Secretary workflow drafts."""
+    """Parse one material handling workbook and stage a Secretary review preview."""
     upload = request.files.get("material_handling_workbook")
     if upload is None or not upload.filename:
         flash("Choose a .xlsx workbook to import.", "danger")
@@ -5638,59 +6065,70 @@ def admin_import_material_handling_workbook():
                 .all()
             )
         parent_lookup = build_parent_lookup_by_material_code(parent_drafts)
-
-        import_summary = import_material_handling_workbook(
-            workbook,
-            parent_lookup,
-            open_draft_for_parent=lambda parent_draft: _open_committee_workflow_draft_for_parent(
-                parent_draft,
-                _material_handling_import_scope(),
-                WORKFLOW_TRACK_MATERIAL_HANDLING,
-            ),
-            get_background_text=lambda draft: _get_draft_section_text(draft, "background"),
-            set_background_text=lambda draft, text: _set_draft_section_text(draft, "background", text),
-            get_justification_text=lambda draft: _get_draft_section_text(draft, "justification"),
-            set_justification_text=lambda draft, text: _set_draft_section_text(draft, "justification", text),
-            stage_master_values=lambda draft, values: _stage_material_handling_master_values(draft, values),
+        preview_payload = _build_material_handling_import_preview(workbook, parent_lookup)
+        preview_payload["token"] = _stage_material_handling_workbook_payload(workbook)
+        if preview_payload["ready_rows"]:
+            flash(
+                (
+                    f"Reviewed {workbook.workbook_name}: "
+                    f"{preview_payload['ready_rows']} row(s) are ready for Secretary staging. "
+                    "Validate the side-by-side comparison below, then confirm import."
+                ),
+                "info",
+            )
+        else:
+            flash(
+                "The workbook was parsed, but no material handling rows are currently ready for staging. Review the comparison report below.",
+                "warning",
+            )
+        return _render_admin_revisions_workbench(
+            pending_material_handling_preview=preview_payload,
         )
+    except Exception as e:
+        logger.error(f"Error importing material handling workbook: {e}")
+        db.session.rollback()
+        flash("Error importing material handling workbook.", "danger")
+        return _render_admin_revisions_workbench()
 
-        touched_parent_ids: set[int] = set()
-        created_draft_ids: list[int] = []
-        for detail in import_summary.details:
-            if detail.parent_draft_id:
-                touched_parent_ids.add(detail.parent_draft_id)
-            if detail.created_new and detail.draft_id:
-                created_draft_ids.append(detail.draft_id)
-        for parent_id in touched_parent_ids:
-            parent_draft = db.session.get(CSCDraft, parent_id)
-            if parent_draft is not None:
-                parent_draft.updated_at = datetime.now(timezone.utc)
-        db.session.commit()
 
+@csc_bp.route("/admin/revisions/import-material-handling/confirm", methods=["POST"])
+@login_required
+@module_access_required("csc")
+@module_admin_required("csc")
+def admin_confirm_material_handling_workbook_import():
+    """Apply a previously staged material handling workbook review and push drafts to committee users."""
+    token = (request.form.get("preview_token") or "").strip()
+    if not token:
+        flash("The staged material handling review token is missing. Upload the workbook again.", "danger")
+        return _render_admin_revisions_workbench()
+
+    try:
+        workbook = _load_staged_material_handling_workbook_payload(token)
+        import_summary = _apply_material_handling_workbook_import(workbook)
+        _discard_staged_material_handling_workbook_payload(token)
+
+        opened_count = 0
+        already_open_count = 0
         for detail in import_summary.details:
-            if detail.parent_draft_id:
-                _create_audit_entry(
-                    detail.parent_draft_id,
-                    "Material handling workbook imported",
-                    new_value=json.dumps(
-                        {
-                            "workbook_name": import_summary.workbook_name,
-                            "row_number": detail.row_number,
-                            "source_spec_number": detail.source_spec_number,
-                            "proposed_spec_number": detail.proposed_spec_number,
-                            "child_draft_id": detail.draft_id,
-                            "created_new": detail.created_new,
-                            "staged_field_count": detail.staged_field_count,
-                        }
-                    ),
-                )
+            if not detail.draft_id:
+                continue
+            revision = _get_revision_for_child(detail.draft_id)
+            if revision is None:
+                continue
+            opened, message = _open_revision_for_committee_workflow(revision)
+            if opened and "already available" in message:
+                already_open_count += 1
+            elif opened:
+                opened_count += 1
 
         if import_summary.details:
             flash(
                 (
-                    f"Imported {import_summary.workbook_name}: "
+                    f"Accepted {import_summary.workbook_name}: "
                     f"{import_summary.specs_matched} specification(s) matched, "
-                    f"{import_summary.rows_updated} material handling row(s) staged in Secretary workspace."
+                    f"{import_summary.rows_updated} material handling row(s) staged, "
+                    f"{opened_count} draft(s) pushed to committee users"
+                    + (f", {already_open_count} already open." if already_open_count else ".")
                 ),
                 "success",
             )
@@ -5707,10 +6145,77 @@ def admin_import_material_handling_workbook():
             latest_import_kind=MATERIAL_HANDLING_STREAM,
         )
     except Exception as e:
-        logger.error(f"Error importing material handling workbook: {e}")
+        logger.error(f"Error confirming material handling workbook import: {e}")
         db.session.rollback()
-        flash("Error importing material handling workbook.", "danger")
+        flash("Error confirming material handling workbook import.", "danger")
         return _render_admin_revisions_workbench()
+
+
+@csc_bp.route("/admin/revisions/import-material-handling/cancel", methods=["POST"])
+@login_required
+@module_access_required("csc")
+@module_admin_required("csc")
+def admin_cancel_material_handling_workbook_import():
+    """Discard a staged material handling workbook review."""
+    token = (request.form.get("preview_token") or "").strip()
+    _discard_staged_material_handling_workbook_payload(token)
+    flash("Discarded the staged material handling workbook review.", "info")
+    return _render_admin_revisions_workbench()
+
+
+def _open_revision_for_committee_workflow(revision: CSCRevision) -> tuple[bool, str]:
+    if revision.child_draft is None or revision.parent_draft is None:
+        return False, "Revision draft is incomplete."
+    if _is_secretary_staging_state(revision.status):
+        revision.status = WORKFLOW_DRAFTING_OPEN
+        revision.updated_at = datetime.now(timezone.utc)
+        revision.parent_draft.status = "Drafting"
+        revision.parent_draft.admin_stage = ADMIN_STAGE_DRAFTING
+        revision.parent_draft.updated_at = datetime.now(timezone.utc)
+        revision.child_draft.updated_at = datetime.now(timezone.utc)
+        db.session.commit()
+
+        committee_slug = _get_revision_committee_slug(revision)
+        committee_user_ids = _get_committee_user_ids_for_committee_slug(
+            committee_slug,
+            "committee_user",
+        )
+        if committee_user_ids:
+            _notify_users(
+                committee_user_ids,
+                title="Draft opened for committee revision",
+                message=(
+                    f"{revision.parent_draft.spec_number} — {revision.parent_draft.chemical_name} "
+                    "has been opened by Secretary and is now available in your committee workspace."
+                ),
+                severity="info",
+                link=url_for("csc.workspace"),
+            )
+
+        _create_audit_entry(
+            revision.parent_draft.id,
+            "Draft opened for committee user",
+            new_value=json.dumps(
+                {
+                    "revision_id": revision.id,
+                    "child_draft_id": revision.child_draft.id,
+                    "committee_slug": committee_slug,
+                }
+            ),
+        )
+        db.session.commit()
+        return True, (
+            f"{revision.parent_draft.spec_number} — {revision.parent_draft.chemical_name} "
+            "is now open in the committee workspace."
+        )
+
+    if revision.status in {WORKFLOW_DRAFTING_OPEN, WORKFLOW_DRAFTING_RETURNED}:
+        return True, (
+            f"{revision.parent_draft.spec_number} — {revision.parent_draft.chemical_name} "
+            "is already available in the committee workspace."
+        )
+
+    return False, "Only staged drafts can be opened for committee editing."
 
 
 @csc_bp.route("/revisions")
@@ -5893,54 +6398,14 @@ def admin_open_revision_for_committee(revision_id: int):
         revision = db.session.get(CSCRevision, revision_id)
         if not revision or revision.child_draft is None or revision.parent_draft is None:
             return jsonify({"error": "Revision not found"}), 404
-        if not _is_secretary_staging_state(revision.status):
-            return jsonify({"error": "Only staged drafts can be opened for committee editing."}), 409
-
-        revision.status = WORKFLOW_DRAFTING_OPEN
-        revision.updated_at = datetime.now(timezone.utc)
-        revision.parent_draft.status = "Drafting"
-        revision.parent_draft.admin_stage = ADMIN_STAGE_DRAFTING
-        revision.parent_draft.updated_at = datetime.now(timezone.utc)
-        revision.child_draft.updated_at = datetime.now(timezone.utc)
-        db.session.commit()
-
-        committee_slug = _get_revision_committee_slug(revision)
-        committee_user_ids = _get_committee_user_ids_for_committee_slug(
-            committee_slug,
-            "committee_user",
-        )
-        if committee_user_ids:
-            _notify_users(
-                committee_user_ids,
-                title="Draft opened for committee revision",
-                message=(
-                    f"{revision.parent_draft.spec_number} — {revision.parent_draft.chemical_name} "
-                    "has been opened by Secretary and is now available in your committee workspace."
-                ),
-                severity="info",
-                link=url_for("csc.workspace"),
-            )
-
-        _create_audit_entry(
-            revision.parent_draft.id,
-            "Draft opened for committee user",
-            new_value=json.dumps(
-                {
-                    "revision_id": revision.id,
-                    "child_draft_id": revision.child_draft.id,
-                    "committee_slug": committee_slug,
-                }
-            ),
-        )
-        db.session.commit()
+        opened, message = _open_revision_for_committee_workflow(revision)
+        if not opened:
+            return jsonify({"error": message}), 409
 
         return jsonify(
             {
                 "success": True,
-                "message": (
-                    f"{revision.parent_draft.spec_number} — {revision.parent_draft.chemical_name} "
-                    "is now open in the committee workspace."
-                ),
+                "message": message,
             }
         )
     except Exception as e:

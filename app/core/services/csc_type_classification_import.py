@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import re
 from typing import Callable, Mapping
 
@@ -71,9 +71,7 @@ _MATERIAL_HANDLING_HEADER_ALIASES = {
 }
 _REQUIRED_HEADERS = {"spec_number", "material_code", "parameter_serial", "target_type"}
 _MATERIAL_HANDLING_REQUIRED_HEADERS = {
-    "chemical_name",
     "material_code",
-    "source_spec_number",
     "proposed_spec_number",
 }
 _SPEC_SLASH_RE = re.compile(r"^\s*ONGC/([^/]+)/([^/]+)/(\d{4})\s*$", re.IGNORECASE)
@@ -88,6 +86,29 @@ _MATERIAL_HANDLING_BACKGROUND_RE = re.compile(
 )
 _MATERIAL_HANDLING_JUSTIFICATION_RE = re.compile(
     rf"{re.escape(MATERIAL_HANDLING_JUSTIFICATION_START)}.*?{re.escape(MATERIAL_HANDLING_JUSTIFICATION_END)}",
+    re.DOTALL,
+)
+_MATERIAL_HANDLING_VISIBLE_BACKGROUND_RE = re.compile(
+    r"(?:^|\n\s*\n)Material Code: .*?\n"
+    r"Current Specification Number: .*?\n"
+    r"Proposed New Specification Number: .*?\n"
+    r"Chemical Name: .*?"
+    r"(?:\nUnit: .*?)?"
+    r"(?:\nOfficers Responsible: .*?)?"
+    r"(?:\nMaterial Handling Remarks: .*?)?"
+    r"(?=\s*$)",
+    re.DOTALL,
+)
+_MATERIAL_HANDLING_VISIBLE_JUSTIFICATION_RE = re.compile(
+    r"(?:^|\n\s*\n)Proposed specification number - .*?\n"
+    r"Chemical name - .*?\n"
+    r"Physical state - .*?\n"
+    r"Storage conditions \(general\) - .*?\n"
+    r"Storage conditions \(special\) - .*?\n"
+    r"Packing - .*?\n"
+    r"Primary storage classification - .*?"
+    r"(?:\nJustification note - .*?)?"
+    r"(?=\s*$)",
     re.DOTALL,
 )
 _SEP_NORMALIZE_RE = re.compile(r"\s*([/-])\s*")
@@ -676,8 +697,9 @@ def import_material_handling_workbook(
         else:
             summary.drafts_reused += 1
 
+        resolved_row = _resolve_material_handling_row_from_parent(row, parent_draft)
         update = apply_material_handling_row_to_draft(
-            row,
+            resolved_row,
             draft,
             existing_background_text=get_background_text(draft),
             existing_justification_text=get_justification_text(draft),
@@ -690,11 +712,11 @@ def import_material_handling_workbook(
         summary.staged_field_updates += staged_count
         summary.details.append(
             MaterialHandlingImportDetail(
-                row_number=row.row_number,
-                source_spec_number=row.source_spec_number,
-                proposed_spec_number=row.proposed_spec_number,
-                material_code=row.material_code,
-                chemical_name=row.chemical_name,
+                row_number=resolved_row.row_number,
+                source_spec_number=resolved_row.source_spec_number,
+                proposed_spec_number=resolved_row.proposed_spec_number,
+                material_code=resolved_row.material_code,
+                chemical_name=resolved_row.chemical_name,
                 parent_draft_id=getattr(parent_draft, "id", None),
                 draft_id=getattr(draft, "id", None),
                 created_new=created_new,
@@ -798,6 +820,29 @@ def apply_material_handling_row_to_draft(
     return update
 
 
+def _resolve_material_handling_row_from_parent(
+    row: MaterialHandlingWorkbookRow,
+    parent_draft: object,
+) -> MaterialHandlingWorkbookRow:
+    resolved_source_spec_number = row.source_spec_number or canonicalize_spec_number(
+        getattr(parent_draft, "spec_number", "")
+    )
+    resolved_chemical_name = row.chemical_name or sanitize_multiline_text(
+        getattr(parent_draft, "chemical_name", "") or "",
+        max_length=255,
+    )
+    if (
+        resolved_source_spec_number == row.source_spec_number
+        and resolved_chemical_name == row.chemical_name
+    ):
+        return row
+    return replace(
+        row,
+        source_spec_number=resolved_source_spec_number,
+        chemical_name=resolved_chemical_name,
+    )
+
+
 def build_parameter_justification_entry(row: TypeClassificationWorkbookRow) -> str:
     reasons = [reason for reason in row.vital_reasons if reason]
     if not reasons:
@@ -822,7 +867,6 @@ def build_parameter_justification_entry(row: TypeClassificationWorkbookRow) -> s
 
 def build_material_handling_background_text(row: MaterialHandlingWorkbookRow) -> str:
     lines = [
-        MATERIAL_HANDLING_BACKGROUND_START,
         f"Material Code: {row.material_code}",
         f"Current Specification Number: {row.source_spec_number or '—'}",
         f"Proposed New Specification Number: {row.proposed_spec_number or '—'}",
@@ -834,7 +878,6 @@ def build_material_handling_background_text(row: MaterialHandlingWorkbookRow) ->
         lines.append(f"Officers Responsible: {row.officers_responsible}")
     if row.remarks:
         lines.append(f"Material Handling Remarks: {row.remarks}")
-    lines.append(MATERIAL_HANDLING_BACKGROUND_END)
     return "\n".join(lines)
 
 
@@ -850,13 +893,7 @@ def build_material_handling_justification_text(row: MaterialHandlingWorkbookRow)
     ]
     if row.remarks:
         detail_lines.append(f"Justification note - {row.remarks}")
-    return "\n".join(
-        [
-            MATERIAL_HANDLING_JUSTIFICATION_START,
-            "\n".join(detail_lines),
-            MATERIAL_HANDLING_JUSTIFICATION_END,
-        ]
-    )
+    return "\n".join(detail_lines)
 
 
 def build_material_handling_master_payload(row: MaterialHandlingWorkbookRow) -> dict[str, str]:
@@ -931,7 +968,12 @@ def merge_material_handling_section_block(
         rf"{re.escape(start_marker)}.*?{re.escape(end_marker)}",
         re.DOTALL,
     )
-    manual_text = pattern.sub("", existing_text or "").strip()
+    manual_text = pattern.sub("", existing_text or "")
+    if start_marker == MATERIAL_HANDLING_BACKGROUND_START:
+        manual_text = _MATERIAL_HANDLING_VISIBLE_BACKGROUND_RE.sub("", manual_text)
+    elif start_marker == MATERIAL_HANDLING_JUSTIFICATION_START:
+        manual_text = _MATERIAL_HANDLING_VISIBLE_JUSTIFICATION_RE.sub("", manual_text)
+    manual_text = manual_text.strip()
     if not imported_text:
         return manual_text
     if not manual_text:

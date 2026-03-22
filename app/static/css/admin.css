@@ -1757,7 +1757,8 @@ select.form-control {
 }
 
 /* ── Task summary modal ────────────────────────────────────── */
-.task-summary-modal.hidden {
+.task-summary-modal.hidden,
+.task-summary-modal[hidden] {
   display: none;
 }
 

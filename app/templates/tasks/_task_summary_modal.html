@@ -1,6 +1,7 @@
 <div
   id="task-summary-modal"
   class="task-summary-modal hidden"
+  hidden
   role="dialog"
   aria-modal="true"
   aria-labelledby="task-summary-modal-heading"
@@ -63,6 +64,7 @@
     if (activeRequest) activeRequest.abort();
     activeRequest = new AbortController();
 
+    modal.hidden = false;
     modal.classList.remove('hidden');
     document.body.classList.add('modal-open');
     setLoading(titleText);
@@ -89,6 +91,7 @@
     if (!modal) return;
     if (activeRequest) activeRequest.abort();
     modal.classList.add('hidden');
+    modal.hidden = true;
     document.body.classList.remove('modal-open');
   }
 
