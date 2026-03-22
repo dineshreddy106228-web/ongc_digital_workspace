@@ -297,19 +297,36 @@ def _can_create_global_task() -> bool:
     return can_create_global_task(current_user)
 
 
+def _is_task_selectable_user(user: User | None) -> bool:
+    return bool(
+        user
+        and getattr(user, "is_active", False)
+        and not user.is_admin_user()
+    )
+
+
 def _active_owner_options():
     base_query = User.query.filter_by(is_active=True)
     if current_user.office_id:
-        same_office = base_query.filter_by(office_id=current_user.office_id).order_by(
-            User.full_name, User.username
-        ).all()
+        same_office = [
+            user
+            for user in base_query.filter_by(office_id=current_user.office_id)
+            .order_by(User.full_name, User.username)
+            .all()
+            if _is_task_selectable_user(user)
+        ]
         other_offices = (
             base_query.filter(User.office_id != current_user.office_id)
             .order_by(User.full_name, User.username)
             .all()
         )
+        other_offices = [user for user in other_offices if _is_task_selectable_user(user)]
         return same_office + other_offices
-    return base_query.order_by(User.full_name, User.username).all()
+    return [
+        user
+        for user in base_query.order_by(User.full_name, User.username).all()
+        if _is_task_selectable_user(user)
+    ]
 
 
 def _active_local_task_user_options(exclude_user_ids=None, office_id: int | None = None):
@@ -326,7 +343,11 @@ def _active_local_task_user_options(exclude_user_ids=None, office_id: int | None
     else:
         candidates = [current_user] if getattr(current_user, "is_active", False) else []
 
-    return [user for user in candidates if int(user.id) not in excluded_ids]
+    return [
+        user
+        for user in candidates
+        if _is_task_selectable_user(user) and int(user.id) not in excluded_ids
+    ]
 
 
 def _is_user_in_office(user: User | None, office_id: int | None) -> bool:
@@ -1146,6 +1167,8 @@ def create_task():
                 owner = User.query.filter_by(id=int(owner_id_raw), is_active=True).first()
                 if owner is None:
                     errors.append("Selected owner was not found or is inactive.")
+                elif owner.is_admin_user():
+                    errors.append("Admin users cannot be selected as task owners.")
         elif owner_id_raw:
             if not _is_privileged():
                 errors.append("Only admin or superuser can assign another owner on a Local Task.")
@@ -1155,6 +1178,8 @@ def create_task():
                 owner = User.query.filter_by(id=int(owner_id_raw), is_active=True).first()
                 if owner is None:
                     errors.append("Selected owner was not found or is inactive.")
+                elif owner.is_admin_user():
+                    errors.append("Admin users cannot be selected as task owners.")
         else:
             owner = current_user
 
@@ -1278,9 +1303,10 @@ def create_task():
                 .filter(User.id.in_([int(user_id) for user_id in selected_collaborator_ids]))
                 .filter_by(is_active=True)
                 .all()
+                if _is_task_selectable_user(user)
             }
             if len(collaborators_by_id) != len(selected_collaborator_ids):
-                errors.append("One or more selected collaborators are inactive or unavailable.")
+                errors.append("One or more selected collaborators are inactive, unavailable, or not eligible for task assignment.")
             else:
                 collaborator_users = [
                     collaborators_by_id[user_id] for user_id in selected_collaborator_ids
@@ -1897,6 +1923,8 @@ def edit_task(task_id):
                 owner = User.query.filter_by(id=int(owner_id_raw), is_active=True).first()
                 if owner is None:
                     errors.append("Selected owner was not found or is inactive.")
+                elif owner.is_admin_user():
+                    errors.append("Admin users cannot be selected as task owners.")
         elif owner_id_raw:
             if not owner_id_raw.isdigit():
                 errors.append("Selected owner is invalid.")
@@ -1904,6 +1932,8 @@ def edit_task(task_id):
                 owner = User.query.filter_by(id=int(owner_id_raw), is_active=True).first()
                 if owner is None:
                     errors.append("Selected owner was not found or is inactive.")
+                elif owner.is_admin_user():
+                    errors.append("Admin users cannot be selected as task owners.")
         elif task.owner_id:
             owner = task.owner
         else:
@@ -1957,9 +1987,10 @@ def edit_task(task_id):
                 .filter(User.id.in_([int(user_id) for user_id in selected_collaborator_ids]))
                 .filter_by(is_active=True)
                 .all()
+                if _is_task_selectable_user(user)
             }
             if len(collaborators_by_id) != len(selected_collaborator_ids):
-                errors.append("One or more selected collaborators are inactive or unavailable.")
+                errors.append("One or more selected collaborators are inactive, unavailable, or not eligible for task assignment.")
             else:
                 collaborator_users = [
                     collaborators_by_id[user_id] for user_id in selected_collaborator_ids

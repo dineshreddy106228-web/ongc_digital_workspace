@@ -3,7 +3,7 @@
 {% for member in task.members %}
   {% if member.role == 'committee_head' %}
     {% set head_namespace.name = member.user.full_name or member.user.username %}
-  {% elif member.role == 'assignee' %}
+  {% elif member.role in ['assignee', 'creator'] %}
     {% set assignee_namespace.names = assignee_namespace.names + [member.user.full_name or member.user.username] %}
   {% endif %}
 {% endfor %}
@@ -94,6 +94,45 @@
         <h3>Updates</h3>
         <span class="task-summary-section-note">{{ comments|length }} entries</span>
       </div>
+      {% if can_add_update %}
+      <div class="task-summary-composer">
+        <div class="task-summary-composer-header">
+          <div>
+            <h4 class="task-summary-composer-title">Add Update</h4>
+            <p class="task-summary-composer-note">Type the latest committee progress, issue, or action here. This area is kept visible so members can post updates without leaving the summary.</p>
+          </div>
+          <span class="task-summary-composer-pill">Type Here</span>
+        </div>
+        <form
+          id="committee-comment-form"
+          class="task-summary-composer-form"
+          method="POST"
+          action="{{ url_for('committee.add_comment', task_id=task.id) }}"
+          enctype="multipart/form-data"
+        >
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="form-group">
+            <label class="form-label" for="summaryCommentBody">Update <span style="color:var(--color-danger)">*</span></label>
+            <textarea
+              name="body"
+              id="summaryCommentBody"
+              class="form-control"
+              rows="5"
+              required
+              maxlength="5000"
+              placeholder="Example: Draft prepared and forwarded to Committee Head for review."
+            ></textarea>
+          </div>
+          <div class="task-summary-composer-actions">
+            <div class="form-group">
+              <label class="form-label" for="summaryCommentAttachment">Attachment</label>
+              <input type="file" name="attachment" id="summaryCommentAttachment" class="form-control">
+            </div>
+            <button type="submit" class="btn btn-primary">Post Update</button>
+          </div>
+        </form>
+      </div>
+      {% endif %}
       {% if comments %}
       <div class="task-summary-timeline">
         {% for comment in comments %}
@@ -131,9 +170,6 @@
     {% endif %}
     {% if can_change_status %}
     <a href="{{ url_for('committee.task_detail', task_id=task.id) }}#committee-status-form" class="btn btn-secondary">Update Status</a>
-    {% endif %}
-    {% if can_add_update %}
-    <a href="{{ url_for('committee.task_detail', task_id=task.id) }}#committee-comment-form" class="btn btn-primary">Add Update</a>
     {% endif %}
   </div>
 </div>

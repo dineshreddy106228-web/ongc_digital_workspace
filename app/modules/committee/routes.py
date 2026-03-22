@@ -87,6 +87,14 @@ def _can_add_task_update(task: CommitteeTask) -> bool:
     return _is_superuser() or _is_member_of_task(task)
 
 
+def _is_committee_task_selectable_user(user: User | None) -> bool:
+    return bool(
+        user
+        and getattr(user, "is_active", False)
+        and not user.is_admin_user()
+    )
+
+
 def _upload_dir() -> str:
     base = current_app.config.get(
         "COMMITTEE_UPLOAD_DIR",
@@ -134,7 +142,9 @@ def _load_active_users_by_ids(member_ids_raw) -> tuple[list[User], list[str]]:
     )
 
     errors = []
-    if len(member_users) != len(member_ids):
+    if len(member_users) != len(member_ids) or any(
+        not _is_committee_task_selectable_user(user) for user in member_users
+    ):
         errors.append("One or more selected members are invalid or inactive.")
         return [], errors
 
@@ -151,6 +161,8 @@ def _load_committee_head_user(head_user_id_raw: str | None) -> tuple[User | None
     committee_head_user = User.query.filter_by(id=int(raw), is_active=True).first()
     if committee_head_user is None:
         return None, ["Selected committee head is invalid or inactive."]
+    if not _is_committee_task_selectable_user(committee_head_user):
+        return None, ["Admin users cannot be selected as committee heads."]
     return committee_head_user, []
 
 
@@ -162,6 +174,7 @@ def _sync_task_members(
     committee_head_user: User,
 ) -> None:
     added_user_ids: set[int] = set()
+    selected_member_ids = {user.id for user in member_users}
 
     db.session.add(
         CommitteeTaskMember(
@@ -177,7 +190,7 @@ def _sync_task_members(
             CommitteeTaskMember(
                 task_id=task_id,
                 user_id=creator_id,
-                role="creator",
+                role="assignee" if creator_id in selected_member_ids else "creator",
             )
         )
         added_user_ids.add(creator_id)
@@ -850,7 +863,11 @@ def api_office_members(office_id):
     query = User.query.filter_by(is_active=True)
     if office_id:
         query = query.filter_by(office_id=office_id)
-    users = query.order_by(User.full_name, User.username).all()
+    users = [
+        user
+        for user in query.order_by(User.full_name, User.username).all()
+        if _is_committee_task_selectable_user(user)
+    ]
     return jsonify(
         [
             {

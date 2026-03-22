@@ -75,7 +75,7 @@
           <div class="detail-value">
             {% set assignee_namespace = namespace(names=[]) %}
             {% for m in task.members %}
-              {% if m.role == 'assignee' %}
+              {% if m.role in ['assignee', 'creator'] %}
                 {% set assignee_namespace.names = assignee_namespace.names + [m.user.full_name or m.user.username] %}
               {% endif %}
             {% endfor %}
@@ -166,24 +166,39 @@
   {% if can_add_update %}
   <div class="card">
     <div class="card-body">
-      <div class="section-heading">
-        <h2 class="section-heading-title">Add Update</h2>
+      <div class="task-summary-composer">
+        <div class="task-summary-composer-header">
+          <div>
+            <h2 class="task-summary-composer-title">Add Update</h2>
+            <p class="task-summary-composer-note">Keep the latest committee action visible here so the next user immediately knows where to type.</p>
+          </div>
+          <span class="task-summary-composer-pill">Type Here</span>
+        </div>
+        <form id="committee-comment-form" class="task-summary-composer-form" method="POST" action="{{ url_for('committee.add_comment', task_id=task.id) }}" enctype="multipart/form-data">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+          <div class="form-group">
+            <label class="form-label" for="commentBody">Update <span style="color:var(--color-danger)">*</span></label>
+            <textarea
+              name="body"
+              id="commentBody"
+              class="form-control"
+              rows="5"
+              required
+              maxlength="5000"
+              placeholder="Example: MSDS uploaded and storage classification updated for committee review."
+            ></textarea>
+          </div>
+
+          <div class="task-summary-composer-actions">
+            <div class="form-group">
+              <label class="form-label" for="commentAttachment">Attachment</label>
+              <input type="file" name="attachment" id="commentAttachment" class="form-control">
+            </div>
+            <button type="submit" class="btn btn-primary">Post Update</button>
+          </div>
+        </form>
       </div>
-      <form id="committee-comment-form" method="POST" action="{{ url_for('committee.add_comment', task_id=task.id) }}" enctype="multipart/form-data">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-
-        <div class="form-group">
-          <label class="form-label" for="commentBody">Comment <span style="color:var(--color-danger)">*</span></label>
-          <textarea name="body" id="commentBody" class="form-control" rows="3" required maxlength="5000"></textarea>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label" for="commentAttachment">Attachment</label>
-          <input type="file" name="attachment" id="commentAttachment" class="form-control">
-        </div>
-
-        <button type="submit" class="btn btn-primary btn-sm" style="margin-top:0.75rem;">Post Comment</button>
-      </form>
     </div>
   </div>
   {% endif %}
