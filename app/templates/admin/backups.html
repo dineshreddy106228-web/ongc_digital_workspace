@@ -69,7 +69,7 @@
   <div class="page-header">
     <div class="page-header-left">
       <h1 class="page-title">Backup Center</h1>
-      <p class="page-subtitle">Create on-demand database exports without exposing destructive restore actions in the browser.</p>
+      <p class="page-subtitle">Create full backup bundles with database state and critical attachment files, then restore them into the current environment.</p>
     </div>
     <div class="page-header-right" style="display:flex; gap:0.75rem; flex-wrap:wrap;">
       <a href="{{ url_for('admin.users') }}" class="btn btn-secondary">Back to Users</a>
@@ -81,8 +81,8 @@
       <div class="card-body">
         <h2 class="backup-section-title">Download Current Backup</h2>
         <p class="backup-copy">
-          Generate a fresh MySQL dump for the current <strong>{{ environment_name }}</strong> environment.
-          The backup file is streamed to your browser as <code>.sql.gz</code> and is not retained on the web server after download.
+          Generate a fresh full backup bundle for the current <strong>{{ environment_name }}</strong> environment.
+          The backup is streamed to your browser as <code>.tar.gz</code> and includes the database dump plus committee attachment files.
         </p>
         <div class="backup-meta">
           <div class="backup-meta-card">
@@ -95,16 +95,16 @@
           </div>
         </div>
         <ol class="backup-flow">
-          <li>Click download to create a fresh export of the live database.</li>
+          <li>Click download to create a fresh export bundle of the live database and bundled attachment artifacts.</li>
           <li>Wait for the browser download to complete and store the file in a safe location.</li>
-          <li>Use that file for rollback if a later ingest goes wrong.</li>
+          <li>Use that bundle for rollback if a later ingest goes wrong.</li>
         </ol>
         <form method="POST" action="{{ url_for('admin.export_backup') }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button type="submit" class="btn btn-primary">Download Current Database Backup</button>
+          <button type="submit" class="btn btn-primary">Download Current Full Backup Bundle</button>
         </form>
         <div class="backup-note backup-note-warning">
-          <strong>Important:</strong> this app records that a download was triggered, but the actual SQL file is only saved wherever the admin downloads it.
+          <strong>Important:</strong> this app records that a download was triggered, but the actual bundle is only saved wherever the admin downloads it.
         </div>
         <div class="backup-note backup-note-warning">
           <strong>Runtime requirement:</strong> the deployment environment must include
@@ -118,12 +118,12 @@
       <div class="card-body">
         <h2 class="backup-section-title">Ingest Backup Into Current Database</h2>
         <p class="backup-copy">
-          Upload a <code>.sql</code> or <code>.sql.gz</code> file and restore it into the current <strong>{{ environment_name }}</strong> database.
+          Upload a full backup bundle <code>.tar.gz</code> or a legacy <code>.sql</code>/<code>.sql.gz</code> file and restore it into the current <strong>{{ environment_name }}</strong> database.
           <span class="text-danger" style="font-weight: 700;">This replaces the current data.</span>
         </p>
         <ol class="backup-flow">
           <li>Download a fresh backup of the current environment before starting.</li>
-          <li>Select the SQL backup file you intend to ingest.</li>
+          <li>Select the full bundle or SQL backup file you intend to ingest.</li>
           <li>Confirm the environment and type the restore phrase before execution is enabled.</li>
         </ol>
 
@@ -131,9 +131,9 @@
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
           <div class="form-group" style="margin-bottom: 1rem;">
-            <label class="form-label" for="backup_file">Select SQL Backup File</label>
-            <input type="file" id="backup_file" name="backup_file" class="form-control" accept=".sql,.sql.gz" required>
-            <div class="form-hint">Accepted formats: .sql, .sql.gz. The uploaded file is validated before restore begins.</div>
+            <label class="form-label" for="backup_file">Select Backup File</label>
+            <input type="file" id="backup_file" name="backup_file" class="form-control" accept=".tar.gz,.sql,.sql.gz" required>
+            <div class="form-hint">Accepted formats: .tar.gz, .sql, .sql.gz. Full bundles restore the database and committee attachments. Legacy SQL restores the database only.</div>
           </div>
 
           <div class="backup-meta-card" style="margin-bottom: 1rem;">
@@ -157,14 +157,14 @@
               <div class="form-group-checkbox">
                 <label class="checkbox-label">
                   <input type="checkbox" id="confirmDownloadedBackup" name="ack_downloaded_backup" required>
-                  <span>I downloaded a fresh backup of the current database and stored it outside the server.</span>
+                  <span>I downloaded a fresh backup of the current environment and stored it outside the server.</span>
                 </label>
               </div>
 
               <div class="form-group-checkbox">
                 <label class="checkbox-label">
                   <input type="checkbox" id="confirmDestructiveRestore" name="ack_destructive_restore" required>
-                  <span>I understand this ingest will overwrite the current <strong>{{ environment_name }}</strong> database.</span>
+                  <span>I understand this ingest will overwrite the current <strong>{{ environment_name }}</strong> database and may also replace bundled attachment files.</span>
                 </label>
               </div>
 
@@ -196,7 +196,7 @@
             </div>
 
             <button type="submit" id="finalRestoreBtn" class="btn btn-danger" disabled>
-              <i class="bi bi-cloud-upload"></i> Ingest Backup And Replace Current Database
+              <i class="bi bi-cloud-upload"></i> Ingest Backup And Replace Current State
             </button>
             <button type="button" id="cancelRestoreBtn" class="btn btn-secondary">Cancel</button>
           </div>

@@ -9,6 +9,7 @@ Governance V2 additions:
 
 import logging
 import os
+from pathlib import Path
 import tempfile
 from datetime import datetime
 from io import BytesIO
@@ -56,7 +57,7 @@ from app.core.services.notifications import create_notification
 from app.core.services.backups import (
     BackupError,
     build_backup_filename,
-    create_database_backup,
+    create_full_backup_bundle,
     restore_database_backup,
     get_runtime_environment_name,
     validate_backup_file,
@@ -1796,7 +1797,7 @@ def backup_center():
         history_available=history_available,
         environment_name=get_runtime_environment_name(),
         next_backup_filename=build_backup_filename(),
-        restore_phrase="RESTORE DATABASE",
+        restore_phrase="RESTORE BACKUP",
     )
 
 
@@ -1805,7 +1806,7 @@ def backup_center():
 @roles_required(ADMIN_ROLE)
 def export_backup():
     try:
-        artifact = create_database_backup()
+        artifact = create_full_backup_bundle()
     except BackupError as exc:
         flash(str(exc), "danger")
         return redirect(url_for("admin.backup_center"))
@@ -1816,7 +1817,7 @@ def export_backup():
                 filename=artifact.download_name,
                 created_by_username=current_user.username,
                 environment=get_runtime_environment_name(),
-                notes="Generated from the admin Backup Center and streamed immediately.",
+                notes="Generated full backup bundle from the admin Backup Center and streamed immediately.",
             )
         )
         db.session.add(
@@ -1826,7 +1827,7 @@ def export_backup():
                 entity_type="BackupSnapshot",
                 entity_id=artifact.download_name,
                 details=(
-                    f"Admin '{current_user.username}' exported database backup "
+                    f"Admin '{current_user.username}' exported full backup bundle "
                     f"'{artifact.download_name}'."
                 ),
                 ip_address=AuditLog._normalize_ip(_client_ip()),
@@ -1848,7 +1849,7 @@ def export_backup():
         artifact.temp_path,
         as_attachment=True,
         download_name=artifact.download_name,
-        mimetype="application/gzip",
+        mimetype="application/x-tar",
         max_age=0,
     )
     response.call_on_close(artifact.cleanup)
@@ -1859,9 +1860,9 @@ def export_backup():
 @login_required
 @roles_required(ADMIN_ROLE)
 def import_backup():
-    """Ingest/Restore a database backup from an uploaded SQL file."""
+    """Ingest/Restore a full backup bundle or legacy SQL backup file."""
     environment_name = get_runtime_environment_name()
-    required_restore_phrase = "RESTORE DATABASE"
+    required_restore_phrase = "RESTORE BACKUP"
 
     if "backup_file" not in request.files:
         flash("No file part provided.", "danger")
@@ -1870,10 +1871,6 @@ def import_backup():
     file = request.files["backup_file"]
     if not file or not file.filename:
         flash("No file selected.", "danger")
-        return redirect(url_for("admin.backup_center"))
-
-    if not (file.filename.endswith(".sql") or file.filename.endswith(".sql.gz")):
-        flash("Unsupported file format. Please upload a .sql or .sql.gz file.", "danger")
         return redirect(url_for("admin.backup_center"))
 
     if request.form.get("ack_downloaded_backup") != "on":
@@ -1901,7 +1898,8 @@ def import_backup():
         return redirect(url_for("admin.backup_center"))
 
     # ── Temporary storage for the upload ──────────────────────────
-    fd, temp_path = tempfile.mkstemp(prefix="restore-upload-", suffix=os.path.splitext(file.filename)[1])
+    suffix = "".join(Path(file.filename).suffixes) or ".upload"
+    fd, temp_path = tempfile.mkstemp(prefix="restore-upload-", suffix=suffix)
     try:
         with os.fdopen(fd, "wb") as f:
             file.save(f)
@@ -1919,7 +1917,8 @@ def import_backup():
             entity_id=file.filename,
             details=(
                 f"Admin '{current_user.username}' restored database from "
-                f"'{file.filename}' into {result['database']} at {result['host']}."
+                f"'{file.filename}' into {result['database']} at {result['host']} "
+                f"using {result.get('format', 'sql')} backup format."
             ),
             ip_address=_client_ip(),
             user_agent=get_user_agent(),
@@ -1933,11 +1932,19 @@ def import_backup():
         )
         db.session.commit()
 
-        flash(
-            f"Database successfully restored from '{file.filename}' "
-            f"({validation['size_bytes']} bytes). All tables in {environment_name} have been refreshed.",
-            "success",
-        )
+        if result.get("format") == "bundle":
+            flash(
+                f"Full backup bundle '{file.filename}' restored successfully. "
+                f"Database tables were refreshed and committee attachments were synchronized for {environment_name}.",
+                "success",
+            )
+        else:
+            flash(
+                f"Legacy SQL backup '{file.filename}' restored successfully "
+                f"({validation['size_bytes']} bytes). Database tables were refreshed for {environment_name}. "
+                "Filesystem attachments were not changed.",
+                "success",
+            )
     except BackupError as exc:
         flash(f"Restore failed: {exc}", "danger")
     except Exception as exc:
