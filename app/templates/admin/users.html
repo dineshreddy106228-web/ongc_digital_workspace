@@ -11,35 +11,18 @@
   <ul class="organogram-list organogram-flow-list">
     {% for node in nodes recursive %}
     <li class="organogram-node">
-      <article class="organogram-card organogram-card-level-{{ node.level }} {{ 'is-inactive' if not node.is_active }}">
+      <article class="organogram-card organogram-card-compact organogram-card-level-{{ node.level }} {{ 'is-inactive' if not node.is_active }}">
         <div class="organogram-card-topline">
           <div>
-            <span class="organogram-level-badge organogram-level-badge-{{ node.level }}">{{ node.level_label }}</span>
             <h3>{{ node.name }}</h3>
-            <p>@{{ node.username }}</p>
+            <p>{{ node.designation or 'Designation not set' }}</p>
           </div>
-          <span class="badge {{ 'badge-active' if node.is_active else 'badge-inactive' }}">
-            {{ 'Active' if node.is_active else 'Inactive' }}
-          </span>
         </div>
 
-        <div class="organogram-meta-grid">
-          <div>
-            <span>Role</span>
-            <strong>{{ node.role_name }}</strong>
-          </div>
-          <div>
-            <span>Office</span>
-            <strong>{{ node.office_name }}</strong>
-          </div>
-          <div>
-            <span>Designation</span>
-            <strong>{{ node.designation or '—' }}</strong>
-          </div>
-          <div>
-            <span>{{ 'Children' if node.children else 'Chain End' }}</span>
-            <strong>{{ node.children|length if node.children else 'Leaf User' }}</strong>
-          </div>
+        <div class="organogram-tag-row">
+          {% for tag in node.display_tags %}
+          <span class="organogram-level-badge organogram-level-badge-{{ tag.level }}">{{ tag.label }}</span>
+          {% endfor %}
         </div>
       </article>
 
@@ -312,7 +295,7 @@
             <div>
               <h2 class="organogram-title">Reporting Organogram</h2>
               <p class="organogram-subtitle">
-                Office-wise flow chart excluding admins, rooted at office heads and then drilling through reviewing officers, controlling officers, and terminal users.
+                Office-wise reporting flow excluding admins. Each person appears once, with compact tags for office head, reviewing officer, and controlling officer responsibilities.
               </p>
             </div>
           </div>

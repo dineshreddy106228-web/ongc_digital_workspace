@@ -2,10 +2,38 @@
 {% block title %}Super User Dashboard – {{ app_name }}{% endblock %}
 
 {% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
 <script nonce="{{ csp_nonce() }}" src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 {% endblock %}
 
 {% block content %}
+{% macro render_reporting_organogram(nodes) %}
+  <ul class="organogram-list organogram-flow-list">
+    {% for node in nodes recursive %}
+    <li class="organogram-node">
+      <article class="organogram-card organogram-card-compact organogram-card-level-{{ node.level }} {{ 'is-inactive' if not node.is_active }}">
+        <div class="organogram-card-topline">
+          <div>
+            <h3>{{ node.name }}</h3>
+            <p>{{ node.designation or 'Designation not set' }}</p>
+          </div>
+        </div>
+        <div class="organogram-tag-row">
+          {% for tag in node.display_tags %}
+          <span class="organogram-level-badge organogram-level-badge-{{ tag.level }}">{{ tag.label }}</span>
+          {% endfor %}
+        </div>
+      </article>
+      {% if node.children %}
+      <ul class="organogram-list organogram-children organogram-flow-children">
+        {{ loop(node.children) }}
+      </ul>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+{% endmacro %}
+
 <section class="super-briefing">
   <div class="super-briefing-hero">
     <div class="super-briefing-hero-copy">
@@ -57,6 +85,36 @@
       <p>No fresh movement in the last week.</p>
     </article>
   </div>
+
+  {% if reporting_organogram %}
+  <section class="super-briefing-panel super-reporting-panel">
+    <div class="super-panel-header">
+      <div>
+        <h2>Reporting Organogram</h2>
+        <p>Compact office-wise reporting view with one box per user and officer tags only.</p>
+      </div>
+    </div>
+    <div class="organogram-office-grid">
+      {% for office in reporting_organogram %}
+      <section class="organogram-office-section">
+        <div class="organogram-office-header">
+          <div>
+            <h3 class="organogram-office-title">{{ office.office_name }}</h3>
+            <p class="organogram-office-subtitle">
+              {{ office.total_users }} user{{ '' if office.total_users == 1 else 's' }}, {{ office.mapped_users }} mapped into the reporting chain.
+            </p>
+          </div>
+        </div>
+        {% if office.nodes %}
+        <div class="organogram-canvas organogram-canvas-flow">
+          {{ render_reporting_organogram(office.nodes) }}
+        </div>
+        {% endif %}
+      </section>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
 
   <div class="super-briefing-layout">
     <div class="super-briefing-main">

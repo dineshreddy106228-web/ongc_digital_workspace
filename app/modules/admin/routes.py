@@ -328,8 +328,8 @@ def _build_user_report_workbook(
         ["Mapped Users", hierarchy_summary["mapped_users"]],
         ["Fully Mapped Users", hierarchy_summary["fully_mapped_users"]],
         ["Office Heads", hierarchy_summary["office_heads"]],
-        ["Power Users", hierarchy_summary["power_users"]],
-        ["Configured Power User Slots", hierarchy_summary["power_user_slots"]],
+        ["Power Users", hierarchy_summary.get("power_users", 0)],
+        ["Configured Power User Slots", hierarchy_summary.get("power_user_slots", 0)],
         ["Active Users", sum(1 for user in users if user.is_active)],
         ["Inactive Users", sum(1 for user in users if not user.is_active)],
         ["Roles", len(roles)],
@@ -525,12 +525,12 @@ ORGANOGRAM_LEVEL_META = {
 }
 
 
-def _new_organogram_node(user: User, level: str) -> dict:
-    meta = ORGANOGRAM_LEVEL_META[level]
+def _new_organogram_node(user: User) -> dict:
+    meta = ORGANOGRAM_LEVEL_META["user"]
     return {
-        "key": f"{level}:{user.id}",
+        "key": f"user:{user.id}",
         "id": user.id,
-        "level": level,
+        "level": "user",
         "level_label": meta["label"],
         "level_order": meta["order"],
         "name": _display_user_name(user),
@@ -539,9 +539,30 @@ def _new_organogram_node(user: User, level: str) -> dict:
         "office_name": user.office.office_name if user.office else "No office",
         "designation": (user.designation or "").strip(),
         "is_active": user.is_active,
+        "tags": [{"level": "user", "label": meta["label"], "order": meta["order"]}],
+        "_tag_levels": {"user"},
         "children": [],
         "_child_index": {},
     }
+
+
+def _apply_organogram_tag(node: dict, level: str) -> None:
+    if level not in ORGANOGRAM_LEVEL_META or level in node["_tag_levels"]:
+        return
+
+    meta = ORGANOGRAM_LEVEL_META[level]
+    node["_tag_levels"].add(level)
+    node["tags"].append(
+        {
+            "level": level,
+            "label": meta["label"],
+            "order": meta["order"],
+        }
+    )
+    if meta["order"] < node["level_order"]:
+        node["level"] = level
+        node["level_label"] = meta["label"]
+        node["level_order"] = meta["order"]
 
 
 def _organogram_node_sort_key(node: dict):
@@ -580,6 +601,11 @@ def _build_user_organogram(users):
         finalized = []
         for node in nodes:
             node["children"] = _finalize(node["children"])
+            sorted_tags = sorted(node["tags"], key=lambda tag: (tag["order"], tag["label"]))
+            non_user_tags = [tag for tag in sorted_tags if tag["level"] != "user"]
+            node["display_tags"] = non_user_tags or sorted_tags
+            node.pop("tags", None)
+            node.pop("_tag_levels", None)
             node.pop("_child_index", None)
             finalized.append(node)
         return finalized
@@ -593,88 +619,97 @@ def _build_user_organogram(users):
         office_users = section["users"]
         office_user_ids = {user.id for user in office_users}
         single_user_office = len(office_users) == 1
-        officer_reference_ids = {
-            int(officer_id)
+        reviewing_reference_ids = {
+            int(user.reviewing_officer_id)
             for user in office_users
-            for officer_id in (
-                user.reviewing_officer_id,
-                user.controlling_officer_id,
-            )
-            if officer_id is not None and int(officer_id) in office_user_ids
+            if user.reviewing_officer_id is not None and int(user.reviewing_officer_id) in office_user_ids
         }
-
+        controlling_reference_ids = {
+            int(user.controlling_officer_id)
+            for user in office_users
+            if user.controlling_officer_id is not None and int(user.controlling_officer_id) in office_user_ids
+        }
         roots = []
-        root_index = {}
+        node_index = {}
+        inferred_parent_map = {}
 
-        def _ensure_root(level: str, user: User) -> dict:
-            key = f"{level}:{user.id}"
-            node = root_index.get(key)
+        def _ensure_node(user: User) -> dict:
+            node = node_index.get(user.id)
             if node is None:
-                node = _new_organogram_node(user, level)
-                root_index[key] = node
-                roots.append(node)
+                node = _new_organogram_node(user)
+                node_index[user.id] = node
             return node
 
-        def _ensure_child(parent: dict, level: str, user: User) -> dict:
-            key = f"{level}:{user.id}"
-            node = parent["_child_index"].get(key)
-            if node is None:
-                node = _new_organogram_node(user, level)
-                parent["_child_index"][key] = node
-                parent["children"].append(node)
-            return node
-
-        def _head_for_user(user: User):
-            if not user.controlling_officer_id and not single_user_office:
-                return user
-
-            for officer_id in (
-                user.accepting_officer_id,
-                user.reviewing_officer_id,
-                user.controlling_officer_id,
-            ):
-                officer = users_by_id.get(officer_id)
-                if officer is not None and not officer.controlling_officer_id:
-                    return officer
-
-            return None
-
-        if not single_user_office:
-            for user in sorted(office_users, key=_user_sort_key):
-                if not user.controlling_officer_id:
-                    _ensure_root("head", user)
+        def _valid_officer(officer_id):
+            if officer_id is None:
+                return None
+            officer = users_by_id.get(officer_id)
+            if officer is None or officer.id not in office_user_ids:
+                return None
+            return officer
 
         for user in sorted(office_users, key=_user_sort_key):
-            if single_user_office:
-                _ensure_root("user", user)
-                continue
+            node = _ensure_node(user)
+            if user.id in reviewing_reference_ids:
+                _apply_organogram_tag(node, "reviewing")
+            if user.id in controlling_reference_ids:
+                _apply_organogram_tag(node, "controlling")
+            if not single_user_office and not _valid_officer(user.controlling_officer_id):
+                _apply_organogram_tag(node, "head")
 
-            chain_parent = None
-            head_user = _head_for_user(user)
-            seen_ids = set()
+            reviewing_officer = _valid_officer(user.reviewing_officer_id)
+            controlling_officer = _valid_officer(user.controlling_officer_id)
+            if reviewing_officer and controlling_officer and reviewing_officer.id != controlling_officer.id:
+                inferred_parent_map.setdefault(controlling_officer.id, reviewing_officer.id)
 
-            if head_user is not None:
-                chain_parent = _ensure_root("head", head_user)
-                seen_ids.add(head_user.id)
-
-            for officer_id in (user.reviewing_officer_id, user.controlling_officer_id):
-                officer = users_by_id.get(officer_id)
-                if officer is None or officer.id in seen_ids:
-                    continue
-                level = "reviewing" if officer_id == user.reviewing_officer_id else "controlling"
-                chain_parent = (
-                    _ensure_root(level, officer)
-                    if chain_parent is None
-                    else _ensure_child(chain_parent, level, officer)
+        parent_map = {}
+        for user in sorted(office_users, key=_user_sort_key):
+            controlling_officer = _valid_officer(user.controlling_officer_id)
+            reviewing_officer = _valid_officer(user.reviewing_officer_id)
+            if controlling_officer and controlling_officer.id != user.id:
+                parent_map[user.id] = controlling_officer.id
+            elif reviewing_officer and reviewing_officer.id != user.id:
+                parent_map[user.id] = reviewing_officer.id
+            else:
+                inferred_parent_id = inferred_parent_map.get(user.id)
+                parent_map[user.id] = (
+                    inferred_parent_id
+                    if inferred_parent_id is not None and inferred_parent_id != user.id
+                    else None
                 )
-                seen_ids.add(officer.id)
 
-            if chain_parent is not None:
-                if user.id not in officer_reference_ids:
-                    _ensure_child(chain_parent, "user", user)
-            elif user.id not in officer_reference_ids:
-                fallback_level = "head" if not user.controlling_officer_id else "user"
-                _ensure_root(fallback_level, user)
+        def _creates_cycle(user_id: int, parent_id) -> bool:
+            seen_ids = {user_id}
+            current_id = parent_id
+            while current_id is not None:
+                if current_id in seen_ids:
+                    return True
+                seen_ids.add(current_id)
+                current_id = parent_map.get(current_id)
+            return False
+
+        for user_id, parent_id in list(parent_map.items()):
+            if parent_id is not None and _creates_cycle(user_id, parent_id):
+                parent_map[user_id] = None
+
+        attached_ids = set()
+        for user in sorted(office_users, key=_user_sort_key):
+            node = _ensure_node(user)
+            parent_id = parent_map.get(user.id)
+            if parent_id is None:
+                continue
+            parent = node_index.get(parent_id)
+            if parent is None:
+                continue
+            if user.id not in parent["_child_index"]:
+                parent["_child_index"][user.id] = node
+                parent["children"].append(node)
+                attached_ids.add(user.id)
+
+        for user in sorted(office_users, key=_user_sort_key):
+            node = _ensure_node(user)
+            if user.id not in attached_ids:
+                roots.append(node)
 
         finalized_roots = _finalize(roots)
         organogram.append(
@@ -694,7 +729,9 @@ def _build_user_organogram(users):
                     )
                 ),
                 "office_heads": 0 if single_user_office else sum(
-                    1 for node in finalized_roots if node["level"] == "head"
+                    1
+                    for node in finalized_roots
+                    if any(tag["level"] == "head" for tag in node["display_tags"])
                 ),
                 "unmapped_users": sum(
                     1
@@ -819,6 +856,8 @@ def export_users_report():
             and user.accepting_officer_id
         ),
         "office_heads": sum(section["office_heads"] for section in organogram),
+        "power_users": sum(1 for user in users if user.is_power_user and user.is_active),
+        "power_user_slots": sum(office.power_user_limit for office in offices),
     }
 
     workbook = _build_user_report_workbook(

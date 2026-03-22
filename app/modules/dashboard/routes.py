@@ -5,8 +5,10 @@ from zoneinfo import ZoneInfo
 
 from flask import render_template, redirect, url_for, abort, flash
 from flask_login import login_required, current_user
+from sqlalchemy.orm import joinedload
 from app.modules.dashboard import dashboard_bp
 from app.models.core.activity_log import ActivityLog
+from app.models.core.user import User
 from app.core.services.dashboard import (
     get_dashboard_workspace_context,
     get_superuser_dashboard_briefing,
@@ -71,11 +73,27 @@ def superuser_dashboard():
     if not current_user.is_super_user():
         abort(403)
 
+    from app.modules.admin.routes import _build_user_organogram
+
     briefing = get_superuser_dashboard_briefing()
+    reporting_users = (
+        User.query
+        .options(
+            joinedload(User.role),
+            joinedload(User.office),
+            joinedload(User.controlling_officer),
+            joinedload(User.reviewing_officer),
+            joinedload(User.accepting_officer),
+        )
+        .order_by(User.created_at.desc())
+        .all()
+    )
+    reporting_organogram = _build_user_organogram(reporting_users)
     last_refreshed = datetime.now(timezone.utc).astimezone(INDIA_TIMEZONE)
     return render_template(
         "main/superuser_dashboard.html",
         briefing=briefing,
+        reporting_organogram=reporting_organogram,
         last_refreshed=last_refreshed,
         user=current_user,
     )

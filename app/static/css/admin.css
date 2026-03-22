@@ -210,7 +210,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  min-width: 260px;
+  min-width: 210px;
 }
 
 .organogram-children {
@@ -267,6 +267,11 @@
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--color-primary-light, #e8f0fe) 42%, #ffffff) 0%, #ffffff 100%);
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+}
+
+.organogram-card-compact {
+  width: min(220px, 100%);
+  padding: 0.85rem 0.9rem;
 }
 
 .organogram-card-level-accepting {
@@ -346,14 +351,21 @@
 
 .organogram-card-topline h3 {
   margin: 0;
-  font-size: 1rem;
+  font-size: 0.98rem;
   color: var(--color-text, #1a1a2e);
 }
 
 .organogram-card-topline p {
   margin: 0.2rem 0 0;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   color: var(--color-text-muted, #666);
+}
+
+.organogram-tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.7rem;
 }
 
 .organogram-meta-grid,
