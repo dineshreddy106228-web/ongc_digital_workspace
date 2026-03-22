@@ -302,12 +302,29 @@
       <div class="super-panel-header">
         <div>
           <h2>Reporting Organogram</h2>
-          <p>Compact office-wise reporting view with one box per user and officer tags only.</p>
+          <p>Switch between office reporting trees and keep the current superuser office in focus by default.</p>
         </div>
       </div>
-      <div class="organogram-office-grid">
+      <div class="super-organogram-toolbar">
+        <div class="super-organogram-filter">
+          <label for="super-organogram-office">Office</label>
+          <select id="super-organogram-office" class="super-organogram-select" data-organogram-filter>
+            {% for office in reporting_organogram %}
+            <option value="{{ office.office_key }}" {% if office.office_key == default_organogram_office_key %}selected{% endif %}>
+              {{ office.office_name }}{% if office.is_current_user_office %} · Your office{% endif %}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        <p class="super-organogram-hint">Use the filter to move across all office organograms without loading the full grid at once.</p>
+      </div>
+      <div class="organogram-office-grid organogram-office-grid-filtered">
         {% for office in reporting_organogram %}
-        <section class="organogram-office-section">
+        <section
+          class="organogram-office-section"
+          data-organogram-office="{{ office.office_key }}"
+          {% if office.office_key != default_organogram_office_key %}hidden{% endif %}
+        >
           <div class="organogram-office-header">
             <div>
               <h3 class="organogram-office-title">{{ office.office_name }}</h3>
@@ -343,6 +360,8 @@
   const watchlistButtons = Array.from(document.querySelectorAll('[data-drilldown-source="watchlist"]'));
   const superTabButtons = Array.from(document.querySelectorAll('[data-super-tab]'));
   const superTabPanels = Array.from(document.querySelectorAll('[data-super-panel]'));
+  const organogramFilter = document.querySelector('[data-organogram-filter]');
+  const organogramSections = Array.from(document.querySelectorAll('[data-organogram-office]'));
   const charts = [];
 
   function escapeHtml(value) {
@@ -563,6 +582,12 @@
     }
   }
 
+  function activateOrganogramOffice(officeKey) {
+    organogramSections.forEach((section) => {
+      section.hidden = section.dataset.organogramOffice !== officeKey;
+    });
+  }
+
   renderCharts();
 
   superTabButtons.forEach((button) => {
@@ -570,6 +595,13 @@
       activateSuperTab(this.dataset.superTab);
     });
   });
+
+  if (organogramFilter) {
+    organogramFilter.addEventListener('change', function () {
+      activateOrganogramOffice(this.value);
+    });
+    activateOrganogramOffice(organogramFilter.value);
+  }
 
   watchlistButtons.forEach((button) => {
     button.addEventListener('click', function () {

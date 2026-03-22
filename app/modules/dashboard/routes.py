@@ -90,15 +90,39 @@ def superuser_dashboard():
     )
     reporting_organogram = _build_user_organogram(reporting_users)
     reporting_organogram = [
-        office
+        {
+            **office,
+            "office_key": str(office["office_id"]) if office.get("office_id") is not None else "unassigned",
+            "is_current_user_office": office.get("office_id") == getattr(current_user, "office_id", None),
+        }
         for office in reporting_organogram
-        if int(office.get("mapped_users") or 0) > 0
+        if office.get("nodes") or int(office.get("total_users") or 0) > 0
     ]
+    preferred_office_key = (
+        str(current_user.office_id)
+        if getattr(current_user, "office_id", None) is not None
+        else None
+    )
+    reporting_organogram.sort(
+        key=lambda office: (
+            office["office_key"] != preferred_office_key,
+            (office.get("office_name") or "").lower(),
+            office.get("office_id") or 0,
+        )
+    )
+    default_organogram_office_key = (
+        preferred_office_key
+        if preferred_office_key and any(
+            office["office_key"] == preferred_office_key for office in reporting_organogram
+        )
+        else (reporting_organogram[0]["office_key"] if reporting_organogram else None)
+    )
     last_refreshed = datetime.now(timezone.utc).astimezone(INDIA_TIMEZONE)
     return render_template(
         "main/superuser_dashboard.html",
         briefing=briefing,
         reporting_organogram=reporting_organogram,
+        default_organogram_office_key=default_organogram_office_key,
         last_refreshed=last_refreshed,
         user=current_user,
     )
