@@ -135,12 +135,59 @@
       <div class="csc-dossier-narrative">
         {% for section in section_rows %}
         <article class="csc-dossier-section">
-          <h4>{{ section.label }}</h4>
+          <h4>{{ section.label }} · {{ section.change_status or 'Retained' }}</h4>
+          <div class="csc-dossier-notes"><strong>Published Baseline</strong><br>{{ section.source_text or '—' }}</div>
           <pre>{{ section.text or '—' }}</pre>
         </article>
         {% else %}
         <div class="csc-dossier-empty">No narrative sections were captured in this draft.</div>
         {% endfor %}
+      </div>
+    </section>
+
+    <section class="csc-dossier-block">
+      <div class="csc-dossier-block-head">Parameter Comparison</div>
+      <div class="csc-dossier-parameter-wrap">
+        <table class="csc-dossier-parameter-table">
+          <thead>
+            <tr>
+              <th>Parameter</th>
+              <th>Published Baseline</th>
+              <th>Draft Snapshot</th>
+              <th>Change Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for parameter in parameter_rows %}
+            <tr>
+              <td>
+                <div class="csc-dossier-parameter-name">{{ parameter.parameter_name or '—' }}</div>
+              </td>
+              <td>
+                <div class="csc-dossier-parameter-note"><strong>Type:</strong> {{ parameter.source_parameter_type or '—' }}</div>
+                <div class="csc-dossier-parameter-note"><strong>Unit:</strong> {{ parameter.source_unit_of_measure or '—' }}</div>
+                <div class="csc-dossier-parameter-note"><strong>Requirement:</strong> {{ parameter.required_value or '—' }}</div>
+                <div class="csc-dossier-parameter-note"><strong>Conditions:</strong> {{ parameter.source_conditions or '—' }}</div>
+                <div class="csc-dossier-parameter-note"><strong>Procedure:</strong> {{ parameter.source_test_procedure_type or '—' }}</div>
+                <div class="csc-dossier-parameter-note"><strong>Procedure Text:</strong> {{ parameter.source_test_method or '—' }}</div>
+              </td>
+              <td>
+                <div class="csc-dossier-parameter-note"><strong>Type:</strong> {{ parameter.parameter_type or '—' }}</div>
+                <div class="csc-dossier-parameter-note"><strong>Unit:</strong> {{ parameter.unit_of_measure or '—' }}</div>
+                <div class="csc-dossier-parameter-note"><strong>Requirement:</strong> {{ parameter.final_requirement or '—' }}</div>
+                <div class="csc-dossier-parameter-note"><strong>Conditions:</strong> {{ parameter.conditions or '—' }}</div>
+                <div class="csc-dossier-parameter-note"><strong>Procedure:</strong> {{ parameter.test_procedure_type or '—' }}</div>
+                <div class="csc-dossier-parameter-note"><strong>Procedure Text:</strong> {{ parameter.procedure_text or '—' }}</div>
+              </td>
+              <td>{{ parameter.change_status or 'Retained' }}</td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="4" class="csc-dossier-empty">No parameter comparison is available for this draft.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
       </div>
     </section>
 
@@ -151,7 +198,11 @@
           {% for row in master_rows %}
           <div>
             <dt>{{ row.label }}</dt>
-            <dd>{{ row.value or '—' }}</dd>
+            <dd>
+              <strong>Published:</strong> {{ row.source_value or '—' }}<br>
+              <strong>Draft:</strong> {{ row.value or '—' }}<br>
+              <strong>Status:</strong> {{ row.change_status or 'Retained' }}
+            </dd>
           </div>
           {% else %}
           <div class="csc-dossier-empty">No material master data captured.</div>
@@ -165,7 +216,11 @@
           {% for row in material_property_rows %}
           <div>
             <dt>{{ row.label }}</dt>
-            <dd>{{ row.value or '—' }}</dd>
+            <dd>
+              <strong>Published:</strong> {{ row.source_value or '—' }}<br>
+              <strong>Draft:</strong> {{ row.value or '—' }}<br>
+              <strong>Status:</strong> {{ row.change_status or 'Retained' }}
+            </dd>
           </div>
           {% else %}
           <div class="csc-dossier-empty">No material property data captured.</div>
@@ -181,7 +236,11 @@
           {% for row in storage_rows %}
           <div>
             <dt>{{ row.label }}</dt>
-            <dd>{{ row.value or '—' }}</dd>
+            <dd>
+              <strong>Published:</strong> {{ row.source_value or '—' }}<br>
+              <strong>Draft:</strong> {{ row.value or '—' }}<br>
+              <strong>Status:</strong> {{ row.change_status or 'Retained' }}
+            </dd>
           </div>
           {% else %}
           <div class="csc-dossier-empty">No storage and handling data captured.</div>
@@ -195,7 +254,11 @@
           {% for row in impact_rows %}
           <div>
             <dt>{{ row.label }}</dt>
-            <dd>{{ row.value or '—' }}</dd>
+            <dd>
+              <strong>Published:</strong> {{ row.source_value or '—' }}<br>
+              <strong>Draft:</strong> {{ row.value or '—' }}<br>
+              <strong>Status:</strong> {{ row.change_status or 'Retained' }}
+            </dd>
           </div>
           {% else %}
           <div class="csc-dossier-empty">No impact assessment data captured.</div>

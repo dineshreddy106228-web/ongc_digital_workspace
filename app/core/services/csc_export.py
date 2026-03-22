@@ -280,7 +280,6 @@ def build_word_document(
     """
     doc = Document()
     _configure_page(doc)
-    _enable_update_fields_on_open(doc)
     _apply_base_styles(doc)
     _configure_spec_header(doc, logo_path)
 
@@ -316,7 +315,6 @@ def build_flask_review_document(
     """Build a Flask-native workflow review document for one draft or revision."""
     doc = Document()
     _configure_page(doc)
-    _enable_update_fields_on_open(doc)
     _apply_base_styles(doc)
     _configure_spec_header(doc, logo_path)
 
@@ -483,9 +481,27 @@ def _build_review_snapshot_page(doc: Document, review_context: dict[str, Any]) -
 def _build_review_sections_page(doc: Document, review_context: dict[str, Any]) -> None:
     doc.add_heading("2. Section Narrative", level=1)
     for section in review_context.get("section_rows", []) or []:
-        doc.add_heading(str(section.get("label", "Section")), level=2)
-        paragraph = doc.add_paragraph(str(section.get("text", "") or "—"))
-        paragraph.style.font.name = _FONT_MAIN
+        heading = doc.add_heading(str(section.get("label", "Section")), level=2)
+        heading_run = heading.add_run(f" ({section.get('change_status', 'Retained')})")
+        heading_run.font.name = _FONT_MAIN
+        heading_run.font.size = Pt(10)
+        heading_run.font.color.rgb = _COPPER if section.get("change_status") == "Revised" else _DARK_GRAY
+        comparison = doc.add_table(rows=1, cols=2)
+        comparison.style = "Table Grid"
+        _set_table_outer_border(comparison, _COPPER_HEX, sz=8)
+        _set_table_inner_borders(comparison, _LGRAY_HEX, sz=4)
+        headers = ["Published Baseline", "Draft Snapshot"]
+        for idx, header in enumerate(headers):
+            _shade_cell(comparison.rows[0].cells[idx], _LGRAY_HEX)
+            run = comparison.rows[0].cells[idx].paragraphs[0].add_run(header)
+            run.bold = True
+            run.font.name = _FONT_MAIN
+            run.font.size = Pt(9)
+        _set_cell_widths(comparison.rows[0].cells, [3.2, 3.2])
+        cells = comparison.add_row().cells
+        cells[0].paragraphs[0].add_run(str(section.get("source_text", "—"))).font.size = Pt(9)
+        cells[1].paragraphs[0].add_run(str(section.get("text", "—"))).font.size = Pt(9)
+        _set_cell_widths(cells, [3.2, 3.2])
 
     for title, rows in (
         ("3. Material Master Snapshot", review_context.get("master_rows", [])),
@@ -494,7 +510,7 @@ def _build_review_sections_page(doc: Document, review_context: dict[str, Any]) -
         ("6. Impact Assessment", review_context.get("impact_rows", [])),
     ):
         doc.add_heading(title, level=1)
-        _add_key_value_table(doc, rows)
+        _add_comparison_key_value_table(doc, rows)
 
     doc.add_page_break()
 
@@ -506,20 +522,17 @@ def _build_review_parameters_page(doc: Document, review_context: dict[str, Any])
         doc.add_paragraph("No parameters are present in this submission.")
         return
 
-    table = doc.add_table(rows=1, cols=7)
+    table = doc.add_table(rows=1, cols=4)
     table.style = "Table Grid"
     _set_table_outer_border(table, _COPPER_HEX, sz=8)
     _set_table_inner_borders(table, _LGRAY_HEX, sz=4)
     headers = [
         "Parameter",
-        "Current Type",
-        "Proposed Type",
-        "Unit",
-        "Current Requirement",
-        "Proposed Requirement",
+        "Published Baseline",
+        "Draft Snapshot",
         "Change Status",
     ]
-    widths = [1.45, 0.8, 0.8, 0.6, 1.25, 1.25, 0.8]
+    widths = [1.4, 2.15, 2.15, 0.8]
     for idx, header in enumerate(headers):
         _shade_cell(table.rows[0].cells[idx], _COPPER_HEX, font_white=True)
         paragraph = table.rows[0].cells[idx].paragraphs[0]
@@ -533,15 +546,20 @@ def _build_review_parameters_page(doc: Document, review_context: dict[str, Any])
 
     for parameter in parameter_rows:
         cells = table.add_row().cells
-        revised_type = str(parameter.get("parameter_type", "—"))
-        source_type = str(parameter.get("source_parameter_type", revised_type or "—"))
+        published_snapshot = [
+            f"Type: {parameter.get('source_parameter_type', '—')}",
+            f"Unit: {parameter.get('source_unit_of_measure', '—')}",
+            f"Requirement: {parameter.get('required_value', '—')}",
+        ]
+        draft_snapshot = [
+            f"Type: {parameter.get('parameter_type', '—')}",
+            f"Unit: {parameter.get('unit_of_measure', '—')}",
+            f"Requirement: {parameter.get('final_requirement', '—')}",
+        ]
         values = [
             str(parameter.get("parameter_name", "Untitled Parameter")),
-            source_type,
-            revised_type,
-            str(parameter.get("unit_of_measure", "—")),
-            str(parameter.get("required_value", "—")),
-            str(parameter.get("proposed_value", "No change submitted")),
+            "\n".join(published_snapshot),
+            "\n".join(draft_snapshot),
             str(parameter.get("change_status", "Retained")),
         ]
         for idx, value in enumerate(values):
@@ -549,10 +567,10 @@ def _build_review_parameters_page(doc: Document, review_context: dict[str, Any])
             run = paragraph.add_run(value)
             run.font.name = _FONT_MAIN
             run.font.size = Pt(9)
-            if idx in {2, 5} and parameter.get("change_status") == "Revised":
+            if idx == 2 and parameter.get("change_status") == "Revised":
                 run.bold = True
                 run.font.color.rgb = _COPPER
-            if idx == 6:
+            if idx == 3:
                 run.bold = True
                 run.font.color.rgb = _COPPER if parameter.get("change_status") == "Revised" else _DARK_GRAY
         _set_cell_widths(cells, widths)
@@ -562,27 +580,45 @@ def _build_review_parameters_page(doc: Document, review_context: dict[str, Any])
     support.style = "Table Grid"
     _set_table_outer_border(support, _COPPER_HEX, sz=8)
     _set_table_inner_borders(support, _LGRAY_HEX, sz=4)
-    support_headers = ["Parameter", "Conditions", "Test Procedure", "Procedure Text"]
+    support_headers = ["Parameter", "Published Technical Fields", "Draft Technical Fields", "Change Status"]
     for idx, header in enumerate(support_headers):
         _shade_cell(support.rows[0].cells[idx], _LGRAY_HEX)
         run = support.rows[0].cells[idx].paragraphs[0].add_run(header)
         run.bold = True
         run.font.name = _FONT_MAIN
         run.font.size = Pt(9)
-    _set_cell_widths(support.rows[0].cells, [1.7, 1.6, 1.2, 2.0])
+    _set_cell_widths(support.rows[0].cells, [1.4, 2.15, 2.15, 0.8])
     for parameter in parameter_rows:
         cells = support.add_row().cells
         values = [
             str(parameter.get("parameter_name", "Untitled Parameter")),
-            str(parameter.get("conditions", "—")),
-            str(parameter.get("test_procedure_type", "—")),
-            str(parameter.get("procedure_text", "—")),
+            "\n".join(
+                [
+                    f"Conditions: {parameter.get('source_conditions', '—')}",
+                    f"Procedure: {parameter.get('source_test_procedure_type', '—')}",
+                    f"Procedure Text: {parameter.get('source_test_method', '—')}",
+                ]
+            ),
+            "\n".join(
+                [
+                    f"Conditions: {parameter.get('conditions', '—')}",
+                    f"Procedure: {parameter.get('test_procedure_type', '—')}",
+                    f"Procedure Text: {parameter.get('procedure_text', '—')}",
+                ]
+            ),
+            str(parameter.get("change_status", "Retained")),
         ]
         for idx, value in enumerate(values):
             run = cells[idx].paragraphs[0].add_run(value)
             run.font.name = _FONT_MAIN
             run.font.size = Pt(9)
-        _set_cell_widths(cells, [1.7, 1.6, 1.2, 2.0])
+            if idx == 2 and parameter.get("change_status") == "Revised":
+                run.bold = True
+                run.font.color.rgb = _COPPER
+            if idx == 3:
+                run.bold = True
+                run.font.color.rgb = _COPPER if parameter.get("change_status") == "Revised" else _DARK_GRAY
+        _set_cell_widths(cells, [1.4, 2.15, 2.15, 0.8])
 
     doc.add_page_break()
 
@@ -620,6 +656,47 @@ def _add_key_value_table(doc: Document, rows: list[dict[str, Any]] | None) -> No
         value.font.name = _FONT_MAIN
         value.font.size = Pt(9)
         _set_cell_widths(cells, [2.0, 4.5])
+
+
+def _add_comparison_key_value_table(doc: Document, rows: list[dict[str, Any]] | None) -> None:
+    rows = rows or []
+    if not rows:
+        doc.add_paragraph("No data captured for this section.")
+        return
+
+    table = doc.add_table(rows=1, cols=4)
+    table.style = "Table Grid"
+    _set_table_outer_border(table, _COPPER_HEX, sz=8)
+    _set_table_inner_borders(table, _LGRAY_HEX, sz=4)
+    headers = ["Field", "Published Baseline", "Draft Snapshot", "Change Status"]
+    widths = [1.45, 2.05, 2.05, 0.85]
+    for idx, header in enumerate(headers):
+        _shade_cell(table.rows[0].cells[idx], _LGRAY_HEX)
+        run = table.rows[0].cells[idx].paragraphs[0].add_run(header)
+        run.bold = True
+        run.font.name = _FONT_MAIN
+        run.font.size = Pt(9)
+    _set_cell_widths(table.rows[0].cells, widths)
+
+    for row in rows:
+        cells = table.add_row().cells
+        values = [
+            str(row.get("label", "Field")),
+            str(row.get("source_value", "—")),
+            str(row.get("value", "—")),
+            str(row.get("change_status", "Retained")),
+        ]
+        for idx, value in enumerate(values):
+            run = cells[idx].paragraphs[0].add_run(value)
+            run.font.name = _FONT_MAIN
+            run.font.size = Pt(9)
+            if idx == 2 and row.get("change_status") == "Revised":
+                run.bold = True
+                run.font.color.rgb = _COPPER
+            if idx == 3:
+                run.bold = True
+                run.font.color.rgb = _COPPER if row.get("change_status") == "Revised" else _DARK_GRAY
+        _set_cell_widths(cells, widths)
 
 
 def build_master_spec_document(

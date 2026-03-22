@@ -1002,7 +1002,6 @@ def _can_current_user_access_committee_user_workbench() -> bool:
     """Return True when the current user can open the committee-user workbench."""
     return (
         current_user.is_super_user()
-        or _current_user_is_governance_committee_member()
         or bool(_get_current_user_committee_user_slugs())
     )
 
@@ -1642,6 +1641,14 @@ def _display_review_value(value: object, default: str = "—") -> str:
     return text or default
 
 
+def _normalize_review_compare_value(value: object) -> str:
+    """Normalize review text for stable published-vs-draft comparisons."""
+    text = _display_review_value(value)
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = [line.strip() for line in text.split("\n")]
+    return "\n".join(lines).strip()
+
+
 def _format_parameter_requirement_for_review(parameter: CSCParameter) -> str:
     """Render the current requirement text for review/export comparisons."""
     return _display_review_value(
@@ -1740,6 +1747,126 @@ def _build_impact_review_rows(
         ]
 
     return []
+
+
+def _build_comparison_value_rows(
+    current_rows: list[dict[str, object]] | None,
+    source_rows: list[dict[str, object]] | None = None,
+) -> list[dict[str, str]]:
+    """Annotate label/value rows with published baseline and change status."""
+    current_rows = current_rows or []
+    source_rows = source_rows or current_rows
+
+    current_map = {
+        str(row.get("label") or "").strip(): _display_review_value(row.get("value"))
+        for row in current_rows
+        if isinstance(row, dict) and str(row.get("label") or "").strip()
+    }
+    source_map = {
+        str(row.get("label") or "").strip(): _display_review_value(row.get("value"))
+        for row in source_rows
+        if isinstance(row, dict) and str(row.get("label") or "").strip()
+    }
+
+    ordered_labels: list[str] = []
+    for rows in (current_rows, source_rows):
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            label = str(row.get("label") or "").strip()
+            if label and label not in ordered_labels:
+                ordered_labels.append(label)
+
+    comparison_rows: list[dict[str, str]] = []
+    for label in ordered_labels:
+        value = current_map.get(label, "—")
+        source_value = source_map.get(label, "—")
+        if value == "—" and source_value == "—":
+            continue
+        comparison_rows.append(
+            {
+                "label": label,
+                "value": value,
+                "source_value": source_value,
+                "change_status": (
+                    "Revised"
+                    if _normalize_review_compare_value(value) != _normalize_review_compare_value(source_value)
+                    else "Retained"
+                ),
+            }
+        )
+    return comparison_rows
+
+
+def _review_section_label(section_name: str | None) -> str:
+    labels = {
+        "background": "Background Context",
+        "existing_spec": "Existing Specification Summary",
+        "changes": "Proposed Changes",
+        "proposed_changes": "Proposed Changes",
+        "justification": "Justification",
+        "recommendation": "Version Change Reason",
+    }
+    key = str(section_name or "").strip()
+    return labels.get(key, key.replace("_", " ").strip().title() or "Section")
+
+
+def _build_section_review_rows_for_draft(
+    draft: CSCDraft,
+    parent_draft: CSCDraft | None = None,
+) -> list[dict[str, str]]:
+    """Build narrative comparison rows against the published parent draft."""
+    if parent_draft is None and getattr(draft, "parent_draft_id", None):
+        parent_draft = db.session.get(CSCDraft, draft.parent_draft_id)
+
+    excluded_section_names = {
+        STAGED_MASTER_SECTION_NAME,
+        WORKFLOW_SCOPE_SECTION_NAME,
+        WORKFLOW_STREAM_SECTION_NAME,
+        DRAFT_ORIGIN_SECTION_NAME,
+    }
+
+    current_sections: dict[str, str] = {}
+    ordered_names: list[str] = []
+    for section in draft.sections.order_by(CSCSection.sort_order).all():
+        section_name = str(section.section_name or "").strip()
+        if not section_name or section_name in excluded_section_names:
+            continue
+        current_sections[section_name] = (section.section_text or "").strip()
+        if section_name not in ordered_names:
+            ordered_names.append(section_name)
+
+    source_sections: dict[str, str] = {}
+    if parent_draft is not None:
+        for section in parent_draft.sections.order_by(CSCSection.sort_order).all():
+            section_name = str(section.section_name or "").strip()
+            if not section_name or section_name in excluded_section_names:
+                continue
+            source_sections[section_name] = (section.section_text or "").strip()
+            if section_name not in ordered_names:
+                ordered_names.append(section_name)
+
+    rows: list[dict[str, str]] = []
+    for section_name in ordered_names:
+        current_text = current_sections.get(section_name, "")
+        source_text = source_sections.get(section_name, "")
+        text = current_text or "—"
+        source_value = source_text or "—"
+        if text == "—" and source_value == "—":
+            continue
+        rows.append(
+            {
+                "label": _review_section_label(section_name),
+                "text": text,
+                "source_text": source_value,
+                "change_status": (
+                    "Revised"
+                    if _normalize_review_compare_value(text) != _normalize_review_compare_value(source_value)
+                    else "Retained"
+                ),
+            }
+        )
+    return rows
 
 
 def _match_parent_parameter(
@@ -2323,6 +2450,9 @@ def _build_revision_review_context(revision: CSCRevision) -> dict[str, object]:
     master_values = get_master_form_values(draft)
     material_values = get_material_properties_values(draft)
     storage_values = get_storage_handling_values(draft)
+    parent_master_values = get_master_form_values(parent_draft) if parent_draft is not None else {}
+    parent_material_values = get_material_properties_values(parent_draft) if parent_draft is not None else {}
+    parent_storage_values = get_storage_handling_values(parent_draft) if parent_draft is not None else {}
     workflow_scope = _load_workflow_scope(draft)
     workflow_stream = _infer_workflow_stream_name(draft)
 
@@ -2392,59 +2522,66 @@ def _build_revision_review_context(revision: CSCRevision) -> dict[str, object]:
         },
     ]
 
-    section_labels = {
-        "background": "Background Context",
-        "existing_spec": "Existing Specification Summary",
-        "changes": "Proposed Changes",
-        "proposed_changes": "Proposed Changes",
-        "recommendation": "Version Change Reason",
-    }
-    sections = [
-        {
-            "label": section_labels.get(
-                section.section_name,
-                (section.section_name or "").replace("_", " ").strip().title() or "Section",
-            ),
-            "text": (section.section_text or "").strip(),
-        }
-        for section in draft.sections.order_by(CSCSection.sort_order).all()
-        if section.section_name not in {
-            STAGED_MASTER_SECTION_NAME,
-            WORKFLOW_SCOPE_SECTION_NAME,
-            WORKFLOW_STREAM_SECTION_NAME,
-            DRAFT_ORIGIN_SECTION_NAME,
-        }
-    ]
+    sections = _build_section_review_rows_for_draft(draft, parent_draft=parent_draft)
 
     parameter_rows = _build_parameter_review_rows_for_draft(draft, parent_draft=parent_draft)
 
-    impact_rows = _build_impact_review_rows(draft, master_values)
+    impact_rows = _build_comparison_value_rows(
+        _build_impact_review_rows(draft, master_values),
+        _build_impact_review_rows(parent_draft, parent_master_values) if parent_draft is not None else None,
+    )
 
     return {
         "draft": draft,
         "summary_rows": summary_rows,
         "section_rows": sections,
         "parameter_rows": parameter_rows,
-        "master_rows": _build_labeled_value_rows(
-            [("material_code", "Material Code"), *MASTER_DATA_FIELDS, *MASTER_EXTRA_FIELDS],
-            master_values,
+        "master_rows": _build_comparison_value_rows(
+            _build_labeled_value_rows(
+                [("material_code", "Material Code"), *MASTER_DATA_FIELDS, *MASTER_EXTRA_FIELDS],
+                master_values,
+            ),
+            _build_labeled_value_rows(
+                [("material_code", "Material Code"), *MASTER_DATA_FIELDS, *MASTER_EXTRA_FIELDS],
+                parent_master_values,
+            ) if parent_draft is not None else None,
         ),
-        "material_property_rows": [
-            {
-                "label": field["label"],
-                "value": _display_review_value(material_values.get(field["field_name"])),
-            }
-            for field in get_material_properties_fields()
-            if _display_review_value(material_values.get(field["field_name"])) != "—"
-        ],
-        "storage_rows": [
-            {
-                "label": field["label"],
-                "value": _display_review_value(storage_values.get(field["field_name"])),
-            }
-            for field in get_storage_handling_fields()
-            if _display_review_value(storage_values.get(field["field_name"])) != "—"
-        ],
+        "material_property_rows": _build_comparison_value_rows(
+            [
+                {
+                    "label": field["label"],
+                    "value": _display_review_value(material_values.get(field["field_name"])),
+                }
+                for field in get_material_properties_fields()
+                if _display_review_value(material_values.get(field["field_name"])) != "—"
+            ],
+            [
+                {
+                    "label": field["label"],
+                    "value": _display_review_value(parent_material_values.get(field["field_name"])),
+                }
+                for field in get_material_properties_fields()
+                if _display_review_value(parent_material_values.get(field["field_name"])) != "—"
+            ] if parent_draft is not None else None,
+        ),
+        "storage_rows": _build_comparison_value_rows(
+            [
+                {
+                    "label": field["label"],
+                    "value": _display_review_value(storage_values.get(field["field_name"])),
+                }
+                for field in get_storage_handling_fields()
+                if _display_review_value(storage_values.get(field["field_name"])) != "—"
+            ],
+            [
+                {
+                    "label": field["label"],
+                    "value": _display_review_value(parent_storage_values.get(field["field_name"])),
+                }
+                for field in get_storage_handling_fields()
+                if _display_review_value(parent_storage_values.get(field["field_name"])) != "—"
+            ] if parent_draft is not None else None,
+        ),
         "impact_rows": impact_rows,
     }
 
@@ -2463,6 +2600,9 @@ def _build_draft_export_review_context(draft: CSCDraft) -> dict[str, object]:
     workflow_scope = _load_workflow_scope(draft)
     workflow_stream = _infer_workflow_stream_name(draft)
     parent_draft = db.session.get(CSCDraft, draft.parent_draft_id) if draft.parent_draft_id else None
+    parent_master_values = get_master_form_values(parent_draft) if parent_draft is not None else {}
+    parent_material_values = get_material_properties_values(parent_draft) if parent_draft is not None else {}
+    parent_storage_values = get_storage_handling_values(parent_draft) if parent_draft is not None else {}
 
     summary_rows = [
         {"label": "Specification", "value": _display_review_value(draft.spec_number)},
@@ -2485,59 +2625,66 @@ def _build_draft_export_review_context(draft: CSCDraft) -> dict[str, object]:
         },
     ]
 
-    section_labels = {
-        "background": "Background Context",
-        "existing_spec": "Existing Specification Summary",
-        "changes": "Proposed Changes",
-        "proposed_changes": "Proposed Changes",
-        "recommendation": "Version Change Reason",
-    }
-    section_rows = [
-        {
-            "label": section_labels.get(
-                section.section_name,
-                (section.section_name or "").replace("_", " ").strip().title() or "Section",
-            ),
-            "text": (section.section_text or "").strip(),
-        }
-        for section in draft.sections.order_by(CSCSection.sort_order).all()
-        if section.section_name not in {
-            STAGED_MASTER_SECTION_NAME,
-            WORKFLOW_SCOPE_SECTION_NAME,
-            WORKFLOW_STREAM_SECTION_NAME,
-            DRAFT_ORIGIN_SECTION_NAME,
-        }
-    ]
+    section_rows = _build_section_review_rows_for_draft(draft, parent_draft=parent_draft)
 
     parameter_rows = _build_parameter_review_rows_for_draft(draft, parent_draft=parent_draft)
 
-    impact_rows = _build_impact_review_rows(draft, master_values)
+    impact_rows = _build_comparison_value_rows(
+        _build_impact_review_rows(draft, master_values),
+        _build_impact_review_rows(parent_draft, parent_master_values) if parent_draft is not None else None,
+    )
 
     return {
         "draft": draft,
         "summary_rows": summary_rows,
         "section_rows": section_rows,
         "parameter_rows": parameter_rows,
-        "master_rows": _build_labeled_value_rows(
-            [("material_code", "Material Code"), *MASTER_DATA_FIELDS, *MASTER_EXTRA_FIELDS],
-            master_values,
+        "master_rows": _build_comparison_value_rows(
+            _build_labeled_value_rows(
+                [("material_code", "Material Code"), *MASTER_DATA_FIELDS, *MASTER_EXTRA_FIELDS],
+                master_values,
+            ),
+            _build_labeled_value_rows(
+                [("material_code", "Material Code"), *MASTER_DATA_FIELDS, *MASTER_EXTRA_FIELDS],
+                parent_master_values,
+            ) if parent_draft is not None else None,
         ),
-        "material_property_rows": [
-            {
-                "label": field["label"],
-                "value": _display_review_value(material_values.get(field["field_name"])),
-            }
-            for field in get_material_properties_fields()
-            if _display_review_value(material_values.get(field["field_name"])) != "—"
-        ],
-        "storage_rows": [
-            {
-                "label": field["label"],
-                "value": _display_review_value(storage_values.get(field["field_name"])),
-            }
-            for field in get_storage_handling_fields()
-            if _display_review_value(storage_values.get(field["field_name"])) != "—"
-        ],
+        "material_property_rows": _build_comparison_value_rows(
+            [
+                {
+                    "label": field["label"],
+                    "value": _display_review_value(material_values.get(field["field_name"])),
+                }
+                for field in get_material_properties_fields()
+                if _display_review_value(material_values.get(field["field_name"])) != "—"
+            ],
+            [
+                {
+                    "label": field["label"],
+                    "value": _display_review_value(parent_material_values.get(field["field_name"])),
+                }
+                for field in get_material_properties_fields()
+                if _display_review_value(parent_material_values.get(field["field_name"])) != "—"
+            ] if parent_draft is not None else None,
+        ),
+        "storage_rows": _build_comparison_value_rows(
+            [
+                {
+                    "label": field["label"],
+                    "value": _display_review_value(storage_values.get(field["field_name"])),
+                }
+                for field in get_storage_handling_fields()
+                if _display_review_value(storage_values.get(field["field_name"])) != "—"
+            ],
+            [
+                {
+                    "label": field["label"],
+                    "value": _display_review_value(parent_storage_values.get(field["field_name"])),
+                }
+                for field in get_storage_handling_fields()
+                if _display_review_value(parent_storage_values.get(field["field_name"])) != "—"
+            ] if parent_draft is not None else None,
+        ),
         "impact_rows": impact_rows,
         "revision": revision,
         "latest_review_notes": (
@@ -3220,11 +3367,13 @@ def api_overview():
 def _render_committee_user_workbench():
     """Render the committee-user drafting workbench."""
     try:
-        governance_member = _current_user_is_governance_committee_member()
-        global_visibility = governance_member or current_user.is_super_user()
+        if not _can_current_user_access_committee_user_workbench():
+            abort(403)
+
+        global_visibility = current_user.is_super_user()
         allowed_subset_codes = _get_effective_committee_user_subset_codes()
         subset_options = _get_spec_subsets()
-        if allowed_subset_codes:
+        if allowed_subset_codes and not global_visibility:
             subset_options = [
                 subset for subset in subset_options
                 if subset["code"] in set(allowed_subset_codes)
@@ -3396,7 +3545,7 @@ def api_drafts():
         subset = request.args.get("subset", "").strip()
         search = request.args.get("search", request.args.get("q", "")).strip()
         allowed_committee_slugs = set(_get_current_user_committee_user_slugs())
-        can_view_all_drafts = current_user.is_super_user() or _current_user_is_governance_committee_member()
+        can_view_all_drafts = current_user.is_super_user()
 
         query = CSCDraft.query.filter(CSCDraft.parent_draft_id.isnot(None))
         query = query.join(CSCRevision, CSCRevision.child_draft_id == CSCDraft.id)
@@ -6365,7 +6514,7 @@ def review_revision(revision_id: int):
     elif _can_current_user_decide_revision_as_committee_head(revision):
         decision_mode = "committee_head"
 
-    return jsonify(
+    response = jsonify(
         {
             "success": True,
             "status": revision.status,
@@ -6377,6 +6526,7 @@ def review_revision(revision_id: int):
             ),
         }
     )
+    return _mark_response_no_store(response)
 
 
 @csc_bp.route("/admin/revision/<int:revision_id>/review")
@@ -6423,8 +6573,11 @@ def committee_head_approve_revision(revision_id: int):
         revision = db.session.get(CSCRevision, revision_id)
         if not revision:
             return jsonify({"error": "Revision not found"}), 404
-        if not _can_current_user_decide_revision_as_committee_head(revision):
-            return jsonify({"error": "Unauthorized"}), 403
+        if revision.status != WORKFLOW_DRAFTING_SUBMITTED:
+            return jsonify({"error": "This draft is no longer awaiting committee head approval."}), 409
+        committee_slug = _get_revision_committee_slug(revision)
+        if not committee_slug or committee_slug not in set(_get_current_user_committee_head_slugs()):
+            return jsonify({"error": "You are not assigned as the committee head for this draft."}), 403
 
         data = request.get_json() or {}
         reviewer_notes = (data.get("reviewer_notes") or "").strip()
@@ -6462,10 +6615,10 @@ def committee_head_approve_revision(revision_id: int):
         return jsonify(
             {
                 "success": True,
-                "title": "Draft Returned to Committee User",
+                "title": "Draft Approved And Forwarded",
                 "message": (
-                    f"{parent_draft.spec_number} — {parent_draft.chemical_name} "
-                    "was returned by the Material Master Management Admin for revision."
+                    f"{revision.parent_draft.spec_number} — {revision.parent_draft.chemical_name} "
+                    "was approved by the committee head and forwarded to Secretary."
                 ),
             }
         )
@@ -6484,8 +6637,11 @@ def committee_head_return_revision(revision_id: int):
         revision = db.session.get(CSCRevision, revision_id)
         if not revision:
             return jsonify({"error": "Revision not found"}), 404
-        if not _can_current_user_decide_revision_as_committee_head(revision):
-            return jsonify({"error": "Unauthorized"}), 403
+        if revision.status != WORKFLOW_DRAFTING_SUBMITTED:
+            return jsonify({"error": "This draft is no longer awaiting committee head review."}), 409
+        committee_slug = _get_revision_committee_slug(revision)
+        if not committee_slug or committee_slug not in set(_get_current_user_committee_head_slugs()):
+            return jsonify({"error": "You are not assigned as the committee head for this draft."}), 403
 
         data = request.get_json() or {}
         reviewer_notes = (data.get("reviewer_notes") or "").strip()
