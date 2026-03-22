@@ -39,6 +39,26 @@
   const modalBody = document.getElementById('task-summary-modal-body');
   const modalHeading = document.getElementById('task-summary-modal-heading');
   let activeRequest = null;
+  let activeTrigger = null;
+
+  function renderAlert(kind, messages) {
+    const list = Array.isArray(messages) ? messages : [messages];
+    return `
+      <div class="alert alert-${kind}" style="margin-bottom:0.85rem;">
+        ${list.map(function (message) {
+          return `<div>${message}</div>`;
+        }).join('')}
+      </div>
+    `;
+  }
+
+  function showFormMessage(form, kind, messages) {
+    if (!form) return;
+    Array.prototype.slice.call(form.querySelectorAll('[data-inline-form-message]')).forEach(function (node) {
+      node.remove();
+    });
+    form.insertAdjacentHTML('afterbegin', `<div data-inline-form-message>${renderAlert(kind, messages)}</div>`);
+  }
 
   function setLoading(titleText) {
     modalHeading.textContent = titleText || 'Task brief';
@@ -100,6 +120,7 @@
     if (trigger) {
       if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       event.preventDefault();
+      activeTrigger = trigger;
       openTaskSummary(
         trigger.dataset.taskSummaryUrl,
         trigger.dataset.taskSummaryTitle || trigger.textContent.trim()
@@ -115,6 +136,63 @@
 
     if (event.target === modal) {
       closeTaskSummary();
+    }
+  });
+
+  document.addEventListener('submit', async function (event) {
+    const form = event.target.closest('#task-update-form');
+    if (!form || !modal || modal.classList.contains('hidden')) return;
+
+    event.preventDefault();
+
+    const submitButton = form.querySelector('button[type="submit"]');
+    const originalLabel = submitButton ? submitButton.textContent : '';
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.textContent = 'Posting...';
+    }
+
+    Array.prototype.slice.call(form.querySelectorAll('[data-inline-form-message]')).forEach(function (node) {
+      node.remove();
+    });
+
+    try {
+      const response = await fetch(form.action, {
+        method: 'POST',
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+          'Accept': 'application/json',
+        },
+        body: new FormData(form),
+      });
+
+      const payload = await response.json().catch(function () {
+        return { ok: false, errors: ['Task update could not be saved.'] };
+      });
+
+      if (!response.ok || !payload.ok) {
+        showFormMessage(form, 'danger', payload.errors || ['Task update could not be saved.']);
+        return;
+      }
+
+      showFormMessage(form, 'success', payload.message || 'Task update added successfully.');
+      window.setTimeout(function () {
+        closeTaskSummary();
+        if (activeTrigger && typeof activeTrigger.focus === 'function') {
+          activeTrigger.focus();
+        }
+        window.setTimeout(function () {
+          window.location.reload();
+        }, 180);
+      }, 420);
+    } catch (error) {
+      console.error('Task summary update submit failed:', error);
+      showFormMessage(form, 'danger', 'Task update could not be saved right now.');
+    } finally {
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = originalLabel;
+      }
     }
   });
 

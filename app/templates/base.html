@@ -255,7 +255,7 @@
         <div class="workspace-header-band-meta">
             <span class="workspace-header-chip workspace-header-chip-version">v1.1</span>
             {% if last_refreshed %}
-            <div class="workspace-header-meta-text">Updated {{ last_refreshed|datetime_ist('%d %b %Y') }}</div>
+            <div class="workspace-header-meta-text">Updated {{ last_refreshed|datetime_ist('%d %b %Y · %I:%M %p') }}</div>
             {% endif %}
         </div>
     </div>

@@ -32,12 +32,6 @@
       </a>
       {% endif %}
       {% endif %}
-      {% if can_add_update %}
-      <a href="{{ url_for('tasks.add_task_update', task_id=task.id) }}" class="btn btn-primary btn-sm">
-        <i class="bi bi-plus-lg"></i>
-        <span>Add Update</span>
-      </a>
-      {% endif %}
       {% if can_edit and task.is_active %}
       <form
         method="POST"
@@ -186,6 +180,54 @@
       </div>
     </div>
   </div>
+
+  {% if can_add_update %}
+  <div class="card" style="margin-bottom: 1.25rem;">
+    <div class="card-body">
+      <div class="task-summary-composer">
+        <div class="task-summary-composer-header">
+          <div>
+            <h2 class="task-summary-composer-title">Add Update</h2>
+            <p class="task-summary-composer-note">Use this highlighted area for the latest progress note, blocker, or completion update.</p>
+          </div>
+          <span class="task-summary-composer-pill">Type Here</span>
+        </div>
+        <form id="task-update-form" class="task-summary-composer-form" method="POST" action="{{ url_for('tasks.add_task_update', task_id=task.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+          <div class="form-group">
+            <label class="form-label" for="update_text">Update <span style="color:var(--color-danger)">*</span></label>
+            <textarea
+              id="update_text"
+              name="update_text"
+              class="form-control"
+              rows="5"
+              required
+              maxlength="5000"
+              placeholder="Example: Inputs consolidated from all offices and draft moved to review stage."
+            ></textarea>
+          </div>
+
+          <div class="task-summary-composer-actions">
+            <div class="form-group">
+              <label class="form-label" for="new_status">Optional Status Change</label>
+              <select id="new_status" name="new_status" class="form-control">
+                <option value="">No status change</option>
+                {% for status in ['Not Started', 'In Progress', 'On Hold', 'Completed', 'Cancelled'] %}
+                {% if status in ('Completed', 'Cancelled') and not can_close %}
+                {% else %}
+                <option value="{{ status }}">{{ status }}</option>
+                {% endif %}
+                {% endfor %}
+              </select>
+            </div>
+            <button type="submit" class="btn btn-primary">Post Update</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endif %}
 
   <!-- Update History Card -->
   <div class="card">

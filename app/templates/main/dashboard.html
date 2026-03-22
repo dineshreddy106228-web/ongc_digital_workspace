@@ -17,63 +17,35 @@
 {% set default_workspace_tab = 'office' if show_office_workspace else 'committee' %}
 <section class="dashboard dashboard-shell {{ 'mission-control' if control_center_mode }}" id="dashboard-root" data-dashboard-page>
 
-    <div class="dashboard-command-header">
+    <div class="dashboard-command-header dashboard-command-header-priority">
         <div class="dashboard-command-copy">
-            <div class="dashboard-kicker">ONGC Digital Workspace</div>
-            <h1 class="dashboard-page-title">{{ identity.title }}</h1>
-            <p class="dashboard-page-subtitle">{{ identity.subtitle }}</p>
+            <h1 class="dashboard-page-title">{{ welcome.greeting }} {{ welcome.name or 'User' }}</h1>
         </div>
 
-        <div class="dashboard-command-meta">
-            <div class="dashboard-meta-card dashboard-meta-card-timestamp">
-                <span class="dashboard-meta-label">Last Refreshed</span>
-                <strong>{{ last_refreshed|datetime_ist('%d %b %Y · %I:%M %p') }}</strong>
-            </div>
+        <div class="dashboard-command-meta dashboard-command-meta-priority">
             {% if control_center_mode %}
-            <a
-                href="{{ url_for('main.dashboard') }}"
-                class="btn btn-sm btn-secondary dashboard-mode-toggle"
-            >
-                <span class="dashboard-mode-indicator" aria-hidden="true"></span>
-                <span>Main Dashboard</span>
-            </a>
+            <div class="dashboard-switch-card">
+                <span class="dashboard-switch-label">Dashboard View</span>
+                <a
+                    href="{{ url_for('main.dashboard') }}"
+                    class="btn btn-sm btn-secondary dashboard-mode-toggle dashboard-mode-toggle-prominent"
+                >
+                    <span class="dashboard-mode-indicator" aria-hidden="true"></span>
+                    <span>Main Dashboard</span>
+                </a>
+            </div>
             {% elif workspace_context.control_center %}
-            <a
-                href="{{ workspace_context.control_center.href }}"
-                class="btn btn-sm btn-secondary dashboard-mode-toggle"
-            >
-                <span class="dashboard-mode-indicator" aria-hidden="true"></span>
-                <span>{{ workspace_context.control_center.label }}</span>
-            </a>
-            {% endif %}
-        </div>
-    </div>
-
-    <div class="dashboard-summary-bar dashboard-summary-bar-command">
-        <div class="dashboard-summary-copy">
-            <h2>{{ welcome.greeting }}, {{ welcome.name }}</h2>
-            <p>{{ welcome.summary }}</p>
-        </div>
-
-        <div class="dashboard-summary-meta">
-            {% if user.role %}
-            <div class="dashboard-summary-item">
-                <span>Role</span>
-                <strong>{{ user.role.name }}</strong>
+            <div class="dashboard-switch-card">
+                <span class="dashboard-switch-label">Dashboard View</span>
+                <a
+                    href="{{ workspace_context.control_center.href }}"
+                    class="btn btn-sm btn-secondary dashboard-mode-toggle dashboard-mode-toggle-prominent"
+                >
+                    <span class="dashboard-mode-indicator" aria-hidden="true"></span>
+                    <span>{{ workspace_context.control_center.label }}</span>
+                </a>
             </div>
             {% endif %}
-            {% if user.office %}
-            <div class="dashboard-summary-item">
-                <span>Office</span>
-                <strong>{{ user.office.office_name }}</strong>
-            </div>
-            {% endif %}
-            {% for officer in workspace_context.officer_chain %}
-            <div class="dashboard-summary-item">
-                <span>{{ officer.label }}</span>
-                <strong>{{ officer.name }}</strong>
-            </div>
-            {% endfor %}
         </div>
     </div>
 
@@ -410,6 +382,32 @@
                     {% endfor %}
                 </div>
             </section>
+
+            <div class="dashboard-summary-bar dashboard-summary-bar-command dashboard-summary-bar-enterprise dashboard-summary-bar-side">
+                <div class="dashboard-summary-copy">
+                    <span class="dashboard-summary-eyebrow">Office</span>
+                    <h2>{{ user.office.office_name if user.office else 'Unassigned Office' }}</h2>
+                </div>
+
+                <div class="dashboard-summary-meta dashboard-summary-meta-enterprise">
+                    <div class="dashboard-summary-item dashboard-summary-item-highlight">
+                        <span>Logged In User</span>
+                        <strong>{{ welcome.name or user.username or 'User' }}</strong>
+                    </div>
+                    {% if user.role %}
+                    <div class="dashboard-summary-item">
+                        <span>Role</span>
+                        <strong>{{ user.role.name }}</strong>
+                    </div>
+                    {% endif %}
+                    {% for officer in workspace_context.officer_chain %}
+                    <div class="dashboard-summary-item">
+                        <span>{{ officer.label }}</span>
+                        <strong>{{ officer.name }}</strong>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
 
             {% if is_admin and recent_activity %}
             <section class="dashboard-side-panel dashboard-side-panel-activity">

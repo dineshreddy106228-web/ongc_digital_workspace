@@ -121,6 +121,52 @@
         <h3>Updates</h3>
         <span class="task-summary-section-note">{{ updates|length }} entries</span>
       </div>
+      {% if allow_manage_actions and can_add_update %}
+      <div class="task-summary-composer">
+        <div class="task-summary-composer-header">
+          <div>
+            <h4 class="task-summary-composer-title">Add Update</h4>
+            <p class="task-summary-composer-note">Post the latest progress here so the next user immediately sees where to type and what changed.</p>
+          </div>
+          <span class="task-summary-composer-pill">Type Here</span>
+        </div>
+        <form
+          id="task-update-form"
+          class="task-summary-composer-form"
+          method="POST"
+          action="{{ url_for('tasks.add_task_update', task_id=task.id) }}"
+        >
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="form-group">
+            <label class="form-label" for="summaryUpdateText">Update <span style="color:var(--color-danger)">*</span></label>
+            <textarea
+              id="summaryUpdateText"
+              name="update_text"
+              class="form-control"
+              rows="5"
+              required
+              maxlength="5000"
+              placeholder="Example: Reviewed inputs from office and forwarded the draft for approval."
+            ></textarea>
+          </div>
+          <div class="task-summary-composer-actions">
+            <div class="form-group">
+              <label class="form-label" for="summaryNewStatus">Optional Status Change</label>
+              <select id="summaryNewStatus" name="new_status" class="form-control">
+                <option value="">No status change</option>
+                {% for status in ['Not Started', 'In Progress', 'On Hold', 'Completed', 'Cancelled'] %}
+                {% if status in ('Completed', 'Cancelled') and not can_close %}
+                {% else %}
+                <option value="{{ status }}">{{ status }}</option>
+                {% endif %}
+                {% endfor %}
+              </select>
+            </div>
+            <button type="submit" class="btn btn-primary">Post Update</button>
+          </div>
+        </form>
+      </div>
+      {% endif %}
       {% if updates %}
       <div class="task-summary-timeline">
         {% for update in updates %}
@@ -165,9 +211,6 @@
     {% endif %}
     {% if allow_manage_actions and task.recurring_template and can_edit_series %}
     <a href="{{ url_for('tasks.edit_recurring_series', template_id=task.recurring_template.id) }}" class="btn btn-secondary">Edit Series</a>
-    {% endif %}
-    {% if allow_manage_actions and can_add_update %}
-    <a href="{{ url_for('tasks.add_task_update', task_id=task.id) }}" class="btn btn-primary">Add Update</a>
     {% endif %}
     {% if allow_manage_actions and can_edit and task.is_active %}
     <form

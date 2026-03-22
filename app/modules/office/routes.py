@@ -375,6 +375,10 @@ def _normalize_schedule_mode(mode: str | None, default: str = "ONE_TIME") -> str
     return default
 
 
+def _is_ajax_request() -> bool:
+    return request.headers.get("X-Requested-With") == "XMLHttpRequest"
+
+
 def _selected_recurrence_weekdays(form_data) -> list[str]:
     if not hasattr(form_data, "getlist"):
         return []
@@ -2168,6 +2172,8 @@ def add_task_update(task_id):
             )
 
         if errors:
+            if _is_ajax_request():
+                return jsonify({"ok": False, "errors": errors}), 400
             for err in errors:
                 flash(err, "danger")
             return render_template(
@@ -2215,6 +2221,13 @@ def add_task_update(task_id):
             invalidate_dashboard_summary_metrics()
             db.session.commit()
         except SQLAlchemyError:
+            if _is_ajax_request():
+                return jsonify(
+                    {
+                        "ok": False,
+                        "errors": ["Could not add task update due to a database error."],
+                    }
+                ), 500
             _db_error("Could not add task update due to a database error.")
             return render_template(
                 "tasks/add_update.html",
@@ -2224,6 +2237,15 @@ def add_task_update(task_id):
                 form_data=request.form,
             )
 
+        if _is_ajax_request():
+            return jsonify(
+                {
+                    "ok": True,
+                    "message": "Task update added successfully.",
+                    "task_id": task.id,
+                    "task_status": task.status,
+                }
+            )
         flash("Task update added successfully.", "success")
         return redirect(url_for("tasks.task_detail", task_id=task.id))
 
