@@ -106,10 +106,10 @@
                 {% endif %}
               </div>
 
-              {% set namespace = namespace(existing_head_id='') %}
+              {% set head_namespace = namespace(existing_head_id='') %}
               {% for member in task.members %}
                 {% if member.role == 'committee_head' %}
-                  {% set namespace.existing_head_id = member.user_id|string %}
+                  {% set head_namespace.existing_head_id = member.user_id|string %}
                 {% endif %}
               {% endfor %}
               <div class="form-group committee-member-group">
@@ -120,7 +120,7 @@
                   data-mode="single"
                   data-name="committee_head_id"
                   data-api-url="{{ url_for('committee.api_office_members', office_id=0) }}"
-                  data-selected="{{ form_data.get('committee_head_id', namespace.existing_head_id) if form_data else namespace.existing_head_id }}"
+                  data-selected="{{ form_data.get('committee_head_id', head_namespace.existing_head_id) if form_data else head_namespace.existing_head_id }}"
                 >
                   <select name="committee_head_id" class="form-control committee-member-native-select"></select>
                 </div>
