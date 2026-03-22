@@ -724,6 +724,70 @@ def _split_tasks_for_dashboard(all_tasks):
     return global_tasks, my_tasks
 
 
+def _build_recent_task_activity(all_tasks, limit: int = 5):
+    """Summarize the latest visible event for each active task."""
+    active_tasks = [task for task in all_tasks if task.is_active]
+    if not active_tasks:
+        return []
+
+    latest_updates = {}
+    task_ids = [task.id for task in active_tasks]
+    for update in (
+        TaskUpdate.query
+        .filter(TaskUpdate.task_id.in_(task_ids))
+        .order_by(TaskUpdate.created_at.desc())
+        .all()
+    ):
+        if update.task_id not in latest_updates:
+            latest_updates[update.task_id] = update
+
+    items = []
+    for task in active_tasks:
+        created_at = task.created_at
+        updated_at = task.updated_at or created_at
+        latest_update = latest_updates.get(task.id)
+        latest_update_at = latest_update.created_at if latest_update is not None else None
+        event_at = max(
+            moment
+            for moment in (created_at, updated_at, latest_update_at)
+            if moment is not None
+        )
+
+        if latest_update_at is not None and event_at == latest_update_at:
+            actor = latest_update.updater
+            event_label = "Update added"
+            old_status = latest_update.old_status
+            new_status = latest_update.new_status
+        elif updated_at and updated_at > created_at:
+            actor = task.creator
+            event_label = "Task updated"
+            old_status = None
+            new_status = task.status
+        else:
+            actor = task.creator
+            event_label = "Task created"
+            old_status = None
+            new_status = task.status
+
+        items.append(
+            {
+                "task_id": task.id,
+                "title": task.task_title,
+                "actor_name": (
+                    (actor.full_name or actor.username)
+                    if actor is not None else "—"
+                ),
+                "event_label": event_label,
+                "created_at": event_at,
+                "old_status": old_status,
+                "new_status": new_status,
+            }
+        )
+
+    items.sort(key=lambda item: item["created_at"] or datetime.min, reverse=True)
+    return items[:limit]
+
+
 def _is_archived_task(task: Task) -> bool:
     return (not task.is_active) or task.status in ("Completed", "Cancelled")
 
@@ -806,15 +870,8 @@ def task_dashboard():
 
     # ── Summary counts ──────────────────────────────────────────
     global_tasks, my_tasks = _split_tasks_for_dashboard(all_tasks)
-    # ── Recent activity (latest 5 updates) ──────────────────────
-    visible_task_ids_subq = _task_dashboard_query().with_entities(Task.id).subquery()
-    recent_updates = (
-        TaskUpdate.query
-        .filter(TaskUpdate.task_id.in_(select(visible_task_ids_subq.c.id)))
-        .order_by(TaskUpdate.created_at.desc())
-        .limit(5)
-        .all()
-    )
+    # ── Recent activity (latest event per active visible task) ───────────────
+    recent_activity = _build_recent_task_activity(all_tasks, limit=5)
 
     # ── Due-soon tasks ─────────────────────────────────────────────
     # Built directly from calendar_tasks (the already-serialised dicts) so it is
@@ -875,7 +932,7 @@ def task_dashboard():
         dashboard_context=dashboard_context,
         global_tasks=global_tasks,
         my_tasks=my_tasks,
-        recent_updates=recent_updates,
+        recent_activity=recent_activity,
         due_soon_tasks=due_soon_tasks,
         is_privileged=_can_access_power_dashboard(),
         show_task_actions=current_user.has_module_access("tasks"),

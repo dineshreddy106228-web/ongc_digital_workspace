@@ -139,27 +139,34 @@
       <div class="card db-panel-card">
         <div class="card-body">
           <h3 class="db-section-title">Recent Activity</h3>
-          {% if recent_updates %}
+          {% if recent_activity %}
           <ul class="db-activity-list">
-            {% for upd in recent_updates %}
+            {% for item in recent_activity %}
             <li class="db-activity-item">
               <div class="db-activity-meta">
-                <span class="db-activity-user">{{ upd.updater.full_name or upd.updater.username if upd.updater else '—' }}</span>
-                <span class="db-activity-time">{{ upd.created_at|datetime_ist('%d %b %Y') }}</span>
+                <span class="db-activity-user">{{ item.actor_name }}</span>
+                <span class="db-activity-time">{{ item.created_at|datetime_ist('%d %b %Y') }}</span>
               </div>
               <div class="db-activity-text">
                 <a
-                  href="{{ url_for('tasks.task_detail', task_id=upd.task_id) }}"
+                  href="{{ url_for('tasks.task_detail', task_id=item.task_id) }}"
                   class="db-activity-link"
-                  data-task-summary-url="{{ url_for('tasks.task_summary', task_id=upd.task_id) }}"
-                  data-task-summary-title="{{ upd.task.task_title if upd.task else 'Task #' ~ upd.task_id }}"
+                  data-task-summary-url="{{ url_for('tasks.task_summary', task_id=item.task_id) }}"
+                  data-task-summary-title="{{ item.title }}"
                 >
-                  {{ upd.task.task_title if upd.task else 'Task #' ~ upd.task_id }}
+                  {{ item.title }}
                 </a>
-                {% if upd.old_status and upd.new_status %}
                 <span class="db-status-change">
-                  <span class="task-badge status-{{ upd.old_status|lower|replace(' ','-') }}" style="font-size:0.68rem;">{{ upd.old_status }}</span>
-                  → <span class="task-badge status-{{ upd.new_status|lower|replace(' ','-') }}" style="font-size:0.68rem;">{{ upd.new_status }}</span>
+                  <span class="task-badge" style="font-size:0.68rem;">{{ item.event_label }}</span>
+                </span>
+                {% if item.old_status and item.new_status %}
+                <span class="db-status-change">
+                  <span class="task-badge status-{{ item.old_status|lower|replace(' ','-') }}" style="font-size:0.68rem;">{{ item.old_status }}</span>
+                  → <span class="task-badge status-{{ item.new_status|lower|replace(' ','-') }}" style="font-size:0.68rem;">{{ item.new_status }}</span>
+                </span>
+                {% elif item.new_status %}
+                <span class="db-status-change">
+                  <span class="task-badge status-{{ item.new_status|lower|replace(' ','-') }}" style="font-size:0.68rem;">{{ item.new_status }}</span>
                 </span>
                 {% endif %}
               </div>
