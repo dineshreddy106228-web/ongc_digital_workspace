@@ -1270,26 +1270,11 @@ def _find_conflicting_root_spec(spec_number: str) -> CSCDraft | None:
 def _seed_sections_for_new_spec(draft: CSCDraft, source_label: str) -> None:
     """Create initial narrative sections for a newly ingested specification."""
     section_rows = [
-        (
-            "background",
-            f"New specification ingested from uploaded {source_label}. Review and complete the committee narrative before submission.",
-            10,
-        ),
-        (
-            "existing_spec",
-            "New specification proposal captured from CSC Format A source document.",
-            20,
-        ),
-        (
-            "changes",
-            "Complete the proposed changes narrative for this new specification before submission.",
-            30,
-        ),
-        (
-            "recommendation",
-            "New specification proposed for committee review and admin publication.",
-            40,
-        ),
+        ("background", _default_background_section_text(), 10),
+        ("existing_spec", _default_existing_spec_section_text(), 20),
+        ("changes", "Complete the proposed changes narrative for this new specification before submission.", 30),
+        ("justification", _default_justification_section_text(), 60),
+        ("recommendation", _default_recommendation_section_text(), 70),
     ]
     for section_name, section_text, sort_order in section_rows:
         db.session.add(
@@ -1300,6 +1285,83 @@ def _seed_sections_for_new_spec(draft: CSCDraft, source_label: str) -> None:
                 sort_order=sort_order,
             )
         )
+
+
+def _default_background_section_text() -> str:
+    return "\n".join(
+        [
+            "Background /",
+            "Usage of Chemical :",
+            "Current constraints in Storage Conditions :",
+        ]
+    )
+
+
+def _default_existing_spec_section_text() -> str:
+    return "\n".join(
+        [
+            "Existing Specification Summary/",
+            "Operational Issues:",
+            "",
+            "Quality Control Issues:",
+        ]
+    )
+
+
+def _default_justification_section_text(stream_name: str | None = None) -> str:
+    if stream_name == MATERIAL_HANDLING_STREAM:
+        return "\n".join(
+            [
+                "Justification/",
+                "as per Safety Data Sheet",
+            ]
+        )
+
+    return "\n".join(
+        [
+            "Justification/",
+            "parameter wise justification for rationale adapted to classify the parameter as vital",
+        ]
+    )
+
+
+def _default_recommendation_section_text() -> str:
+    return (
+        "Version Change Reason/\n"
+        "Migration to 2026 version with type classification of all parameters into Vital and Desirable. "
+        "Material Handling and Storage Conditions also defined"
+    )
+
+
+def _ensure_default_draft_sections(draft: CSCDraft, stream_name: str | None = None) -> None:
+    section_defaults = {
+        "background": (_default_background_section_text(), 10),
+        "existing_spec": (_default_existing_spec_section_text(), 20),
+        "justification": (_default_justification_section_text(stream_name), 60),
+        "recommendation": (_default_recommendation_section_text(), 70),
+    }
+
+    existing_sections = {
+        section.section_name: section
+        for section in draft.sections.order_by(CSCSection.sort_order).all()
+    }
+
+    for section_name, (default_text, sort_order) in section_defaults.items():
+        section = existing_sections.get(section_name)
+        if section is None:
+            db.session.add(
+                CSCSection(
+                    draft_id=draft.id,
+                    section_name=section_name,
+                    section_text=default_text,
+                    sort_order=sort_order,
+                )
+            )
+            continue
+        if not (section.section_text or "").strip():
+            section.section_text = default_text
+        if not section.sort_order:
+            section.sort_order = sort_order
 
 
 def _seed_parameters_from_extracted_spec(draft: CSCDraft, spec: SpecDocument) -> None:
@@ -1468,6 +1530,8 @@ def _create_new_spec_workflow_from_extraction(spec: SpecDocument, source_label: 
         child_draft,
         _resolve_subset_committee_slug_for_subset(subset_code),
     )
+    _write_workflow_stream_name(child_draft, TYPE_CLASSIFICATION_STREAM)
+    _ensure_default_draft_sections(child_draft, TYPE_CLASSIFICATION_STREAM)
     _write_draft_origin_metadata(
         child_draft,
         {
@@ -1844,13 +1908,12 @@ def _summarize_workflow_scope(scope: dict[str, bool]) -> list[str]:
     if _scope_allows_storage_handling(scope):
         summary.append("Storage and Handling")
     if _scope_allows_parameter_tab(scope):
-        parameter_parts = []
-        if scope.get("parameter_type"):
-            parameter_parts.append("Type")
-        if scope.get("parameter_other"):
-            parameter_parts.append("Other than Type")
-        if parameter_parts:
-            summary.append("Parameters — " + ", ".join(parameter_parts))
+        if scope.get("parameter_type") and scope.get("parameter_other"):
+            summary.append("Parameters — Full Revision")
+        elif scope.get("parameter_type"):
+            summary.append("Parameters — Type Only")
+        elif scope.get("parameter_other"):
+            summary.append("Parameters — Structure and Values")
     if _scope_allows_impact(scope):
         summary.append("Impact")
     return summary
@@ -1937,10 +2000,11 @@ def _open_committee_workflow_draft_for_parent(
     if existing_for_committee and existing_for_committee.child_draft:
         _write_workflow_scope(existing_for_committee.child_draft, workflow_scope)
         _write_workflow_committee_slug(existing_for_committee.child_draft, committee_slug)
-        _write_workflow_stream_name(
+        stream_name = _write_workflow_stream_name(
             existing_for_committee.child_draft,
             _workflow_track_to_stream_name(workflow_track),
         )
+        _ensure_default_draft_sections(existing_for_committee.child_draft, stream_name)
         return existing_for_committee.child_draft, False, None
 
     if len(active_revisions) >= 2:
@@ -1954,7 +2018,8 @@ def _open_committee_workflow_draft_for_parent(
     )
     _write_workflow_scope(child_draft, workflow_scope)
     _write_workflow_committee_slug(child_draft, committee_slug)
-    _write_workflow_stream_name(child_draft, _workflow_track_to_stream_name(workflow_track))
+    stream_name = _write_workflow_stream_name(child_draft, _workflow_track_to_stream_name(workflow_track))
+    _ensure_default_draft_sections(child_draft, stream_name)
 
     revision = CSCRevision(
         parent_draft_id=parent_draft.id,
@@ -2036,6 +2101,7 @@ def _open_admin_self_draft_for_parent(
         is_admin_draft=True,
     )
     _write_workflow_scope(child_draft, workflow_scope)
+    _ensure_default_draft_sections(child_draft, TYPE_CLASSIFICATION_STREAM)
 
     revision = CSCRevision(
         parent_draft_id=parent_draft.id,
@@ -2065,6 +2131,24 @@ def _compose_approval_notes(
 
 def _workflow_stream_label(stream_name: str | None) -> str:
     return "Material Handling" if stream_name == MATERIAL_HANDLING_STREAM else "Type Classification"
+
+
+def _workflow_scope_display_label(draft: CSCDraft | None) -> str:
+    stream_name = _infer_workflow_stream_name(draft)
+    if stream_name == MATERIAL_HANDLING_STREAM:
+        return "Material Handling"
+
+    if draft is None:
+        return "Type Classification"
+
+    workflow_scope = _load_workflow_scope(draft)
+    if workflow_scope.get("parameter_type") and workflow_scope.get("parameter_other"):
+        return "Full Revision"
+    if workflow_scope.get("parameter_other"):
+        return "Structure and Values"
+    if workflow_scope.get("parameter_type"):
+        return "Type Classification"
+    return "Type Classification"
 
 
 def _stream_section_markers(stream_name: str | None) -> tuple[str, str]:
@@ -2193,7 +2277,7 @@ def _build_revision_review_context(revision: CSCRevision) -> dict[str, object]:
         {"label": "Specification", "value": _display_review_value(draft.spec_number)},
         {"label": "Chemical", "value": _display_review_value(draft.chemical_name)},
         {"label": "Subset", "value": _display_review_value(draft.subset_display)},
-        {"label": "Workflow Stream", "value": _workflow_stream_label(workflow_stream)},
+        {"label": "Workflow Stream", "value": _workflow_scope_display_label(draft)},
         {"label": "Draft Type", "value": _draft_type_label(draft)},
         {"label": "Version", "value": f"v{draft.version}"},
         {"label": "Material Code", "value": _display_review_value(draft.material_code)},
@@ -2330,7 +2414,7 @@ def _build_draft_export_review_context(draft: CSCDraft) -> dict[str, object]:
         {"label": "Specification", "value": _display_review_value(draft.spec_number)},
         {"label": "Chemical", "value": _display_review_value(draft.chemical_name)},
         {"label": "Subset", "value": _display_review_value(draft.subset_display)},
-        {"label": "Workflow Stream", "value": _workflow_stream_label(workflow_stream)},
+        {"label": "Workflow Stream", "value": _workflow_scope_display_label(draft)},
         {"label": "Draft Type", "value": _draft_type_label(draft)},
         {"label": "Version", "value": f"v{draft.version}"},
         {"label": "Material Code", "value": _display_review_value(draft.material_code)},
@@ -5264,6 +5348,7 @@ def _render_admin_revisions_workbench(
                 ),
                 "review_url": url_for("csc.review_revision", revision_id=revision.id),
                 "workflow_stream": _infer_workflow_stream_name(revision.child_draft),
+                "workflow_scope_label": _workflow_scope_display_label(revision.child_draft),
                 "can_decide": _can_current_user_decide_revision_as_module_admin(revision),
                 "can_edit": bool(
                     revision.child_draft
@@ -5308,6 +5393,7 @@ def _render_admin_revisions_workbench(
         return render_template(
             "csc/admin/revisions.html",
             revision_rows=revision_rows,
+            can_import_workbooks=True,
             workflow_nav_active="admin",
             workbench_title="Secretary Workbench",
             workbench_subtitle="Stage newly created drafts, edit and structure them as Secretary, then send them to committee users. Committee-head-approved drafts can then be published, returned, or deleted.",
@@ -5658,6 +5744,7 @@ def review_workbench():
                 ),
                 "review_url": url_for("csc.review_revision", revision_id=revision.id),
                 "workflow_stream": _infer_workflow_stream_name(revision.child_draft),
+                "workflow_scope_label": _workflow_scope_display_label(revision.child_draft),
                 "can_decide": _can_current_user_decide_revision_as_committee_head(revision),
                 "can_force_delete": False,
                 "force_delete_url": "",
@@ -5685,6 +5772,7 @@ def review_workbench():
         return render_template(
             "csc/admin/revisions.html",
             revision_rows=revision_rows,
+            can_import_workbooks=False,
             workflow_nav_active="review",
             workbench_title="Committee Head Workbench",
             workbench_subtitle="You are the Head of the Committee / Nodal Officer for the Specifications Subset. Review submitted drafts, edit them where needed, then forward them to Secretary.",

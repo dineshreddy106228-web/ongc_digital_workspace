@@ -212,17 +212,18 @@ def can_view_task(user: "User", task: "Task") -> bool:
 
     Grant chain (first match wins):
       1. Admin                          → True
-      2. Owner                          → True
-      3. Collaborator                   → True
-      4. Local self-task + CO flag on   → controlling officer of owner
-      5. Local self-task                → deny (owner-only, already covered above)
-      6. MY-scope: same office          → True
-      7. MY-scope: controlling officer
+      2. Superuser                      → True
+      3. Owner                          → True
+      4. Collaborator                   → True
+      5. Local self-task + CO flag on   → controlling officer of owner
+      6. Local self-task                → deny (owner-only, already covered above)
+      7. MY-scope: same office          → True
+      8. MY-scope: controlling officer
          of any participant             → True
-      8. GLOBAL-scope: any Superuser    → True
-      9. GLOBAL-scope: user in tagged
+      9. GLOBAL-scope: any Superuser    → True
+     10. GLOBAL-scope: user in tagged
          offices                        → True
-     10. GLOBAL-scope: superuser of
+     11. GLOBAL-scope: superuser of
          tagged office                  → True  (subset of 8, explicit for clarity)
     """
     if not user or not task:
@@ -232,11 +233,15 @@ def can_view_task(user: "User", task: "Task") -> bool:
     if _is_admin(user):
         return True
 
-    # 2. Owner — always sees own task
+    # 2. Superuser — full business access
+    if _is_superuser(user):
+        return True
+
+    # 3. Owner — always sees own task
     if _is_owner(user, task):
         return True
 
-    # 3. Collaborator
+    # 4. Collaborator
     if _is_collaborator(user, task):
         return True
 
@@ -279,14 +284,17 @@ def can_edit_task(user: "User", task: "Task") -> bool:
 
     Grant chain:
       1. Admin              → True
-      2. Owner              → True
-      3. Creator            → True
-      4. Otherwise          → deny
+      2. Superuser          → True
+      3. Owner              → True
+      4. Creator            → True
+      5. Otherwise          → deny
     """
     if not user or not task:
         return _deny("can_edit_task", user, task)
 
     if _is_admin(user):
+        return True
+    if _is_superuser(user):
         return True
     if _is_owner(user, task):
         return True
@@ -307,6 +315,8 @@ def can_close_task(user: "User", task: "Task") -> bool:
 
     if _is_admin(user):
         return True
+    if _is_superuser(user):
+        return True
     if _is_owner(user, task):
         return True
     if _is_creator(user, task):
@@ -321,16 +331,19 @@ def can_add_update(user: "User", task: "Task") -> bool:
 
     Grant chain:
       1. Admin                          → True
-      2. Owner                          → True
-      3. Collaborator                   → True
-      4. Controlling officer of any
+      2. Superuser                      → True
+      3. Owner                          → True
+      4. Collaborator                   → True
+      5. Controlling officer of any
          participant                    → True
-      5. Otherwise                      → deny
+      6. Otherwise                      → deny
     """
     if not user or not task:
         return _deny("can_add_update", user, task)
 
     if _is_admin(user):
+        return True
+    if _is_superuser(user):
         return True
     if _is_owner(user, task):
         return True

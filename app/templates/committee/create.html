@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+{% from "components/ui.html" import page_header %}
+{% block title %}Create Committee Task{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+
+  {% call page_header("Create Committee Task", "Create a committee-scoped task with office-based assignment, clear due dates, and optional supporting files.", "Committee", "New Task", "info") %}
+    <a href="{{ url_for('committee.list_tasks') }}" class="btn btn-secondary btn-sm">
+      <i class="bi bi-arrow-left"></i>
+      <span>Back to List</span>
+    </a>
+  {% endcall %}
+
+  <div class="committee-task-shell">
+    <div class="committee-task-main">
+      <div class="card form-card committee-form-card">
+        <div class="card-body">
+          <form method="POST" action="{{ url_for('committee.create_task') }}" enctype="multipart/form-data" class="committee-task-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <div class="form-section">
+              <div class="form-section-title">Task Brief</div>
+
+              <div class="form-group">
+                <label class="form-label" for="title">Title <span class="required">*</span></label>
+                <input
+                  type="text"
+                  name="title"
+                  id="title"
+                  class="form-control"
+                  required
+                  maxlength="255"
+                  placeholder="Enter a concise committee action item"
+                  value="{{ form_data.get('title', '') if form_data else '' }}"
+                >
+                <small class="form-hint">Use a short action-oriented title so the task scans well in the landing dashboard and task list.</small>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="description">Description</label>
+                <textarea
+                  name="description"
+                  id="description"
+                  class="form-control"
+                  rows="5"
+                  maxlength="5000"
+                  placeholder="Capture the committee context, expected output, and any dependencies."
+                >{{ form_data.get('description', '') if form_data else '' }}</textarea>
+              </div>
+            </div>
+
+            <div class="form-section">
+              <div class="form-section-title">Assignment &amp; Timeline</div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label" for="priority">Priority</label>
+                  <select name="priority" id="priority" class="form-control">
+                    {% for p in priorities %}
+                    <option value="{{ p }}" {{ 'selected' if (form_data.get('priority', 'medium') if form_data else 'medium') == p }}>{{ p|title }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label" for="due_date">Due Date</label>
+                  <input
+                    type="date"
+                    name="due_date"
+                    id="due_date"
+                    class="form-control"
+                    value="{{ form_data.get('due_date', '') if form_data else '' }}"
+                  >
+                  <small class="form-hint">Leave blank if the task should stay open-ended until the committee aligns a date.</small>
+                </div>
+
+                {% if is_admin or is_superuser %}
+                <div class="form-group">
+                  <label class="form-label" for="office_id">Office</label>
+                  <select name="office_id" id="office_id" class="form-control js-committee-office-select">
+                    {% for office in offices %}
+                    <option
+                      value="{{ office.id }}"
+                      {{ 'selected' if (form_data.get('office_id', '') if form_data else '') == office.id|string }}
+                    >
+                      {{ office.office_name }}
+                    </option>
+                    {% endfor %}
+                  </select>
+                  <small class="form-hint">Member options will refresh automatically when the office changes.</small>
+                </div>
+                {% else %}
+                <div class="form-group">
+                  <label class="form-label">Office Scope</label>
+                  <div class="committee-readonly-field">{{ current_user.office.office_name if current_user.office else 'Unassigned Office' }}</div>
+                  <small class="form-hint">Committee users create tasks inside their mapped office scope.</small>
+                </div>
+                {% endif %}
+              </div>
+
+              <div class="form-group committee-member-group">
+                <label class="form-label">Assign Members</label>
+                <div
+                  id="committeeMemberPicker"
+                  data-name="member_ids"
+                  data-api-url="{{ url_for('committee.api_office_members', office_id=0) }}"
+                  {% if not is_admin and not is_superuser and current_user.office_id %}data-office-id="{{ current_user.office_id }}"{% endif %}
+                  {% if form_data and form_data.getlist('member_ids') %}data-selected="{{ form_data.getlist('member_ids')|join(',') }}"{% endif %}
+                >
+                  <select multiple name="member_ids" class="form-control committee-member-native-select">
+                  </select>
+                </div>
+                <small class="form-hint">Only active users from the selected office can be assigned.</small>
+              </div>
+            </div>
+
+            <div class="form-section">
+              <div class="form-section-title">Supporting Material</div>
+
+              <div class="form-group">
+                <label class="form-label" for="attachment">Attachment</label>
+                <input
+                  type="file"
+                  name="attachment"
+                  id="attachment"
+                  class="form-control"
+                  accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx,.txt,.csv"
+                >
+                <small class="form-hint">Accepted formats: PDF, Office files, images, text, and CSV.</small>
+              </div>
+            </div>
+
+            <div class="task-form-actions committee-form-actions">
+              <button type="submit" class="btn btn-primary">Create Task</button>
+              <a href="{{ url_for('committee.list_tasks') }}" class="btn btn-secondary">Cancel</a>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <aside class="committee-task-side">
+      <div class="card committee-side-card">
+        <div class="card-body">
+          <div class="committee-side-kicker">Visibility</div>
+          <h3>What happens after creation</h3>
+          <ul class="committee-side-list">
+            <li>The task appears in the Committee Tasks landing dashboard tab for eligible users.</li>
+            <li>Assigned members can update status and add comments directly from the task detail page.</li>
+            <li>Attachments are stored with the task trail so the committee can reference the source file later.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="card committee-side-card">
+        <div class="card-body">
+          <div class="committee-side-kicker">Checklist</div>
+          <h3>Before you submit</h3>
+          <ul class="committee-side-list">
+            <li>Keep the title action-based and specific.</li>
+            <li>Set the office first so the right member list loads.</li>
+            <li>Use the description for deliverables, not for broad meeting notes.</li>
+          </ul>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts_extra %}
+<script nonce="{{ csp_nonce() }}" src="{{ url_for('static', filename='js/committee_members.js') }}"></script>
+{% endblock %}

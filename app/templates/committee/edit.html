@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% from "components/ui.html" import page_header %}
+{% block title %}Edit Committee Task{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+
+  {% call page_header("Edit Committee Task", "Update assignment, scope, and delivery details for task #" ~ task.id ~ ".", "Committee", "In Progress" if task.status == 'in_progress' else task.status|replace('_', ' ')|title, "info") %}
+    <a href="{{ url_for('committee.task_detail', task_id=task.id) }}" class="btn btn-secondary btn-sm">
+      <i class="bi bi-arrow-left"></i>
+      <span>Back to Detail</span>
+    </a>
+  {% endcall %}
+
+  <div class="committee-task-shell">
+    <div class="committee-task-main">
+      <div class="card form-card committee-form-card">
+        <div class="card-body">
+          <form method="POST" action="{{ url_for('committee.edit_task', task_id=task.id) }}" enctype="multipart/form-data" class="committee-task-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <div class="form-section">
+              <div class="form-section-title">Task Brief</div>
+
+              <div class="form-group">
+                <label class="form-label" for="title">Title <span class="required">*</span></label>
+                <input
+                  type="text"
+                  name="title"
+                  id="title"
+                  class="form-control"
+                  required
+                  maxlength="255"
+                  value="{{ form_data.get('title', task.title) if form_data else task.title }}"
+                >
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="description">Description</label>
+                <textarea
+                  name="description"
+                  id="description"
+                  class="form-control"
+                  rows="5"
+                  maxlength="5000"
+                >{{ form_data.get('description', task.description or '') if form_data else (task.description or '') }}</textarea>
+              </div>
+            </div>
+
+            <div class="form-section">
+              <div class="form-section-title">Assignment &amp; Timeline</div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label" for="priority">Priority</label>
+                  <select name="priority" id="priority" class="form-control">
+                    {% set current_priority = (form_data.get('priority', task.priority) if form_data else task.priority) %}
+                    {% for p in priorities %}
+                    <option value="{{ p }}" {{ 'selected' if current_priority == p }}>{{ p|title }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label" for="status">Status</label>
+                  <select name="status" id="status" class="form-control">
+                    {% set current_status = (form_data.get('status', task.status) if form_data else task.status) %}
+                    {% for s in statuses %}
+                    <option value="{{ s }}" {{ 'selected' if current_status == s }}>{{ s|replace('_', ' ')|title }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label" for="due_date">Due Date</label>
+                  <input
+                    type="date"
+                    name="due_date"
+                    id="due_date"
+                    class="form-control"
+                    value="{{ form_data.get('due_date', task.due_date.strftime('%Y-%m-%d') if task.due_date else '') if form_data else (task.due_date.strftime('%Y-%m-%d') if task.due_date else '') }}"
+                  >
+                </div>
+
+                {% if is_admin or is_superuser %}
+                <div class="form-group">
+                  <label class="form-label" for="office_id">Office</label>
+                  <select name="office_id" id="office_id" class="form-control js-committee-office-select">
+                    {% set current_office = (form_data.get('office_id', task.office_id|string) if form_data else task.office_id|string) %}
+                    {% for office in offices %}
+                    <option value="{{ office.id }}" {{ 'selected' if current_office == office.id|string }}>{{ office.office_name }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                {% else %}
+                <div class="form-group">
+                  <label class="form-label">Office Scope</label>
+                  <div class="committee-readonly-field">{{ task.office.office_name if task.office else 'Unassigned Office' }}</div>
+                </div>
+                {% endif %}
+              </div>
+
+              <div class="form-group committee-member-group">
+                <label class="form-label">Assign Members</label>
+                {% set existing_member_ids = task.members|map(attribute='user_id')|list %}
+                {% set selected_member_ids = form_data.getlist('member_ids') if form_data and form_data.getlist else existing_member_ids %}
+                <div
+                  id="committeeMemberPicker"
+                  data-name="member_ids"
+                  data-api-url="{{ url_for('committee.api_office_members', office_id=0) }}"
+                  {% if not is_admin and not is_superuser %}data-office-id="{{ task.office_id }}"{% endif %}
+                  data-selected="{{ selected_member_ids|join(',') }}"
+                >
+                  <select multiple name="member_ids" class="form-control committee-member-native-select">
+                  </select>
+                </div>
+                <small class="form-hint">Changing the office will refresh the selectable users and reset the current member list.</small>
+              </div>
+            </div>
+
+            <div class="task-form-actions committee-form-actions">
+              <button type="submit" class="btn btn-primary">Save Changes</button>
+              <a href="{{ url_for('committee.task_detail', task_id=task.id) }}" class="btn btn-secondary">Cancel</a>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <aside class="committee-task-side">
+      <div class="card committee-side-card">
+        <div class="card-body">
+          <div class="committee-side-kicker">Current Snapshot</div>
+          <h3>{{ task.title }}</h3>
+          <div class="committee-side-meta">
+            <span class="task-badge status-{{ task.status|lower|replace('_', '-') }}">{{ task.status|replace('_', ' ')|title }}</span>
+            <span class="task-badge priority-{{ task.priority|lower }}">{{ task.priority|title }}</span>
+          </div>
+          <ul class="committee-side-list">
+            <li>Created by {{ task.creator.full_name or task.creator.username if task.creator else 'Unknown user' }}.</li>
+            <li>{{ task.members|length }} assigned member{{ '' if task.members|length == 1 else 's' }} currently linked.</li>
+            <li>Last updated {{ task.updated_at|datetime_ist('%d %b %Y') if task.updated_at else 'recently' }}.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="card committee-side-card">
+        <div class="card-body">
+          <div class="committee-side-kicker">Editing Notes</div>
+          <h3>Keep the task stable</h3>
+          <ul class="committee-side-list">
+            <li>Use status changes for progress and comments for narrative updates.</li>
+            <li>If the office changes, re-check the member assignment before saving.</li>
+            <li>Keep titles stable unless the committee objective itself has changed.</li>
+          </ul>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts_extra %}
+<script nonce="{{ csp_nonce() }}" src="{{ url_for('static', filename='js/committee_members.js') }}"></script>
+{% endblock %}

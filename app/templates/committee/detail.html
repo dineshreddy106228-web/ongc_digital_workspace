@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% from "components/ui.html" import page_header %}
+{% block title %}Committee Task Details{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+
+  {% call page_header(task.title, "Task ID: " ~ task.id, "Committee") %}
+    <a href="{{ url_for('committee.list_tasks') }}" class="btn btn-secondary btn-sm">
+      <i class="bi bi-arrow-left"></i>
+      <span>Back to List</span>
+    </a>
+    {% if can_edit %}
+    <a href="{{ url_for('committee.edit_task', task_id=task.id) }}" class="btn btn-secondary btn-sm">
+      <i class="bi bi-pencil-square"></i>
+      <span>Edit Task</span>
+    </a>
+    {% endif %}
+  {% endcall %}
+
+  <!-- Task Metadata Card -->
+  <div class="card" style="margin-bottom: 1.25rem;">
+    <div class="card-body">
+      <div class="detail-overview-grid">
+
+        <div class="detail-field detail-field-wide">
+          <div class="form-label">Description</div>
+          <div class="detail-value">{{ task.description or '—' }}</div>
+        </div>
+
+        <div class="detail-field">
+          <div class="form-label">Status</div>
+          <span class="task-badge status-{{ task.status|lower|replace('_', '-') }}">{{ task.status|replace('_', ' ')|title }}</span>
+        </div>
+
+        <div class="detail-field">
+          <div class="form-label">Priority</div>
+          <span class="task-badge priority-{{ task.priority|lower }}">{{ task.priority|title }}</span>
+        </div>
+
+        <div class="detail-field">
+          <div class="form-label">Due Date</div>
+          <div class="detail-value">{{ task.due_date.strftime('%d %b %Y') if task.due_date else '—' }}</div>
+        </div>
+
+        <div class="detail-field">
+          <div class="form-label">Office</div>
+          <div class="detail-value">{{ task.office.office_name if task.office else '—' }}</div>
+        </div>
+
+        <div class="detail-field">
+          <div class="form-label">Created By</div>
+          <div class="detail-value">{{ task.creator.full_name or task.creator.username if task.creator else '—' }}</div>
+        </div>
+
+        <div class="detail-field">
+          <div class="form-label">Assigned Members</div>
+          <div class="detail-value">
+            {% if task.members %}
+            {% for m in task.members %}
+              {{ m.user.full_name or m.user.username }} ({{ m.role }}){% if not loop.last %}, {% endif %}
+            {% endfor %}
+            {% else %}—{% endif %}
+          </div>
+        </div>
+
+        <div class="detail-field">
+          <div class="form-label">Created At</div>
+          <div class="detail-value">{{ task.created_at|datetime_ist('%d %b %Y') if task.created_at else '—' }}</div>
+        </div>
+
+        <div class="detail-field">
+          <div class="form-label">Last Updated</div>
+          <div class="detail-value">{{ task.updated_at|datetime_ist('%d %b %Y') if task.updated_at else '—' }}</div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Status Update (inline) -->
+  {% if can_interact %}
+  <div class="card" style="margin-bottom: 1.25rem;">
+    <div class="card-body">
+      <div class="section-heading">
+        <h2 class="section-heading-title">Update Status</h2>
+      </div>
+      <form method="POST" action="{{ url_for('committee.update_status', task_id=task.id) }}" style="display:flex; gap:0.75rem; align-items:flex-end; flex-wrap:wrap;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-group" style="min-width:160px;">
+          <select name="status" class="form-select">
+            {% for s in statuses %}
+            <option value="{{ s }}" {{ 'selected' if task.status == s }}>{{ s|replace('_', ' ')|title }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">Update</button>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Comment Thread -->
+  <div class="card" style="margin-bottom: 1.25rem;">
+    <div class="card-body" style="padding-bottom: 0;">
+      <div class="section-heading">
+        <h2 class="section-heading-title">Comments</h2>
+      </div>
+    </div>
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Author</th>
+            <th>Comment</th>
+            <th>Attachment</th>
+            <th>Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if comments %}
+          {% for comment in comments %}
+          <tr>
+            <td>{{ comment.author.full_name or comment.author.username if comment.author else '—' }}</td>
+            <td class="preserve-whitespace">{{ comment.body }}</td>
+            <td>
+              {% if comment.attachment_path %}
+              <a href="{{ url_for('committee.download_attachment', filename=comment.attachment_path) }}" class="btn btn-sm btn-secondary">
+                <i class="bi bi-paperclip"></i> Download
+              </a>
+              {% else %}—{% endif %}
+            </td>
+            <td>{{ comment.created_at|datetime_ist('%d %b %Y %H:%M') if comment.created_at else '—' }}</td>
+          </tr>
+          {% endfor %}
+          {% else %}
+          <tr>
+            <td colspan="4" class="table-empty-row">No comments yet.</td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Add Comment Form -->
+  {% if can_interact %}
+  <div class="card">
+    <div class="card-body">
+      <div class="section-heading">
+        <h2 class="section-heading-title">Add Comment</h2>
+      </div>
+      <form method="POST" action="{{ url_for('committee.add_comment', task_id=task.id) }}" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <div class="form-group">
+          <label class="form-label" for="commentBody">Comment <span style="color:var(--color-danger)">*</span></label>
+          <textarea name="body" id="commentBody" class="form-control" rows="3" required maxlength="5000"></textarea>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="commentAttachment">Attachment</label>
+          <input type="file" name="attachment" id="commentAttachment" class="form-control">
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-sm" style="margin-top:0.75rem;">Post Comment</button>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

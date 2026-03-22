@@ -23,7 +23,10 @@ from app.models.tasks.task import Task, TASK_SCOPES
 from app.models.tasks.task_collaborator import TaskCollaborator
 from app.models.tasks.task_office import TaskOffice
 from app.models.tasks.task_update import TaskUpdate
-from app.core.services.dashboard import invalidate_dashboard_summary_metrics
+from app.core.services.dashboard import (
+    invalidate_dashboard_summary_metrics,
+    task_visible_in_command_dashboard,
+)
 from app.core.services.notifications import create_notification
 from app.core.services.recurring_tasks import (
     create_initial_task_for_template,
@@ -1590,6 +1593,43 @@ def task_summary(task_id):
         if task.recurring_template else False,
         recurrence_summary=recurrence_summary,
         is_privileged=_is_privileged(),
+        allow_full_page=True,
+        show_manage_actions=True,
+    )
+
+
+@office_bp.route("/<int:task_id>/command-summary")
+@login_required
+def task_command_summary(task_id):
+    if not _can_access_power_dashboard():
+        abort(403)
+
+    task = Task.query.get_or_404(task_id)
+    if not task_visible_in_command_dashboard(current_user, task_id):
+        abort(403)
+
+    updates = (
+        TaskUpdate.query.filter_by(task_id=task.id)
+        .order_by(TaskUpdate.created_at.desc())
+        .all()
+    )
+    can_open_full_page = _can_view_task(task)
+
+    return render_template(
+        "tasks/_task_summary_panel.html",
+        task=task,
+        updates=updates,
+        can_edit=_can_edit_task(task) if can_open_full_page else False,
+        can_close=_can_close_task(task) if can_open_full_page else False,
+        can_add_update=_can_add_update(task) if can_open_full_page else False,
+        can_edit_series=(
+            _can_edit_recurring_template(task.recurring_template)
+            if task.recurring_template and can_open_full_page else False
+        ),
+        recurrence_summary=recurrence_summary,
+        is_privileged=_is_privileged(),
+        allow_full_page=can_open_full_page,
+        show_manage_actions=can_open_full_page,
     )
 
 

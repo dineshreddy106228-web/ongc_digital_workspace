@@ -56,6 +56,8 @@ def create_app(config_class=Config):
 
     # Registry-managed modules are registered dynamically so production can expose
     # only the approved surfaces for the current environment.
+    # NOTE: committee_bp is registered via the module registry (module_registry.py)
+    # — no separate registration needed here.
     register_feature_blueprints(app)
 
     # ── Register CLI commands ────────────────────────────────────
@@ -87,6 +89,28 @@ def create_app(config_class=Config):
                 return None
             return recipient
 
+        # Committee open-task count for nav badge
+        committee_open = 0
+        if current_user.is_authenticated:
+            role_name = (
+                current_user.role.name if current_user.role else ""
+            ).lower()
+            try:
+                from app.models.committee.committee_task import CommitteeTask
+                if role_name in ("superuser", "admin"):
+                    # Global count across all offices
+                    committee_open = CommitteeTask.query.filter(
+                        CommitteeTask.status != "done"
+                    ).count()
+                elif role_name == "user" and current_user.has_module_access("committee"):
+                    # Scoped to the user's office only
+                    committee_open = CommitteeTask.query.filter(
+                        CommitteeTask.status != "done",
+                        CommitteeTask.office_id == current_user.office_id,
+                    ).count()
+            except Exception:
+                committee_open = 0
+
         return dict(
             app_name=app.config["APP_NAME"],
             csp_nonce=lambda: getattr(g, "csp_nonce", ""),
@@ -105,6 +129,7 @@ def create_app(config_class=Config):
                 if current_user.is_authenticated
                 else None
             ),
+            committee_open_count=committee_open,
         )
 
     # ── Per-request nonce for CSP-compatible inline scripts ──────

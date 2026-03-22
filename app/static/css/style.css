@@ -661,6 +661,12 @@ body.workspace-flyout-open .workspace-main {
     max-width: 900px;
 }
 
+.workspace-header-title-signature {
+    font-size: .96rem;
+    font-weight: 600;
+    letter-spacing: .02em;
+}
+
 .workspace-header-subtitle {
     margin-top: .16rem;
     color: #dce5f0;
@@ -1832,6 +1838,142 @@ body.workspace-flyout-open .workspace-backdrop {
     text-decoration: underline;
 }
 
+.dashboard-tab-strip {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    padding: .25rem;
+    border: 1px solid color-mix(in srgb, var(--tile-accent) 16%, var(--border));
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--tile-accent) 6%, var(--surface));
+}
+
+.dashboard-tab-button {
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--muted);
+    padding: .55rem .9rem;
+    font-size: .8rem;
+    font-weight: 700;
+    letter-spacing: .03em;
+    cursor: pointer;
+    transition: background var(--transition), color var(--transition), box-shadow var(--transition);
+}
+
+.dashboard-tab-button.is-active {
+    background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 13%, white 10%), color-mix(in srgb, var(--primary) 10%, transparent));
+    color: color-mix(in srgb, var(--primary) 78%, var(--text));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45), 0 4px 14px rgba(37, 99, 235, .12);
+}
+
+.dashboard-workspace-panel {
+    display: grid;
+    gap: 1rem;
+}
+
+.dashboard-workspace-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .9rem 1rem;
+    flex-wrap: wrap;
+}
+
+.dashboard-workspace-meta,
+.dashboard-workspace-actions {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    flex-wrap: wrap;
+}
+
+.dashboard-workspace-summary {
+    color: var(--muted);
+    font-size: .82rem;
+}
+
+.dashboard-queue-preview {
+    border: 1px solid color-mix(in srgb, var(--tile-accent) 16%, var(--border));
+    border-radius: 16px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--tile-accent) 5%, var(--surface)), color-mix(in srgb, var(--surface) 95%, var(--surface-alt)));
+    overflow: hidden;
+}
+
+.dashboard-queue-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: .75rem;
+    padding: 1rem 1.05rem .9rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--tile-accent) 14%, var(--border));
+}
+
+.dashboard-queue-header h3 {
+    margin: 0;
+    font-size: .94rem;
+    color: var(--text);
+}
+
+.dashboard-queue-header span {
+    color: var(--muted);
+    font-size: .78rem;
+    text-align: right;
+}
+
+.dashboard-queue-list {
+    display: grid;
+}
+
+.dashboard-queue-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .85rem 1rem;
+    padding: .95rem 1.05rem;
+    color: inherit;
+    text-decoration: none;
+}
+
+.dashboard-queue-row + .dashboard-queue-row {
+    border-top: 1px solid color-mix(in srgb, var(--tile-accent) 12%, var(--border));
+}
+
+.dashboard-queue-row:hover {
+    background: color-mix(in srgb, var(--tile-accent) 9%, var(--surface));
+    text-decoration: none;
+}
+
+.dashboard-queue-copy {
+    display: grid;
+    gap: .22rem;
+    min-width: 0;
+}
+
+.dashboard-queue-copy strong {
+    color: var(--text);
+    font-size: .92rem;
+}
+
+.dashboard-queue-copy span {
+    color: var(--muted);
+    font-size: .8rem;
+}
+
+.dashboard-queue-meta {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: .45rem;
+    flex-wrap: wrap;
+}
+
+.dashboard-queue-date {
+    color: var(--muted);
+    font-size: .8rem;
+    white-space: nowrap;
+}
+
 .dashboard-empty-state h3 {
     font-size: .96rem;
     color: var(--text);
@@ -2715,6 +2857,200 @@ body.workspace-flyout-open .workspace-backdrop {
 .task-detail-value { font-size: .9rem; color: var(--text); }
 .task-history-card { padding: 1.05rem; }
 
+.committee-task-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1.75fr) minmax(280px, .85fr);
+    gap: 1.25rem;
+    align-items: start;
+}
+
+.committee-task-main,
+.committee-task-side {
+    display: grid;
+    gap: 1rem;
+}
+
+.committee-form-card {
+    max-width: none;
+}
+
+.committee-side-kicker {
+    color: var(--muted);
+    font-size: .72rem;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}
+
+.committee-side-card h3 {
+    margin-top: .45rem;
+    margin-bottom: .8rem;
+    font-size: 1rem;
+}
+
+.committee-side-list {
+    display: grid;
+    gap: .65rem;
+    margin: 0;
+    padding-left: 1rem;
+    color: var(--muted);
+    font-size: .86rem;
+    line-height: 1.55;
+}
+
+.committee-side-meta {
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+    flex-wrap: wrap;
+    margin-bottom: .85rem;
+}
+
+.committee-readonly-field {
+    padding: .72rem .85rem;
+    border: 1.5px solid var(--border);
+    border-radius: .5rem;
+    background: color-mix(in srgb, var(--surface-alt) 88%, var(--surface));
+    color: var(--text);
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+}
+
+.committee-member-group {
+    margin-top: .25rem;
+}
+
+.committee-member-native-select {
+    display: none;
+}
+
+.committee-member-picker {
+    display: grid;
+    gap: .75rem;
+    padding: .9rem;
+    border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
+    border-radius: .85rem;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 92%, var(--surface-alt)), var(--surface));
+}
+
+.committee-member-toolbar {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    flex-wrap: wrap;
+}
+
+.committee-member-search {
+    flex: 1 1 240px;
+}
+
+.committee-member-count {
+    display: inline-flex;
+    align-items: center;
+    padding: .35rem .65rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--primary) 10%, var(--surface));
+    border: 1px solid color-mix(in srgb, var(--primary) 20%, var(--border));
+    color: color-mix(in srgb, var(--primary) 72%, var(--text));
+    font-size: .74rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.committee-member-helper {
+    color: var(--muted);
+    font-size: .8rem;
+}
+
+.committee-member-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .45rem;
+}
+
+.committee-member-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    padding: .35rem .65rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--primary) 10%, var(--surface));
+    border: 1px solid color-mix(in srgb, var(--primary) 20%, var(--border));
+    color: color-mix(in srgb, var(--primary) 76%, var(--text));
+    font-size: .8rem;
+    line-height: 1;
+}
+
+.committee-member-chip-remove {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+    padding: 0;
+}
+
+.committee-member-list {
+    max-height: 250px;
+    overflow-y: auto;
+    border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
+    border-radius: .75rem;
+    background: var(--surface);
+    padding: .35rem;
+}
+
+.committee-member-option {
+    display: flex;
+    align-items: center;
+    gap: .65rem;
+    padding: .55rem .65rem;
+    border-radius: .6rem;
+    cursor: pointer;
+    font-size: .86rem;
+    color: var(--text);
+}
+
+.committee-member-option:hover {
+    background: color-mix(in srgb, var(--primary-soft) 44%, var(--surface));
+}
+
+.committee-member-option input {
+    flex-shrink: 0;
+}
+
+.committee-member-option-text {
+    line-height: 1.4;
+}
+
+.committee-member-empty {
+    padding: .85rem;
+    color: var(--muted);
+    font-size: .82rem;
+}
+
+.committee-filter-card,
+.committee-table-card {
+    margin-top: 1rem;
+}
+
+.committee-filter-form {
+    display: grid;
+    gap: .95rem;
+}
+
+.committee-filter-actions {
+    padding-top: 0;
+    border-top: 0;
+    margin-top: 0;
+}
+
+.committee-member-inline-list {
+    color: var(--text);
+    line-height: 1.5;
+}
+
 /* ── Footer ─────────────────────────────────────────────────── */
 .site-footer {
     text-align: center;
@@ -2733,6 +3069,7 @@ body.workspace-flyout-open .workspace-backdrop {
     .dashboard-module-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .dashboard-kpi-grid,
     .dashboard-metric-grid { grid-template-columns: 1fr; }
+    .committee-task-shell { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 768px) {
@@ -2810,6 +3147,19 @@ body.workspace-flyout-open .workspace-backdrop {
     }
     .dashboard-command-meta {
         width: 100%;
+        justify-content: flex-start;
+    }
+    .dashboard-tab-strip {
+        width: 100%;
+        justify-content: flex-start;
+        overflow-x: auto;
+    }
+    .dashboard-workspace-toolbar,
+    .dashboard-queue-row {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    .dashboard-queue-meta {
         justify-content: flex-start;
     }
     .dashboard-main-grid,
@@ -2893,6 +3243,13 @@ body.workspace-flyout-open .workspace-backdrop {
     .dashboard-kpi-value,
     .dashboard-metric-value {
         font-size: 1.7rem;
+    }
+    .committee-member-toolbar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .committee-member-count {
+        align-self: flex-start;
     }
 }
 

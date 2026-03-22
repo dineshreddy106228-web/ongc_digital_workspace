@@ -86,6 +86,86 @@
     </article>
   </div>
 
+  <!-- Committee Task Statistics -->
+  {% if briefing.committee and briefing.committee.total > 0 %}
+  <section class="super-briefing-panel" style="margin-top:1.5rem;">
+    <div class="super-panel-header">
+      <div>
+        <h2>Committee Tasks</h2>
+        <p>Overview of committee-scoped task assignments across all offices.</p>
+      </div>
+      <div class="super-briefing-actions">
+        <a href="{{ url_for('committee.list_tasks') }}" class="btn btn-primary btn-sm">Open Committee Tasks</a>
+      </div>
+    </div>
+    <div class="super-briefing-signal-grid">
+      <article class="super-signal-card signal-open">
+        <span>Total Tasks</span>
+        <strong>{{ briefing.committee.total }}</strong>
+        <p>All committee tasks in the system.</p>
+      </article>
+      <article class="super-signal-card signal-next">
+        <span>Open</span>
+        <strong>{{ briefing.committee.open }}</strong>
+        <p>Tasks still requiring action.</p>
+      </article>
+      <article class="super-signal-card signal-complete">
+        <span>Completion Rate</span>
+        <strong>{{ briefing.committee.completion_pct }}%</strong>
+        <p>Closed share of committee portfolio.</p>
+      </article>
+      <article class="super-signal-card signal-overdue">
+        <span>Overdue</span>
+        <strong>{{ briefing.committee.overdue }}</strong>
+        <p>Committee tasks past due date.</p>
+      </article>
+      <article class="super-signal-card signal-risk">
+        <span>High Priority</span>
+        <strong>{{ briefing.committee.high_priority }}</strong>
+        <p>High priority open committee tasks.</p>
+      </article>
+      <article class="super-signal-card signal-stale">
+        <span>In Progress</span>
+        <strong>{{ briefing.committee.in_progress }}</strong>
+        <p>Committee tasks currently being worked on.</p>
+      </article>
+    </div>
+
+    {% if briefing.committee.by_status %}
+    <div style="display:flex; flex-wrap:wrap; gap:1.5rem; margin-top:1rem; padding:0 1.25rem 1.25rem;">
+      <div style="flex:1; min-width:200px;">
+        <h3 style="font-size:0.875rem; font-weight:600; margin-bottom:0.5rem; color:var(--text-secondary, #64748b);">By Status</h3>
+        <div style="display:flex; flex-wrap:wrap; gap:0.5rem;">
+          {% for status, count in briefing.committee.by_status.items() %}
+          <span class="task-badge status-{{ status|lower|replace('_', '-') }}" style="font-size:0.8125rem;">{{ status|replace('_', ' ')|title }}: {{ count }}</span>
+          {% endfor %}
+        </div>
+      </div>
+      {% if briefing.committee.by_priority %}
+      <div style="flex:1; min-width:200px;">
+        <h3 style="font-size:0.875rem; font-weight:600; margin-bottom:0.5rem; color:var(--text-secondary, #64748b);">By Priority</h3>
+        <div style="display:flex; flex-wrap:wrap; gap:0.5rem;">
+          {% for priority, count in briefing.committee.by_priority.items() %}
+          <span class="task-badge priority-{{ priority|lower }}" style="font-size:0.8125rem;">{{ priority|title }}: {{ count }}</span>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+      {% if briefing.committee.by_office %}
+      <div style="flex:1; min-width:200px;">
+        <h3 style="font-size:0.875rem; font-weight:600; margin-bottom:0.5rem; color:var(--text-secondary, #64748b);">By Office</h3>
+        <div style="display:flex; flex-wrap:wrap; gap:0.5rem;">
+          {% for office, count in briefing.committee.by_office.items() %}
+          <span class="task-badge" style="font-size:0.8125rem; background:var(--surface-alt, #f1f5f9); color:var(--text-primary, #1e293b);">{{ office }}: {{ count }}</span>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+  </section>
+  {% endif %}
+
   {% if reporting_organogram %}
   <section class="super-briefing-panel super-reporting-panel">
     <div class="super-panel-header">
@@ -222,6 +302,8 @@
     </aside>
   </div>
 </section>
+
+{% include "tasks/_task_summary_modal.html" %}
 {% endblock %}
 
 {% block scripts_extra %}
@@ -234,6 +316,15 @@
   const drilldownList = document.getElementById('briefing-drilldown-list');
   const watchlistButtons = Array.from(document.querySelectorAll('[data-drilldown-source="watchlist"]'));
   const charts = [];
+
+  function escapeHtml(value) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
 
   function themeValue(name, fallback) {
     const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -284,19 +375,24 @@
     }
 
     drilldownList.innerHTML = bucket.items.map((task) => `
-      <a href="${task.detail_url}" class="super-task-row">
+      <a
+        href="${task.detail_url}"
+        class="super-task-row"
+        data-task-summary-url="${task.command_summary_url || task.summary_url}"
+        data-task-summary-title="${escapeHtml(task.title)}"
+      >
         <div class="super-task-row-topline">
-          <span class="super-task-title">${task.title}</span>
-          <span class="super-task-priority priority-${task.priority.toLowerCase()}">${task.priority}</span>
+          <span class="super-task-title">${escapeHtml(task.title)}</span>
+          <span class="super-task-priority priority-${task.priority.toLowerCase()}">${escapeHtml(task.priority)}</span>
         </div>
         <div class="super-task-meta">
-          <span>${task.status}</span>
+          <span>${escapeHtml(task.status)}</span>
           <span>${task.scope === 'GLOBAL' ? 'Global' : 'Local'}</span>
-          <span>${task.owner}</span>
+          <span>${escapeHtml(task.owner)}</span>
         </div>
         <div class="super-task-foot">
-          <span>${task.office}</span>
-          <span>${task.due_date}</span>
+          <span>${escapeHtml(task.office)}</span>
+          <span>${escapeHtml(task.due_date)}</span>
         </div>
       </a>
     `).join('');

@@ -2,6 +2,8 @@
 {% set owner_label = task.owner.full_name if task.owner and task.owner.full_name else (task.owner.username if task.owner else '—') %}
 {% set creator_label = task.creator.full_name if task.creator and task.creator.full_name else (task.creator.username if task.creator else '—') %}
 {% set office_label = task.office.office_name if task.office else '—' %}
+{% set can_open_full_page = allow_full_page if allow_full_page is defined else true %}
+{% set allow_manage_actions = show_manage_actions if show_manage_actions is defined else true %}
 <div class="task-summary-panel">
   <div class="task-summary-hero">
     <div class="task-summary-hero-copy">
@@ -152,20 +154,22 @@
   </div>
 
   <div class="task-summary-footer">
+    {% if can_open_full_page %}
     <a href="{{ url_for('tasks.task_detail', task_id=task.id) }}" class="btn btn-secondary">Open Full Page</a>
-    {% if task.recurring_template %}
+    {% endif %}
+    {% if can_open_full_page and task.recurring_template %}
     <a href="{{ url_for('tasks.recurring_series_detail', template_id=task.recurring_template.id) }}" class="btn btn-secondary">Open Series</a>
     {% endif %}
-    {% if can_edit %}
+    {% if allow_manage_actions and can_edit %}
     <a href="{{ url_for('tasks.edit_task', task_id=task.id) }}" class="btn btn-secondary">Edit Task</a>
     {% endif %}
-    {% if task.recurring_template and can_edit_series %}
+    {% if allow_manage_actions and task.recurring_template and can_edit_series %}
     <a href="{{ url_for('tasks.edit_recurring_series', template_id=task.recurring_template.id) }}" class="btn btn-secondary">Edit Series</a>
     {% endif %}
-    {% if can_add_update %}
+    {% if allow_manage_actions and can_add_update %}
     <a href="{{ url_for('tasks.add_task_update', task_id=task.id) }}" class="btn btn-primary">Add Update</a>
     {% endif %}
-    {% if can_edit and task.is_active %}
+    {% if allow_manage_actions and can_edit and task.is_active %}
     <form
       method="POST"
       action="{{ url_for('tasks.delete_task', task_id=task.id) }}"

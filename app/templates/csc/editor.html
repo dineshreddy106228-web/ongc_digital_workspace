@@ -2067,9 +2067,13 @@
                 <span class="csc-parameter-type-pill">Desirable</span>
                 <span class="csc-workflow-subnote">
                     Open in this draft:
-                    {% if workflow_scope.parameter_type %}<strong>Type</strong>{% endif %}
-                    {% if workflow_scope.parameter_type and workflow_scope.parameter_other %} and {% endif %}
-                    {% if workflow_scope.parameter_other %}<strong>Other than Type</strong>{% endif %}
+                    {% if workflow_scope.parameter_type and workflow_scope.parameter_other %}
+                    <strong>Full Parameter Revision</strong>
+                    {% elif workflow_scope.parameter_type %}
+                    <strong>Type Only</strong>
+                    {% elif workflow_scope.parameter_other %}
+                    <strong>Structure and Values</strong>
+                    {% endif %}
                 </span>
             </div>
 

@@ -33,3 +33,6 @@ from app.models.csc.impact_analysis import CSCImpactAnalysis                 # n
 from app.models.csc.audit import CSCAudit                                    # noqa: F401
 from app.models.csc.revision import CSCRevision                              # noqa: F401
 from app.models.csc.spec_version import CSCSpecVersion                       # noqa: F401
+from app.models.committee.committee_task import CommitteeTask                # noqa: F401
+from app.models.committee.committee_task_member import CommitteeTaskMember   # noqa: F401
+from app.models.committee.task_comment import TaskComment                    # noqa: F401

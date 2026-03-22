@@ -10,6 +10,11 @@
 {% block content %}
 {% set identity = workspace_context.identity %}
 {% set welcome = workspace_context.welcome %}
+{% set committee_workspace = workspace_context.committee_workspace %}
+{% set show_office_workspace = task_module_active %}
+{% set show_committee_workspace = committee_workspace and committee_workspace.available %}
+{% set workspaces_tabbed = show_office_workspace and show_committee_workspace %}
+{% set default_workspace_tab = 'office' if show_office_workspace else 'committee' %}
 <section class="dashboard dashboard-shell {{ 'mission-control' if control_center_mode }}" id="dashboard-root" data-dashboard-page>
 
     <div class="dashboard-command-header">
@@ -74,21 +79,59 @@
 
     <div class="dashboard-main-grid">
         <div class="dashboard-main-column">
-            <details class="dashboard-section-block dashboard-section-block-actions dashboard-collapsible">
-                <summary class="dashboard-collapsible-summary">
-                    <div class="dashboard-section-header">
-                        <div>
-                            <h2 class="dashboard-section-title">Your Immediate Actions</h2>
-                            <p class="dashboard-section-subtitle">Operational priorities requiring attention now.</p>
-                        </div>
-                        <span class="dashboard-collapsible-indicator" aria-hidden="true"></span>
+            {% if show_office_workspace or show_committee_workspace %}
+            <section class="dashboard-section-block dashboard-section-block-actions dashboard-workspace-hub" data-dashboard-workspaces>
+                <div class="dashboard-section-header">
+                    <div>
+                        <h2 class="dashboard-section-title">{{ 'Your Work Queues' if workspaces_tabbed else 'Your Immediate Actions' }}</h2>
+                        <p class="dashboard-section-subtitle">
+                            {% if workspaces_tabbed %}
+                            Switch between office and committee priorities without leaving the landing dashboard.
+                            {% elif show_committee_workspace %}
+                            Committee assignments and due work visible in your current committee scope.
+                            {% else %}
+                            Operational priorities requiring attention now.
+                            {% endif %}
+                        </p>
                     </div>
-                </summary>
+                    {% if workspaces_tabbed %}
+                    <div class="dashboard-tab-strip" role="tablist" aria-label="Dashboard work queues">
+                        <button
+                            type="button"
+                            class="dashboard-tab-button {{ 'is-active' if default_workspace_tab == 'office' }}"
+                            id="dashboard-tab-office"
+                            data-dashboard-tab="office"
+                            role="tab"
+                            aria-selected="{{ 'true' if default_workspace_tab == 'office' else 'false' }}"
+                            aria-controls="dashboard-panel-office"
+                        >
+                            Office Tasks
+                        </button>
+                        <button
+                            type="button"
+                            class="dashboard-tab-button {{ 'is-active' if default_workspace_tab == 'committee' }}"
+                            id="dashboard-tab-committee"
+                            data-dashboard-tab="committee"
+                            role="tab"
+                            aria-selected="{{ 'true' if default_workspace_tab == 'committee' else 'false' }}"
+                            aria-controls="dashboard-panel-committee"
+                        >
+                            Committee Tasks
+                        </button>
+                    </div>
+                    {% endif %}
+                </div>
 
-                <div class="dashboard-collapsible-body">
-                    {% if task_module_active %}
+                {% if show_office_workspace %}
+                <div
+                    class="dashboard-workspace-panel {{ 'is-active' if default_workspace_tab == 'office' }}"
+                    id="dashboard-panel-office"
+                    data-dashboard-panel="office"
+                    {% if workspaces_tabbed %}role="tabpanel" aria-labelledby="dashboard-tab-office"{% endif %}
+                    {% if default_workspace_tab != 'office' %}hidden{% endif %}
+                >
                     {% if workspace_context.task_links_active %}
-                    <div class="dashboard-collapsible-toolbar">
+                    <div class="dashboard-workspace-toolbar">
                         <a href="{{ url_for('tasks.list_tasks') }}" class="dashboard-section-link">Open Office Management</a>
                     </div>
                     {% endif %}
@@ -109,14 +152,80 @@
                             {% endif %}
                         {% endfor %}
                     </div>
+                </div>
+                {% endif %}
+
+                {% if show_committee_workspace %}
+                <div
+                    class="dashboard-workspace-panel {{ 'is-active' if default_workspace_tab == 'committee' }}"
+                    id="dashboard-panel-committee"
+                    data-dashboard-panel="committee"
+                    {% if workspaces_tabbed %}role="tabpanel" aria-labelledby="dashboard-tab-committee"{% endif %}
+                    {% if default_workspace_tab != 'committee' %}hidden{% endif %}
+                >
+                    <div class="dashboard-workspace-toolbar">
+                        <div class="dashboard-workspace-meta">
+                            <span class="status-pill status-pill-info">{{ committee_workspace.scope_label }}</span>
+                            <span class="dashboard-workspace-summary">{{ committee_workspace.summary.total }} total tasks · {{ committee_workspace.summary.due_next_7_days }} due in 7 days</span>
+                        </div>
+                        <div class="dashboard-workspace-actions">
+                            <a href="{{ committee_workspace.list_url }}" class="dashboard-section-link">Open Committee Tasks</a>
+                            {% if committee_workspace.can_create %}
+                            <a href="{{ committee_workspace.create_url }}" class="btn btn-sm btn-secondary">Create Task</a>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="dashboard-kpi-grid">
+                        {% for item in committee_workspace.actions %}
+                            {% if item.href %}
+                            <a href="{{ item.href }}" class="dashboard-kpi-card dashboard-kpi-card-{{ item.tone }}">
+                                <span class="dashboard-kpi-label">{{ item.label }}</span>
+                                <strong class="dashboard-kpi-value">{{ item.value }}</strong>
+                                <span class="dashboard-kpi-detail">{{ item.detail }}</span>
+                            </a>
+                            {% else %}
+                            <div class="dashboard-kpi-card dashboard-kpi-card-{{ item.tone }}">
+                                <span class="dashboard-kpi-label">{{ item.label }}</span>
+                                <strong class="dashboard-kpi-value">{{ item.value }}</strong>
+                                <span class="dashboard-kpi-detail">{{ item.detail }}</span>
+                            </div>
+                            {% endif %}
+                        {% endfor %}
+                    </div>
+
+                    {% if committee_workspace["items"] %}
+                    <div class="dashboard-queue-preview">
+                        <div class="dashboard-queue-header">
+                            <h3>Committee queue preview</h3>
+                            <span>Nearest due items in your visible scope</span>
+                        </div>
+                        <div class="dashboard-queue-list">
+                            {% for item in committee_workspace["items"] %}
+                            <a href="{{ item.detail_url }}" class="dashboard-queue-row">
+                                <div class="dashboard-queue-copy">
+                                    <strong>{{ item.title }}</strong>
+                                    <span>{{ item.office }} · {{ item.member_count }} member{{ '' if item.member_count == 1 else 's' }}</span>
+                                </div>
+                                <div class="dashboard-queue-meta">
+                                    <span class="task-badge status-{{ item.status_key|replace('_', '-') }}">{{ item.status }}</span>
+                                    <span class="task-badge priority-{{ item.priority_key }}">{{ item.priority }}</span>
+                                    <span class="dashboard-queue-date">{{ item.due_date }}</span>
+                                </div>
+                            </a>
+                            {% endfor %}
+                        </div>
+                    </div>
                     {% else %}
                     <div class="dashboard-empty-state">
-                        <h3>Office Management is not assigned to this account</h3>
-                        <p>Task metrics will appear here once the module is enabled for this user.</p>
+                        <h3>{{ committee_workspace.empty_state.title }}</h3>
+                        <p>{{ committee_workspace.empty_state.body }}</p>
                     </div>
                     {% endif %}
                 </div>
-            </details>
+                {% endif %}
+            </section>
+            {% endif %}
 
             <section class="dashboard-section-block dashboard-section-block-modules">
                 <div class="dashboard-section-header">
@@ -357,6 +466,31 @@
 {% block scripts_extra %}
 <script nonce="{{ csp_nonce() }}">
 document.addEventListener("DOMContentLoaded", function () {
+    const workspaceTabs = Array.from(document.querySelectorAll("[data-dashboard-tab]"));
+    const workspacePanels = Array.from(document.querySelectorAll("[data-dashboard-panel]"));
+
+    if (workspaceTabs.length && workspacePanels.length) {
+        const activateWorkspaceTab = function (name) {
+            workspaceTabs.forEach(function (tab) {
+                const isActive = tab.dataset.dashboardTab === name;
+                tab.classList.toggle("is-active", isActive);
+                tab.setAttribute("aria-selected", isActive ? "true" : "false");
+            });
+
+            workspacePanels.forEach(function (panel) {
+                const isActive = panel.dataset.dashboardPanel === name;
+                panel.classList.toggle("is-active", isActive);
+                panel.hidden = !isActive;
+            });
+        };
+
+        workspaceTabs.forEach(function (tab) {
+            tab.addEventListener("click", function () {
+                activateWorkspaceTab(tab.dataset.dashboardTab);
+            });
+        });
+    }
+
     {% if is_super and dashboard_analytics %}
     const ANALYTICS = {{ dashboard_analytics | tojson }};
 

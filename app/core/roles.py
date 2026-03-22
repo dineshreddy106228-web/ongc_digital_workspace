@@ -37,7 +37,7 @@ ROLE_REGISTRY: list[str] = [
 
 ROLE_DESCRIPTIONS: dict[str, str] = {
     ADMIN_ROLE:     "User management access only — manage users, roles, and password resets",
-    SUPERUSER_ROLE: "Full platform access — all modules, all task actions, activity history",
+    SUPERUSER_ROLE: "Full platform access — all modules, all task actions including committee tasks, activity history",
     USER_ROLE:      "Explicit module access only — controlled by admin",
 }
 

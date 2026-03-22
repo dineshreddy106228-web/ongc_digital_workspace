@@ -17,6 +17,7 @@ from app.core.module_registry import (
     user_can_access_module,
 )
 from app.extensions import cache
+from app.models.committee.committee_task import CommitteeTask
 from app.models.core.user import User
 from app.models.tasks.task import Task
 from app.models.tasks.task_collaborator import TaskCollaborator
@@ -25,6 +26,7 @@ from app.models.tasks.task_office import TaskOffice
 
 CLOSED_TASK_STATUSES = ("Completed", "Cancelled")
 PENDING_UPDATE_STATUSES = ("Not Started", "On Hold")
+COMMITTEE_CLOSED_STATUSES = ("done",)
 SHOWCASE_MODULE_KEYS = ("office_management", "csc_workflow", "inventory")
 ADMIN_SHOWCASE_MODULE_KEYS = ("admin_users",)
 MODULE_ICON_MAP = {
@@ -186,6 +188,8 @@ def _serialize_dashboard_task(task: Task) -> dict:
         "office": ", ".join(office_names) if office_names else "Unassigned Office",
         "due_date": task.due_date.strftime("%d %b %Y") if task.due_date else "No due date",
         "detail_url": url_for("tasks.task_detail", task_id=task.id),
+        "summary_url": url_for("tasks.task_summary", task_id=task.id),
+        "command_summary_url": url_for("tasks.task_command_summary", task_id=task.id),
     }
 
 
@@ -204,6 +208,132 @@ def _bucket_task_list(tasks: list[Task], limit: int = 40) -> dict:
         "count": len(sorted_tasks),
         "items": serialized,
         "has_more": len(sorted_tasks) > limit,
+    }
+
+
+def _can_access_committee_workspace(user) -> bool:
+    return bool(
+        user.is_admin_user()
+        or user.is_super_user()
+        or user.has_module_access("committee")
+    )
+
+
+def _committee_visibility_query_for_user(user):
+    if not _can_access_committee_workspace(user):
+        return None
+
+    base = CommitteeTask.query.options(selectinload(CommitteeTask.members))
+    if user.is_super_user() or user.is_admin_user():
+        return base
+
+    if getattr(user, "office_id", None) is None:
+        return base.filter(CommitteeTask.id.is_(None))
+
+    return base.filter(CommitteeTask.office_id == user.office_id)
+
+
+def _serialize_committee_task(task: CommitteeTask) -> dict:
+    return {
+        "id": task.id,
+        "title": task.title or f"Committee Task #{task.id}",
+        "status": (task.status or "open").replace("_", " ").title(),
+        "priority": (task.priority or "medium").title(),
+        "status_key": (task.status or "open").lower(),
+        "priority_key": (task.priority or "medium").lower(),
+        "office": task.office.office_name if getattr(task, "office", None) else "Unassigned Office",
+        "member_count": len(getattr(task, "members", []) or []),
+        "due_date": task.due_date.strftime("%d %b %Y") if task.due_date else "No due date",
+        "detail_url": url_for("committee.task_detail", task_id=task.id),
+    }
+
+
+def _build_committee_workspace_context(user) -> dict | None:
+    query = _committee_visibility_query_for_user(user)
+    if query is None:
+        return None
+
+    today = date.today()
+    visible_tasks = query.order_by(CommitteeTask.created_at.desc()).all()
+    open_tasks = [task for task in visible_tasks if task.status not in COMMITTEE_CLOSED_STATUSES]
+    queued_tasks = [task for task in open_tasks if task.status == "open"]
+    overdue_tasks = [
+        task for task in open_tasks
+        if task.due_date and task.due_date < today
+    ]
+    due_next_7_days = [
+        task for task in open_tasks
+        if task.due_date and today <= task.due_date <= today + timedelta(days=7)
+    ]
+    in_progress_tasks = [task for task in open_tasks if task.status == "in_progress"]
+    completed_tasks = [task for task in visible_tasks if task.status == "done"]
+
+    preview_tasks = sorted(
+        open_tasks,
+        key=lambda item: (
+            item.due_date is None,
+            item.due_date or date.max,
+            (item.priority or "").lower(),
+            item.id,
+        ),
+    )[:6]
+
+    if user.is_super_user() or user.is_admin_user():
+        scope_label = "All Offices"
+        subtitle = "Committee assignments across the full workspace."
+    else:
+        office_name = getattr(getattr(user, "office", None), "office_name", None) or "Your office"
+        scope_label = office_name
+        subtitle = f"Committee assignments visible within {office_name}."
+    can_create = bool((user.is_super_user() or user.is_admin_user()) or getattr(user, "office_id", None) is not None)
+
+    return {
+        "available": True,
+        "title": "Committee Tasks",
+        "subtitle": subtitle,
+        "scope_label": scope_label,
+        "list_url": url_for("committee.list_tasks"),
+        "create_url": url_for("committee.create_task"),
+        "can_create": can_create,
+        "items": [_serialize_committee_task(task) for task in preview_tasks],
+        "actions": [
+            {
+                "label": "Open Tasks",
+                "value": len(queued_tasks),
+                "detail": "New committee work waiting to be picked up.",
+                "tone": "primary",
+                "href": url_for("committee.list_tasks", status="open"),
+            },
+            {
+                "label": "In Progress",
+                "value": len(in_progress_tasks),
+                "detail": "Assignments currently being worked.",
+                "tone": "warning",
+                "href": url_for("committee.list_tasks", status="in_progress"),
+            },
+            {
+                "label": "Overdue",
+                "value": len(overdue_tasks),
+                "detail": "Past due date and still open.",
+                "tone": "danger",
+                "href": url_for("committee.list_tasks"),
+            },
+            {
+                "label": "Completed",
+                "value": len(completed_tasks),
+                "detail": "Tasks closed in the visible committee scope.",
+                "tone": "success",
+                "href": url_for("committee.list_tasks", status="done"),
+            },
+        ],
+        "empty_state": {
+            "title": "No committee tasks in this scope",
+            "body": "Newly created committee tasks will appear here for quick access from the landing dashboard.",
+        },
+        "summary": {
+            "total": len(visible_tasks),
+            "due_next_7_days": len(due_next_7_days),
+        },
     }
 
 
@@ -322,6 +452,44 @@ def get_superuser_dashboard_briefing():
         "stale": _bucket_task_list(stale_tasks, limit=12),
     }
 
+    # ── Committee Task Statistics ──────────────────────────────────
+    all_committee_tasks = (
+        CommitteeTask.query
+        .order_by(CommitteeTask.created_at.desc())
+        .all()
+    )
+    committee_open = [t for t in all_committee_tasks if t.status not in COMMITTEE_CLOSED_STATUSES]
+    committee_done = [t for t in all_committee_tasks if t.status == "done"]
+    committee_overdue = [
+        t for t in committee_open
+        if t.due_date and t.due_date < today
+    ]
+    committee_in_progress = [t for t in committee_open if t.status == "in_progress"]
+    committee_high_priority = [t for t in committee_open if t.priority == "high"]
+    committee_completion_pct = round(
+        (len(committee_done) / len(all_committee_tasks) * 100) if all_committee_tasks else 0
+    )
+
+    committee_status_counts = dict(Counter(t.status for t in all_committee_tasks))
+    committee_priority_counts = dict(Counter(t.priority for t in committee_open))
+    committee_office_counts = dict(Counter(
+        t.office.office_name if t.office else "Unknown"
+        for t in committee_open
+    ))
+
+    committee_stats = {
+        "total": len(all_committee_tasks),
+        "open": len(committee_open),
+        "done": len(committee_done),
+        "overdue": len(committee_overdue),
+        "in_progress": len(committee_in_progress),
+        "high_priority": len(committee_high_priority),
+        "completion_pct": committee_completion_pct,
+        "by_status": committee_status_counts,
+        "by_priority": committee_priority_counts,
+        "by_office": committee_office_counts,
+    }
+
     return {
         "signals": {
             "open_tasks": len(open_tasks),
@@ -334,6 +502,7 @@ def get_superuser_dashboard_briefing():
             "stale_updates": len(stale_tasks),
         },
         "watchlist": watchlist,
+        "committee": committee_stats,
         "charts": {
             "office_workload": {
                 "title": "Open Tasks by Office",
@@ -450,6 +619,19 @@ def _control_center_task_query_for_user(user):
         )
 
     return _task_visibility_query_for_user(user)
+
+
+def task_visible_in_command_dashboard(user, task_id: int) -> bool:
+    """Return True when the task is visible in the user's command-dashboard scope."""
+    if not (user.is_super_user() or user.is_office_power_user()):
+        return False
+
+    return (
+        _control_center_task_query_for_user(user)
+        .filter(Task.id == task_id)
+        .first()
+        is not None
+    )
 
 
 def _display_first_name(user) -> str:
@@ -623,6 +805,7 @@ def get_dashboard_workspace_context(user, app=None, mode: str = "default") -> di
     completed_this_week = []
     pending_across_team = 0
     module_cards = _build_module_showcase(user, app)
+    committee_workspace = _build_committee_workspace_context(user)
 
     if task_module_active:
         task_query = (
@@ -679,7 +862,7 @@ def get_dashboard_workspace_context(user, app=None, mode: str = "default") -> di
 
     task_list_href = url_for("tasks.list_tasks") if task_links_active else None
     identity_title = _dashboard_identity_title(user)
-    identity_subtitle = "Centralized coordination. Real-time visibility. Structured execution."
+    identity_subtitle = "Aligned execution. Clear accountability. Real-time operational visibility."
     guidance_message = "All updates are reflected in real time. Keep your tasks current."
     if control_center_mode:
         if user.is_super_user():
@@ -762,6 +945,7 @@ def get_dashboard_workspace_context(user, app=None, mode: str = "default") -> di
                 "detail": "Upcoming commitments through week-end.",
             },
         ],
+        "committee_workspace": committee_workspace,
         "modules": module_cards,
         "guidance_message": guidance_message,
         "modules_enabled_count": sum(1 for card in module_cards if card["is_available"]),

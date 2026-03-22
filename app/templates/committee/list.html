@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% from "components/ui.html" import page_header %}
+{% block title %}Committee Tasks{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+
+  {% call page_header("Committee Tasks", "Manage committee-scoped assignments with office-based filtering, clear priorities, and shared status visibility.", "Committee", summary.total ~ " Tasks", "info") %}
+    {% if can_write %}
+    <a href="{{ url_for('committee.create_task') }}" class="btn btn-primary btn-sm">
+      <i class="bi bi-plus-lg"></i>
+      <span>New Task</span>
+    </a>
+    {% endif %}
+  {% endcall %}
+
+  <div class="admin-overview-grid committee-summary-grid">
+    <article class="card admin-metric-card">
+      <div class="card-body">
+        <span class="admin-metric-label">Open</span>
+        <strong class="admin-metric-value">{{ summary.open }}</strong>
+        <p class="admin-metric-detail">Tasks still requiring committee action.</p>
+      </div>
+    </article>
+    <article class="card admin-metric-card">
+      <div class="card-body">
+        <span class="admin-metric-label">In Progress</span>
+        <strong class="admin-metric-value">{{ summary.in_progress }}</strong>
+        <p class="admin-metric-detail">Assignments actively being worked on.</p>
+      </div>
+    </article>
+    <article class="card admin-metric-card">
+      <div class="card-body">
+        <span class="admin-metric-label">Overdue</span>
+        <strong class="admin-metric-value">{{ summary.overdue }}</strong>
+        <p class="admin-metric-detail">Open tasks that have passed their due date.</p>
+      </div>
+    </article>
+    <article class="card admin-metric-card">
+      <div class="card-body">
+        <span class="admin-metric-label">Done</span>
+        <strong class="admin-metric-value">{{ summary.done }}</strong>
+        <p class="admin-metric-detail">Completed items in the current result set.</p>
+      </div>
+    </article>
+  </div>
+
+  <div class="card committee-filter-card">
+    <div class="card-body">
+      <form method="GET" action="{{ url_for('committee.list_tasks') }}" class="committee-filter-form">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="statusFilter">Status</label>
+            <select name="status" id="statusFilter" class="form-control">
+              <option value="">All</option>
+              {% for s in statuses %}
+              <option value="{{ s }}" {{ 'selected' if filters.status == s }}>{{ s|replace('_', ' ')|title }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="priorityFilter">Priority</label>
+            <select name="priority" id="priorityFilter" class="form-control">
+              <option value="">All</option>
+              {% for p in priorities %}
+              <option value="{{ p }}" {{ 'selected' if filters.priority == p }}>{{ p|title }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          {% if is_admin or is_superuser %}
+          <div class="form-group">
+            <label class="form-label" for="officeFilter">Office</label>
+            <select name="office_id" id="officeFilter" class="form-control">
+              <option value="">All Offices</option>
+              {% for office in offices %}
+              <option value="{{ office.id }}" {{ 'selected' if filters.office_id == office.id|string }}>{{ office.office_name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          {% endif %}
+
+          <div class="form-group">
+            <label class="form-label" for="dueFrom">Due From</label>
+            <input type="date" name="due_from" id="dueFrom" class="form-control" value="{{ filters.due_from }}">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="dueTo">Due To</label>
+            <input type="date" name="due_to" id="dueTo" class="form-control" value="{{ filters.due_to }}">
+          </div>
+        </div>
+
+        <div class="task-form-actions committee-filter-actions">
+          <button type="submit" class="btn btn-secondary btn-sm">Apply Filters</button>
+          <a href="{{ url_for('committee.list_tasks') }}" class="btn btn-secondary btn-sm">Clear</a>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card committee-table-card">
+    <div class="table-wrapper">
+      <div class="table-responsive">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Status</th>
+              <th>Priority</th>
+              <th>Office</th>
+              <th>Due Date</th>
+              <th>Members</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if tasks %}
+            {% for task in tasks %}
+            <tr>
+              <td>
+                <a href="{{ url_for('committee.task_detail', task_id=task.id) }}" class="task-row-title">
+                  {{ task.title }}
+                </a>
+              </td>
+              <td><span class="task-badge status-{{ task.status|lower|replace('_', '-') }}">{{ task.status|replace('_', ' ')|title }}</span></td>
+              <td><span class="task-badge priority-{{ task.priority|lower }}">{{ task.priority|title }}</span></td>
+              <td>{{ task.office.office_name if task.office else '—' }}</td>
+              <td>{{ task.due_date.strftime('%d %b %Y') if task.due_date else '—' }}</td>
+              <td>
+                {% if task.members %}
+                <span class="committee-member-inline-list">
+                  {% for m in task.members %}{{ m.user.full_name or m.user.username }}{% if not loop.last %}, {% endif %}{% endfor %}
+                </span>
+                {% else %}
+                —
+                {% endif %}
+              </td>
+              <td>
+                <div class="actions-cell">
+                  <a href="{{ url_for('committee.task_detail', task_id=task.id) }}" class="btn btn-sm btn-secondary">View</a>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+            {% else %}
+            <tr>
+              <td colspan="7" class="table-empty-row">No committee tasks found. {% if can_write %}Create one to get started.{% endif %}</td>
+            </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

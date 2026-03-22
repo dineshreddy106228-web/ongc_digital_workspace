@@ -44,6 +44,22 @@
                     <span class="workspace-hover-label" aria-hidden="true">Dashboard</span>
                 </a>
 
+                <a
+                    href="{{ url_for('committee.list_tasks') }}"
+                    class="workspace-rail-item {{ 'is-active' if request.endpoint and request.endpoint.startswith('committee.') else '' }}"
+                    aria-label="Committee Tasks"
+                    title="Committee Tasks"
+                >
+                    <span class="workspace-rail-icon" aria-hidden="true"><i class="bi bi-people"></i></span>
+                    <span class="workspace-rail-label sr-only">Committee</span>
+                    <span class="workspace-hover-label" aria-hidden="true">Committee</span>
+                    {% if committee_open_count %}
+                    <span class="notification-count-badge">
+                        {{ committee_open_count if committee_open_count < 100 else "99+" }}
+                    </span>
+                    {% endif %}
+                </a>
+
                 <details class="notifications-menu workspace-alerts {{ 'is-active' if request.endpoint and request.endpoint.startswith('notifications.') else '' }}">
                     <summary class="workspace-rail-item" aria-label="Open alerts" title="Alerts">
                         <span class="workspace-rail-icon" aria-hidden="true"><i class="bi bi-bell"></i></span>
@@ -225,7 +241,7 @@
     <div class="workspace-header-band">
         <div class="workspace-header-band-copy">
             <div class="workspace-header-eyebrow">ONGC Digital Workspace</div>
-            <div class="workspace-header-title">Office of Head Corporate Chemistry</div>
+            <div class="workspace-header-title workspace-header-title-signature">Developed by Team Head Corporate Chemistry</div>
             <div class="workspace-header-location">Mumbai | Dehradun</div>
         </div>
         <div class="workspace-header-band-meta">

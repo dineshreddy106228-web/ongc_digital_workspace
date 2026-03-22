@@ -441,6 +441,7 @@
     {% endfor %}
   {% endwith %}
 
+  {% if can_import_workbooks %}
   <div class="csc-import-grid">
     <div class="csc-import-card">
       <h2>Type Classification Workbook Import</h2>
@@ -518,8 +519,9 @@
       </ul>
     </div>
   </div>
+  {% endif %}
 
-  {% if latest_import_summary %}
+  {% if can_import_workbooks and latest_import_summary %}
   <div class="card" style="margin-bottom: 1rem;">
     <div class="card-body">
       <div class="csc-import-card" style="padding:0;border:none;background:transparent;">
@@ -807,7 +809,7 @@
                 <div class="csc-spec-meta">
                   <strong>{{ revision.parent_spec.spec_number }}</strong>
                   <span class="csc-status-badge csc-status-open">
-                    {{ 'Material Handling' if row.workflow_stream == 'material_handling' else 'Type Classification' }}
+                    {{ row.workflow_scope_label }}
                   </span>
                   {% if row.is_new_spec %}
                   <span class="csc-status-badge csc-status-new-spec">New Specification</span>
