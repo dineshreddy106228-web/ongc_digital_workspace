@@ -51,6 +51,7 @@ import uuid
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from openpyxl import Workbook
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError, ProgrammingError
 
@@ -190,6 +191,10 @@ MATERIAL_HANDLING_IMPORT_STAGING_ROOT = os.path.join(
     tempfile.gettempdir(),
     "csc_material_handling_import_staging",
 )
+MATERIAL_HANDLING_IMPORT_REPORT_ROOT = os.path.join(
+    tempfile.gettempdir(),
+    "csc_material_handling_import_reports",
+)
 SYSTEM_BRACKET_LINE_RE = re.compile(r"^\s*\[[^\n\]]+\]\s*$", re.MULTILINE)
 WORKFLOW_TRACK_SUBSET = "subset"
 WORKFLOW_TRACK_MATERIAL_HANDLING = "material_handling"
@@ -302,8 +307,7 @@ def _can_current_user_edit_draft_as_committee_head(draft: CSCDraft) -> bool:
     revision = _get_revision_for_child(draft.id)
     if revision is None or revision.status != WORKFLOW_DRAFTING_SUBMITTED:
         return False
-    committee_slug = _get_revision_committee_slug(revision)
-    return bool(committee_slug) and committee_slug in set(_get_current_user_committee_head_slugs())
+    return _revision_in_current_user_committee_head_scope(revision)
 
 
 def _notify_material_master_admins(
@@ -716,6 +720,31 @@ def _get_effective_committee_user_subset_codes() -> list[str]:
     return _get_current_user_committee_user_subset_codes()
 
 
+def _get_current_user_committee_user_subset_codes_for_slug(committee_slug: str | None) -> list[str]:
+    """Return subset codes assigned to the current user for one committee-user role."""
+    slug = str(committee_slug or "").strip()
+    if not slug or slug in {"coordination", "corporate-specification-committee"}:
+        return []
+
+    subset_codes = set()
+    for record in _get_current_user_committee_records():
+        committee = record["committee"]
+        if "committee_user" not in record["roles"]:
+            continue
+        if str(committee.get("slug") or "").strip() != slug:
+            continue
+        for code in _resolve_committee_user_subset_codes(
+            committee,
+            record.get("committee_user_assignment"),
+        ):
+            if code:
+                subset_codes.add(code)
+
+    ordered_codes = [code for code in SPEC_SUBSET_ORDER if code in subset_codes]
+    ordered_codes.extend(sorted(code for code in subset_codes if code not in SPEC_SUBSET_ORDER))
+    return ordered_codes
+
+
 def _get_committee_user_upload_subset_codes() -> list[str]:
     """Return subset codes eligible for committee-user new specification upload."""
     subset_codes = set()
@@ -747,18 +776,48 @@ def _require_committee_user_upload_scope() -> None:
         abort(403)
 
 
-def _draft_in_current_user_committee_scope(draft: CSCDraft) -> bool:
+def _workflow_subset_code_for_draft(
+    draft: CSCDraft | None,
+    revision: CSCRevision | None = None,
+) -> str | None:
+    """Return the stable workflow subset code for the draft, preferring the published parent."""
+    if draft is None:
+        return None
+
+    parent_draft = revision.parent_draft if revision is not None else None
+    if parent_draft is None and getattr(draft, "parent_draft_id", None):
+        parent_draft = db.session.get(CSCDraft, draft.parent_draft_id)
+
+    subset_code = getattr(parent_draft or draft, "subset", None)
+    normalized = str(subset_code or "").strip().upper()
+    return normalized or None
+
+
+def _subset_code_is_within_scope(subset_code: str | None, allowed_subset_codes: list[str]) -> bool:
+    """Return True when the subset is covered or no explicit subset scope is configured."""
+    if not allowed_subset_codes:
+        return True
+    normalized = str(subset_code or "").strip().upper()
+    return bool(normalized and normalized in set(allowed_subset_codes))
+
+
+def _draft_in_current_user_committee_scope(
+    draft: CSCDraft,
+    revision: CSCRevision | None = None,
+) -> bool:
     """Return True when the draft falls inside the current user's covered subsets."""
     allowed_committee_slugs = set(_get_current_user_committee_user_slugs())
     if current_user.is_super_user() and not allowed_committee_slugs:
         return True
-    revision = _get_revision_for_child(draft.id)
+    revision = revision or _get_revision_for_child(draft.id)
     committee_slug = _get_revision_committee_slug(revision) if revision else None
     if not committee_slug or committee_slug not in allowed_committee_slugs:
         return False
-    if committee_slug != "material-handling":
-        return True
-    return bool((draft.subset or "").strip().upper() in set(_get_effective_committee_user_subset_codes()))
+    allowed_subset_codes = _get_current_user_committee_user_subset_codes_for_slug(committee_slug)
+    return _subset_code_is_within_scope(
+        _workflow_subset_code_for_draft(draft, revision),
+        allowed_subset_codes,
+    )
 
 
 def _ensure_current_user_can_access_subset(subset_code: str | None) -> None:
@@ -834,6 +893,29 @@ def _get_current_user_committee_head_subset_codes() -> list[str]:
             code = str((subset or {}).get("code") or "").strip().upper()
             if code:
                 subset_codes.add(code)
+    ordered_codes = [code for code in SPEC_SUBSET_ORDER if code in subset_codes]
+    ordered_codes.extend(sorted(code for code in subset_codes if code not in SPEC_SUBSET_ORDER))
+    return ordered_codes
+
+
+def _get_current_user_committee_head_subset_codes_for_slug(committee_slug: str | None) -> list[str]:
+    """Return subset codes assigned to the current user for one committee-head role."""
+    slug = str(committee_slug or "").strip()
+    if not slug or slug == "coordination":
+        return []
+
+    subset_codes = set()
+    for record in _get_current_user_committee_records():
+        committee = record["committee"]
+        if "committee_head" not in record["roles"]:
+            continue
+        if str(committee.get("slug") or "").strip() != slug:
+            continue
+        for subset in committee.get("subsets") or []:
+            code = str((subset or {}).get("code") or "").strip().upper()
+            if code:
+                subset_codes.add(code)
+
     ordered_codes = [code for code in SPEC_SUBSET_ORDER if code in subset_codes]
     ordered_codes.extend(sorted(code for code in subset_codes if code not in SPEC_SUBSET_ORDER))
     return ordered_codes
@@ -1021,21 +1103,31 @@ def _can_current_user_view_revision_snapshot(revision: CSCRevision) -> bool:
         return True
     if _current_user_is_governance_committee_member():
         return True
-    committee_slug = _get_revision_committee_slug(revision)
-    if committee_slug and committee_slug in set(_get_current_user_committee_head_slugs()):
+    if _revision_in_current_user_committee_head_scope(revision):
         return True
     child_draft = revision.child_draft
-    return bool(child_draft and _draft_in_current_user_committee_scope(child_draft))
+    return bool(child_draft and _draft_in_current_user_committee_scope(child_draft, revision))
+
+
+def _revision_in_current_user_committee_head_scope(revision: CSCRevision | None) -> bool:
+    """Return True when the revision falls inside the current committee-head assignment."""
+    if revision is None:
+        return False
+
+    committee_slug = _get_revision_committee_slug(revision)
+    if not committee_slug or committee_slug not in set(_get_current_user_committee_head_slugs()):
+        return False
+
+    allowed_subset_codes = _get_current_user_committee_head_subset_codes_for_slug(committee_slug)
+    return _subset_code_is_within_scope(
+        _workflow_subset_code_for_draft(revision.child_draft, revision),
+        allowed_subset_codes,
+    )
 
 
 def _can_current_user_decide_revision_as_committee_head(revision: CSCRevision) -> bool:
     """Return True when the current user can take committee-head decisions."""
-    committee_slug = _get_revision_committee_slug(revision)
-    return (
-        revision.status == WORKFLOW_DRAFTING_SUBMITTED
-        and bool(committee_slug)
-        and committee_slug in set(_get_current_user_committee_head_slugs())
-    )
+    return revision.status == WORKFLOW_DRAFTING_SUBMITTED and _revision_in_current_user_committee_head_scope(revision)
 
 
 def _can_current_user_decide_revision_as_module_admin(revision: CSCRevision) -> bool:
@@ -1144,6 +1236,43 @@ def _get_committee_user_ids_for_committee_slug(committee_slug: str | None, role_
             if user:
                 user_ids.append(user.id)
         return list(dict.fromkeys(user_ids))
+    return []
+
+
+def _get_committee_user_ids_for_revision(revision: CSCRevision | None) -> list[int]:
+    """Return committee-user ids eligible to receive workflow notifications for a revision."""
+    if revision is None:
+        return []
+
+    committee_slug = _get_revision_committee_slug(revision)
+    if not committee_slug:
+        return []
+
+    subset_code = _workflow_subset_code_for_draft(revision.child_draft, revision)
+    if committee_slug != "material-handling":
+        return _get_committee_user_ids_for_committee_slug(committee_slug, "committee_user")
+
+    for committee in get_committee_config_payload().get("CHILD_COMMITTEES", []):
+        if str(committee.get("slug") or "").strip() != committee_slug:
+            continue
+
+        user_ids: list[int] = []
+        for assignment in _get_committee_user_assignments(committee):
+            allowed_subset_codes = [
+                str(code or "").strip().upper()
+                for code in (assignment.get("subset_codes") or [])
+                if str(code or "").strip()
+            ]
+            if allowed_subset_codes and not _subset_code_is_within_scope(subset_code, allowed_subset_codes):
+                continue
+            username = str(assignment.get("username") or "").strip()
+            if not username:
+                continue
+            user = User.query.filter_by(username=username, is_active=True).first()
+            if user:
+                user_ids.append(user.id)
+        return list(dict.fromkeys(user_ids))
+
     return []
 
 
@@ -3599,9 +3728,6 @@ def api_drafts():
         if not allowed_committee_slugs and not can_view_all_drafts:
             return _mark_response_no_store(jsonify({"drafts": [], "total": 0}))
 
-        if subset and subset != "all":
-            query = query.filter(CSCDraft.spec_number.ilike(f"ONGC/{subset}/%"))
-
         if search:
             query = query.filter(
                 db.or_(
@@ -3614,24 +3740,27 @@ def api_drafts():
         for draft in query.all():
             revision = _get_revision_for_child(draft.id)
             committee_slug = _get_revision_committee_slug(revision)
-            if not can_view_all_drafts and allowed_committee_slugs and committee_slug not in allowed_committee_slugs:
+            workflow_subset_code = _workflow_subset_code_for_draft(draft, revision)
+            if not can_view_all_drafts and not _draft_in_current_user_committee_scope(draft, revision):
                 continue
-            drafts.append((draft, revision, committee_slug))
+            if subset and subset != "all" and workflow_subset_code != subset.upper():
+                continue
+            drafts.append((draft, revision, committee_slug, workflow_subset_code))
         drafts = sorted(drafts, key=lambda item: _draft_sort_key(item[0]))
 
         response = jsonify({
             "drafts": [
                 (
-                    lambda blocking_lock, draft, revision, committee_slug: {
+                    lambda blocking_lock, draft, revision, committee_slug, workflow_subset_code: {
                         "id": draft.id,
                         "spec_number": draft.spec_number,
                         "chemical_name": draft.chemical_name,
                         "status": _status_db_to_ui_value(draft.status),
                         "drafting_status": revision.status if revision else "",
                         "draft_type": _draft_type_label(draft),
-                        "subset": draft.subset,
-                        "subset_label": draft.subset_label,
-                        "subset_display": draft.subset_display,
+                        "subset": workflow_subset_code,
+                        "subset_label": SPEC_SUBSET_LABELS.get(workflow_subset_code, workflow_subset_code),
+                        "subset_display": _subset_display(workflow_subset_code),
                         "committee_title": _get_committee_title_by_slug(committee_slug),
                         "version": draft.version,
                         "can_edit": _can_edit_draft(draft) and not blocking_lock,
@@ -3647,8 +3776,14 @@ def api_drafts():
                         "created_at": draft.created_at.isoformat(),
                         "updated_at": draft.updated_at.isoformat(),
                     }
-                )(_get_blocking_editor_lock(draft, "committee_user"), draft, revision, committee_slug)
-                for draft, revision, committee_slug in drafts
+                )(
+                    _get_blocking_editor_lock(draft, "committee_user"),
+                    draft,
+                    revision,
+                    committee_slug,
+                    workflow_subset_code,
+                )
+                for draft, revision, committee_slug, workflow_subset_code in drafts
             ],
             "total": len(drafts),
         })
@@ -5664,6 +5799,7 @@ def _render_admin_revisions_workbench(
     latest_import_summary: TypeClassificationImportSummary | MaterialHandlingImportSummary | None = None,
     latest_import_kind: str | None = None,
     pending_material_handling_preview: dict[str, object] | None = None,
+    latest_import_report_url: str | None = None,
 ):
     """Render the Secretary workbench with an optional workbook import summary."""
     try:
@@ -5737,6 +5873,7 @@ def _render_admin_revisions_workbench(
             latest_import_summary=latest_import_summary,
             latest_import_kind=latest_import_kind,
             pending_material_handling_preview=pending_material_handling_preview,
+            latest_import_report_url=latest_import_report_url,
             decision_stage=WORKFLOW_DRAFTING_HEAD_APPROVED,
             decision_mode="module_admin",
             review_subtitle_pending="Review the verified snapshot below, then publish, return, or delete without editing the submitted draft.",
@@ -5763,6 +5900,94 @@ def _material_handling_import_staging_paths(token: str) -> dict[str, str]:
         "root": root,
         "payload": os.path.join(root, "payload.json"),
     }
+
+
+def _material_handling_import_report_paths(token: str) -> dict[str, str]:
+    root = os.path.join(MATERIAL_HANDLING_IMPORT_REPORT_ROOT, token)
+    return {
+        "root": root,
+        "report": os.path.join(root, "material_handling_import_report.xlsx"),
+    }
+
+
+def _write_material_handling_import_report(
+    import_summary: MaterialHandlingImportSummary,
+    *,
+    opened_count: int,
+    already_open_count: int,
+) -> str:
+    token = uuid.uuid4().hex
+    paths = _material_handling_import_report_paths(token)
+    os.makedirs(paths["root"], exist_ok=True)
+
+    workbook = Workbook()
+    summary_sheet = workbook.active
+    summary_sheet.title = "Summary"
+    summary_sheet.append(["Workbook", import_summary.workbook_name])
+    summary_sheet.append(["Rows Processed", import_summary.rows_processed])
+    summary_sheet.append(["Specs Matched", import_summary.specs_matched])
+    summary_sheet.append(["Drafts Created", import_summary.drafts_created])
+    summary_sheet.append(["Drafts Reused", import_summary.drafts_reused])
+    summary_sheet.append(["Rows Updated", import_summary.rows_updated])
+    summary_sheet.append(["Staged Field Updates", import_summary.staged_field_updates])
+    summary_sheet.append(["Drafts Pushed To Committee", opened_count])
+    summary_sheet.append(["Drafts Already Open", already_open_count])
+    summary_sheet.append(["Rows Without Draft Creation", len(import_summary.unmatched_rows)])
+
+    success_sheet = workbook.create_sheet("Draft Workflow Rows")
+    success_sheet.append(
+        [
+            "Row Number",
+            "Current Spec No.",
+            "Proposed Spec No.",
+            "Chemical Name",
+            "Material Code",
+            "Parent Draft ID",
+            "Draft ID",
+            "Workflow Action",
+            "Staged Field Count",
+        ]
+    )
+    for detail in import_summary.details:
+        success_sheet.append(
+            [
+                detail.row_number,
+                detail.source_spec_number,
+                detail.proposed_spec_number,
+                detail.chemical_name,
+                detail.material_code,
+                detail.parent_draft_id,
+                detail.draft_id,
+                "Created" if detail.created_new else "Reused",
+                detail.staged_field_count,
+            ]
+        )
+
+    failure_sheet = workbook.create_sheet("Drafts Not Created")
+    failure_sheet.append(
+        [
+            "Row Number",
+            "Current Spec No.",
+            "Proposed Spec No.",
+            "Chemical Name",
+            "Material Code",
+            "Reason",
+        ]
+    )
+    for item in import_summary.unmatched_rows:
+        failure_sheet.append(
+            [
+                item.row_number,
+                item.source_spec_number,
+                item.proposed_spec_number,
+                item.chemical_name,
+                item.material_code,
+                item.reason,
+            ]
+        )
+
+    workbook.save(paths["report"])
+    return token
 
 
 def _stage_material_handling_workbook_payload(workbook: ParsedMaterialHandlingWorkbook) -> str:
@@ -6170,11 +6395,16 @@ def _apply_material_handling_workbook_import(
             parent_draft.updated_at = datetime.now(timezone.utc)
     db.session.commit()
 
+    audit_rows = []
     for detail in import_summary.details:
-        if detail.parent_draft_id:
-            _create_audit_entry(
-                detail.parent_draft_id,
-                "Material handling workbook imported",
+        if not detail.parent_draft_id:
+            continue
+        audit_rows.append(
+            CSCAudit(
+                draft_id=detail.parent_draft_id,
+                action="Material handling workbook imported",
+                user_name=current_user.username,
+                action_time=datetime.now(timezone.utc),
                 new_value=json.dumps(
                     {
                         "workbook_name": import_summary.workbook_name,
@@ -6187,8 +6417,107 @@ def _apply_material_handling_workbook_import(
                     }
                 ),
             )
+        )
+    if audit_rows:
+        db.session.add_all(audit_rows)
+        db.session.commit()
 
     return import_summary
+
+
+def _open_revisions_for_committee_workflow_bulk(
+    revisions: list[CSCRevision],
+) -> tuple[int, int]:
+    """Batch-open staged revisions for committee users to avoid timeout-heavy per-row commits."""
+    unique_revisions: dict[int, CSCRevision] = {}
+    for revision in revisions:
+        if revision is None or getattr(revision, "id", None) is None:
+            continue
+        unique_revisions[int(revision.id)] = revision
+
+    opened_revisions: list[CSCRevision] = []
+    already_open_count = 0
+    now = datetime.now(timezone.utc)
+
+    for revision in unique_revisions.values():
+        if revision.child_draft is None or revision.parent_draft is None:
+            continue
+        if _is_secretary_staging_state(revision.status):
+            revision.status = WORKFLOW_DRAFTING_OPEN
+            revision.updated_at = now
+            revision.parent_draft.status = "Drafting"
+            revision.parent_draft.admin_stage = ADMIN_STAGE_DRAFTING
+            revision.parent_draft.updated_at = now
+            revision.child_draft.updated_at = now
+            opened_revisions.append(revision)
+        elif revision.status in {WORKFLOW_DRAFTING_OPEN, WORKFLOW_DRAFTING_RETURNED}:
+            already_open_count += 1
+
+    if not opened_revisions:
+        return 0, already_open_count
+
+    db.session.flush()
+
+    audit_rows: list[CSCAudit] = []
+    notifications_by_user: dict[int, dict[str, object]] = {}
+    for revision in opened_revisions:
+        committee_slug = _get_revision_committee_slug(revision)
+        committee_user_ids = _get_committee_user_ids_for_revision(revision)
+        workflow_stream = _infer_workflow_stream_name(revision.child_draft)
+        stream_label = "Material Handling" if workflow_stream == MATERIAL_HANDLING_STREAM else "Type Classification"
+        subset_code = _workflow_subset_code_for_draft(revision.child_draft, revision)
+        for user_id in committee_user_ids:
+            payload = notifications_by_user.setdefault(
+                user_id,
+                {
+                    "stream_label": stream_label,
+                    "subset_codes": set(),
+                    "chemicals": [],
+                },
+            )
+            payload["stream_label"] = stream_label
+            if subset_code:
+                payload["subset_codes"].add(subset_code)
+            chemical_name = str(revision.parent_draft.chemical_name or revision.child_draft.chemical_name or "").strip()
+            if chemical_name and chemical_name not in payload["chemicals"]:
+                payload["chemicals"].append(chemical_name)
+        audit_rows.append(
+            CSCAudit(
+                draft_id=revision.parent_draft.id,
+                action="Draft opened for committee user",
+                user_name=current_user.username,
+                action_time=now,
+                new_value=json.dumps(
+                    {
+                        "revision_id": revision.id,
+                        "child_draft_id": revision.child_draft.id,
+                        "committee_slug": committee_slug,
+                    }
+                ),
+            )
+        )
+
+    for user_id, payload in notifications_by_user.items():
+        subset_codes = sorted(payload["subset_codes"])
+        subset_phrase = ""
+        if subset_codes:
+            subset_phrase = f" under your subset coverage ({', '.join(subset_codes)})"
+        chemical_list = ", ".join(payload["chemicals"]) if payload["chemicals"] else "the assigned chemicals"
+        create_notification(
+            user_id=user_id,
+            title=f"{payload['stream_label']} drafts created for your subset",
+            message=(
+                f"{payload['stream_label']} drafts have been created for the following chemicals{subset_phrase}: "
+                f"{chemical_list}. Review them in your committee workspace."
+            ),
+            severity="info",
+            link=url_for("csc.workspace"),
+        )
+
+    if audit_rows:
+        db.session.add_all(audit_rows)
+    db.session.commit()
+    return len(opened_revisions), already_open_count
 
 
 @csc_bp.route("/admin/revisions/import-type-classification", methods=["POST"])
@@ -6380,19 +6709,23 @@ def admin_confirm_material_handling_workbook_import():
         import_summary = _apply_material_handling_workbook_import(workbook)
         _discard_staged_material_handling_workbook_payload(token)
 
-        opened_count = 0
-        already_open_count = 0
+        revisions_to_open: list[CSCRevision] = []
         for detail in import_summary.details:
             if not detail.draft_id:
                 continue
             revision = _get_revision_for_child(detail.draft_id)
             if revision is None:
                 continue
-            opened, message = _open_revision_for_committee_workflow(revision)
-            if opened and "already available" in message:
-                already_open_count += 1
-            elif opened:
-                opened_count += 1
+            revisions_to_open.append(revision)
+
+        opened_count, already_open_count = _open_revisions_for_committee_workflow_bulk(
+            revisions_to_open
+        )
+        report_token = _write_material_handling_import_report(
+            import_summary,
+            opened_count=opened_count,
+            already_open_count=already_open_count,
+        )
 
         if import_summary.details:
             flash(
@@ -6416,12 +6749,40 @@ def admin_confirm_material_handling_workbook_import():
         return _render_admin_revisions_workbench(
             latest_import_summary=import_summary,
             latest_import_kind=MATERIAL_HANDLING_STREAM,
+            latest_import_report_url=url_for(
+                "csc.admin_download_material_handling_import_report",
+                token=report_token,
+            ),
         )
     except Exception as e:
         logger.error(f"Error confirming material handling workbook import: {e}")
         db.session.rollback()
         flash("Error confirming material handling workbook import.", "danger")
         return _render_admin_revisions_workbench()
+
+
+@csc_bp.route("/admin/revisions/import-material-handling/report/<token>")
+@login_required
+@module_access_required("csc")
+@module_admin_required("csc")
+def admin_download_material_handling_import_report(token: str):
+    """Download the confirmed material-handling import report as Excel."""
+    paths = _material_handling_import_report_paths((token or "").strip())
+    if not os.path.exists(paths["report"]):
+        flash("The material handling import report is no longer available.", "warning")
+        return redirect(url_for("csc.admin_revisions"))
+
+    filename = (
+        f"material_handling_import_report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+    )
+    response = send_file(
+        paths["report"],
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=filename,
+        max_age=0,
+    )
+    return _mark_response_no_store(response)
 
 
 @csc_bp.route("/admin/revisions/import-material-handling/cancel", methods=["POST"])
@@ -6543,7 +6904,7 @@ def review_workbench():
             if revision.status in active_statuses
             and (
                 governance_member
-                or _get_revision_committee_slug(revision) in head_committee_slugs
+                or _revision_in_current_user_committee_head_scope(revision)
             )
         ]
 
@@ -6699,9 +7060,8 @@ def committee_head_approve_revision(revision_id: int):
             return jsonify({"error": "Revision not found"}), 404
         if revision.status != WORKFLOW_DRAFTING_SUBMITTED:
             return jsonify({"error": "This draft is no longer awaiting committee head approval."}), 409
-        committee_slug = _get_revision_committee_slug(revision)
-        if not committee_slug or committee_slug not in set(_get_current_user_committee_head_slugs()):
-            return jsonify({"error": "You are not assigned as the committee head for this draft."}), 403
+        if not _revision_in_current_user_committee_head_scope(revision):
+            return jsonify({"error": "You are not assigned as the committee head for this draft subset."}), 403
 
         data = request.get_json() or {}
         reviewer_notes = (data.get("reviewer_notes") or "").strip()
@@ -6763,9 +7123,8 @@ def committee_head_return_revision(revision_id: int):
             return jsonify({"error": "Revision not found"}), 404
         if revision.status != WORKFLOW_DRAFTING_SUBMITTED:
             return jsonify({"error": "This draft is no longer awaiting committee head review."}), 409
-        committee_slug = _get_revision_committee_slug(revision)
-        if not committee_slug or committee_slug not in set(_get_current_user_committee_head_slugs()):
-            return jsonify({"error": "You are not assigned as the committee head for this draft."}), 403
+        if not _revision_in_current_user_committee_head_scope(revision):
+            return jsonify({"error": "You are not assigned as the committee head for this draft subset."}), 403
 
         data = request.get_json() or {}
         reviewer_notes = (data.get("reviewer_notes") or "").strip()

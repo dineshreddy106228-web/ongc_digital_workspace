@@ -14,6 +14,14 @@ from app.models.core.user import User
 
 
 VALID_NOTIFICATION_SEVERITIES = set(NOTIFICATION_SEVERITIES)
+WELCOME_NOTIFICATION_TITLE = "Welcome to your workspace"
+WELCOME_NOTIFICATION_MESSAGE = "We're glad you're here. Your workspace is ready whenever you are."
+WELCOME_NOTIFICATION_LINK = "/dashboard"
+WELCOME_NOTIFICATION_SEVERITY = "success"
+LEGACY_WELCOME_NOTIFICATION_TITLES = (
+    WELCOME_NOTIFICATION_TITLE,
+    "Welcome to ONGC Digital Workspace",
+)
 
 
 def _coerce_user_id(user_id):
@@ -73,6 +81,118 @@ def create_notification(user_id, title, message, severity="info", link=None):
     db.session.flush()
     invalidate_notification_cache(user_id)
     return notification
+
+
+def get_welcome_notifications_for_user(user_id):
+    """Return welcome notifications for a user, including legacy welcome titles."""
+    user_id = _coerce_user_id(user_id)
+    if user_id is None:
+        return []
+    return (
+        Notification.query
+        .filter(
+            Notification.user_id == user_id,
+            Notification.title.in_(LEGACY_WELCOME_NOTIFICATION_TITLES),
+        )
+        .order_by(Notification.created_at.asc(), Notification.id.asc())
+        .all()
+    )
+
+
+def ensure_welcome_notification(user_id, *, is_read: bool | None = None):
+    """Ensure one normalized welcome notification exists for the user."""
+    user_id = _coerce_user_id(user_id)
+    if user_id is None:
+        return None
+
+    user = db.session.get(User, user_id)
+    if user is None:
+        return None
+
+    welcome_notifications = get_welcome_notifications_for_user(user_id)
+    notification = welcome_notifications[0] if welcome_notifications else None
+
+    if notification is None:
+        notification = create_notification(
+            user_id=user_id,
+            title=WELCOME_NOTIFICATION_TITLE,
+            message=WELCOME_NOTIFICATION_MESSAGE,
+            severity=WELCOME_NOTIFICATION_SEVERITY,
+            link=WELCOME_NOTIFICATION_LINK,
+        )
+        if notification is None:
+            return None
+    else:
+        notification.title = WELCOME_NOTIFICATION_TITLE
+        notification.message = WELCOME_NOTIFICATION_MESSAGE
+        notification.severity = WELCOME_NOTIFICATION_SEVERITY
+        notification.link = WELCOME_NOTIFICATION_LINK
+        notification.updated_at = datetime.now(timezone.utc)
+        db.session.flush()
+        invalidate_notification_cache(user_id)
+
+    for duplicate in welcome_notifications[1:]:
+        db.session.delete(duplicate)
+
+    if is_read is not None and notification.is_read != bool(is_read):
+        notification.is_read = bool(is_read)
+        notification.updated_at = datetime.now(timezone.utc)
+
+    db.session.flush()
+    invalidate_notification_cache(user_id)
+    return notification
+
+
+def reset_all_notifications_to_welcome_state() -> dict[str, int]:
+    """Collapse every user's notifications down to one normalized welcome notification."""
+    user_ids = {
+        int(user_id)
+        for (user_id,) in User.query.with_entities(User.id).all()
+        if _coerce_user_id(user_id) is not None
+    }
+    user_ids.update(
+        int(user_id)
+        for (user_id,) in Notification.query.with_entities(Notification.user_id).distinct().all()
+        if _coerce_user_id(user_id) is not None
+    )
+
+    removed = 0
+    normalized = 0
+    created = 0
+
+    for user_id in sorted(user_ids):
+        existing_welcome_ids = {
+            notification.id
+            for notification in get_welcome_notifications_for_user(user_id)
+        }
+        if existing_welcome_ids:
+            notification = ensure_welcome_notification(user_id)
+            if notification is not None:
+                normalized += 1
+            keep_id = notification.id if notification is not None else None
+        else:
+            keep_id = None
+
+        query = Notification.query.filter(Notification.user_id == user_id)
+        if keep_id is not None:
+            deleted = query.filter(Notification.id != keep_id).delete(synchronize_session=False)
+        else:
+            deleted = query.delete(synchronize_session=False)
+        removed += int(deleted or 0)
+
+        if keep_id is None:
+            notification = ensure_welcome_notification(user_id)
+            if notification is not None:
+                created += 1
+
+        invalidate_notification_cache(user_id)
+
+    return {
+        "user_count": len(user_ids),
+        "removed_count": removed,
+        "normalized_count": normalized,
+        "created_count": created,
+    }
 
 
 def get_notification(notification_id, user_id=None):

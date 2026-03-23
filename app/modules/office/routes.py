@@ -3,7 +3,7 @@ from __future__ import annotations
 """Task tracker routes – Office Management module with Governance V2 visibility model."""
 
 from collections import Counter
-from datetime import datetime, date as date_type
+from datetime import datetime, date as date_type, timezone
 from functools import wraps
 from flask import render_template, redirect, url_for, flash, request, abort, current_app, jsonify
 from flask_login import login_required, current_user
@@ -88,6 +88,11 @@ def _is_office_power_user():
 
 def _can_access_power_dashboard():
     """Read-only command dashboard access for superusers and office power users."""
+    return current_user.is_super_user() or _is_office_power_user()
+
+
+def _can_reorder_tasks():
+    """Shared task ordering is restricted to superusers and office power users."""
     return current_user.is_super_user() or _is_office_power_user()
 
 
@@ -817,12 +822,42 @@ def _is_archived_task(task: Task) -> bool:
     return (not task.is_active) or task.status in ("Completed", "Cancelled")
 
 
-# ── List Tasks ────────────────────────────────────────────────────
-@office_bp.route("")
-@office_bp.route("/")
-@login_required
-@module_access_required("tasks")
-def list_tasks():
+def _task_display_sort_key(task: Task) -> tuple:
+    """Return the shared persisted task ordering, falling back to recent-first."""
+    if task.display_order is not None:
+        return (0, int(task.display_order), 0.0, int(task.id or 0))
+    created_ts = (
+        task.created_at.astimezone(timezone.utc).timestamp()
+        if getattr(task, "created_at", None) is not None
+        else 0.0
+    )
+    return (1, 0, -created_ts, -(int(task.id or 0)))
+
+
+def _order_task_collection(tasks: list[Task]) -> list[Task]:
+    """Sort tasks using the shared display order visible to all users."""
+    return sorted(tasks, key=_task_display_sort_key)
+
+
+def _normalize_global_task_display_order() -> bool:
+    """Materialize a full shared order for all tasks before any reorder action."""
+    all_tasks = _order_task_collection(Task.query.all())
+    changed = False
+    for index, task in enumerate(all_tasks, start=1):
+        if task.display_order != index:
+            task.display_order = index
+            changed = True
+    return changed
+
+
+def _next_task_display_order() -> int:
+    """Return the next shared task order slot for newly created tasks."""
+    max_order = db.session.query(db.func.max(Task.display_order)).scalar()
+    return int(max_order or 0) + 1
+
+
+def _filtered_task_query_from_request():
+    """Return the task-list query after applying the current request filters."""
     status_filter = request.args.get("status", "").strip()
     priority_filter = request.args.get("priority", "").strip()
     owner_filter = request.args.get("owner", "").strip()
@@ -839,7 +874,22 @@ def list_tasks():
     if scope_filter in TASK_SCOPES:
         query = query.filter(_scope_filter_condition(scope_filter))
 
-    all_tasks = query.order_by(Task.created_at.desc()).all()
+    return query, {
+        "status": status_filter,
+        "priority": priority_filter,
+        "owner": owner_filter,
+        "scope": scope_filter,
+    }
+
+
+# ── List Tasks ────────────────────────────────────────────────────
+@office_bp.route("")
+@office_bp.route("/")
+@login_required
+@_task_read_access_required
+def list_tasks():
+    query, filters = _filtered_task_query_from_request()
+    all_tasks = _order_task_collection(query.all())
     active_tasks = [task for task in all_tasks if not _is_archived_task(task)]
     archived_tasks = [task for task in all_tasks if _is_archived_task(task)]
     global_tasks, my_tasks = _split_tasks_for_list(active_tasks)
@@ -865,18 +915,90 @@ def list_tasks():
         task_statuses=TASK_STATUSES,
         task_priorities=TASK_PRIORITIES,
         task_scopes=TASK_SCOPES,
-        filters={
-            "status": status_filter,
-            "priority": priority_filter,
-            "owner": owner_filter,
-            "scope": scope_filter,
-        },
+        filters=filters,
         archived_tasks=archived_tasks,
         task_permissions=task_permissions,
         can_create_global=_can_create_global_task(),
         is_privileged=is_privileged,
+        can_reorder_tasks=_can_reorder_tasks(),
         recurrence_summary=recurrence_summary,
     )
+
+
+@office_bp.route("/<int:task_id>/reorder", methods=["POST"])
+@login_required
+@_task_read_access_required
+def reorder_task(task_id: int):
+    """Move a visible task up or down in the shared list order."""
+    if not _can_reorder_tasks():
+        abort(403)
+
+    direction = (request.form.get("direction") or "").strip().lower()
+    if direction not in {"up", "down"}:
+        flash("Choose a valid reorder direction.", "danger")
+        return redirect(url_for("tasks.list_tasks", **request.args.to_dict()))
+
+    query, filters = _filtered_task_query_from_request()
+    target_task = query.filter(Task.id == task_id).first()
+    if target_task is None or not _can_view_task(target_task):
+        flash("Task not found in the current visible list.", "warning")
+        return redirect(url_for("tasks.list_tasks", **filters))
+    if _is_archived_task(target_task):
+        flash("Archived tasks cannot be reordered.", "warning")
+        return redirect(url_for("tasks.list_tasks", **filters))
+
+    try:
+        _normalize_global_task_display_order()
+        visible_tasks = _order_task_collection([
+            task for task in query.all()
+            if not _is_archived_task(task)
+        ])
+        ordered_ids = [task.id for task in visible_tasks]
+        if task_id not in ordered_ids:
+            flash("Task not found in the current visible list.", "warning")
+            return redirect(url_for("tasks.list_tasks", **filters))
+
+        current_index = ordered_ids.index(task_id)
+        swap_index = current_index - 1 if direction == "up" else current_index + 1
+        if swap_index < 0 or swap_index >= len(visible_tasks):
+            flash(
+                "Task is already at the top of the current list." if direction == "up"
+                else "Task is already at the bottom of the current list.",
+                "info",
+            )
+            return redirect(url_for("tasks.list_tasks", **filters))
+
+        current_task = visible_tasks[current_index]
+        adjacent_task = visible_tasks[swap_index]
+        current_task.display_order, adjacent_task.display_order = (
+            adjacent_task.display_order,
+            current_task.display_order,
+        )
+
+        log_action(
+            action="TASK_REORDERED",
+            user_id=current_user.id,
+            entity_type="Task",
+            entity_id=str(current_task.id),
+            details=(
+                f"Task '{current_task.task_title}' moved {direction} in shared task order "
+                f"by swapping with task '{adjacent_task.task_title}'."
+            ),
+        )
+        log_activity(
+            current_user.username,
+            "task_reordered",
+            "task",
+            current_task.task_title,
+            details=f"direction={direction}, swap_with={adjacent_task.task_title}",
+        )
+        db.session.commit()
+        flash("Task order saved.", "success")
+    except SQLAlchemyError:
+        db.session.rollback()
+        flash("Could not save the task order.", "danger")
+
+    return redirect(url_for("tasks.list_tasks", **filters))
 
 
 # ── Task Dashboard ────────────────────────────────────────────────
@@ -1377,6 +1499,8 @@ def create_task():
                 db.session.flush()
 
                 created_task = create_initial_task_for_template(template)
+                if created_task is not None and created_task.display_order is None:
+                    created_task.display_order = _next_task_display_order()
 
                 summary = recurrence_summary(template)
                 log_action(
@@ -1423,6 +1547,7 @@ def create_task():
                     task_origin=task_origin or None,
                     status=status,
                     priority=priority,
+                    display_order=_next_task_display_order(),
                     due_date=due_date,
                     owner_id=owner.id if owner else None,
                     created_by=current_user.id,

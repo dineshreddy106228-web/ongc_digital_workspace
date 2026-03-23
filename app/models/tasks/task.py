@@ -18,6 +18,7 @@ class Task(db.Model):
         ),
         db.Index("ix_tasks_status", "status"),
         db.Index("ix_tasks_priority", "priority"),
+        db.Index("ix_tasks_display_order", "display_order"),
         db.Index("ix_tasks_due_date", "due_date"),
         db.Index("ix_tasks_task_scope", "task_scope"),
         db.Index("ix_tasks_is_active", "is_active"),
@@ -32,6 +33,7 @@ class Task(db.Model):
     task_origin = db.Column(db.String(100), nullable=True)
     status = db.Column(db.String(50), nullable=False, default="Not Started")
     priority = db.Column(db.String(50), nullable=False, default="Medium")
+    display_order = db.Column(db.Integer, nullable=True)
     due_date = db.Column(db.Date, nullable=True)
     owner_id = db.Column(db.BigInteger, db.ForeignKey("users.id"), nullable=True)
     created_by = db.Column(db.BigInteger, db.ForeignKey("users.id"), nullable=True)

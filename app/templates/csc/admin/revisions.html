@@ -748,6 +748,14 @@
           <span class="csc-import-inline-note">Subset(s): {{ latest_import_summary.subset_codes|join(', ') }}</span>
           {% endif %}
         </p>
+        {% if latest_import_kind == 'material_handling' and latest_import_report_url %}
+        <div class="csc-import-preview-actions" style="margin-top: 0; margin-bottom: 1rem;">
+          <a href="{{ latest_import_report_url }}" class="btn btn-secondary">
+            <i class="bi bi-download"></i>
+            Download Excel Report
+          </a>
+        </div>
+        {% endif %}
         <div class="csc-import-summary-grid">
           <div class="csc-import-summary-stat">
             <span class="csc-import-summary-stat-label">

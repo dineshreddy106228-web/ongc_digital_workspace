@@ -114,6 +114,14 @@
                                 Open notifications
                             </a>
                             {% if current_user.is_super_user() %}
+                            <form method="POST" action="{{ url_for('notifications.reset_all_to_welcome') }}" onsubmit="return confirm('Delete all notifications for every user and keep only one welcome notification per user?');">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-sm btn-danger">
+                                    Reset Users
+                                </button>
+                            </form>
+                            {% endif %}
+                            {% if current_user.is_super_user() %}
                             <a href="{{ url_for('notifications.manage_announcements') }}" class="btn btn-sm btn-primary">
                                 Broadcasts
                             </a>

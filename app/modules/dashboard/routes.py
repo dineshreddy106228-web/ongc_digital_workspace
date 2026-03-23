@@ -40,7 +40,7 @@ def dashboard():
 def control_center():
     if current_user.is_super_user():
         return redirect(url_for("main.superuser_dashboard"))
-    if getattr(current_user, "is_power_user", False) and getattr(current_user, "office_id", None):
+    if current_user.is_office_power_user():
         return redirect(url_for("main.power_user_dashboard"))
     flash("Power User Dashboard is not available for this account.", "danger")
     return redirect(url_for("main.dashboard"))
@@ -50,11 +50,8 @@ def control_center():
 @dashboard_bp.route("/dashboard/power-user/")
 @login_required
 def power_user_dashboard():
-    if not (getattr(current_user, "is_active", False) and getattr(current_user, "is_power_user", False)):
+    if not current_user.is_office_power_user():
         flash("Power User Dashboard is not available for this account.", "danger")
-        return redirect(url_for("main.dashboard"))
-    if getattr(current_user, "office_id", None) is None:
-        flash("Power User Dashboard requires an office mapping.", "danger")
         return redirect(url_for("main.dashboard"))
 
     workspace_context = get_dashboard_workspace_context(current_user, mode="power_user")

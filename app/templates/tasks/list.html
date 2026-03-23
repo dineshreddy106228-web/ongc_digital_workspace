@@ -30,6 +30,24 @@
   .task-col-actions {
     width: 16%;
   }
+  .task-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+  }
+  .task-reorder-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+  .task-reorder-controls form {
+    margin: 0;
+  }
+  .task-reorder-btn {
+    min-width: 2rem;
+    padding-inline: 0.45rem;
+  }
   .task-cell-truncate {
     display: block;
     overflow: hidden;
@@ -63,7 +81,7 @@
 </style>
 {% endblock %}
 
-{% macro task_row(task, task_permissions) %}
+{% macro task_row(task, task_permissions, filters, can_reorder_tasks) %}
 {% set perms = task_permissions.get(task.id, {}) %}
 <tr>
   <td class="task-col-title">
@@ -106,7 +124,21 @@
     </span>
   </td>
   <td class="task-col-actions">
-    <div class="actions-cell">
+    <div class="actions-cell task-row-actions">
+      {% if can_reorder_tasks and task.is_active and task.status not in ['Completed', 'Cancelled'] %}
+      <div class="task-reorder-controls">
+        <form method="POST" action="{{ url_for('tasks.reorder_task', task_id=task.id, **filters) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="direction" value="up">
+          <button type="submit" class="btn btn-sm btn-secondary task-reorder-btn" aria-label="Move task up" title="Move up">↑</button>
+        </form>
+        <form method="POST" action="{{ url_for('tasks.reorder_task', task_id=task.id, **filters) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="direction" value="down">
+          <button type="submit" class="btn btn-sm btn-secondary task-reorder-btn" aria-label="Move task down" title="Move down">↓</button>
+        </form>
+      </div>
+      {% endif %}
       <a
         href="{{ url_for('tasks.task_detail', task_id=task.id) }}"
         class="btn btn-sm btn-secondary"
@@ -126,7 +158,7 @@
 </tr>
 {% endmacro %}
 
-{% macro task_table(task_list, task_permissions, empty_msg) %}
+{% macro task_table(task_list, task_permissions, empty_msg, filters, can_reorder_tasks) %}
 <div class="table-responsive task-list-table-wrap">
   <table class="data-table task-list-table">
     <thead>
@@ -142,7 +174,7 @@
     <tbody>
       {% if task_list %}
         {% for task in task_list %}
-          {{ task_row(task, task_permissions) }}
+          {{ task_row(task, task_permissions, filters, can_reorder_tasks) }}
         {% endfor %}
       {% else %}
       <tr>
@@ -245,7 +277,7 @@
         <div class="table-card-subtitle">{{ tasks|length }} result{{ '' if tasks|length == 1 else 's' }}</div>
       </div>
     </div>
-    {{ task_table(active_tasks, task_permissions, 'No active tasks found for the selected filters.') }}
+    {{ task_table(active_tasks, task_permissions, 'No active tasks found for the selected filters.', filters, can_reorder_tasks) }}
   </div>
 
   {% if archived_tasks %}
@@ -255,7 +287,7 @@
       <span class="task-count-badge">{{ archived_tasks|length }}</span>
     </summary>
     <div class="card" style="margin-top: 0.85rem;">
-      {{ task_table(archived_tasks, task_permissions, 'No archived tasks found for the selected filters.') }}
+      {{ task_table(archived_tasks, task_permissions, 'No archived tasks found for the selected filters.', filters, can_reorder_tasks) }}
     </div>
   </details>
   {% endif %}
@@ -275,7 +307,7 @@
       {% endif %}
     </div>
     <div class="card">
-      {{ task_table(global_tasks, task_permissions, 'No global tasks at this time.') }}
+      {{ task_table(global_tasks, task_permissions, 'No global tasks at this time.', filters, can_reorder_tasks) }}
     </div>
   </div>
 
@@ -288,7 +320,7 @@
       <span class="task-section-info">Includes your own tasks and local tasks shared across officer workflows</span>
     </div>
     <div class="card">
-      {{ task_table(my_tasks, task_permissions, 'No self or local tasks are visible to you at this time.') }}
+      {{ task_table(my_tasks, task_permissions, 'No self or local tasks are visible to you at this time.', filters, can_reorder_tasks) }}
     </div>
   </div>
 
@@ -302,7 +334,7 @@
       Completed, cancelled, and removed-from-active tasks are kept here for reference.
     </div>
     <div class="card" style="margin-top: 0.85rem;">
-      {{ task_table(archived_tasks, task_permissions, 'No archived tasks are available.') }}
+      {{ task_table(archived_tasks, task_permissions, 'No archived tasks are available.', filters, can_reorder_tasks) }}
     </div>
   </details>
   {% endif %}

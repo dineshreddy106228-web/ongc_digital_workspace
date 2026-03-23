@@ -10,8 +10,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from app.core.services.csc_export import build_flask_review_document
 from app.modules.csc.routes import (
     _build_comparison_value_rows,
+    _subset_code_is_within_scope,
     _should_blank_legacy_supporting_baseline,
     _should_hide_legacy_supporting_sections,
+    _workflow_subset_code_for_draft,
 )
 
 
@@ -113,11 +115,37 @@ def test_legacy_v0_supporting_rules() -> None:
     assert _should_hide_legacy_supporting_sections(DraftStub(0, 99)) is False
 
 
+def test_workflow_subset_code_prefers_published_parent_subset() -> None:
+    class DraftStub:
+        def __init__(self, subset: str | None):
+            self.subset = subset
+            self.parent_draft_id = None
+
+    class RevisionStub:
+        def __init__(self, parent_draft):
+            self.parent_draft = parent_draft
+
+    parent = DraftStub("DFC")
+    child = DraftStub("WTC")
+
+    assert _workflow_subset_code_for_draft(child, RevisionStub(parent)) == "DFC"
+
+
+def test_subset_scope_helper_respects_configured_subset_codes() -> None:
+    assert _subset_code_is_within_scope(None, []) is True
+    assert _subset_code_is_within_scope("DFC", []) is True
+    assert _subset_code_is_within_scope(None, ["DFC"]) is False
+    assert _subset_code_is_within_scope("DFC", ["DFC"]) is True
+    assert _subset_code_is_within_scope("WTC", ["DFC"]) is False
+
+
 def _run_direct() -> None:
     tests = [
         test_build_comparison_value_rows_marks_published_delta,
         test_build_flask_review_document_uses_comparison_layout_without_update_fields,
         test_legacy_v0_supporting_rules,
+        test_workflow_subset_code_prefers_published_parent_subset,
+        test_subset_scope_helper_respects_configured_subset_codes,
     ]
     for test in tests:
         test()

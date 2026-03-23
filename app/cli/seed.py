@@ -27,7 +27,11 @@ from app.core.roles import (
     ROLE_DESCRIPTIONS,
     ROLE_RENAME_MAP,
 )
-from app.core.services.notifications import create_notification
+from app.core.services.notifications import (
+    ensure_welcome_notification,
+    get_welcome_notifications_for_user,
+    create_notification,
+)
 
 
 # ── Role definitions ─────────────────────────────────────────────
@@ -406,19 +410,10 @@ def seed_notifications():
 
     created = 0
     for user in users:
-        if Notification.query.filter_by(
-            user_id=user.id,
-            title="Welcome to ONGC Digital Workspace",
-        ).first():
+        had_welcome = bool(get_welcome_notifications_for_user(user.id))
+        ensure_welcome_notification(user.id)
+        if had_welcome:
             continue
-
-        create_notification(
-            user_id=user.id,
-            title="Welcome to ONGC Digital Workspace",
-            message="Your workspace is ready. Review the latest alerts from the bell icon.",
-            severity="success",
-            link="/dashboard",
-        )
         create_notification(
             user_id=user.id,
             title="Pending action review",
