@@ -125,6 +125,8 @@ from app.core.services.csc_master_data import (
     MASTER_EXTRA_FIELDS,
     MASTER_IMPACT_FIELDS,
     STAGED_MASTER_SECTION_NAME,
+    _load_staged_master_payload,
+    _write_staged_master_payload,
     backfill_draft_material_codes,
     clear_staged_master_payload,
     get_master_record_for_draft,
@@ -2639,6 +2641,22 @@ def _create_workflow_child_draft(
     return child_draft
 
 
+def _seed_child_draft_master_snapshot(
+    parent_draft: CSCDraft,
+    child_draft: CSCDraft,
+) -> None:
+    """Ensure child drafts retain the parent's master-data snapshot, including impact fields."""
+    if not getattr(child_draft, "parent_draft_id", None):
+        return
+
+    parent_values = dict(get_master_form_values(parent_draft))
+    child_staged_values = dict(_load_staged_master_payload(child_draft))
+    merged_values = {**parent_values, **child_staged_values}
+
+    if merged_values != child_staged_values:
+        _write_staged_master_payload(child_draft, merged_values)
+
+
 def _get_active_revision_for_parent_committee(
     parent_draft_id: int | None,
     committee_slug: str | None,
@@ -2665,6 +2683,7 @@ def _open_committee_workflow_draft_for_parent(
     active_revisions = _get_active_revisions_for_parent(parent_draft.id)
     existing_for_committee = _get_active_revision_for_parent_committee(parent_draft.id, committee_slug)
     if existing_for_committee and existing_for_committee.child_draft:
+        _seed_child_draft_master_snapshot(parent_draft, existing_for_committee.child_draft)
         _write_workflow_scope(existing_for_committee.child_draft, workflow_scope)
         _write_workflow_committee_slug(existing_for_committee.child_draft, committee_slug)
         stream_name = _write_workflow_stream_name(
@@ -2683,6 +2702,7 @@ def _open_committee_workflow_draft_for_parent(
         created_by_role=current_user.role.name if current_user.role else "Admin",
         is_admin_draft=True,
     )
+    _seed_child_draft_master_snapshot(parent_draft, child_draft)
     _write_workflow_scope(child_draft, workflow_scope)
     _write_workflow_committee_slug(child_draft, committee_slug)
     stream_name = _write_workflow_stream_name(child_draft, _workflow_track_to_stream_name(workflow_track))
@@ -3541,6 +3561,118 @@ def _record_export_audit(action: str, draft_id: int | None, new_value: str) -> N
     except Exception as exc:
         logger.warning("Failed to record CSC export audit: %s", exc)
         db.session.rollback()
+
+
+def _next_identity_value(max_id: int | None) -> int:
+    return max(1, int(max_id or 0) + 1)
+
+
+def _csc_reset_identity_targets(
+    remaining_max_draft_id: int | None,
+    remaining_max_revision_id: int | None = None,
+    remaining_max_audit_id: int | None = None,
+) -> dict[str, int]:
+    return {
+        "csc_drafts": _next_identity_value(remaining_max_draft_id),
+        "csc_revisions": _next_identity_value(remaining_max_revision_id),
+        "csc_audit": _next_identity_value(remaining_max_audit_id),
+    }
+
+
+def _reset_table_identity(table_name: str, next_id: int) -> None:
+    """Reset the next auto-increment / sequence value for supported databases."""
+    bind = db.session.get_bind()
+    if bind is None:
+        return
+
+    dialect_name = (bind.dialect.name or "").lower()
+    target_id = max(1, int(next_id or 1))
+
+    if dialect_name in {"mysql", "mariadb"}:
+        db.session.execute(
+            text(f"ALTER TABLE {table_name} AUTO_INCREMENT = :next_id"),
+            {"next_id": target_id},
+        )
+        return
+
+    if dialect_name == "postgresql":
+        db.session.execute(
+            text(
+                "SELECT setval(pg_get_serial_sequence(:table_name, 'id'), :next_value, false)"
+            ),
+            {"table_name": table_name, "next_value": target_id},
+        )
+        return
+
+    if dialect_name == "sqlite":
+        try:
+            db.session.execute(
+                text("DELETE FROM sqlite_sequence WHERE name = :table_name"),
+                {"table_name": table_name},
+            )
+            if target_id > 1:
+                db.session.execute(
+                    text(
+                        "INSERT INTO sqlite_sequence(name, seq) VALUES (:table_name, :seq)"
+                    ),
+                    {"table_name": table_name, "seq": target_id - 1},
+                )
+        except Exception:
+            logger.debug(
+                "SQLite sequence reset skipped for table %s",
+                table_name,
+                exc_info=True,
+            )
+
+
+def _reset_csc_test_workflow_state() -> dict[str, int]:
+    """Clear test-only workflow state while preserving published parent drafts."""
+    child_drafts = (
+        CSCDraft.query.filter(CSCDraft.parent_draft_id.isnot(None))
+        .order_by(CSCDraft.id.desc())
+        .all()
+    )
+    touched_parent_ids = {
+        child.parent_draft_id
+        for child in child_drafts
+        if child.parent_draft_id is not None
+    }
+
+    audit_count = CSCAudit.query.count()
+    revision_count = CSCRevision.query.count()
+    child_draft_count = len(child_drafts)
+
+    if revision_count:
+        CSCRevision.query.delete(synchronize_session=False)
+    if audit_count:
+        CSCAudit.query.delete(synchronize_session=False)
+    for child_draft in child_drafts:
+        db.session.delete(child_draft)
+
+    db.session.flush()
+
+    for parent_id in touched_parent_ids:
+        parent_draft = db.session.get(CSCDraft, parent_id)
+        if parent_draft is None or parent_draft.parent_draft_id is not None:
+            continue
+        parent_draft.status = "Published"
+        parent_draft.admin_stage = ADMIN_STAGE_PUBLISHED
+        parent_draft.updated_at = datetime.now(timezone.utc)
+
+    db.session.flush()
+
+    remaining_max_draft_id = db.session.query(db.func.max(CSCDraft.id)).scalar()
+    identity_targets = _csc_reset_identity_targets(remaining_max_draft_id)
+    for table_name, next_id in identity_targets.items():
+        _reset_table_identity(table_name, next_id)
+
+    db.session.commit()
+    return {
+        "audit_entries_deleted": audit_count,
+        "revisions_deleted": revision_count,
+        "child_drafts_deleted": child_draft_count,
+        "next_draft_id": identity_targets["csc_drafts"],
+    }
 
 
 def _get_spec_subsets() -> list[dict[str, str]]:
@@ -6736,19 +6868,19 @@ def _type_classification_import_scope() -> dict[str, bool]:
         "material_properties": False,
         "storage_handling": False,
         "parameters": True,
-        "impact": True,
+        "impact": False,
         "parameter_type": True,
         "parameter_other": True,
     }
 
 
 def _material_handling_import_scope() -> dict[str, bool]:
-    """Open imported drafts in the material handling workflow only."""
+    """Open imported drafts in the material handling workflow, including impact."""
     return {
         "material_properties": True,
         "storage_handling": True,
         "parameters": False,
-        "impact": False,
+        "impact": True,
         "parameter_type": False,
         "parameter_other": False,
     }
@@ -7972,6 +8104,31 @@ def admin_audit_log():
         .all()
     )
     return render_template("csc/admin/audit.html", entries=entries)
+
+
+@csc_bp.route("/admin/audit/reset-test-state", methods=["POST"])
+@login_required
+@module_access_required("csc")
+@module_admin_required("csc")
+def admin_reset_audit_test_state():
+    """Clear CSC test audit history and workflow child drafts before go-live."""
+    try:
+        summary = _reset_csc_test_workflow_state()
+        flash(
+            (
+                "CSC test state reset complete. "
+                f"Deleted {summary['audit_entries_deleted']} audit row(s), "
+                f"{summary['revisions_deleted']} revision row(s), and "
+                f"{summary['child_drafts_deleted']} workflow draft(s). "
+                f"The next workflow draft ID will start at {summary['next_draft_id']}."
+            ),
+            "success",
+        )
+    except Exception:
+        logger.exception("Error resetting CSC test workflow state")
+        db.session.rollback()
+        flash("Unable to reset CSC test workflow state.", "danger")
+    return redirect(url_for("csc.admin_audit_log"))
 
 
 @csc_bp.route("/admin/audit/download")

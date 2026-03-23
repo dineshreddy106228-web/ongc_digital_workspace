@@ -16,13 +16,17 @@ from app.modules.csc.routes import (
     _blank_comparison_source_labels,
     _build_comparison_value_rows,
     _build_workbook_created_notification_message,
+    _csc_reset_identity_targets,
     _editor_grid_snapshot,
+    _material_handling_import_scope,
     _master_data_editable_for_stream,
+    _next_identity_value,
     _normalize_editor_proposed_summary_text,
     _revision_can_be_force_deleted_by_secretary,
     _subset_code_is_within_scope,
     _should_blank_legacy_supporting_baseline,
     _should_hide_legacy_supporting_sections,
+    _type_classification_import_scope,
     _workflow_subset_code_for_draft,
 )
 from app.core.services.csc_utils import (
@@ -242,6 +246,35 @@ def test_master_data_editable_only_for_material_handling_stream() -> None:
     assert _master_data_editable_for_stream(None) is False
 
 
+def test_reset_identity_helpers_restart_after_remaining_parent_drafts() -> None:
+    assert _next_identity_value(None) == 1
+    assert _next_identity_value(0) == 1
+    assert _next_identity_value(87) == 88
+
+    targets = _csc_reset_identity_targets(87)
+
+    assert targets == {
+        "csc_drafts": 88,
+        "csc_revisions": 1,
+        "csc_audit": 1,
+    }
+
+
+def test_import_scopes_shift_impact_to_material_handling_stream() -> None:
+    type_scope = _type_classification_import_scope()
+    material_scope = _material_handling_import_scope()
+
+    assert type_scope["parameters"] is True
+    assert type_scope["parameter_type"] is True
+    assert type_scope["parameter_other"] is True
+    assert type_scope["impact"] is False
+
+    assert material_scope["material_properties"] is True
+    assert material_scope["storage_handling"] is True
+    assert material_scope["parameters"] is False
+    assert material_scope["impact"] is True
+
+
 def test_material_properties_fields_use_renamed_storage_labels() -> None:
     by_name = {field["field_name"]: field for field in get_material_properties_fields()}
 
@@ -288,6 +321,8 @@ def _run_direct() -> None:
         test_workbook_created_notification_message_uses_numbered_list,
         test_admin_master_field_configs_define_group_text_and_selects_for_type_and_centralization,
         test_master_data_editable_only_for_material_handling_stream,
+        test_reset_identity_helpers_restart_after_remaining_parent_drafts,
+        test_import_scopes_shift_impact_to_material_handling_stream,
         test_material_properties_fields_use_renamed_storage_labels,
         test_workflow_subset_code_prefers_published_parent_subset,
         test_subset_scope_helper_respects_configured_subset_codes,

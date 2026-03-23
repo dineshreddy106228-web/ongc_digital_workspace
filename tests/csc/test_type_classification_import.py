@@ -33,6 +33,7 @@ from app.modules.csc.routes import (
     _ensure_default_draft_sections,
     _load_staged_material_handling_workbook_payload,
     _material_handling_preview_comparisons,
+    _seed_child_draft_master_snapshot,
     _set_draft_section_text,
     _resolve_material_handling_row_for_preview,
     _stage_material_handling_workbook_payload,
@@ -57,6 +58,7 @@ class FakeDraft:
     spec_number: str
     material_code: str
     chemical_name: str
+    parent_draft_id: int | None = None
     parameters: list[FakeParameter] = field(default_factory=list)
 
 
@@ -221,6 +223,72 @@ def test_ensure_default_draft_sections_normalizes_legacy_changes_placeholder(mon
     )
 
 
+def test_seed_child_draft_master_snapshot_backfills_missing_impact_classification(monkeypatch):
+    parent = FakeParentDraft(
+        id=7,
+        spec_number="ONGC/DFC/01/2026",
+        material_code="100101102",
+        chemical_name="ALUMINIUM STEARATE",
+    )
+    child = FakeDraft(
+        id=8,
+        spec_number=parent.spec_number,
+        material_code=parent.material_code,
+        chemical_name=parent.chemical_name,
+        parent_draft_id=parent.id,
+    )
+    captured: dict[str, str] = {}
+
+    monkeypatch.setattr(
+        csc_routes,
+        "get_master_form_values",
+        lambda draft: {
+            "material_code": getattr(draft, "material_code", ""),
+            "physical_state": "Liquid",
+            "impact_classification": "High",
+            "impact_confidence": "High confidence",
+        } if draft is parent else {},
+    )
+    monkeypatch.setattr(csc_routes, "_load_staged_master_payload", lambda _draft: {"physical_state": "Solid"})
+    monkeypatch.setattr(
+        csc_routes,
+        "_write_staged_master_payload",
+        lambda _draft, payload: captured.update(payload),
+    )
+
+    _seed_child_draft_master_snapshot(parent, child)
+
+    assert captured["material_code"] == "100101102"
+    assert captured["physical_state"] == "Solid"
+    assert captured["impact_classification"] == "High"
+    assert captured["impact_confidence"] == "High confidence"
+
+
+def test_seed_child_draft_master_snapshot_skips_non_child_drafts(monkeypatch):
+    parent = FakeParentDraft(
+        id=9,
+        spec_number="ONGC/DFC/02/2026",
+        material_code="100101103",
+        chemical_name="BARITE",
+    )
+    draft = FakeDraft(
+        id=10,
+        spec_number=parent.spec_number,
+        material_code=parent.material_code,
+        chemical_name=parent.chemical_name,
+    )
+
+    monkeypatch.setattr(csc_routes, "get_master_form_values", lambda _draft: {"impact_classification": "Medium"})
+    monkeypatch.setattr(csc_routes, "_load_staged_master_payload", lambda _draft: {})
+    monkeypatch.setattr(
+        csc_routes,
+        "_write_staged_master_payload",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not write snapshot")),
+    )
+
+    _seed_child_draft_master_snapshot(parent, draft)
+
+
 def test_set_draft_section_text_renames_legacy_changes_row(monkeypatch):
     legacy_changes = CSCSection(
         id=21,
@@ -232,7 +300,9 @@ def test_set_draft_section_text_renames_legacy_changes_row(monkeypatch):
     draft = type("Draft", (), {"id": 9})()
     fake_session = _FakeSession()
 
-    monkeypatch.setattr(csc_routes.CSCSection, "query", _FakeSectionQuery([legacy_changes]))
+    fake_section_model = type("FakeSectionModel", (), {"query": _FakeSectionQuery([legacy_changes])})
+
+    monkeypatch.setattr(csc_routes, "CSCSection", fake_section_model)
     monkeypatch.setattr(csc_routes.db, "session", fake_session)
     monkeypatch.setattr(csc_routes, "_infer_workflow_stream_name", lambda _draft: None)
 
