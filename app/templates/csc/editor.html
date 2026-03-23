@@ -2004,6 +2004,13 @@
                             <option value="{{ option }}" {% if master_data.get(field.field_name, '') == option %}selected{% endif %}>{{ option }}</option>
                             {% endfor %}
                         </select>
+                        {% elif field.input_type == 'suggest' %}
+                        <input type="text" id="master_{{ field.field_name }}" class="csc-input" value="{{ master_data.get(field.field_name, '') }}" placeholder="{{ field.placeholder or '' }}" list="master_{{ field.field_name }}_options" data-master-view-field="{{ field.field_name }}" data-master-edit-field="{{ field.field_name }}" {% if not master_data_editable %}readonly{% endif %}>
+                        <datalist id="master_{{ field.field_name }}_options">
+                            {% for option in field.options %}
+                            <option value="{{ option }}"></option>
+                            {% endfor %}
+                        </datalist>
                         {% else %}
                         <input type="text" id="master_{{ field.field_name }}" class="csc-input" value="{{ master_data.get(field.field_name, '') }}" placeholder="{{ field.placeholder or '' }}" data-master-view-field="{{ field.field_name }}" data-master-edit-field="{{ field.field_name }}" {% if not master_data_editable %}readonly{% endif %}>
                         {% endif %}

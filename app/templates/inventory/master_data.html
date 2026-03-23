@@ -390,10 +390,10 @@ tr.is-saving td { opacity: 0.6; }
               <th class="md-col-med">Type</th>
               <th class="md-col-sm">Centralization</th>
               <th class="md-col-sm">Physical State</th>
-              <th class="md-col-sm">Volatility</th>
-              <th class="md-col-sm">Sunlight Sensitivity</th>
+              <th class="md-col-sm">Volatility at Ambient Temperature</th>
+              <th class="md-col-sm">Sunlight Sensitivity (up to 50degC atmospheric temperature)</th>
               <th class="md-col-sm">Moisture Sensitivity</th>
-              <th class="md-col-sm">Temp. Sensitivity</th>
+              <th class="md-col-sm">Refrigeration Required</th>
               <th class="md-col-sm">Reactivity</th>
               <th class="md-col-sm">Flammable</th>
               <th class="md-col-sm">Toxic</th>
@@ -465,14 +465,14 @@ tr.is-saving td { opacity: 0.6; }
 
               {# Physical / chemical properties #}
               <td class="md-col-sm">
-                <span class="md-cell-view">{{ row.volatility }}</span>
+                <span class="md-cell-view">{{ row.volatility_ambient_temperature }}</span>
                 <input class="md-edit-input md-cell-edit" type="text"
-                       data-field="volatility" value="{{ row.volatility }}" style="display:none;">
+                       data-field="volatility_ambient_temperature" value="{{ row.volatility_ambient_temperature }}" style="display:none;">
               </td>
               <td class="md-col-sm">
-                <span class="md-cell-view">{{ row.sunlight_sensitivity }}</span>
+                <span class="md-cell-view">{{ row.sunlight_sensitivity_up_to_50c }}</span>
                 <input class="md-edit-input md-cell-edit" type="text"
-                       data-field="sunlight_sensitivity" value="{{ row.sunlight_sensitivity }}" style="display:none;">
+                       data-field="sunlight_sensitivity_up_to_50c" value="{{ row.sunlight_sensitivity_up_to_50c }}" style="display:none;">
               </td>
               <td class="md-col-sm">
                 <span class="md-cell-view">{{ row.moisture_sensitivity }}</span>
@@ -480,9 +480,9 @@ tr.is-saving td { opacity: 0.6; }
                        data-field="moisture_sensitivity" value="{{ row.moisture_sensitivity }}" style="display:none;">
               </td>
               <td class="md-col-sm">
-                <span class="md-cell-view">{{ row.temperature_sensitivity }}</span>
+                <span class="md-cell-view">{{ row.refrigeration_required }}</span>
                 <input class="md-edit-input md-cell-edit" type="text"
-                       data-field="temperature_sensitivity" value="{{ row.temperature_sensitivity }}" style="display:none;">
+                       data-field="refrigeration_required" value="{{ row.refrigeration_required }}" style="display:none;">
               </td>
               <td class="md-col-sm">
                 <span class="md-cell-view">{{ row.reactivity }}</span>

@@ -53,10 +53,13 @@ _MATERIAL_HANDLING_HEADER_ALIASES = {
     "unit": "unit",
     "officersresponsible": "officers_responsible",
     "physicalstate": "physical_state",
-    "volatility": "volatility",
-    "sunlightsensitivity": "sunlight_sensitivity",
+    "volatility": "volatility_ambient_temperature",
+    "volatilityatambienttemperature": "volatility_ambient_temperature",
+    "sunlightsensitivity": "sunlight_sensitivity_up_to_50c",
+    "sunlightsensitivityupto50degcatmospherictemperature": "sunlight_sensitivity_up_to_50c",
     "moisturesensitivity": "moisture_sensitivity",
-    "temperaturesensitivity": "temperature_sensitivity",
+    "temperaturesensitivity": "refrigeration_required",
+    "refrigerationrequiredyesno": "refrigeration_required",
     "reactivity": "reactivity",
     "flammable": "flammable",
     "toxic": "toxic",
@@ -235,10 +238,10 @@ class MaterialHandlingWorkbookRow:
     unit: str = ""
     officers_responsible: str = ""
     physical_state: str = ""
-    volatility: str = ""
-    sunlight_sensitivity: str = ""
+    volatility_ambient_temperature: str = ""
+    sunlight_sensitivity_up_to_50c: str = ""
     moisture_sensitivity: str = ""
-    temperature_sensitivity: str = ""
+    refrigeration_required: str = ""
     reactivity: str = ""
     flammable: str = ""
     toxic: str = ""
@@ -543,10 +546,10 @@ def parse_material_handling_workbook(file_obj, workbook_name: str) -> ParsedMate
                 unit=sanitize_multiline_text(row_values.get("unit") or "", max_length=100),
                 officers_responsible=sanitize_multiline_text(row_values.get("officers_responsible") or "", max_length=1000),
                 physical_state=sanitize_multiline_text(row_values.get("physical_state") or "", max_length=255),
-                volatility=sanitize_multiline_text(row_values.get("volatility") or "", max_length=255),
-                sunlight_sensitivity=sanitize_multiline_text(row_values.get("sunlight_sensitivity") or "", max_length=255),
+                volatility_ambient_temperature=sanitize_multiline_text(row_values.get("volatility_ambient_temperature") or "", max_length=255),
+                sunlight_sensitivity_up_to_50c=sanitize_multiline_text(row_values.get("sunlight_sensitivity_up_to_50c") or "", max_length=255),
                 moisture_sensitivity=sanitize_multiline_text(row_values.get("moisture_sensitivity") or "", max_length=255),
-                temperature_sensitivity=sanitize_multiline_text(row_values.get("temperature_sensitivity") or "", max_length=255),
+                refrigeration_required=sanitize_multiline_text(row_values.get("refrigeration_required") or "", max_length=255),
                 reactivity=sanitize_multiline_text(row_values.get("reactivity") or "", max_length=255),
                 flammable=sanitize_multiline_text(row_values.get("flammable") or "", max_length=255),
                 toxic=sanitize_multiline_text(row_values.get("toxic") or "", max_length=255),
@@ -899,10 +902,10 @@ def build_material_handling_justification_text(row: MaterialHandlingWorkbookRow)
 def build_material_handling_master_payload(row: MaterialHandlingWorkbookRow) -> dict[str, str]:
     return {
         "physical_state": row.physical_state,
-        "volatility": row.volatility,
-        "sunlight_sensitivity": row.sunlight_sensitivity,
+        "volatility_ambient_temperature": row.volatility_ambient_temperature,
+        "sunlight_sensitivity_up_to_50c": row.sunlight_sensitivity_up_to_50c,
         "moisture_sensitivity": row.moisture_sensitivity,
-        "temperature_sensitivity": row.temperature_sensitivity,
+        "refrigeration_required": row.refrigeration_required,
         "reactivity": row.reactivity,
         "flammable": row.flammable,
         "toxic": row.toxic,

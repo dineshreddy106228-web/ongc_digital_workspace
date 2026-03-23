@@ -25,10 +25,13 @@ MASTER_DATA_COLUMN_MAP: dict[str, str] = {
     "Centralization":                 "centralization",
     "Physical State":                 "physical_state",
     # ── Physical / chemical properties ───────────────────────────
-    "Volatility":                     "volatility",
-    "Sunlight Sensitivity":           "sunlight_sensitivity",
+    "Volatility":                     "volatility_ambient_temperature",
+    "Volatility at Ambient Temperature": "volatility_ambient_temperature",
+    "Sunlight Sensitivity":           "sunlight_sensitivity_up_to_50c",
+    "Sunlight Sensitivity (up to 50degC atmospheric temperature)": "sunlight_sensitivity_up_to_50c",
     "Moisture Sensitivity":           "moisture_sensitivity",
-    "Temperature Sensitivity":        "temperature_sensitivity",
+    "Temperature Sensitivity":        "refrigeration_required",
+    "Refrigeration required (Yes / No)": "refrigeration_required",
     "Reactivity":                     "reactivity",
     "Flammable":                      "flammable",
     "Toxic":                          "toxic",
@@ -64,10 +67,10 @@ class MaterialMaster(db.Model):
     physical_state = db.Column(db.String(50),  nullable=True)
 
     # ── Physical / chemical properties ───────────────────────────
-    volatility              = db.Column(db.String(100), nullable=True)
-    sunlight_sensitivity    = db.Column(db.String(100), nullable=True)
+    volatility_ambient_temperature = db.Column(db.String(100), nullable=True)
+    sunlight_sensitivity_up_to_50c = db.Column(db.String(100), nullable=True)
     moisture_sensitivity    = db.Column(db.String(100), nullable=True)
-    temperature_sensitivity = db.Column(db.String(100), nullable=True)
+    refrigeration_required  = db.Column(db.String(100), nullable=True)
     reactivity              = db.Column(db.String(100), nullable=True)
     flammable               = db.Column(db.String(50),  nullable=True)
     toxic                   = db.Column(db.String(50),  nullable=True)
@@ -117,10 +120,10 @@ class MaterialMaster(db.Model):
             "material_type":                  self.material_type                 or "",
             "centralization":                 self.centralization                or "",
             "physical_state":                 self.physical_state                or "",
-            "volatility":                     self.volatility                    or "",
-            "sunlight_sensitivity":           self.sunlight_sensitivity          or "",
+            "volatility_ambient_temperature": self.volatility_ambient_temperature or "",
+            "sunlight_sensitivity_up_to_50c": self.sunlight_sensitivity_up_to_50c or "",
             "moisture_sensitivity":           self.moisture_sensitivity          or "",
-            "temperature_sensitivity":        self.temperature_sensitivity       or "",
+            "refrigeration_required":         self.refrigeration_required        or "",
             "reactivity":                     self.reactivity                    or "",
             "flammable":                      self.flammable                     or "",
             "toxic":                          self.toxic                         or "",

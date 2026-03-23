@@ -24,10 +24,10 @@ MASTER_DATA_FIELDS = [
     ("material_type", "Type"),
     ("centralization", "Centralization"),
     ("physical_state", "Physical State"),
-    ("volatility", "Volatility"),
-    ("sunlight_sensitivity", "Sunlight Sensitivity"),
+    ("volatility_ambient_temperature", "Volatility at Ambient Temperature"),
+    ("sunlight_sensitivity_up_to_50c", "Sunlight Sensitivity (up to 50degC atmospheric temperature)"),
     ("moisture_sensitivity", "Moisture Sensitivity"),
-    ("temperature_sensitivity", "Temperature Sensitivity"),
+    ("refrigeration_required", "Refrigeration required (Yes / No)"),
     ("reactivity", "Reactivity"),
     ("flammable", "Flammable"),
     ("toxic", "Toxic"),
@@ -93,6 +93,11 @@ STORAGE_CONDITIONS_GENERAL_DEFAULT = (
     "Store in a cool, dry, well-ventilated place away from moisture, heat, and direct sunlight"
 )
 STAGED_MASTER_SECTION_NAME = "__workflow_master_data_json__"
+_LEGACY_MASTER_FIELD_ALIASES = {
+    "volatility": "volatility_ambient_temperature",
+    "sunlight_sensitivity": "sunlight_sensitivity_up_to_50c",
+    "temperature_sensitivity": "refrigeration_required",
+}
 
 MATERIAL_PROPERTIES_FIELDS = [
     {
@@ -103,15 +108,15 @@ MATERIAL_PROPERTIES_FIELDS = [
         "source": "Excel Validation",
     },
     {
-        "field_name": "volatility",
-        "label": "Volatility",
+        "field_name": "volatility_ambient_temperature",
+        "label": "Volatility at Ambient Temperature",
         "section": "Properties & Stability",
         "dimension": "Handling",
         "source": "Excel Validation",
     },
     {
-        "field_name": "sunlight_sensitivity",
-        "label": "Sunlight Sensitivity",
+        "field_name": "sunlight_sensitivity_up_to_50c",
+        "label": "Sunlight Sensitivity (up to 50degC atmospheric temperature)",
         "section": "Properties & Stability",
         "dimension": "Storage",
         "source": "Excel Validation",
@@ -124,11 +129,12 @@ MATERIAL_PROPERTIES_FIELDS = [
         "source": "Excel Validation",
     },
     {
-        "field_name": "temperature_sensitivity",
-        "label": "Temperature Sensitivity",
+        "field_name": "refrigeration_required",
+        "label": "Refrigeration required (Yes / No)",
         "section": "Properties & Stability",
         "dimension": "Temperature",
         "source": "Excel Validation",
+        "options": ["Yes", "No"],
     },
     {
         "field_name": "reactivity",
@@ -279,9 +285,10 @@ ADMIN_MASTER_FIELDS = [
 _ADMIN_MASTER_FIELD_OVERRIDES = {
     "group": {
         "label": "Group",
-        "input_type": "text",
+        "input_type": "suggest",
         "placeholder": "Enter group",
         "hint": "Examples: Demulsifier, Low Temperature Demulsifier, Weighing Agent, Flow Improver, Other.",
+        "options": MASTER_GROUP_OPTIONS + ["Other"],
     },
     "material_type": {
         "label": "Performance / Other",
@@ -315,10 +322,10 @@ ADMIN_MASTER_EXTRA_FIELDS = [
 
 _MATERIAL_CLASSIFICATION_FALLBACK_OPTIONS = {
     "physical_state": ["Liquid", "Solid", "Gas"],
-    "volatility": ["Yes", "No"],
-    "sunlight_sensitivity": ["Yes", "No"],
+    "volatility_ambient_temperature": ["Yes", "No"],
+    "sunlight_sensitivity_up_to_50c": ["Yes", "No"],
     "moisture_sensitivity": ["Yes", "No"],
-    "temperature_sensitivity": ["Ambient", "Refrigerated", "Special"],
+    "refrigeration_required": ["Yes", "No"],
     "reactivity": ["Stable", "High"],
     "flammable": ["Yes", "No"],
     "toxic": ["Yes", "No"],
@@ -497,10 +504,13 @@ def _get_workbook_validation_options() -> dict[str, list[str]]:
         worksheet = workbook["Chemical Properties"]
         normalized_to_field = {
             _normalize_validation_header("Physical State"): "physical_state",
-            _normalize_validation_header("Volatility"): "volatility",
-            _normalize_validation_header("Sunlight Sensitivity"): "sunlight_sensitivity",
+            _normalize_validation_header("Volatility"): "volatility_ambient_temperature",
+            _normalize_validation_header("Volatility at Ambient Temperature"): "volatility_ambient_temperature",
+            _normalize_validation_header("Sunlight Sensitivity"): "sunlight_sensitivity_up_to_50c",
+            _normalize_validation_header("Sunlight Sensitivity (up to 50degC atmospheric temperature)"): "sunlight_sensitivity_up_to_50c",
             _normalize_validation_header("Moisture Sensitivity"): "moisture_sensitivity",
-            _normalize_validation_header("Temperature Sensitivity"): "temperature_sensitivity",
+            _normalize_validation_header("Temperature Sensitivity"): "refrigeration_required",
+            _normalize_validation_header("Refrigeration required (Yes / No)"): "refrigeration_required",
             _normalize_validation_header("Reactivity"): "reactivity",
             _normalize_validation_header("Flammable"): "flammable",
             _normalize_validation_header("Toxic"): "toxic",
@@ -560,7 +570,7 @@ def _build_field_definitions(fields: list[dict[str, object]]) -> list[dict[str, 
         rows.append({
             **field,
             "input_type": field.get("input_type", "options"),
-            "options": options_by_field.get(str(field["field_name"]), []),
+            "options": list(field.get("options", options_by_field.get(str(field["field_name"]), []))),
             "default_value": field.get("default_value", ""),
             "placeholder": field.get("placeholder", ""),
             "show_if": field.get("show_if"),
@@ -627,21 +637,22 @@ def _load_staged_master_payload(draft: CSCDraft) -> dict[str, str]:
         return {}
     if not isinstance(payload, dict):
         return {}
-    return {
-        key: _as_text(value)
-        for key, value in payload.items()
-        if key in WORKFLOW_MASTER_VALUE_KEYS
-    }
+    normalized_payload: dict[str, str] = {}
+    for key, value in payload.items():
+        normalized_key = _LEGACY_MASTER_FIELD_ALIASES.get(key, key)
+        if normalized_key in WORKFLOW_MASTER_VALUE_KEYS:
+            normalized_payload[normalized_key] = _as_text(value)
+    return normalized_payload
 
 
 def _write_staged_master_payload(draft: CSCDraft, payload: dict[str, str]) -> dict[str, str]:
     from app.extensions import db
 
-    clean_payload = {
-        key: _as_text(value)
-        for key, value in payload.items()
-        if key in WORKFLOW_MASTER_VALUE_KEYS
-    }
+    clean_payload: dict[str, str] = {}
+    for key, value in payload.items():
+        normalized_key = _LEGACY_MASTER_FIELD_ALIASES.get(key, key)
+        if normalized_key in WORKFLOW_MASTER_VALUE_KEYS:
+            clean_payload[normalized_key] = _as_text(value)
     if not clean_payload.get("storage_conditions_general"):
         clean_payload["storage_conditions_general"] = STORAGE_CONDITIONS_GENERAL_DEFAULT
     if _as_text(clean_payload.get("physical_state")) != "Liquid":
