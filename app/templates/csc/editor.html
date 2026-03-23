@@ -2735,7 +2735,8 @@
     // ═══════════════════════════════════════════════════════════════════════════
 
     var draftId = '{{ draft.id }}';
-    var csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+    var csrfToken = csrfMeta ? (csrfMeta.content || '') : '';
     var parametersData = {{ parameters|tojson }};
     var phase1Locked = {{ 'true' if draft.phase1_locked else 'false' }};
     var draftSpecNumber = {{ (draft.spec_number or '')|tojson }};
@@ -2818,6 +2819,40 @@
         return (value || '').replace(/\r\n/g, '\n').trim();
     }
 
+    function byId(id) {
+        return document.getElementById(id);
+    }
+
+    function queryOne(selector, scope) {
+        return (scope || document).querySelector(selector);
+    }
+
+    function readElementValue(element) {
+        if (!element || typeof element.value === 'undefined' || element.value == null) {
+            return '';
+        }
+        return element.value;
+    }
+
+    function readIdValue(id) {
+        return readElementValue(byId(id));
+    }
+
+    function readSelectorValue(selector, scope) {
+        return readElementValue(queryOne(selector, scope));
+    }
+
+    function readSelectorText(selector, scope) {
+        var element = queryOne(selector, scope);
+        return element && element.textContent ? element.textContent : '';
+    }
+
+    function bindIfPresent(element, eventName, handler) {
+        if (element) {
+            element.addEventListener(eventName, handler);
+        }
+    }
+
     function getFieldDefaultValue(field) {
         return field && typeof field.default_value === 'string' ? field.default_value : '';
     }
@@ -2887,7 +2922,7 @@
             var viewFields = document.querySelectorAll('[data-master-view-field="' + key + '"]');
             viewFields.forEach(function(field) {
                 if (key === 'group' && field.id === 'master_group') {
-                    continue;
+                    return;
                 }
                 field.value = masterData[key] || '';
                 if (key === 'material_code' && normalizedValue(masterData[key] || '')) {
@@ -2953,22 +2988,22 @@
             if (phase1Locked) {
                 rows.push({
                     id: row.getAttribute('data-param-id') || '',
-                    proposed_value: normalizedValue(row.querySelector('.param-proposed')?.value || '')
+                    proposed_value: normalizedValue(readSelectorValue('.param-proposed', row))
                 });
             } else {
                 rows.push({
-                    parameter_name: normalizedValue(row.querySelector('.param-name')?.value || ''),
-                    parameter_type: normalizedValue(row.querySelector('.param-type')?.value || row.getAttribute('data-param-type') || 'Desirable'),
-                    unit_of_measure: normalizedValue(row.querySelector('.param-unit')?.value || ''),
-                    required_value_type: normalizedValue(row.querySelector('.param-required-type')?.value || 'text'),
-                    required_value_text: normalizedValue(row.querySelector('.param-required-text')?.value || ''),
-                    required_value_operator_1: normalizedValue(row.querySelector('.param-required-operator-1')?.value || ''),
-                    required_value_value_1: normalizedValue(row.querySelector('.param-required-value-1')?.value || ''),
-                    required_value_operator_2: normalizedValue(row.querySelector('.param-required-operator-2')?.value || ''),
-                    required_value_value_2: normalizedValue(row.querySelector('.param-required-value-2')?.value || ''),
-                    parameter_conditions: normalizedValue(row.querySelector('.param-conditions')?.value || ''),
-                    test_procedure_type: normalizedValue(row.querySelector('.param-procedure-type')?.value || ''),
-                    test_procedure_text: normalizedValue(row.querySelector('.param-procedure-text')?.value || '')
+                    parameter_name: normalizedValue(readSelectorValue('.param-name', row)),
+                    parameter_type: normalizedValue(readSelectorValue('.param-type', row) || row.getAttribute('data-param-type') || 'Desirable'),
+                    unit_of_measure: normalizedValue(readSelectorValue('.param-unit', row)),
+                    required_value_type: normalizedValue(readSelectorValue('.param-required-type', row) || 'text'),
+                    required_value_text: normalizedValue(readSelectorValue('.param-required-text', row)),
+                    required_value_operator_1: normalizedValue(readSelectorValue('.param-required-operator-1', row)),
+                    required_value_value_1: normalizedValue(readSelectorValue('.param-required-value-1', row)),
+                    required_value_operator_2: normalizedValue(readSelectorValue('.param-required-operator-2', row)),
+                    required_value_value_2: normalizedValue(readSelectorValue('.param-required-value-2', row)),
+                    parameter_conditions: normalizedValue(readSelectorValue('.param-conditions', row)),
+                    test_procedure_type: normalizedValue(readSelectorValue('.param-procedure-type', row)),
+                    test_procedure_text: normalizedValue(readSelectorValue('.param-procedure-text', row))
                 });
             }
         });
@@ -2980,7 +3015,7 @@
         document.querySelectorAll('#paramBodyPhase1 tr, #paramBodyPhase2 tr').forEach(function(row) {
             if (changed) return;
             var currentType = normalizedParameterType(
-                row.querySelector('.param-type')?.value
+                readSelectorValue('.param-type', row)
                 || row.getAttribute('data-param-type')
                 || 'Desirable'
             );
@@ -3008,8 +3043,8 @@
         var issues = [];
         for (var i = 0; i < 4; i++) {
             issues.push({
-                flagged: document.querySelector('input[name="issue_' + i + '_flag"]:checked')?.value === 'true',
-                notes: normalizedValue(document.querySelector('textarea[name="issue_' + i + '_notes"]')?.value || '')
+                flagged: readSelectorValue('input[name="issue_' + i + '_flag"]:checked') === 'true',
+                notes: normalizedValue(readSelectorValue('textarea[name="issue_' + i + '_notes"]'))
             });
         }
         return JSON.stringify(issues);
@@ -3018,17 +3053,17 @@
     function readCurrentEditorState() {
         return {
             masterData: JSON.stringify(currentMasterDataSnapshot()),
-            background: normalizedValue(document.getElementById('backgroundText')?.value || ''),
-            existing: normalizedValue(document.getElementById('existingText')?.value || ''),
+            background: normalizedValue(readIdValue('backgroundText')),
+            existing: normalizedValue(readIdValue('existingText')),
             issues: currentIssuesSnapshot(),
             materialProperties: currentMaterialPropertiesSnapshot(),
             storageHandling: currentStorageHandlingSnapshot(),
             parameters: currentParametersSnapshot(),
             impact: currentImpactSnapshot(),
-            changes: normalizedValue(document.getElementById('proposedSummary')?.value || ''),
-            justification: normalizedValue(document.getElementById('justificationText')?.value || ''),
-            recommendation: normalizedValue(document.getElementById('mainRec')?.value || ''),
-            recommendationRemarks: normalizedValue(document.getElementById('remarksRec')?.value || '')
+            changes: normalizedValue(readIdValue('proposedSummary')),
+            justification: normalizedValue(readIdValue('justificationText')),
+            recommendation: normalizedValue(readIdValue('mainRec')),
+            recommendationRemarks: normalizedValue(readIdValue('remarksRec'))
         };
     }
 
@@ -3701,11 +3736,11 @@
 
         setChecklistState(
             'Background',
-            normalizedValue(document.getElementById('backgroundText')?.value || '') !== checklistBaselineValue('background')
+            normalizedValue(readIdValue('backgroundText')) !== checklistBaselineValue('background')
         );
         setChecklistState(
             'Existing',
-            normalizedValue(document.getElementById('existingText')?.value || '') !== checklistBaselineValue('existing')
+            normalizedValue(readIdValue('existingText')) !== checklistBaselineValue('existing')
         );
         setChecklistState(
             'Issues',
@@ -3729,16 +3764,16 @@
         );
         setChecklistState(
             'Changes',
-            normalizedValue(document.getElementById('proposedSummary')?.value || '') !== checklistBaselineValue('changes')
+            normalizedValue(readIdValue('proposedSummary')) !== checklistBaselineValue('changes')
         );
         setChecklistState(
             'Justification',
-            normalizedValue(document.getElementById('justificationText')?.value || '') !== checklistBaselineValue('justification')
+            normalizedValue(readIdValue('justificationText')) !== checklistBaselineValue('justification')
         );
         setChecklistState(
             'Recommendation',
-            normalizedValue(document.getElementById('mainRec')?.value || '') !== checklistBaselineValue('recommendation') ||
-            normalizedValue(document.getElementById('remarksRec')?.value || '') !== checklistBaselineValue('recommendationRemarks')
+            normalizedValue(readIdValue('mainRec')) !== checklistBaselineValue('recommendation') ||
+            normalizedValue(readIdValue('remarksRec')) !== checklistBaselineValue('recommendationRemarks')
         );
     }
 
@@ -3747,6 +3782,14 @@
             updateChangesChecklist();
         } catch (error) {
             console.error('Failed to update CSC change checklist', error);
+        }
+    }
+
+    function safeEditorInitStep(label, handler) {
+        try {
+            handler();
+        } catch (error) {
+            console.error('Failed to initialize CSC editor step: ' + label, error);
         }
     }
 
@@ -3838,16 +3881,16 @@
         element.addEventListener('input', updateChangesChecklist);
         element.addEventListener('change', updateChangesChecklist);
     });
-    document.getElementById('master_group')?.addEventListener('input', function() {
+    bindIfPresent(byId('master_group'), 'input', function() {
         syncGroupOtherField();
         updateChangesChecklist();
     });
-    document.getElementById('master_group')?.addEventListener('change', function() {
+    bindIfPresent(byId('master_group'), 'change', function() {
         syncGroupOtherField();
         updateChangesChecklist();
     });
-    document.getElementById('master_group_other')?.addEventListener('input', updateChangesChecklist);
-    document.getElementById('master_group_other')?.addEventListener('change', updateChangesChecklist);
+    bindIfPresent(byId('master_group_other'), 'input', updateChangesChecklist);
+    bindIfPresent(byId('master_group_other'), 'change', updateChangesChecklist);
     syncGroupOtherField();
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -3922,8 +3965,8 @@
     function buildIssuesPayload() {
         var issues = [];
         for (var i = 0; i < 4; i++) {
-            var flagValue = document.querySelector('input[name="issue_' + i + '_flag"]:checked')?.value;
-            var notes = document.querySelector('textarea[name="issue_' + i + '_notes"]')?.value || '';
+            var flagValue = readSelectorValue('input[name="issue_' + i + '_flag"]:checked');
+            var notes = readSelectorValue('textarea[name="issue_' + i + '_notes"]');
             issues.push({
                 issue_type: '',
                 is_present: flagValue === 'true',
@@ -3944,25 +3987,25 @@
             if (phase1Locked) {
                 params.push({
                     parameter_id: paramId,
-                    proposed_value: row.querySelector('.param-proposed')?.value || '',
+                    proposed_value: readSelectorValue('.param-proposed', row),
                 });
             } else {
                 params.push({
-                    parameter_name: row.querySelector('.param-name')?.value || '',
+                    parameter_name: readSelectorValue('.param-name', row),
                     parameter_id: paramId,
-                    parameter_type: row.querySelector('.param-type')?.value || (row.getAttribute('data-param-type') || 'Desirable'),
-                    unit_of_measure: row.querySelector('.param-unit')?.value || '',
-                    required_value_type: row.querySelector('.param-required-type')?.value || 'text',
-                    required_value_text: row.querySelector('.param-required-text')?.value || '',
-                    required_value_operator_1: row.querySelector('.param-required-operator-1')?.value || '',
-                    required_value_value_1: row.querySelector('.param-required-value-1')?.value || '',
-                    required_value_operator_2: row.querySelector('.param-required-operator-2')?.value || '',
-                    required_value_value_2: row.querySelector('.param-required-value-2')?.value || '',
-                    parameter_conditions: row.querySelector('.param-conditions')?.value || '',
+                    parameter_type: readSelectorValue('.param-type', row) || (row.getAttribute('data-param-type') || 'Desirable'),
+                    unit_of_measure: readSelectorValue('.param-unit', row),
+                    required_value_type: readSelectorValue('.param-required-type', row) || 'text',
+                    required_value_text: readSelectorValue('.param-required-text', row),
+                    required_value_operator_1: readSelectorValue('.param-required-operator-1', row),
+                    required_value_value_1: readSelectorValue('.param-required-value-1', row),
+                    required_value_operator_2: readSelectorValue('.param-required-operator-2', row),
+                    required_value_value_2: readSelectorValue('.param-required-value-2', row),
+                    parameter_conditions: readSelectorValue('.param-conditions', row),
                     existing_value: '',
                     proposed_value: '',
-                    test_procedure_type: row.querySelector('.param-procedure-type')?.value || '',
-                    test_procedure_text: row.querySelector('.param-procedure-text')?.value || ''
+                    test_procedure_type: readSelectorValue('.param-procedure-type', row),
+                    test_procedure_text: readSelectorValue('.param-procedure-text', row)
                 });
             }
         });
@@ -4033,7 +4076,7 @@
             });
     });
 
-    document.querySelector('[data-save-section="master-data"]')?.addEventListener('click', function() {
+    bindIfPresent(document.querySelector('[data-save-section="master-data"]'), 'click', function() {
         saveMasterDataSection()
             .then(function() {
                 showSaveIndicator('masterDataIndicator', 'success', '✓ Saved');
@@ -4146,7 +4189,7 @@
     // Material Properties
     // ═══════════════════════════════════════════════════════════════════════════
 
-    document.querySelector('[data-save-section="material-properties"]')?.addEventListener('click', function() {
+    bindIfPresent(document.querySelector('[data-save-section="material-properties"]'), 'click', function() {
         saveMaterialPropertiesSection()
             .then(function() {
                 showSaveIndicator('materialPropertiesIndicator', 'success', '✓ Saved');
@@ -4160,7 +4203,7 @@
     // Storage and Handling
     // ═══════════════════════════════════════════════════════════════════════════
 
-    document.querySelector('[data-save-section="storage-handling"]')?.addEventListener('click', function() {
+    bindIfPresent(document.querySelector('[data-save-section="storage-handling"]'), 'click', function() {
         saveStorageHandlingSection()
             .then(function() {
                 showSaveIndicator('storageHandlingIndicator', 'success', '✓ Saved');
@@ -4257,12 +4300,12 @@
     }
 
     function wireParameterRow(tr) {
-        tr.querySelector('.deleteParamBtn')?.addEventListener('click', function() {
+        bindIfPresent(tr.querySelector('.deleteParamBtn'), 'click', function() {
             tr.remove();
             updateChangesChecklist();
         });
 
-        tr.querySelector('.param-required-type')?.addEventListener('change', function() {
+        bindIfPresent(tr.querySelector('.param-required-type'), 'change', function() {
             var mode = this.value === 'comparison' ? 'comparison' : 'text';
             tr.querySelectorAll('[data-required-mode]').forEach(function(block) {
                 block.style.display = block.getAttribute('data-required-mode') === mode ? '' : 'none';
@@ -4374,8 +4417,9 @@
         });
     }
 
-    document.getElementById('addParamBtn')?.addEventListener('click', function() {
+    bindIfPresent(byId('addParamBtn'), 'click', function() {
         var tbody = document.getElementById('paramBodyPhase1');
+        if (!tbody) return;
         var tr = document.createElement('tr');
         tr.innerHTML = renderParameterPhase1Row({
             parameter_name: '',
@@ -4421,7 +4465,7 @@
             });
     }
 
-    document.querySelector('[data-save-section="parameters"]')?.addEventListener('click', function() {
+    bindIfPresent(document.querySelector('[data-save-section="parameters"]'), 'click', function() {
         saveParametersSection()
             .then(function() {
                 showSaveIndicator('paramIndicator', 'success', '✓ Saved');
@@ -4431,12 +4475,12 @@
             });
     });
 
-    initParametersTable();
-    normalizeProposedSummaryField();
-    renderMaterialProperties();
-    renderStorageHandling();
-    renderImpactChecklist();
-    captureInitialEditorState();
+    safeEditorInitStep('parameters-table', initParametersTable);
+    safeEditorInitStep('proposed-summary', normalizeProposedSummaryField);
+    safeEditorInitStep('material-properties', renderMaterialProperties);
+    safeEditorInitStep('storage-handling', renderStorageHandling);
+    safeEditorInitStep('impact-checklist', renderImpactChecklist);
+    safeEditorInitStep('initial-editor-state', captureInitialEditorState);
     safeUpdateChangesChecklist();
 
     function saveProposedChangesSection() {
@@ -4536,19 +4580,17 @@
         return Promise.resolve()
             .then(config.action)
             .then(function(result) {
+                button.disabled = false;
                 showSaveIndicator(config.indicatorId, 'success', config.successMessage);
                 return result;
-            })
-            .catch(function(error) {
+            }, function(error) {
+                button.disabled = false;
                 showSaveIndicator(
                     config.indicatorId,
                     'error',
                     (config.errorPrefix || 'Action failed: ') + (error.message || 'Unexpected error')
                 );
                 throw error;
-            })
-            .finally(function() {
-                button.disabled = false;
             });
     }
 
@@ -4636,12 +4678,12 @@
     // Section 7: Impact Analysis
     // ═══════════════════════════════════════════════════════════════════════════
 
-    document.getElementById('impactChemicalName')?.addEventListener('input', function() {
+    bindIfPresent(byId('impactChemicalName'), 'input', function() {
         syncImpactChemicalName();
         updateChangesChecklist();
     });
 
-    document.getElementById('impactResetBtn')?.addEventListener('click', function() {
+    bindIfPresent(byId('impactResetBtn'), 'click', function() {
         if (!impactChecklistState.flags) impactChecklistState.flags = {};
         impactChecklistConfig.forEach(function(flag) {
             impactChecklistState.flags[flag.id] = makeFlagEntry(null);
@@ -4650,7 +4692,7 @@
         updateChangesChecklist();
     });
 
-    document.querySelector('[data-save-section="impact"]')?.addEventListener('click', function() {
+    bindIfPresent(document.querySelector('[data-save-section="impact"]'), 'click', function() {
         saveImpactSection()
             .then(function() {
                 showSaveIndicator('impactIndicator', 'success', '✓ Saved');
@@ -4726,7 +4768,7 @@
             });
     }
 
-    document.getElementById('saveDraftDossierBtn')?.addEventListener('click', function() {
+    bindIfPresent(byId('saveDraftDossierBtn'), 'click', function() {
         var button = this;
         runDraftToolbarAction(button, {
             indicatorId: 'exportIndicator',
@@ -4750,7 +4792,7 @@
         });
     });
 
-    document.getElementById('exportDocxBtn')?.addEventListener('click', function() {
+    bindIfPresent(byId('exportDocxBtn'), 'click', function() {
         var button = this;
         runDraftToolbarAction(button, {
             indicatorId: 'exportIndicator',
@@ -4774,11 +4816,11 @@
         });
     });
 
-    document.getElementById('submitDraftBtn')?.addEventListener('click', function() {
+    bindIfPresent(byId('submitDraftBtn'), 'click', function() {
         openSubmitReviewModal();
     });
 
-    document.getElementById('deleteDraftBtn')?.addEventListener('click', function() {
+    bindIfPresent(byId('deleteDraftBtn'), 'click', function() {
         showConfirmModal(
             'Delete Draft?',
             'This action cannot be undone. All unsaved changes will be lost.',
@@ -4911,12 +4953,12 @@
         confirmCallback = onConfirm;
     }
 
-    document.getElementById('confirmCancel')?.addEventListener('click', function() {
+    bindIfPresent(byId('confirmCancel'), 'click', function() {
         document.getElementById('confirmModal').classList.remove('show');
         confirmCallback = null;
     });
 
-    document.getElementById('confirmOK')?.addEventListener('click', function() {
+    bindIfPresent(byId('confirmOK'), 'click', function() {
         document.getElementById('confirmModal').classList.remove('show');
         if (confirmCallback) confirmCallback();
         confirmCallback = null;
@@ -4951,12 +4993,12 @@
         var changes = [];
         document.querySelectorAll('#paramBodyPhase1 tr, #paramBodyPhase2 tr').forEach(function(row) {
             var name = normalizedValue(
-                row.querySelector('.param-name')?.value
-                || row.querySelector('td:first-child')?.textContent
+                readSelectorValue('.param-name', row)
+                || readSelectorText('td:first-child', row)
                 || ''
             ) || 'Untitled Parameter';
             var currentType = normalizedParameterType(
-                row.querySelector('.param-type')?.value
+                readSelectorValue('.param-type', row)
                 || row.getAttribute('data-param-type')
                 || 'Desirable'
             );
@@ -5189,15 +5231,15 @@
             });
     }
 
-    document.getElementById('submitReviewCancel')?.addEventListener('click', closeSubmitReviewModal);
-    document.getElementById('submitReviewClose')?.addEventListener('click', closeSubmitReviewModal);
-    document.getElementById('draftDossierClose')?.addEventListener('click', closeDraftDossierModal);
-    document.getElementById('draftDossierDismiss')?.addEventListener('click', closeDraftDossierModal);
-    document.getElementById('submitReviewBack')?.addEventListener('click', function() {
+    bindIfPresent(byId('submitReviewCancel'), 'click', closeSubmitReviewModal);
+    bindIfPresent(byId('submitReviewClose'), 'click', closeSubmitReviewModal);
+    bindIfPresent(byId('draftDossierClose'), 'click', closeDraftDossierModal);
+    bindIfPresent(byId('draftDossierDismiss'), 'click', closeDraftDossierModal);
+    bindIfPresent(byId('submitReviewBack'), 'click', function() {
         setSubmitStep(1);
         document.getElementById('submitReviewError').textContent = '';
     });
-    document.getElementById('submitReviewNext')?.addEventListener('click', function() {
+    bindIfPresent(byId('submitReviewNext'), 'click', function() {
         if (submitStep === 1) {
             setSubmitStep(2);
             return;
@@ -5205,10 +5247,10 @@
         submitDraftForReview();
     });
 
-    document.getElementById('submitAuthYes')?.addEventListener('change', updateSubmitAuthorizationState);
-    document.getElementById('submitAuthNo')?.addEventListener('change', updateSubmitAuthorizationState);
-    document.getElementById('submitAuthorizedByName')?.addEventListener('input', updateSubmitAuthorizationState);
-    document.getElementById('submitSubcommitteeHeadName')?.addEventListener('input', updateSubmitAuthorizationState);
+    bindIfPresent(byId('submitAuthYes'), 'change', updateSubmitAuthorizationState);
+    bindIfPresent(byId('submitAuthNo'), 'change', updateSubmitAuthorizationState);
+    bindIfPresent(byId('submitAuthorizedByName'), 'input', updateSubmitAuthorizationState);
+    bindIfPresent(byId('submitSubcommitteeHeadName'), 'input', updateSubmitAuthorizationState);
 
     function setLeaveModalStatus(message, isError) {
         var status = document.getElementById('leavePageStatus');
@@ -5234,7 +5276,10 @@
 
     function closeLeavePageModal() {
         if (leaveSaveInProgress) return;
-        document.getElementById('leavePageModal')?.classList.remove('show');
+        var leaveModal = byId('leavePageModal');
+        if (leaveModal) {
+            leaveModal.classList.remove('show');
+        }
         setLeaveModalStatus('');
         pendingLeaveDestination = null;
     }
@@ -5254,7 +5299,10 @@
         document.getElementById('leavePageBody').textContent = message;
         setLeaveModalStatus('');
         setLeaveModalBusy(false);
-        document.getElementById('leavePageModal')?.classList.add('show');
+        var leaveModal = byId('leavePageModal');
+        if (leaveModal) {
+            leaveModal.classList.add('show');
+        }
     }
 
     function promptForLeaveIfNeeded(destination) {
@@ -5265,15 +5313,15 @@
         openLeavePageModal(destination);
     }
 
-    document.getElementById('leaveStayBtn')?.addEventListener('click', closeLeavePageModal);
-    document.getElementById('leaveDiscardBtn')?.addEventListener('click', function() {
+    bindIfPresent(byId('leaveStayBtn'), 'click', closeLeavePageModal);
+    bindIfPresent(byId('leaveDiscardBtn'), 'click', function() {
         if (!pendingLeaveDestination) {
             closeLeavePageModal();
             return;
         }
         leaveEditorNow(pendingLeaveDestination);
     });
-    document.getElementById('leaveSaveBtn')?.addEventListener('click', function() {
+    bindIfPresent(byId('leaveSaveBtn'), 'click', function() {
         if (!pendingLeaveDestination || leaveSaveInProgress) return;
         setLeaveModalBusy(true);
         setLeaveModalStatus('Saving all draft changes before leaving...');
@@ -5289,12 +5337,12 @@
             });
     });
 
-    document.getElementById('leavePageModal')?.addEventListener('click', function(event) {
+    bindIfPresent(byId('leavePageModal'), 'click', function(event) {
         if (event.target === this) {
             closeLeavePageModal();
         }
     });
-    document.getElementById('draftDossierModal')?.addEventListener('click', function(event) {
+    bindIfPresent(byId('draftDossierModal'), 'click', function(event) {
         if (event.target === this) {
             closeDraftDossierModal();
         }
