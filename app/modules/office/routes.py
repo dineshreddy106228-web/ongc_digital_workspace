@@ -840,12 +840,26 @@ def _order_task_collection(tasks: list[Task]) -> list[Task]:
 
 
 def _normalize_global_task_display_order() -> bool:
-    """Materialize a full shared order for all tasks before any reorder action."""
-    all_tasks = _order_task_collection(Task.query.all())
+    """Materialize a full shared order for all tasks before any reorder action.
+
+    Uses a lightweight column-only SELECT and bulk UPDATE to avoid loading
+    full ORM objects for an unbounded table scan.
+    """
+    rows = (
+        db.session.query(Task.id, Task.display_order, Task.created_at, Task.is_active)
+        .order_by(
+            Task.display_order.asc().nullslast(),
+            Task.created_at.desc(),
+            Task.id.desc(),
+        )
+        .all()
+    )
     changed = False
-    for index, task in enumerate(all_tasks, start=1):
-        if task.display_order != index:
-            task.display_order = index
+    for index, row in enumerate(rows, start=1):
+        if row.display_order != index:
+            db.session.query(Task).filter(Task.id == row.id).update(
+                {"display_order": index}, synchronize_session=False
+            )
             changed = True
     return changed
 
@@ -968,8 +982,17 @@ def reorder_task(task_id: int):
             )
             return redirect(url_for("tasks.list_tasks", **filters))
 
-        current_task = visible_tasks[current_index]
-        adjacent_task = visible_tasks[swap_index]
+        # Re-fetch with row-level locks to reduce the race condition window
+        # between the normalize pass and the actual swap commit.
+        current_task = db.session.query(Task).filter_by(
+            id=visible_tasks[current_index].id
+        ).with_for_update().first()
+        adjacent_task = db.session.query(Task).filter_by(
+            id=visible_tasks[swap_index].id
+        ).with_for_update().first()
+        if current_task is None or adjacent_task is None:
+            flash("Task not found in the current visible list.", "warning")
+            return redirect(url_for("tasks.list_tasks", **filters))
         current_task.display_order, adjacent_task.display_order = (
             adjacent_task.display_order,
             current_task.display_order,

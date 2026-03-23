@@ -21,7 +21,12 @@ def get_client_ip() -> str:
         return ""
 
     raw = request.headers.get("X-Forwarded-For", "") or ""
-    candidate = raw.split(",")[0].strip() if raw else (request.remote_addr or "").strip()
+    if raw:
+        # Railway edge proxy appends the real client IP as the last entry.
+        # Using the rightmost value prevents spoofing via a forged first entry.
+        candidate = raw.split(",")[-1].strip()
+    else:
+        candidate = (request.remote_addr or "").strip()
     if not candidate:
         return ""
 

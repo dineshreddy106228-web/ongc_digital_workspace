@@ -78,6 +78,7 @@ class Config:
         default=FLASK_ENV != "development",
     )
     REMEMBER_COOKIE_SECURE = SESSION_COOKIE_SECURE
+    REMEMBER_COOKIE_SAMESITE = "Lax"
     MAX_CONTENT_LENGTH = int(os.environ.get("MAX_CONTENT_LENGTH", str(256 * 1024 * 1024)))
     MSDS_STORAGE_DIR = os.environ.get("MSDS_STORAGE_DIR", "storage/msds")
     MSDS_MAX_UPLOAD_BYTES = int(os.environ.get("MSDS_MAX_UPLOAD_BYTES", str(20 * 1024 * 1024)))
@@ -93,7 +94,7 @@ class Config:
 
     # ── CSP rollout (report-only by default to avoid behavior changes) ─────
     CSP_ENABLED = _as_bool(os.environ.get("CSP_ENABLED"), default=True)
-    CSP_REPORT_ONLY = _as_bool(os.environ.get("CSP_REPORT_ONLY"), default=True)
+    CSP_REPORT_ONLY = _as_bool(os.environ.get("CSP_REPORT_ONLY"), default=False)
     CSP_REPORT_URI = os.environ.get("CSP_REPORT_URI", "").strip() or None
 
     # ── WTF CSRF ─────────────────────────────────────────────────

@@ -184,6 +184,19 @@ from app.core.services.csc_type_classification_import import (
 from app.core.services.master_data import get_all_master_data
 
 logger = logging.getLogger(__name__)
+
+
+def _batch_fetch_users_by_usernames(usernames: list[str]) -> dict[str, User]:
+    """Return {username: User} for active users in one query."""
+    clean = [u for u in (name.strip() for name in usernames) if u]
+    if not clean:
+        return {}
+    users = User.query.filter(
+        User.username.in_(clean), User.is_active.is_(True)
+    ).all()
+    return {u.username: u for u in users}
+
+
 WORKFLOW_SCOPE_SECTION_NAME = "__workflow_scope_json__"
 WORKFLOW_COMMITTEE_SECTION_NAME = "__workflow_committee_slug__"
 WORKFLOW_STREAM_SECTION_NAME = "__workflow_stream_name__"
@@ -1159,16 +1172,20 @@ def _require_revision_snapshot_access(revision: CSCRevision) -> None:
 def _get_material_master_admin_users() -> list[User]:
     """Return active module admins for the CSC module."""
     try:
+        from app.models.core.module_admin_assignment import ModuleAdminAssignment
+        admin_user_ids_subq = (
+            db.session.query(ModuleAdminAssignment.user_id)
+            .filter_by(module_code="csc")
+            .subquery()
+        )
         return sorted(
-            [
-                user
-                for user in User.query.filter_by(is_active=True).all()
-                if user.is_module_admin("csc")
-            ],
-            key=lambda user: ((user.full_name or "").strip().lower(), user.username.lower()),
+            User.query
+            .filter(User.id.in_(admin_user_ids_subq), User.is_active.is_(True))
+            .all(),
+            key=lambda u: ((u.full_name or "").strip().lower(), u.username.lower()),
         )
     except (ProgrammingError, OperationalError) as exc:
-        logger.warning("CSC module admin lookup skipped because assignments table is unavailable: %s", exc)
+        logger.warning("CSC module admin lookup skipped: %s", exc)
         db.session.rollback()
         return []
 
@@ -1203,7 +1220,7 @@ def _get_committee_head_user_ids_for_subset(subset_code: str | None) -> list[int
     if not normalized_subset:
         return []
 
-    user_ids: list[int] = []
+    candidate_usernames: list[str] = []
     for committee in get_committee_config_payload().get("CHILD_COMMITTEES", []):
         if committee.get("slug") == "coordination":
             continue
@@ -1214,12 +1231,15 @@ def _get_committee_head_user_ids_for_subset(subset_code: str | None) -> list[int
         if normalized_subset not in subset_codes:
             continue
         username = str(committee.get("committee_head") or "").strip()
-        if not username:
-            continue
-        user = User.query.filter_by(username=username, is_active=True).first()
+        if username:
+            candidate_usernames.append(username)
+
+    user_map = _batch_fetch_users_by_usernames(candidate_usernames)
+    user_ids: list[int] = []
+    for username in candidate_usernames:
+        user = user_map.get(username)
         if user:
             user_ids.append(user.id)
-
     return list(dict.fromkeys(user_ids))
 
 
@@ -1240,11 +1260,12 @@ def _get_committee_user_ids_for_committee_slug(committee_slug: str | None, role_
         else:
             usernames = [str(committee.get("committee_head") or "").strip()]
 
+        user_map = _batch_fetch_users_by_usernames(usernames)
         user_ids = []
         for username in usernames:
             if not username:
                 continue
-            user = User.query.filter_by(username=username, is_active=True).first()
+            user = user_map.get(username)
             if user:
                 user_ids.append(user.id)
         return list(dict.fromkeys(user_ids))
@@ -1268,7 +1289,7 @@ def _get_committee_user_ids_for_revision(revision: CSCRevision | None) -> list[i
         if str(committee.get("slug") or "").strip() != committee_slug:
             continue
 
-        user_ids: list[int] = []
+        candidate_usernames: list[str] = []
         for assignment in _get_committee_user_assignments(committee):
             allowed_subset_codes = [
                 str(code or "").strip().upper()
@@ -1278,9 +1299,12 @@ def _get_committee_user_ids_for_revision(revision: CSCRevision | None) -> list[i
             if allowed_subset_codes and not _subset_code_is_within_scope(subset_code, allowed_subset_codes):
                 continue
             username = str(assignment.get("username") or "").strip()
-            if not username:
-                continue
-            user = User.query.filter_by(username=username, is_active=True).first()
+            if username:
+                candidate_usernames.append(username)
+        user_map = _batch_fetch_users_by_usernames(candidate_usernames)
+        user_ids: list[int] = []
+        for username in candidate_usernames:
+            user = user_map.get(username)
             if user:
                 user_ids.append(user.id)
         return list(dict.fromkeys(user_ids))
@@ -1304,11 +1328,12 @@ def _get_committee_user_display_label_for_committee_slug(committee_slug: str | N
         else:
             usernames = [str(committee.get("committee_head") or "").strip()]
 
+        user_map = _batch_fetch_users_by_usernames(usernames)
         labels = []
         for username in usernames:
             if not username:
                 continue
-            user = User.query.filter_by(username=username, is_active=True).first()
+            user = user_map.get(username)
             if not user:
                 labels.append(username)
                 continue
@@ -1424,11 +1449,10 @@ def _find_conflicting_root_spec(spec_number: str) -> CSCDraft | None:
     subset_code, sequence, _ = parse_spec_number(spec_number or "")
     if not subset_code or not sequence:
         return None
-    for draft in CSCDraft.query.filter(CSCDraft.parent_draft_id.is_(None)).all():
-        draft_subset, draft_sequence, _ = parse_spec_number(draft.spec_number or "")
-        if draft_subset == subset_code and draft_sequence == sequence:
-            return draft
-    return None
+    return CSCDraft.query.filter(
+        CSCDraft.parent_draft_id.is_(None),
+        CSCDraft.spec_number.like(f"{subset_code}-{sequence}%"),
+    ).first()
 
 
 def _seed_sections_for_new_spec(draft: CSCDraft, source_label: str) -> None:
@@ -1786,8 +1810,8 @@ def _create_audit_entry(
         )
         db.session.add(audit)
         db.session.commit()
-    except Exception as e:
-        logger.error(f"Failed to create audit entry: {e}")
+    except Exception:
+        logger.exception("Failed to create audit entry")
         db.session.rollback()
 
 
@@ -3815,9 +3839,9 @@ def api_overview():
             "pending_revisions": open_drafting,
             "published": published,
         })
-    except Exception as e:
-        logger.error(f"Error fetching overview: {e}")
-        return jsonify({"error": str(e)}), 500
+    except Exception:
+        logger.exception("Error fetching overview")
+        return jsonify({"error": "An internal error occurred. Please try again."}), 500
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -3860,8 +3884,8 @@ def _render_committee_user_workbench():
             )
         )
         return _mark_response_no_store(response)
-    except Exception as e:
-        logger.error(f"Error loading workspace: {e}")
+    except Exception:
+        logger.exception("Error loading workspace")
         flash("Error loading workspace.", "danger")
         return redirect(url_for("csc.index"))
 
@@ -3914,8 +3938,8 @@ def ingest_pdf():
     except PermissionError as e:
         flash(str(e), "danger")
         return redirect(url_for("csc.ingest"))
-    except Exception as e:
-        logger.error(f"Error ingesting committee PDF: {e}")
+    except Exception:
+        logger.exception("Error ingesting committee PDF")
         db.session.rollback()
         flash(
             str(e) if isinstance(e, (ValueError, ImportError)) else "Error processing PDF file.",
@@ -3952,8 +3976,8 @@ def ingest_docx():
     except PermissionError as e:
         flash(str(e), "danger")
         return redirect(url_for("csc.ingest"))
-    except Exception as e:
-        logger.error(f"Error ingesting committee DOCX: {e}")
+    except Exception:
+        logger.exception("Error ingesting committee DOCX")
         db.session.rollback()
         flash(str(e) if isinstance(e, ValueError) else "Error processing DOCX file.", "danger")
         return redirect(url_for("csc.ingest"))
@@ -3990,8 +4014,8 @@ def create_ingested_draft():
     except PermissionError as e:
         flash(str(e), "danger")
         return redirect(url_for("csc.ingest"))
-    except Exception as e:
-        logger.error(f"Error creating committee draft from staged extraction: {e}")
+    except Exception:
+        logger.exception("Error creating committee draft from staged extraction")
         db.session.rollback()
         flash(str(e) if isinstance(e, ValueError) else "Error creating draft from extracted specification.", "danger")
         return redirect(url_for("csc.ingest"))
@@ -4083,9 +4107,9 @@ def api_drafts():
             "total": len(drafts),
         })
         return _mark_response_no_store(response)
-    except Exception as e:
-        logger.error(f"Error fetching drafts: {e}")
-        return jsonify({"error": str(e)}), 500
+    except Exception:
+        logger.exception("Error fetching drafts")
+        return jsonify({"error": "An internal error occurred. Please try again."}), 500
 
 
 @csc_bp.route("/workspace/<int:draft_id>")
@@ -4113,6 +4137,11 @@ def editor(draft_id: int):
 
         workflow_stream = _infer_workflow_stream_name(draft)
         _ensure_default_draft_sections(draft, workflow_stream)
+        try:
+            db.session.commit()
+        except Exception as commit_err:
+            logger.warning(f"Could not persist default section setup for draft {draft_id}: {commit_err}")
+            db.session.rollback()
         section_defaults = {
             section_name: default_text
             for section_name, default_text, _sort_order in _default_section_rows(workflow_stream)
@@ -4229,8 +4258,8 @@ def editor(draft_id: int):
             draft_type_label=_draft_type_label(draft),
             editor_lock_enabled=_committee_editor_lock_enabled_for_draft(draft, editor_mode),
         )
-    except Exception as e:
-        logger.error(f"Error loading editor: {e}")
+    except Exception:
+        logger.exception("Error loading editor")
         flash("Error loading draft editor.", "danger")
         return redirect(url_for("csc.workspace"))
 
@@ -4256,10 +4285,10 @@ def ping_editor_lock(draft_id: int):
 
         db.session.commit()
         return jsonify({"success": True, "lock_enabled": True})
-    except Exception as e:
-        logger.error(f"Error refreshing editor lock: {e}")
+    except Exception:
+        logger.exception("Error refreshing editor lock")
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "An internal error occurred. Please try again."}), 500
 
 
 @csc_bp.route("/api/draft/<int:draft_id>/editor-lock/release", methods=["POST"])
@@ -4274,10 +4303,10 @@ def release_editor_lock(draft_id: int):
         _release_editor_lock_if_owned(draft)
         db.session.commit()
         return jsonify({"success": True})
-    except Exception as e:
-        logger.error(f"Error releasing editor lock: {e}")
+    except Exception:
+        logger.exception("Error releasing editor lock")
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "An internal error occurred. Please try again."}), 500
 
 
 @csc_bp.route("/api/draft/<int:draft_id>")
@@ -4321,9 +4350,9 @@ def api_draft_detail(draft_id: int):
             "material_properties": get_material_properties_values(draft),
             "storage_handling": get_storage_handling_values(draft),
         })
-    except Exception as e:
-        logger.error(f"Error fetching draft detail: {e}")
-        return jsonify({"error": str(e)}), 500
+    except Exception:
+        logger.exception("Error fetching draft detail")
+        return jsonify({"error": "An internal error occurred. Please try again."}), 500
 
 
 @csc_bp.route("/api/draft/<int:draft_id>/master-data", methods=["POST"])
@@ -4368,10 +4397,10 @@ def save_master_data(draft_id: int):
             "draft": draft.to_dict(),
             "master_data": get_master_form_values(draft),
         })
-    except Exception as e:
-        logger.error(f"Error saving master data: {e}")
+    except Exception:
+        logger.exception("Error saving master data")
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "An internal error occurred. Please try again."}), 500
 
 
 @csc_bp.route("/api/draft/<int:draft_id>/material-properties", methods=["POST"])
@@ -4412,10 +4441,10 @@ def save_material_properties(draft_id: int):
             "material_properties": get_material_properties_values(draft),
             "storage_handling": get_storage_handling_values(draft),
         })
-    except Exception as e:
-        logger.error(f"Error saving material properties: {e}")
+    except Exception:
+        logger.exception("Error saving material properties")
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "An internal error occurred. Please try again."}), 500
 
 
 @csc_bp.route("/api/draft/<int:draft_id>/storage-handling", methods=["POST"])
@@ -4456,10 +4485,10 @@ def save_storage_handling(draft_id: int):
             "material_properties": get_material_properties_values(draft),
             "storage_handling": get_storage_handling_values(draft),
         })
-    except Exception as e:
-        logger.error(f"Error saving storage and handling: {e}")
+    except Exception:
+        logger.exception("Error saving storage and handling")
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "An internal error occurred. Please try again."}), 500
 
 
 @csc_bp.route("/api/draft/<int:draft_id>/section/<section_name>", methods=["POST"])
@@ -4505,10 +4534,10 @@ def save_section(draft_id: int, section_name: str):
         _create_audit_entry(draft_id, f"Section saved: {section_name}")
 
         return jsonify({"success": True, "section": section.to_dict()})
-    except Exception as e:
-        logger.error(f"Error saving section: {e}")
+    except Exception:
+        logger.exception("Error saving section")
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "An internal error occurred. Please try again."}), 500
 
 
 @csc_bp.route("/api/draft/<int:draft_id>/issues", methods=["POST"])
@@ -4546,20 +4575,11 @@ def save_issues(draft_id: int):
 
         _create_audit_entry(draft_id, "Issue flags saved")
 
-        return jsonify(
-            {
-                "success": True,
-                "title": "Draft Forwarded to Secretary Workspace",
-                "message": (
-                    f"{revision.parent_draft.spec_number} — {revision.parent_draft.chemical_name} "
-                    "was approved and forwarded to Secretary."
-                ),
-            }
-        )
-    except Exception as e:
-        logger.error(f"Error saving issues: {e}")
+        return jsonify({"success": True})
+    except Exception:
+        logger.exception("Error saving issues for draft_id=%s", draft_id)
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "An internal error occurred. Please try again."}), 500
 
 
 @csc_bp.route("/api/draft/<int:draft_id>/parameters", methods=["POST"])
@@ -4678,10 +4698,10 @@ def save_parameters(draft_id: int):
                 ),
             }
         )
-    except Exception as e:
-        logger.error(f"Error saving parameters: {e}")
+    except Exception:
+        logger.exception("Error saving parameters")
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "An internal error occurred. Please try again."}), 500
 
 
 @csc_bp.route("/api/draft/<int:draft_id>/parameters/proposed", methods=["POST"])
@@ -4721,21 +4741,11 @@ def save_proposed_values(draft_id: int):
 
         _create_audit_entry(draft_id, f"Proposed values saved (Phase 2): {len(data)} items")
 
-        return jsonify(
-            {
-                "success": True,
-                "title": "Draft Deleted",
-                "message": (
-                    f"{parent_draft.spec_number if parent_draft else 'Draft'} — "
-                    f"{parent_draft.chemical_name if parent_draft else ''} "
-                    "was deleted from the committee workflow."
-                ).strip(),
-            }
-        )
-    except Exception as e:
-        logger.error(f"Error saving proposed values: {e}")
+        return jsonify({"success": True})
+    except Exception:
+        logger.exception("Error saving proposed values for draft_id=%s", draft_id)
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "An internal error occurred. Please try again."}), 500
 
 
 @csc_bp.route("/api/draft/<int:draft_id>/impact", methods=["POST"])
@@ -4805,10 +4815,10 @@ def save_impact(draft_id: int):
             "checklist_summary": legacy_payload["checklist_summary"],
             "master_data": get_master_form_values(draft),
         })
-    except Exception as e:
-        logger.error(f"Error saving impact: {e}")
+    except Exception:
+        logger.exception("Error saving impact")
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "An internal error occurred. Please try again."}), 500
 
 
 @csc_bp.route("/api/draft/<int:draft_id>/flag", methods=["POST"])
@@ -4892,10 +4902,10 @@ def update_flag(draft_id: int):
             "classification": classification,
             "flag_meta": checklist_state["flags"][flag_name],
         })
-    except Exception as e:
-        logger.error(f"Error updating flag: {e}")
+    except Exception:
+        logger.exception("Error updating flag")
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "An internal error occurred. Please try again."}), 500
 
 
 @csc_bp.route("/api/draft/<int:draft_id>/submit", methods=["POST"])
@@ -4998,10 +5008,10 @@ def submit_revision(draft_id: int):
                 ),
             }
         )
-    except Exception as e:
-        logger.error(f"Error submitting revision: {e}")
+    except Exception:
+        logger.exception("Error submitting revision")
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "An internal error occurred. Please try again."}), 500
 
 
 @csc_bp.route("/api/draft/<int:draft_id>/delete", methods=["POST", "DELETE"])
@@ -5031,10 +5041,10 @@ def delete_draft(draft_id: int):
                 "message": f"{spec_label} — {chemical_label} was deleted successfully.",
             }
         )
-    except Exception as e:
-        logger.error(f"Error deleting draft: {e}")
+    except Exception:
+        logger.exception("Error deleting draft")
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "An internal error occurred. Please try again."}), 500
 
 
 @csc_bp.route("/draft/<int:draft_id>/export/docx")
@@ -5066,8 +5076,8 @@ def export_docx(draft_id: int):
             download_name=filename,
         )
 
-    except Exception as e:
-        logger.error(f"Error exporting draft: {e}")
+    except Exception:
+        logger.exception("Error exporting draft")
         flash("Error exporting draft.", "danger")
         return redirect(url_for("csc.workspace"))
 
@@ -5174,10 +5184,10 @@ def create_revision(parent_id: int):
                 else f"A workflow already exists for {parent_draft.spec_number}."
             ),
         })
-    except Exception as e:
-        logger.error(f"Error creating revision: {e}")
+    except Exception:
+        logger.exception("Error creating revision")
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "An internal error occurred. Please try again."}), 500
 
 
 @csc_bp.route("/admin/draft/<int:parent_id>/open-self-draft", methods=["POST"])
@@ -5240,11 +5250,11 @@ def admin_open_self_draft(parent_id: int):
 
         flash("Admin self draft opened.", "success")
         return redirect(url_for("csc.editor", draft_id=child_draft.id))
-    except Exception as e:
-        logger.error(f"Error opening admin self draft: {e}")
+    except Exception:
+        logger.exception("Error opening admin self draft")
         db.session.rollback()
         if wants_json:
-            return jsonify({"error": str(e)}), 500
+            return jsonify({"error": "An internal error occurred. Please try again."}), 500
         flash("Error opening admin self draft.", "danger")
         return redirect(url_for("csc.admin_revision_generation"))
 
@@ -5382,10 +5392,10 @@ def admin_open_self_drafts_bulk():
                 "conflicts": conflicts,
             }
         )
-    except Exception as e:
-        logger.error(f"Error opening admin workflow drafts: {e}")
+    except Exception:
+        logger.exception("Error opening admin workflow drafts")
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "An internal error occurred. Please try again."}), 500
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -5445,8 +5455,8 @@ def admin_ingest_pdf():
 
         flash(f"PDF ingested – Draft created (ID: {draft.id})", "success")
         return redirect(url_for("csc.admin_revision_generation"))
-    except Exception as e:
-        logger.error(f"Error ingesting PDF: {e}")
+    except Exception:
+        logger.exception("Error ingesting PDF")
         flash("Error processing PDF file.", "danger")
         return redirect(url_for("csc.admin_ingest"))
 
@@ -5484,8 +5494,8 @@ def admin_ingest_docx():
 
         flash(f"DOCX ingested – Draft created (ID: {draft.id})", "success")
         return redirect(url_for("csc.admin_revision_generation"))
-    except Exception as e:
-        logger.error(f"Error ingesting DOCX: {e}")
+    except Exception:
+        logger.exception("Error ingesting DOCX")
         flash("Error processing DOCX file.", "danger")
         return redirect(url_for("csc.admin_ingest"))
 
@@ -5517,8 +5527,8 @@ def admin_create_draft_from_extraction():
 
         flash(f"Draft created from extraction (ID: {draft.id})", "success")
         return redirect(url_for("csc.admin_revision_generation"))
-    except Exception as e:
-        logger.error(f"Error creating draft from extraction: {e}")
+    except Exception:
+        logger.exception("Error creating draft from extraction")
         flash("Error creating draft from extraction.", "danger")
         return redirect(url_for("csc.admin_ingest"))
 
@@ -5570,8 +5580,8 @@ def published_specs():
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
         return response
-    except Exception as e:
-        logger.error(f"Error loading published specs: {e}")
+    except Exception:
+        logger.exception("Error loading published specs")
         flash("Error loading published specifications.", "danger")
         return redirect(url_for("csc.index"))
 
@@ -5670,8 +5680,8 @@ def published_spec_version_dossier(draft_id: int, spec_version: int):
             as_attachment=True,
             download_name=filename,
         )
-    except Exception as e:
-        logger.error(f"Error exporting published dossier: {e}")
+    except Exception:
+        logger.exception("Error exporting published dossier")
         flash("Error exporting the published dossier.", "danger")
         return redirect(url_for("csc.published_specs"))
 
@@ -5769,8 +5779,8 @@ def admin_revision_generation():
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
         return response
-    except Exception as e:
-        logger.error(f"Error loading admin drafts: {e}")
+    except Exception:
+        logger.exception("Error loading admin drafts")
         flash("Error loading drafts.", "danger")
         return redirect(url_for("csc.admin_index"))
 
@@ -5843,10 +5853,10 @@ def admin_lock_phase1(draft_id: int):
             "success": True,
             "phase1_locked": draft.phase1_locked,
         })
-    except Exception as e:
-        logger.error(f"Error toggling phase1 lock: {e}")
+    except Exception:
+        logger.exception("Error toggling phase1 lock")
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "An internal error occurred. Please try again."}), 500
 
 
 # Alias: templates use url_for('csc.api_admin_toggle_phase1_lock', draft_id=...)
@@ -5892,20 +5902,11 @@ def admin_set_stage(draft_id: int):
             f"Admin stage changed: {old_stage} → {new_stage}",
         )
 
-        return jsonify(
-            {
-                "success": True,
-                "title": "Draft Published",
-                "message": (
-                    f"{parent_draft.spec_number} — {parent_draft.chemical_name} "
-                    f"was published as version v{applied_version}."
-                ),
-            }
-        )
-    except Exception as e:
-        logger.error(f"Error setting stage: {e}")
+        return jsonify({"success": True, "new_stage": new_stage})
+    except Exception:
+        logger.exception("Error setting stage for draft_id=%s", draft_id)
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "An internal error occurred. Please try again."}), 500
 
 
 # Alias: templates use url_for('csc.api_admin_set_stage', draft_id=...)
@@ -5934,20 +5935,11 @@ def admin_delete_draft(draft_id: int):
         db.session.delete(draft)
         db.session.commit()
 
-        return jsonify(
-            {
-                "success": True,
-                "title": "Draft Deleted",
-                "message": (
-                    f"{parent_draft.spec_number} — {parent_draft.chemical_name} "
-                    "was deleted by the Material Master Management Admin."
-                ),
-            }
-        )
-    except Exception as e:
-        logger.error(f"Error deleting draft: {e}")
+        return jsonify({"success": True})
+    except Exception:
+        logger.exception("Error deleting draft for draft_id=%s", draft_id)
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "An internal error occurred. Please try again."}), 500
 
 
 # Alias: templates use url_for('csc.api_admin_delete_draft', draft_id=...)
@@ -6046,7 +6038,7 @@ def admin_settings_update():
         config.directory_json = json.dumps(normalized, indent=2)
         db.session.commit()
         flash("Committee configuration saved.", "success")
-    except Exception as e:
+    except Exception:
         flash(f"Invalid JSON: {e}", "danger")
     
     return redirect(url_for("csc.admin_settings"))
@@ -6187,8 +6179,8 @@ def _render_admin_revisions_workbench(
             reject_endpoint_name="csc.admin_reject_revision",
             require_publish_fields=True,
         )
-    except Exception as e:
-        logger.error(f"Error loading revisions: {e}")
+    except Exception:
+        logger.exception("Error loading revisions")
         flash("Error loading revisions.", "danger")
         return redirect(url_for("csc.admin_index"))
 
@@ -7063,8 +7055,8 @@ def admin_import_type_classification_workbook():
             latest_import_summary=import_summary,
             latest_import_kind=TYPE_CLASSIFICATION_STREAM,
         )
-    except Exception as e:
-        logger.error(f"Error importing type classification workbook: {e}")
+    except Exception:
+        logger.exception("Error importing type classification workbook")
         db.session.rollback()
         flash("Error importing type classification workbook.", "danger")
         return _render_admin_revisions_workbench()
@@ -7126,8 +7118,8 @@ def admin_import_material_handling_workbook():
         return _render_admin_revisions_workbench(
             pending_material_handling_preview=preview_payload,
         )
-    except Exception as e:
-        logger.error(f"Error importing material handling workbook: {e}")
+    except Exception:
+        logger.exception("Error importing material handling workbook")
         db.session.rollback()
         flash("Error importing material handling workbook.", "danger")
         return _render_admin_revisions_workbench()
@@ -7194,8 +7186,8 @@ def admin_confirm_material_handling_workbook_import():
                 token=report_token,
             ),
         )
-    except Exception as e:
-        logger.error(f"Error confirming material handling workbook import: {e}")
+    except Exception:
+        logger.exception("Error confirming material handling workbook import")
         db.session.rollback()
         flash("Error confirming material handling workbook import.", "danger")
         return _render_admin_revisions_workbench()
@@ -7286,7 +7278,7 @@ def admin_delete_all_revisions():
         )
         return _render_admin_revisions_workbench()
     except Exception as exc:
-        logger.error(f"Error bulk deleting revisions from Secretary workbench: {exc}")
+        logger.exception("Error bulk deleting revisions from Secretary workbench")
         db.session.rollback()
         flash("Unable to delete all workflow drafts right now.", "danger")
         return _render_admin_revisions_workbench()
@@ -7429,8 +7421,8 @@ def review_workbench():
             reject_endpoint_name="csc.committee_head_delete_revision",
             require_publish_fields=False,
         )
-    except Exception as e:
-        logger.error(f"Error loading revisions: {e}")
+    except Exception:
+        logger.exception("Error loading revisions")
         flash("Error loading revisions.", "danger")
         return redirect(url_for("csc.index"))
 
@@ -7538,8 +7530,8 @@ def admin_open_revision_for_committee(revision_id: int):
                 "message": message,
             }
         )
-    except Exception as e:
-        logger.error(f"Error opening staged revision for committee: {e}")
+    except Exception:
+        logger.exception("Error opening staged revision for committee")
         db.session.rollback()
         return jsonify({"error": "Unable to open the staged draft for committee editing."}), 500
 
@@ -7601,10 +7593,10 @@ def committee_head_approve_revision(revision_id: int):
                 ),
             }
         )
-    except Exception as e:
-        logger.error(f"Error approving revision as committee head: {e}")
+    except Exception:
+        logger.exception("Error approving revision as committee head")
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "An internal error occurred. Please try again."}), 500
 
 
 @csc_bp.route("/revision/<int:revision_id>/return", methods=["POST"])
@@ -7660,10 +7652,10 @@ def committee_head_return_revision(revision_id: int):
         )
 
         return jsonify({"success": True})
-    except Exception as e:
-        logger.error(f"Error returning revision as committee head: {e}")
+    except Exception:
+        logger.exception("Error returning revision as committee head")
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "An internal error occurred. Please try again."}), 500
 
 
 @csc_bp.route("/revision/<int:revision_id>/delete", methods=["POST"])
@@ -7811,10 +7803,10 @@ def admin_approve_revision(revision_id: int):
         )
 
         return jsonify({"success": True})
-    except Exception as e:
-        logger.error(f"Error approving revision: {e}")
+    except Exception:
+        logger.exception("Error approving revision")
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "An internal error occurred. Please try again."}), 500
 
 
 # Alias: templates use url_for('csc.api_admin_approve_revision', revision_id=...)
@@ -7849,10 +7841,10 @@ def admin_reject_revision(revision_id: int):
         _delete_revision_as_module_admin(revision, reviewer_notes)
 
         return jsonify({"success": True})
-    except Exception as e:
-        logger.error(f"Error rejecting revision: {e}")
+    except Exception:
+        logger.exception("Error rejecting revision")
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "An internal error occurred. Please try again."}), 500
 
 
 @csc_bp.route("/admin/revision/<int:revision_id>/return", methods=["POST"])
@@ -7904,10 +7896,10 @@ def admin_return_revision(revision_id: int):
         )
 
         return jsonify({"success": True})
-    except Exception as e:
-        logger.error(f"Error returning revision: {e}")
+    except Exception:
+        logger.exception("Error returning revision")
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "An internal error occurred. Please try again."}), 500
 
 
 # Alias: templates use url_for('csc.api_admin_reject_revision', revision_id=...)
@@ -7991,8 +7983,8 @@ def admin_classification_download():
     try:
         flash("Classification download not yet implemented.", "info")
         return redirect(url_for("csc.admin_classification"))
-    except Exception as e:
-        logger.error(f"Error downloading classification: {e}")
+    except Exception:
+        logger.exception("Error downloading classification")
         flash("Error downloading classification.", "danger")
         return redirect(url_for("csc.admin_classification"))
 
@@ -8013,9 +8005,9 @@ def admin_classification_upload():
 
         flash("Classification uploaded successfully.", "success")
         return jsonify({"success": True})
-    except Exception as e:
-        logger.error(f"Error uploading classification: {e}")
-        return jsonify({"error": str(e)}), 500
+    except Exception:
+        logger.exception("Error uploading classification")
+        return jsonify({"error": "An internal error occurred. Please try again."}), 500
 
 
 @csc_bp.route("/admin/classification/apply", methods=["POST"])
@@ -8026,9 +8018,9 @@ def admin_classification_apply():
     """Apply classification changes."""
     try:
         return jsonify({"success": True})
-    except Exception as e:
-        logger.error(f"Error applying classification: {e}")
-        return jsonify({"error": str(e)}), 500
+    except Exception:
+        logger.exception("Error applying classification")
+        return jsonify({"error": "An internal error occurred. Please try again."}), 500
 
 
 @csc_bp.route("/admin/export")
@@ -8095,8 +8087,8 @@ def admin_export_master():
             as_attachment=True,
             download_name=filename,
         )
-    except Exception as e:
-        logger.error(f"Error exporting master: {e}")
+    except Exception:
+        logger.exception("Error exporting master")
         flash("Error exporting master document.", "danger")
         return redirect(url_for("csc.admin_export"))
 

@@ -3,7 +3,7 @@ builder = "nixpacks"
 
 [deploy]
 startCommand = "FLASK_APP=run.py python -m flask db upgrade && gunicorn run:app --bind 0.0.0.0:$PORT --timeout 90 --graceful-timeout 30 --access-logfile - --error-logfile - --capture-output"
-healthcheckPath = "/"
+healthcheckPath = "/health"
 healthcheckTimeout = 30
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3

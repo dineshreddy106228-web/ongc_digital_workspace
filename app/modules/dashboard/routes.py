@@ -3,8 +3,9 @@
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from flask import render_template, redirect, url_for, abort, flash
+from flask import jsonify, render_template, redirect, url_for, abort, flash
 from flask_login import login_required, current_user
+from app.core.utils.decorators import superuser_required
 from sqlalchemy.orm import joinedload
 from app.modules.dashboard import dashboard_bp
 from app.models.core.activity_log import ActivityLog
@@ -123,6 +124,14 @@ def superuser_dashboard():
         last_refreshed=last_refreshed,
         user=current_user,
     )
+
+
+@dashboard_bp.route("/api/briefing-data")
+@login_required
+@superuser_required
+def briefing_data_api():
+    """JSON endpoint for lazy-loading the heavy superuser briefing drilldown."""
+    return jsonify(get_superuser_dashboard_briefing())
 
 
 def _render_dashboard_page(workspace_context):

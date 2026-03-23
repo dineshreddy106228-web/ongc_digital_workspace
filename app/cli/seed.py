@@ -72,6 +72,11 @@ def _seed_bootstrap_admin():
     username = current_app.config["BOOTSTRAP_ADMIN_USERNAME"]
     email = current_app.config["BOOTSTRAP_ADMIN_EMAIL"]
     password = current_app.config["BOOTSTRAP_ADMIN_PASSWORD"]
+    if not password or password == "ChangeMe@First1":
+        raise click.ClickException(
+            "BOOTSTRAP_ADMIN_PASSWORD is not set or is the insecure default. "
+            "Set a strong value in your environment before seeding."
+        )
 
     if User.query.filter_by(username=username).first():
         click.echo(f"  Bootstrap admin '{username}' already exists – skipping.")
@@ -351,6 +356,12 @@ def seed_admin():
     password = _read_required_bootstrap_env("BOOTSTRAP_ADMIN_PASSWORD")
     office_code = _read_required_bootstrap_env("PILOT_OFFICE_CODE")
     full_name = _read_optional_bootstrap_env("BOOTSTRAP_ADMIN_FULL_NAME")
+
+    if password == "ChangeMe@First1":
+        raise click.ClickException(
+            "BOOTSTRAP_ADMIN_PASSWORD is the insecure default. "
+            "Set a strong value in your environment before seeding."
+        )
 
     click.echo("Running seed-admin …")
     try:

@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from flask import url_for
 from sqlalchemy import and_, or_, select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.core.module_registry import (
     get_module_definition,
@@ -92,6 +92,7 @@ def get_superuser_dashboard_analytics():
     today = date.today()
     all_active_tasks = (
         Task.query
+        .options(joinedload(Task.owner), joinedload(Task.office))
         .filter(Task.is_active.is_(True))
         .order_by(Task.created_at.desc())
         .all()

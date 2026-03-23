@@ -1,10 +1,14 @@
 """Application factory for ONGC Digital Workspace."""
 
+import logging
 import secrets
 from importlib import import_module
-from flask import Flask, g, render_template_string, request, session
+from urllib.parse import urlparse
+from flask import Flask, g, jsonify, render_template_string, request, session
 from flask_login import current_user
 from config import Config
+
+logger = logging.getLogger(__name__)
 from app.core.services.rich_text import render_rich_text
 from app.core.utils.datetime import format_datetime_ist
 from app.extensions import cache, csrf, db, login_manager, migrate
@@ -67,6 +71,29 @@ def create_app(config_class=Config):
     app.jinja_env.filters["datetime_ist"] = format_datetime_ist
     app.jinja_env.filters["richtext"] = render_rich_text
 
+    @cache.memoize(timeout=30)
+    def _get_committee_open_count(user_id: int, role_name: str, office_id) -> int:
+        """Return committee open-task count for nav badge (short-lived cache)."""
+        try:
+            from app.models.committee.committee_task import CommitteeTask
+            from app.models.committee.committee_task_member import CommitteeTaskMember
+            from sqlalchemy import or_
+            if role_name in ("superuser", "admin"):
+                return CommitteeTask.query.filter(
+                    CommitteeTask.status != "done"
+                ).count()
+            # role == "user": scope to office + directly assigned tasks
+            return CommitteeTask.query.filter(
+                CommitteeTask.status != "done",
+                or_(
+                    CommitteeTask.office_id == office_id,
+                    CommitteeTask.members.any(CommitteeTaskMember.user_id == user_id),
+                ),
+            ).count()
+        except Exception:
+            logger.exception("Failed to load committee open count for user_id=%s", user_id)
+            return 0
+
     # ── Inject common template context ───────────────────────────
     @app.context_processor
     def inject_globals():
@@ -81,6 +108,7 @@ def create_app(config_class=Config):
             try:
                 recipient = get_latest_login_announcement_for_user(user_id)
             except Exception:
+                logger.exception("Failed to load login announcement for user_id=%s", user_id)
                 return None
             if recipient is None:
                 return None
@@ -95,26 +123,12 @@ def create_app(config_class=Config):
             role_name = (
                 current_user.role.name if current_user.role else ""
             ).lower()
-            try:
-                from app.models.committee.committee_task import CommitteeTask
-                from app.models.committee.committee_task_member import CommitteeTaskMember
-                from sqlalchemy import or_
-                if role_name in ("superuser", "admin"):
-                    # Global count across all offices
-                    committee_open = CommitteeTask.query.filter(
-                        CommitteeTask.status != "done"
-                    ).count()
-                elif role_name == "user" and current_user.has_module_access("committee"):
-                    # Scoped to the user's office and directly assigned committee tasks.
-                    committee_open = CommitteeTask.query.filter(
-                        CommitteeTask.status != "done",
-                        or_(
-                            CommitteeTask.office_id == current_user.office_id,
-                            CommitteeTask.members.any(CommitteeTaskMember.user_id == current_user.id),
-                        ),
-                    ).count()
-            except Exception:
-                committee_open = 0
+            if role_name in ("superuser", "admin") or (
+                role_name == "user" and current_user.has_module_access("committee")
+            ):
+                committee_open = _get_committee_open_count(
+                    current_user.id, role_name, current_user.office_id
+                )
 
         return dict(
             app_name=app.config["APP_NAME"],
@@ -222,7 +236,9 @@ def create_app(config_class=Config):
     def request_entity_too_large(e):
         limit_bytes = int(app.config.get("MAX_CONTENT_LENGTH") or 0)
         limit_mb = max(limit_bytes / (1024 * 1024), 0)
-        back_url = request.referrer or "/"
+        referrer = request.referrer or "/"
+        parsed = urlparse(referrer)
+        back_url = referrer if parsed.scheme in ("http", "https", "") else "/"
         return render_template_string("""
         {% extends "base.html" %}
         {% block title %}Upload Too Large{% endblock %}
@@ -237,5 +253,10 @@ def create_app(config_class=Config):
         </div>
         {% endblock %}
         """, limit_mb=limit_mb, back_url=back_url), 413
+
+    # ── Health check endpoint (no auth, no redirect) ─────────────
+    @app.route("/health")
+    def health_check():
+        return jsonify({"status": "ok"}), 200
 
     return app

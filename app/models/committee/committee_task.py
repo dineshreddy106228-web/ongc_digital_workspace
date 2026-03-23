@@ -12,6 +12,7 @@ class CommitteeTask(db.Model):
         db.Index("ix_committee_tasks_status", "status"),
         db.Index("ix_committee_tasks_priority", "priority"),
         db.Index("ix_committee_tasks_due_date", "due_date"),
+        db.Index("ix_committee_tasks_office_status", "office_id", "status"),
     )
 
     id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
