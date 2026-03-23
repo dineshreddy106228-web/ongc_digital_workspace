@@ -6321,12 +6321,10 @@ def _render_admin_revisions_workbench(
             }
             for revision in revisions
         ]
-        deletable_revision_count = sum(1 for row in revision_rows if row["can_force_delete"])
 
         return render_template(
             "csc/admin/revisions.html",
             revision_rows=revision_rows,
-            deletable_revision_count=deletable_revision_count,
             can_import_workbooks=True,
             workflow_nav_active="admin",
             workbench_title="Secretary Workbench",
@@ -7413,54 +7411,8 @@ def admin_cancel_material_handling_workbook_import():
 @module_access_required("csc")
 @module_admin_required("csc")
 def admin_delete_all_revisions():
-    """Delete all active workflow drafts currently deletable from the Secretary workbench."""
-    try:
-        confirmation = (request.form.get("confirmation_phrase") or "").strip()
-        if confirmation != "DELETE ALL DRAFTS":
-            flash('Type "DELETE ALL DRAFTS" to confirm bulk deletion.', "warning")
-            return _render_admin_revisions_workbench()
-
-        revisions = (
-            CSCRevision.query.order_by(CSCRevision.updated_at.desc(), CSCRevision.id.desc()).all()
-        )
-        deletable_revisions = [
-            revision for revision in revisions if _revision_can_be_force_deleted_by_secretary(revision)
-        ]
-        if not deletable_revisions:
-            flash("No active workflow drafts are currently available for bulk deletion.", "info")
-            return _render_admin_revisions_workbench()
-
-        deleted_count = 0
-        for revision in deletable_revisions:
-            child_draft = revision.child_draft
-            parent_draft = revision.parent_draft
-            if child_draft is None or parent_draft is None:
-                continue
-
-            is_new_spec = _draft_type_label(child_draft) == "New Specification"
-            if not is_new_spec:
-                parent_draft.status = "Published"
-                parent_draft.admin_stage = ADMIN_STAGE_PUBLISHED
-                parent_draft.updated_at = datetime.now(timezone.utc)
-
-            clear_staged_master_payload(child_draft)
-            db.session.delete(revision)
-            db.session.delete(child_draft)
-            if is_new_spec:
-                db.session.delete(parent_draft)
-            deleted_count += 1
-
-        db.session.commit()
-        flash(
-            f"Deleted {deleted_count} workflow draft(s) from the Secretary workbench.",
-            "success",
-        )
-        return _render_admin_revisions_workbench()
-    except Exception as exc:
-        logger.exception("Error bulk deleting revisions from Secretary workbench")
-        db.session.rollback()
-        flash("Unable to delete all workflow drafts right now.", "danger")
-        return _render_admin_revisions_workbench()
+    """Bulk deletion from the Secretary workbench has been removed."""
+    abort(404)
 
 
 def _open_revision_for_committee_workflow(revision: CSCRevision) -> tuple[bool, str]:
@@ -8119,24 +8071,8 @@ def admin_audit_log():
 @module_access_required("csc")
 @module_admin_required("csc")
 def admin_reset_audit_test_state():
-    """Clear CSC test audit history and workflow child drafts before go-live."""
-    try:
-        summary = _reset_csc_test_workflow_state()
-        flash(
-            (
-                "CSC test state reset complete. "
-                f"Deleted {summary['audit_entries_deleted']} audit row(s), "
-                f"{summary['revisions_deleted']} revision row(s), and "
-                f"{summary['child_drafts_deleted']} workflow draft(s). "
-                f"The next workflow draft ID will start at {summary['next_draft_id']}."
-            ),
-            "success",
-        )
-    except Exception:
-        logger.exception("Error resetting CSC test workflow state")
-        db.session.rollback()
-        flash("Unable to reset CSC test workflow state.", "danger")
-    return redirect(url_for("csc.admin_audit_log"))
+    """Audit-log reset action has been removed."""
+    abort(404)
 
 
 @csc_bp.route("/admin/audit/download")

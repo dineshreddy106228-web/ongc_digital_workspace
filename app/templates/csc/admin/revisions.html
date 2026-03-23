@@ -480,19 +480,6 @@
       <h1 class="inv-module-title"><i class="bi bi-clipboard-check"></i> {{ workbench_title }}</h1>
       <p class="inv-module-subtitle">{{ workbench_subtitle }}</p>
     </div>
-    {% if can_import_workbooks %}
-    <form method="post" action="{{ url_for('csc.admin_delete_all_revisions') }}" class="csc-bulk-delete-form" onsubmit="return window.confirm('Delete all active workflow drafts from Secretary Workbench? This cannot be undone.');">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <input type="hidden" name="confirmation_phrase" value="DELETE ALL DRAFTS">
-      <div class="csc-import-inline-note" style="margin-bottom:0.45rem;text-align:right;">
-        {{ deletable_revision_count or 0 }} deletable draft(s)
-      </div>
-      <button type="submit" class="btn btn-danger" {% if not deletable_revision_count %}disabled{% endif %}>
-        <i class="bi bi-trash3"></i>
-        Delete All Drafts
-      </button>
-    </form>
-    {% endif %}
   </div>
 
   {% include "csc/_workflow_nav.html" %}

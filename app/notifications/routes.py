@@ -6,6 +6,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from flask import (
+    abort,
     flash,
     jsonify,
     redirect,
@@ -43,7 +44,6 @@ from app.core.services.notifications import (
     get_unread_notification_count,
     mark_all_notifications_read,
     mark_notification_read,
-    reset_all_notifications_to_welcome_state,
 )
 from app.core.utils.activity import log_activity
 from app.core.utils.decorators import superuser_required
@@ -183,31 +183,8 @@ def read_all():
 @login_required
 @superuser_required
 def reset_all_to_welcome():
-    """Remove all notifications for all users except one normalized welcome notification."""
-    try:
-        result = reset_all_notifications_to_welcome_state()
-        _superuser_audit(
-            action="NOTIFICATIONS_RESET_TO_WELCOME",
-            entity_id="all_users",
-            details=(
-                f"users={result['user_count']}, "
-                f"removed={result['removed_count']}, "
-                f"normalized={result['normalized_count']}, "
-                f"created={result['created_count']}"
-            ),
-        )
-        db.session.commit()
-        flash(
-            (
-                "Notifications were reset for all users. "
-                f"Removed {result['removed_count']} entries and kept one welcome notification per user."
-            ),
-            "success",
-        )
-    except SQLAlchemyError:
-        db.session.rollback()
-        flash("Could not reset notifications due to a database error.", "danger")
-    return redirect(url_for("notifications.index"))
+    """Global notification reset has been removed."""
+    abort(404)
 
 
 

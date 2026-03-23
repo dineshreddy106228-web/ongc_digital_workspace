@@ -40,16 +40,6 @@
       <p class="inv-module-subtitle">Latest workflow events across drafting, review, rejection, return, and publication</p>
     </div>
     <div class="inv-header-actions">
-      <form
-        method="post"
-        action="{{ url_for('csc.admin_reset_audit_test_state') }}"
-        onsubmit="return confirm('This will delete all CSC audit rows and active workflow child drafts created during testing. Published parent drafts stay. Continue?');"
-      >
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" class="btn btn-danger">
-          <i class="bi bi-arrow-counterclockwise"></i> One-Time Reset Test State
-        </button>
-      </form>
       <a href="{{ url_for('csc.admin_audit_log_download') }}" class="btn btn-primary">
         <i class="bi bi-download"></i> Download CSV
       </a>
@@ -58,9 +48,6 @@
 
   <div class="card">
     <div class="card-body">
-      <div class="alert alert-warning" style="margin-bottom: 1rem;">
-        Use the reset action only after testing is complete. It removes CSC audit history, deletes active workflow child drafts and revisions, restores parent specs to published status, and resets the next draft ID to the earliest valid value after the remaining published parents.
-      </div>
       {% if entries %}
       <div class="csc-audit-wrap">
         <table class="csc-audit-table">
