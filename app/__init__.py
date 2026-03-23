@@ -174,9 +174,9 @@ def create_app(config_class=Config):
                 "form-action 'self'",
                 "frame-ancestors 'self'",
                 "object-src 'none'",
-                f"script-src 'self' 'nonce-{nonce}' https://cdnjs.cloudflare.com",
-                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-                "font-src 'self' https://fonts.gstatic.com data:",
+                f"script-src 'self' 'nonce-{nonce}' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net",
+                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net",
+                "font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net data:",
                 "img-src 'self' data:",
                 "connect-src 'self'",
             ]
