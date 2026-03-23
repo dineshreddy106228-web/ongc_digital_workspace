@@ -4591,10 +4591,18 @@
 
     document.getElementById('exportDocxBtn')?.addEventListener('click', function() {
         var button = this;
+        var exportUrl = '/csc/draft/' + draftId + '/export/docx';
+        var exportWindow = null;
         button.disabled = true;
         showSaveIndicator('exportIndicator', 'info', hasUnsavedChanges()
             ? 'Saving changes before export...'
             : 'Preparing Word export...');
+
+        try {
+            exportWindow = window.open('', '_blank', 'noopener');
+        } catch (error) {
+            exportWindow = null;
+        }
 
         Promise.resolve()
             .then(function() {
@@ -4606,9 +4614,16 @@
             })
             .then(function() {
                 showSaveIndicator('exportIndicator', 'success', '✓ Saved. Opening Word export...');
-                window.open('/csc/draft/' + draftId + '/export/docx', '_blank', 'noopener');
+                if (exportWindow && !exportWindow.closed) {
+                    exportWindow.location = exportUrl;
+                    return;
+                }
+                window.location.href = exportUrl;
             })
             .catch(function(error) {
+                if (exportWindow && !exportWindow.closed) {
+                    exportWindow.close();
+                }
                 showSaveIndicator(
                     'exportIndicator',
                     'error',
