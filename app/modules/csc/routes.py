@@ -1527,7 +1527,7 @@ def _default_justification_section_text(stream_name: str | None = None) -> str:
 
 def _default_recommendation_section_text(stream_name: str | None = None) -> str:
     if stream_name == MATERIAL_HANDLING_STREAM:
-        return "Migration to 2026 version with defined material handling and storage conditions"
+        return "Migration to 2026 version with definition of material properties, handling and storage conditions"
     return (
         "Version Change Reason/\n"
         "Migration to 2026 version with type classification of all parameters into Vital and Desirable. "

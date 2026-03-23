@@ -1046,7 +1046,7 @@ def test_material_handling_section_defaults_cover_background_changes_and_reason(
     assert defaults["proposed_changes"] == _default_proposed_changes_section_text("material_handling")
     assert "material handling" in defaults["proposed_changes"].lower()
     assert defaults["recommendation"] == _default_recommendation_section_text("material_handling")
-    assert defaults["recommendation"] == "Migration to 2026 version with defined material handling and storage conditions"
+    assert defaults["recommendation"] == "Migration to 2026 version with definition of material properties, handling and storage conditions"
 
 
 def test_merge_material_handling_section_block_drops_testing_placeholder():
