@@ -114,67 +114,142 @@ TEST_PROCEDURE_TYPE_ALIASES = {
     "any other national / international standard": "Any other National / International Standard",
 }
 
-IMPACT_CHECKLIST_VERSION = 1
+IMPACT_CHECKLIST_VERSION = 2
+
+# Valid 4-state flag values
+VALID_FLAG_VALUES = ["YES", "PROVISIONAL", "REVIEW", "NO"]
+
+# Flag group membership
+RED_FLAG_IDS = ["hse_flag", "op_acute_flag", "op_chronic_flag", "safety_flag"]
+AMBER_FLAG_IDS = ["env_flag", "regulatory_flag", "supply_flag", "seasonal_flag", "financial_flag"]
+ALL_FLAG_IDS = RED_FLAG_IDS + AMBER_FLAG_IDS
+
 IMPACT_CHECKLIST_FLAGS = [
+    # ── Red flags ──────────────────────────────────────────────────────────────
     {
-        "id": "flag_1",
+        "id": "hse_flag",
         "order": 1,
         "dimension": "HSE / Hazard",
         "type": "RED",
         "section_label": "Red flags — any YES = High Impact",
         "question": "Is the chemical classified as Toxic, Corrosive, Flammable, or Carcinogenic in its SDS?",
         "source": "MSDS",
-        "detail": "Check SDS Section 2 for GHS pictograms — skull/crossbones (toxic), flame (flammable), corrosion (corrosive), or health hazard (carcinogen). Any one of these = YES. Reference: Manufacture, Storage and Import of Hazardous Chemical Rules 1989.",
+        "detail": (
+            "Check SDS Section 2 for GHS pictograms — skull/crossbones (toxic), flame (flammable), "
+            "corrosion symbol (corrosive), health hazard diamond (carcinogen/mutagen). "
+            "Any one of these = YES."
+        ),
     },
     {
-        "id": "flag_2",
+        "id": "op_acute_flag",
         "order": 2,
-        "dimension": "Environment",
+        "dimension": "Op-Acute",
         "type": "RED",
         "section_label": "Red flags — any YES = High Impact",
-        "question": "Does disposal require hazardous waste treatment or CPCB / State PCB authorisation?",
-        "source": "MSDS + CPCB Rules",
-        "detail": "Check SDS Section 13 (Disposal Considerations) and cross-reference with Hazardous Waste Rules 2016 Schedule I and II. If spent chemical or container must be sent to a CPCB-authorised TSDF = YES.",
-    },
-    {
-        "id": "flag_3",
-        "order": 3,
-        "dimension": "Operational",
-        "type": "RED",
-        "section_label": "Red flags — any YES = High Impact",
-        "question": "Will production / well operation stop if this chemical is unavailable for 7 consecutive days?",
+        "question": "Will production or well operation stop within 7 consecutive days if this chemical is unavailable?",
         "source": "User Department",
-        "detail": "Must be confirmed in writing by the concerned Production or Drilling Engineer — not by stores or procurement. The 7-day window reflects realistic emergency procurement lead time. If a substitute can be deployed within 7 days, flag is NO. Document the engineer's name and date.",
+        "detail": (
+            "The 7-day window reflects realistic emergency procurement lead time. "
+            "If a substitute can be deployed within 7 days, flag = NO. "
+            "Must be confirmed by Chemistry discipline, not stores or procurement."
+        ),
     },
     {
-        "id": "flag_4",
+        "id": "op_chronic_flag",
+        "order": 3,
+        "dimension": "Op-Chronic",
+        "type": "RED",
+        "section_label": "Red flags — any YES = High Impact",
+        "question": "Will prolonged absence of this chemical (30+ days) cause irreversible damage to pipelines, equipment, wells, or reservoirs — even if operations continue normally in the short term?",
+        "source": "User Department",
+        "detail": (
+            "Covers corrosion inhibitors, scale inhibitors, biocides (MIC), wax inhibitors, "
+            "asphaltene inhibitors, pour point depressants. Asset damage is irreversible and "
+            "potentially catastrophic — operationally critical regardless of 7-day production impact."
+        ),
+    },
+    {
+        "id": "safety_flag",
         "order": 4,
+        "dimension": "Safety-critical",
+        "type": "RED",
+        "section_label": "Red flags — any YES = High Impact",
+        "question": "Is this chemical used for safety, emergency response, or personnel protection where its absence creates a statutory or life-safety risk under OISD or DGMS — even if production is unaffected?",
+        "source": "User Department",
+        "detail": (
+            "Firefighting foam (AFFF), H2S neutralisation chemicals, ETP treatment chemicals, "
+            "spill absorbents, emergency response agents. Their absence on the day of an incident "
+            "is a direct regulatory breach under OISD-STD-109/117."
+        ),
+    },
+    # ── Amber flags ────────────────────────────────────────────────────────────
+    {
+        "id": "env_flag",
+        "order": 5,
+        "dimension": "Environment",
+        "type": "AMBER",
+        "section_label": "Amber flags — any YES (no red flags) = Medium Impact",
+        "question": "Does disposal of this chemical require hazardous waste treatment or authorisation from CPCB or State PCB?",
+        "source": "MSDS + CPCB Rules",
+        "detail": (
+            "Cross-reference with Hazardous Waste Management Rules 2016 Schedule I and II. "
+            "If spent chemical or container must go to a CPCB-authorised TSDF = YES. "
+            "Source is committee knowledge — SDS Section 13 serves as verification once available."
+        ),
+    },
+    {
+        "id": "regulatory_flag",
+        "order": 6,
         "dimension": "Regulatory",
         "type": "AMBER",
-        "section_label": "Amber flags — any YES (with no red flags) = Medium Impact",
+        "section_label": "Amber flags — any YES (no red flags) = Medium Impact",
         "question": "Does storage or use require a statutory licence, DGMS approval, or OISD compliance?",
         "source": "Indentor",
-        "detail": "Applicable statutes include Petroleum Act 1934, Explosives Act 1884, DGMS Circulars for drilling chemicals, and OISD-STD-109/117. If any licence or permit is required from a government authority for storage or use = YES.",
+        "detail": (
+            "Petroleum Act 1934, Explosives Act 1884, DGMS Circulars for drilling/mining chemicals, "
+            "OISD-STD-109/117 for petroleum installations."
+        ),
     },
     {
-        "id": "flag_5",
-        "order": 5,
+        "id": "supply_flag",
+        "order": 7,
         "dimension": "Supply Chain",
         "type": "AMBER",
-        "section_label": "Amber flags — any YES (with no red flags) = Medium Impact",
-        "question": "Is there only ONE qualified vendor OR is the chemical exclusively imported?",
+        "section_label": "Amber flags — any YES (no red flags) = Medium Impact",
+        "question": "Is there only ONE qualified vendor OR is the chemical exclusively imported with no domestic supply?",
         "source": "Vendor Master",
-        "detail": "Check vendor master for number of approved sources. If only 1 vendor is registered and no alternate has been qualified in the last 3 years = YES. Also YES if all supply is through import regardless of number of importers.",
+        "detail": (
+            "If only 1 vendor registered and no alternate qualified in last 3 years = YES. "
+            "All-import sourcing = YES regardless of importer count."
+        ),
     },
     {
-        "id": "flag_6",
-        "order": 6,
+        "id": "seasonal_flag",
+        "order": 8,
+        "dimension": "Seasonal",
+        "type": "AMBER",
+        "section_label": "Amber flags — any YES (no red flags) = Medium Impact",
+        "question": "Is this chemical required only during specific seasons or operational campaigns where a procurement delay during that window causes disproportionate operational loss?",
+        "source": "User Department",
+        "detail": (
+            "Hydrate inhibitors (winter), wax inhibitors (temperature drop), workover fluids (campaign), "
+            "stimulation acids (drilling campaign). Even if average consumption appears low, "
+            "unavailability at the critical window = major consequence."
+        ),
+    },
+    {
+        "id": "financial_flag",
+        "order": 9,
         "dimension": "Financial",
         "type": "AMBER",
-        "section_label": "Amber flags — any YES (with no red flags) = Medium Impact",
-        "question": "Expiry/wastage loss > Rs. 1 lakh in 2 years OR disposal cost > 20% of purchase price?",
+        "section_label": "Amber flags — any YES (no red flags) = Medium Impact",
+        "question": "Does this chemical show expiry/wastage loss > Rs. 1 lakh in 2 years OR disposal cost > 20% of purchase price?",
         "source": "Indentor",
-        "detail": "Two independent tests — either one triggers YES. Test 1: Check stores write-off register for last 24 months; if this material code appears with total value ≥ Rs. 1 lakh = YES. Test 2: Compute disposal cost divided by purchase price × 100; if ≥ 20% = YES.",
+        "detail": (
+            "Note — stores write-off register data may be unreliable due to institutional practice of "
+            "booking expired stock as consumed. This flag may be pre-filled from MB51 movement analysis "
+            "as PROVISIONAL where only one risk signal is present. Committee owner should confirm or override."
+        ),
     },
 ]
 
@@ -346,29 +421,58 @@ def increment_spec_version(raw_value, increment_type: str | None) -> int:
     return stored_value + SPEC_VERSION_WHOLE_STEP
 
 
-def _normalize_impact_flag_answer(value):
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        if int(value) == 1:
-            return True
-        if int(value) == 0:
-            return False
+def _normalize_impact_flag_answer(value) -> str:
+    """Normalize any flag value representation to one of the 4 canonical states."""
     if isinstance(value, str):
-        token = value.strip().lower()
-        if token in {"yes", "true", "1"}:
-            return True
-        if token in {"no", "false", "0"}:
-            return False
-    return None
+        token = value.strip().upper()
+        if token in {"YES", "PROVISIONAL", "REVIEW", "NO"}:
+            return token
+        # Legacy boolean strings
+        if token in {"TRUE", "1"}:
+            return "YES"
+        if token in {"FALSE", "0"}:
+            return "NO"
+    if isinstance(value, bool):
+        return "YES" if value else "NO"
+    if isinstance(value, (int, float)):
+        return "YES" if int(value) == 1 else ("NO" if int(value) == 0 else "REVIEW")
+    return "REVIEW"
+
+
+def _make_flag_entry(
+    value=None,
+    source_type: str = "COMMITTEE",
+    answered_by: str | None = None,
+    answered_on: str | None = None,
+    fin_reason: str = "",
+) -> dict:
+    """Build a single flag metadata entry with a canonical 4-state value."""
+    return {
+        "value": _normalize_impact_flag_answer(value) if value is not None else "REVIEW",
+        "source_type": source_type or "COMMITTEE",
+        "answered_by": answered_by or "",
+        "answered_on": answered_on or "",
+        "fin_reason": fin_reason or "",
+    }
 
 
 def build_default_impact_checklist_state(chemical_name: str | None = None) -> dict:
     return {
         "version": IMPACT_CHECKLIST_VERSION,
         "chemical_name": sanitize_text(chemical_name or "", max_length=255),
-        "answers": {flag["id"]: None for flag in IMPACT_CHECKLIST_FLAGS},
+        "flags": {flag["id"]: _make_flag_entry() for flag in IMPACT_CHECKLIST_FLAGS},
     }
+
+
+# ── Legacy ID → new ID mapping (for v1 → v2 migration) ──────────────────────
+_LEGACY_FLAG_MAP: dict[str, str] = {
+    "flag_1": "hse_flag",
+    "flag_2": "env_flag",
+    "flag_3": "op_acute_flag",
+    "flag_4": "regulatory_flag",
+    "flag_5": "supply_flag",
+    "flag_6": "financial_flag",
+}
 
 
 def deserialize_impact_checklist_state(
@@ -389,22 +493,50 @@ def deserialize_impact_checklist_state(
     if not isinstance(payload, dict):
         return state
 
-    state["version"] = int(payload.get("version", IMPACT_CHECKLIST_VERSION) or IMPACT_CHECKLIST_VERSION)
+    stored_version = int(payload.get("version", 1) or 1)
+    state["version"] = IMPACT_CHECKLIST_VERSION
     state["chemical_name"] = sanitize_text(
         payload.get("chemical_name", state["chemical_name"]) or state["chemical_name"],
         max_length=255,
     )
 
-    answers = payload.get("answers")
-    if not isinstance(answers, dict):
-        answers = payload.get("flags")
-
-    if isinstance(answers, dict):
+    # ── v2 format: flags dict with metadata objects ────────────────────────
+    if stored_version >= 2 and isinstance(payload.get("flags"), dict):
         for flag in IMPACT_CHECKLIST_FLAGS:
-            answer = answers.get(flag["id"])
-            if isinstance(answer, dict):
-                answer = answer.get("answer", answer.get("value"))
-            state["answers"][flag["id"]] = _normalize_impact_flag_answer(answer)
+            raw = payload["flags"].get(flag["id"])
+            if isinstance(raw, dict):
+                state["flags"][flag["id"]] = _make_flag_entry(
+                    value=raw.get("value"),
+                    source_type=raw.get("source_type", "COMMITTEE"),
+                    answered_by=raw.get("answered_by", ""),
+                    answered_on=raw.get("answered_on", ""),
+                    fin_reason=raw.get("fin_reason", ""),
+                )
+        return state
+
+    # ── v1 format: "answers" dict with boolean/null values ────────────────
+    answers_raw = payload.get("answers") or payload.get("flags") or {}
+    if isinstance(answers_raw, dict):
+        for flag in IMPACT_CHECKLIST_FLAGS:
+            # Try current flag id first, then legacy mapping
+            raw_val = answers_raw.get(flag["id"])
+            if raw_val is None:
+                # Reverse-lookup legacy id
+                for legacy_id, new_id in _LEGACY_FLAG_MAP.items():
+                    if new_id == flag["id"]:
+                        raw_val = answers_raw.get(legacy_id)
+                        break
+
+            if isinstance(raw_val, dict):
+                raw_val = raw_val.get("answer", raw_val.get("value"))
+
+            if raw_val is not None:
+                state["flags"][flag["id"]] = _make_flag_entry(
+                    value=raw_val,
+                    source_type="COMMITTEE",
+                    answered_by="migrated",
+                    answered_on=datetime.now(timezone.utc).isoformat(),
+                )
 
     return state
 
@@ -413,21 +545,28 @@ def summarize_impact_checklist_state(state: dict | None) -> dict:
     normalized = deserialize_impact_checklist_state(state)
     red_yes_count = 0
     amber_yes_count = 0
+    amber_prov_count = 0
     answered_count = 0
     flag_rows = []
 
     for flag in IMPACT_CHECKLIST_FLAGS:
-        answer = _normalize_impact_flag_answer(normalized["answers"].get(flag["id"]))
-        if answer is not None:
+        entry = normalized["flags"].get(flag["id"]) or {}
+        val = entry.get("value", "REVIEW") if isinstance(entry, dict) else "REVIEW"
+        # "answered" means the user moved it out of REVIEW state
+        if val != "REVIEW":
             answered_count += 1
-        if answer is True and flag["type"] == "RED":
+        if val == "YES" and flag["type"] == "RED":
             red_yes_count += 1
-        if answer is True and flag["type"] == "AMBER":
+        if val == "YES" and flag["type"] == "AMBER":
             amber_yes_count += 1
+        if val == "PROVISIONAL" and flag["type"] == "AMBER":
+            amber_prov_count += 1
+
         flag_rows.append({
             **flag,
-            "answer": answer,
-            "answer_label": "YES" if answer is True else "NO" if answer is False else "PENDING",
+            "meta": entry,
+            "answer": val,
+            "answer_label": val,
         })
 
     total_flags = len(IMPACT_CHECKLIST_FLAGS)
@@ -436,63 +575,130 @@ def summarize_impact_checklist_state(state: dict | None) -> dict:
     if red_yes_count > 0:
         classification = "HIGH IMPACT"
         grade = "HIGH"
+        confidence = "Confirmed"
         rule = f"{red_yes_count} red flag(s) answered YES"
         tone = "red"
         score = 3.0
+        triggered = [f["id"] for f in flag_rows if f["type"] == "RED" and f["answer"] == "YES"]
     elif amber_yes_count > 0:
         classification = "MEDIUM IMPACT"
         grade = "MEDIUM"
+        confidence = "Confirmed"
         rule = f"No red flags, but {amber_yes_count} amber flag(s) answered YES"
         tone = "amber"
         score = 2.0
-    elif answered_count == 0:
-        classification = "Pending"
-        grade = "PENDING"
-        rule = "Pending — answer flags above"
-        tone = "pending"
-        score = 0.0
+        triggered = [f["id"] for f in flag_rows if f["type"] == "AMBER" and f["answer"] == "YES"]
+    elif amber_prov_count > 0:
+        classification = "MEDIUM IMPACT"
+        grade = "MEDIUM"
+        confidence = "Provisional"
+        rule = f"No confirmed red flags, but {amber_prov_count} amber flag(s) are PROVISIONAL"
+        tone = "amber"
+        score = 2.0
+        triggered = [f["id"] for f in flag_rows if f["type"] == "AMBER" and f["answer"] == "PROVISIONAL"]
     elif answered_count == total_flags:
         classification = "LOW IMPACT"
         grade = "LOW"
-        rule = f"All {total_flags} flags answered NO"
+        confidence = "Confirmed"
+        rule = f"All {total_flags} flags answered — no triggers"
         tone = "green"
         score = 1.0
+        triggered = []
     else:
-        classification = "Pending"
-        grade = "PENDING"
-        rule = "Pending — answer remaining flags above"
-        tone = "pending"
-        score = 0.0
+        classification = "LOW IMPACT"
+        grade = "LOW"
+        confidence = "Provisional"
+        rule = f"No triggers found — {total_flags - answered_count} flag(s) still at REVIEW"
+        tone = "green"
+        score = 1.0
+        triggered = []
 
     return {
         "chemical_name": normalized["chemical_name"],
         "flags": flag_rows,
         "red_yes_count": red_yes_count,
         "amber_yes_count": amber_yes_count,
+        "amber_prov_count": amber_prov_count,
         "yes_total": yes_total,
         "answered_count": answered_count,
         "total_flags": total_flags,
         "classification": classification,
         "grade": grade,
+        "confidence": confidence,
+        "triggered_flags": triggered,
         "rule": rule,
         "tone": tone,
         "score": score,
     }
 
 
+def compute_impact_classification(flags: dict) -> dict:
+    """
+    Compute impact classification from a flat dict of flag_id → value strings.
+    flags: e.g. {'hse_flag': 'YES', 'op_acute_flag': 'REVIEW', ...}
+    Returns: dict with tier, confidence, triggered_flags, flags_answered, flags_total
+    """
+    red_yes    = [f for f in RED_FLAG_IDS   if flags.get(f) == "YES"]
+    amber_yes  = [f for f in AMBER_FLAG_IDS if flags.get(f) == "YES"]
+    amber_prov = [f for f in AMBER_FLAG_IDS if flags.get(f) == "PROVISIONAL"]
+    answered   = [f for f in ALL_FLAG_IDS   if flags.get(f) in ("YES", "PROVISIONAL", "NO")]
+
+    if red_yes:
+        tier       = "HIGH"
+        confidence = "Confirmed"
+        triggered  = red_yes
+    elif amber_yes:
+        tier       = "MEDIUM"
+        confidence = "Confirmed"
+        triggered  = amber_yes
+    elif amber_prov:
+        tier       = "MEDIUM"
+        confidence = "Provisional"
+        triggered  = amber_prov
+    else:
+        tier       = "LOW"
+        confidence = "Confirmed" if len(answered) >= len(ALL_FLAG_IDS) else "Provisional"
+        triggered  = []
+
+    return {
+        "tier":            tier,
+        "confidence":      confidence,
+        "triggered_flags": triggered,
+        "flags_answered":  len(answered),
+        "flags_total":     len(ALL_FLAG_IDS),
+    }
+
+
+def migrate_impact_flags(checklist_state_json: str | None) -> dict:
+    """
+    Migrate a v1 checklist_state_json (6-flag boolean) to the new v2 9-flag 4-state structure.
+    Safe to run multiple times (idempotent).
+    Returns the new deserialized state dict (not JSON string).
+    """
+    state = deserialize_impact_checklist_state(checklist_state_json)
+    # deserialize_impact_checklist_state already handles v1→v2 migration internally
+    return state
+
+
 def build_impact_legacy_payload(state: dict | None) -> dict:
     normalized = deserialize_impact_checklist_state(state)
     summary = summarize_impact_checklist_state(normalized)
-    red_yes = [flag["question"] for flag in summary["flags"] if flag["type"] == "RED" and flag["answer"] is True]
-    amber_yes = [flag["question"] for flag in summary["flags"] if flag["type"] == "AMBER" and flag["answer"] is True]
+    red_yes = [
+        flag["question"] for flag in summary["flags"]
+        if flag["type"] == "RED" and flag["answer"] == "YES"
+    ]
+    amber_yes = [
+        flag["question"] for flag in summary["flags"]
+        if flag["type"] == "AMBER" and flag["answer"] == "YES"
+    ]
 
     operational_note = "\n".join([
-        f"Classification: {summary['classification']}",
+        f"Classification: {summary['classification']} ({summary['confidence']})",
         f"Rule: {summary['rule']}",
         f"Chemical Name: {summary['chemical_name'] or 'Not specified'}",
     ])
-    safety_note = "Red flags answered YES: " + (", ".join(red_yes) if red_yes else "None")
-    supply_note = "Amber flags answered YES: " + (", ".join(amber_yes) if amber_yes else "None")
+    safety_note = "Red flags YES: " + (", ".join(red_yes) if red_yes else "None")
+    supply_note = "Amber flags YES: " + (", ".join(amber_yes) if amber_yes else "None")
 
     return {
         "operational_impact_score": summary["red_yes_count"],

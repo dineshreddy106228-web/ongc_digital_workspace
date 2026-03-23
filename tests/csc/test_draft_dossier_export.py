@@ -8,7 +8,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from app.core.services.csc_export import build_flask_review_document
-from app.modules.csc.routes import _build_comparison_value_rows
+from app.modules.csc.routes import (
+    _build_comparison_value_rows,
+    _should_blank_legacy_supporting_baseline,
+    _should_hide_legacy_supporting_sections,
+)
 
 
 def test_build_comparison_value_rows_marks_published_delta() -> None:
@@ -96,10 +100,24 @@ def test_build_flask_review_document_uses_comparison_layout_without_update_field
     assert "w:updateFields" not in settings_xml
 
 
+def test_legacy_v0_supporting_rules() -> None:
+    class DraftStub:
+        def __init__(self, spec_version: int, parent_draft_id=None):
+            self.spec_version = spec_version
+            self.parent_draft_id = parent_draft_id
+
+    assert _should_blank_legacy_supporting_baseline(DraftStub(0)) is True
+    assert _should_blank_legacy_supporting_baseline(DraftStub(1)) is False
+    assert _should_hide_legacy_supporting_sections(DraftStub(0, None)) is True
+    assert _should_hide_legacy_supporting_sections(DraftStub(1, None)) is False
+    assert _should_hide_legacy_supporting_sections(DraftStub(0, 99)) is False
+
+
 def _run_direct() -> None:
     tests = [
         test_build_comparison_value_rows_marks_published_delta,
         test_build_flask_review_document_uses_comparison_layout_without_update_fields,
+        test_legacy_v0_supporting_rules,
     ]
     for test in tests:
         test()

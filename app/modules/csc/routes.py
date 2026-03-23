@@ -12,6 +12,7 @@ Endpoints:
     POST /csc/api/draft/<int:draft_id>/parameters              → Save parameters (Phase 1)
     POST /csc/api/draft/<int:draft_id>/parameters/proposed     → Save proposed values (Phase 2)
     POST /csc/api/draft/<int:draft_id>/impact  → Save impact analysis
+    POST /csc/api/draft/<int:draft_id>/flag   → Update single impact flag (4-state AJAX)
     POST /csc/api/draft/<int:draft_id>/submit  → Submit revision for approval
     POST /csc/api/draft/<int:draft_id>/delete  → Delete draft
     GET  /csc/draft/<int:draft_id>/export/docx → Download Word document
@@ -85,11 +86,14 @@ from app.core.services.notifications import create_notification
 from app.core.services.csc_utils import (
     ADMIN_STAGE_DRAFTING,
     ADMIN_STAGE_PUBLISHED,
+    ALL_FLAG_IDS,
+    VALID_FLAG_VALUES,
     IMPACT_CHECKLIST_FLAGS,
     SPEC_SUBSET_LABELS,
     SPEC_SUBSET_ORDER,
     build_default_impact_checklist_state,
     build_impact_legacy_payload,
+    compute_impact_classification,
     deserialize_impact_checklist_state,
     format_required_value,
     format_spec_version,
@@ -1675,11 +1679,14 @@ def _format_impact_checklist_summary_for_review(summary: object) -> str:
         order = flag.get("order")
         answer = flag.get("answer_label") or "—"
         flag_bits.append(f"F{order}: {answer}")
+    confidence = summary.get("confidence", "")
+    total = summary.get("total_flags", 9)
     parts = [
-        f"Classification: {summary.get('classification') or '—'}",
+        f"Classification: {summary.get('classification') or '—'}" + (f" ({confidence})" if confidence else ""),
         f"Rule: {summary.get('rule') or '—'}",
-        f"Red YES: {summary.get('red_yes_count', 0)}/3",
-        f"Amber YES: {summary.get('amber_yes_count', 0)}/3",
+        f"Red YES: {summary.get('red_yes_count', 0)}/4",
+        f"Amber YES: {summary.get('amber_yes_count', 0)}/5",
+        f"Answered: {summary.get('answered_count', 0)}/{total}",
     ]
     if flag_bits:
         parts.append("Flags: " + ", ".join(flag_bits))
@@ -1699,10 +1706,14 @@ def _build_impact_review_rows(
                 draft.chemical_name,
             )
         )
+        confidence = summary.get("confidence", "")
+        classification_str = str(summary.get("classification") or "—")
+        if confidence:
+            classification_str += f" ({confidence})"
         rows = [
             {
                 "label": "Impact Classification",
-                "value": _display_review_value(summary.get("classification")),
+                "value": _display_review_value(classification_str),
             },
             {
                 "label": "Decision Rule",
@@ -1710,11 +1721,17 @@ def _build_impact_review_rows(
             },
             {
                 "label": "Red YES Count",
-                "value": _display_review_value(summary.get("red_yes_count", 0)),
+                "value": _display_review_value(f"{summary.get('red_yes_count', 0)}/4"),
             },
             {
                 "label": "Amber YES Count",
-                "value": _display_review_value(summary.get("amber_yes_count", 0)),
+                "value": _display_review_value(f"{summary.get('amber_yes_count', 0)}/5"),
+            },
+            {
+                "label": "Flags Answered",
+                "value": _display_review_value(
+                    f"{summary.get('answered_count', 0)}/{summary.get('total_flags', 9)}"
+                ),
             },
         ]
         for flag in summary.get("flags") or []:
@@ -1867,6 +1884,20 @@ def _build_section_review_rows_for_draft(
             }
         )
     return rows
+
+
+def _should_blank_legacy_supporting_baseline(parent_draft: CSCDraft | None) -> bool:
+    """Legacy published specs at v0 do not carry supporting baseline sections."""
+    return parent_draft is not None and int(getattr(parent_draft, "spec_version", 0) or 0) == 0
+
+
+def _should_hide_legacy_supporting_sections(draft: CSCDraft | None) -> bool:
+    """Published legacy v0 specs should not expose supporting sections as live baseline."""
+    return (
+        draft is not None
+        and getattr(draft, "parent_draft_id", None) is None
+        and int(getattr(draft, "spec_version", 0) or 0) == 0
+    )
 
 
 def _match_parent_parameter(
@@ -2453,6 +2484,7 @@ def _build_revision_review_context(revision: CSCRevision) -> dict[str, object]:
     parent_master_values = get_master_form_values(parent_draft) if parent_draft is not None else {}
     parent_material_values = get_material_properties_values(parent_draft) if parent_draft is not None else {}
     parent_storage_values = get_storage_handling_values(parent_draft) if parent_draft is not None else {}
+    blank_supporting_baseline = _should_blank_legacy_supporting_baseline(parent_draft)
     workflow_scope = _load_workflow_scope(draft)
     workflow_stream = _infer_workflow_stream_name(draft)
 
@@ -2528,7 +2560,8 @@ def _build_revision_review_context(revision: CSCRevision) -> dict[str, object]:
 
     impact_rows = _build_comparison_value_rows(
         _build_impact_review_rows(draft, master_values),
-        _build_impact_review_rows(parent_draft, parent_master_values) if parent_draft is not None else None,
+        ([] if blank_supporting_baseline else _build_impact_review_rows(parent_draft, parent_master_values))
+        if parent_draft is not None else None,
     )
 
     return {
@@ -2555,14 +2588,14 @@ def _build_revision_review_context(revision: CSCRevision) -> dict[str, object]:
                 for field in get_material_properties_fields()
                 if _display_review_value(material_values.get(field["field_name"])) != "—"
             ],
-            [
+            ([] if blank_supporting_baseline else [
                 {
                     "label": field["label"],
                     "value": _display_review_value(parent_material_values.get(field["field_name"])),
                 }
                 for field in get_material_properties_fields()
                 if _display_review_value(parent_material_values.get(field["field_name"])) != "—"
-            ] if parent_draft is not None else None,
+            ]) if parent_draft is not None else None,
         ),
         "storage_rows": _build_comparison_value_rows(
             [
@@ -2573,14 +2606,14 @@ def _build_revision_review_context(revision: CSCRevision) -> dict[str, object]:
                 for field in get_storage_handling_fields()
                 if _display_review_value(storage_values.get(field["field_name"])) != "—"
             ],
-            [
+            ([] if blank_supporting_baseline else [
                 {
                     "label": field["label"],
                     "value": _display_review_value(parent_storage_values.get(field["field_name"])),
                 }
                 for field in get_storage_handling_fields()
                 if _display_review_value(parent_storage_values.get(field["field_name"])) != "—"
-            ] if parent_draft is not None else None,
+            ]) if parent_draft is not None else None,
         ),
         "impact_rows": impact_rows,
     }
@@ -2603,6 +2636,8 @@ def _build_draft_export_review_context(draft: CSCDraft) -> dict[str, object]:
     parent_master_values = get_master_form_values(parent_draft) if parent_draft is not None else {}
     parent_material_values = get_material_properties_values(parent_draft) if parent_draft is not None else {}
     parent_storage_values = get_storage_handling_values(parent_draft) if parent_draft is not None else {}
+    blank_supporting_baseline = _should_blank_legacy_supporting_baseline(parent_draft)
+    hide_legacy_supporting_sections = _should_hide_legacy_supporting_sections(draft)
 
     summary_rows = [
         {"label": "Specification", "value": _display_review_value(draft.spec_number)},
@@ -2629,9 +2664,11 @@ def _build_draft_export_review_context(draft: CSCDraft) -> dict[str, object]:
 
     parameter_rows = _build_parameter_review_rows_for_draft(draft, parent_draft=parent_draft)
 
+    current_impact_rows = [] if hide_legacy_supporting_sections else _build_impact_review_rows(draft, master_values)
     impact_rows = _build_comparison_value_rows(
-        _build_impact_review_rows(draft, master_values),
-        _build_impact_review_rows(parent_draft, parent_master_values) if parent_draft is not None else None,
+        current_impact_rows,
+        ([] if blank_supporting_baseline else _build_impact_review_rows(parent_draft, parent_master_values))
+        if parent_draft is not None else None,
     )
 
     return {
@@ -2650,40 +2687,40 @@ def _build_draft_export_review_context(draft: CSCDraft) -> dict[str, object]:
             ) if parent_draft is not None else None,
         ),
         "material_property_rows": _build_comparison_value_rows(
-            [
+            ([] if hide_legacy_supporting_sections else [
                 {
                     "label": field["label"],
                     "value": _display_review_value(material_values.get(field["field_name"])),
                 }
                 for field in get_material_properties_fields()
                 if _display_review_value(material_values.get(field["field_name"])) != "—"
-            ],
-            [
+            ]),
+            ([] if blank_supporting_baseline else [
                 {
                     "label": field["label"],
                     "value": _display_review_value(parent_material_values.get(field["field_name"])),
                 }
                 for field in get_material_properties_fields()
                 if _display_review_value(parent_material_values.get(field["field_name"])) != "—"
-            ] if parent_draft is not None else None,
+            ]) if parent_draft is not None else None,
         ),
         "storage_rows": _build_comparison_value_rows(
-            [
+            ([] if hide_legacy_supporting_sections else [
                 {
                     "label": field["label"],
                     "value": _display_review_value(storage_values.get(field["field_name"])),
                 }
                 for field in get_storage_handling_fields()
                 if _display_review_value(storage_values.get(field["field_name"])) != "—"
-            ],
-            [
+            ]),
+            ([] if blank_supporting_baseline else [
                 {
                     "label": field["label"],
                     "value": _display_review_value(parent_storage_values.get(field["field_name"])),
                 }
                 for field in get_storage_handling_fields()
                 if _display_review_value(parent_storage_values.get(field["field_name"])) != "—"
-            ] if parent_draft is not None else None,
+            ]) if parent_draft is not None else None,
         ),
         "impact_rows": impact_rows,
         "revision": revision,
@@ -4338,6 +4375,93 @@ def save_impact(draft_id: int):
         })
     except Exception as e:
         logger.error(f"Error saving impact: {e}")
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+
+@csc_bp.route("/api/draft/<int:draft_id>/flag", methods=["POST"])
+@login_required
+@module_access_required("csc")
+def update_flag(draft_id: int):
+    """Update a single impact flag value via AJAX (4-state: YES/PROVISIONAL/REVIEW/NO)."""
+    try:
+        draft = db.session.get(CSCDraft, draft_id)
+        if not draft:
+            return jsonify({"error": "Draft not found"}), 404
+        if not _can_edit_draft(draft):
+            return jsonify({"error": "Unauthorized"}), 403
+        lock_response = _json_editor_lock_conflict_response(draft, "committee_user")
+        if lock_response is not None:
+            return lock_response
+        if not _scope_allows_impact(_load_workflow_scope(draft)):
+            return jsonify({"error": "This draft is not open for revision in Impact."}), 403
+
+        data = request.get_json() or {}
+        flag_name = data.get("flag_name", "")
+        new_value = data.get("new_value", "")
+
+        if flag_name not in ALL_FLAG_IDS:
+            return jsonify({"error": f"Invalid flag name: {flag_name}"}), 400
+        if new_value not in VALID_FLAG_VALUES:
+            return jsonify({"error": f"Invalid flag value: {new_value}"}), 400
+
+        display_name = (
+            (current_user.full_name or current_user.username or "").strip()
+            or current_user.username
+        )
+        answered_on = datetime.now(timezone.utc).isoformat()
+
+        # Load and migrate existing state
+        impact = draft.impact_analysis
+        if impact is None:
+            impact = CSCImpactAnalysis(draft_id=draft_id)
+            db.session.add(impact)
+
+        checklist_state = deserialize_impact_checklist_state(
+            impact.checklist_state_json,
+            draft.chemical_name,
+        )
+
+        # Update the specific flag with full metadata
+        fin_reason = data.get("fin_reason", "")
+        checklist_state["flags"][flag_name] = {
+            "value": new_value,
+            "source_type": "COMMITTEE",
+            "answered_by": display_name,
+            "answered_on": answered_on,
+            "fin_reason": fin_reason,
+        }
+
+        # Recompute classification
+        flat_flags = {
+            fid: entry.get("value", "REVIEW")
+            for fid, entry in checklist_state["flags"].items()
+        }
+        classification = compute_impact_classification(flat_flags)
+
+        # Build legacy payload and persist
+        legacy_payload = build_impact_legacy_payload(checklist_state)
+        impact.operational_impact_score = legacy_payload["operational_impact_score"]
+        impact.safety_environment_score = legacy_payload["safety_environment_score"]
+        impact.supply_risk_score = legacy_payload["supply_risk_score"]
+        impact.no_substitute_flag = legacy_payload["no_substitute_flag"]
+        impact.impact_score_total = legacy_payload["impact_score_total"]
+        impact.impact_grade = legacy_payload["impact_grade"]
+        impact.checklist_state_json = json.dumps(checklist_state)
+        impact.operational_note = legacy_payload["operational_note"]
+        impact.safety_environment_note = legacy_payload["safety_environment_note"]
+        impact.supply_risk_note = legacy_payload["supply_risk_note"]
+
+        draft.updated_at = datetime.now(timezone.utc)
+        db.session.commit()
+
+        return jsonify({
+            "success": True,
+            "classification": classification,
+            "flag_meta": checklist_state["flags"][flag_name],
+        })
+    except Exception as e:
+        logger.error(f"Error updating flag: {e}")
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 

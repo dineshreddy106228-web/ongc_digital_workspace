@@ -45,12 +45,16 @@ MASTER_EXTRA_FIELDS = [
 
 MASTER_IMPACT_FIELDS = [
     ("impact_flag_1", "Impact Flag 1 — HSE / Hazard"),
-    ("impact_flag_2", "Impact Flag 2 — Environment"),
-    ("impact_flag_3", "Impact Flag 3 — Operational"),
-    ("impact_flag_4", "Impact Flag 4 — Regulatory"),
-    ("impact_flag_5", "Impact Flag 5 — Supply Chain"),
-    ("impact_flag_6", "Impact Flag 6 — Financial"),
+    ("impact_flag_2", "Impact Flag 2 — Op-Acute"),
+    ("impact_flag_3", "Impact Flag 3 — Op-Chronic"),
+    ("impact_flag_4", "Impact Flag 4 — Safety-critical"),
+    ("impact_flag_5", "Impact Flag 5 — Environment"),
+    ("impact_flag_6", "Impact Flag 6 — Regulatory"),
+    ("impact_flag_7", "Impact Flag 7 — Supply Chain"),
+    ("impact_flag_8", "Impact Flag 8 — Seasonal"),
+    ("impact_flag_9", "Impact Flag 9 — Financial"),
     ("impact_classification", "Impact Classification"),
+    ("impact_confidence", "Impact Confidence"),
 ]
 
 MATERIAL_CLASSIFICATION_SOURCE_PATH = Path(
@@ -811,12 +815,24 @@ def sync_impact_fields_to_master_record(
     """Mirror impact checklist outputs into the linked material master row."""
     state = deserialize_impact_checklist_state(checklist_state, getattr(draft, "chemical_name", ""))
     summary = summarize_impact_checklist_state(state)
+
+    def _flag_display(val):
+        """Convert 4-state value to a displayable string for master record."""
+        if val in ("YES", "PROVISIONAL", "REVIEW", "NO"):
+            return val
+        # Legacy boolean path (shouldn't occur after migration)
+        if val is True:
+            return "YES"
+        if val is False:
+            return "NO"
+        return ""
+
     if getattr(draft, "parent_draft_id", None):
         current = get_master_form_values(draft)
         for index, flag in enumerate(summary["flags"], start=1):
-            answer = flag["answer"]
-            current[f"impact_flag_{index}"] = "YES" if answer is True else "NO" if answer is False else ""
+            current[f"impact_flag_{index}"] = _flag_display(flag["answer"])
         current["impact_classification"] = summary["grade"]
+        current["impact_confidence"] = summary.get("confidence", "")
         _write_staged_master_payload(draft, current)
         return None
 
@@ -831,10 +847,10 @@ def sync_impact_fields_to_master_record(
     extra_data = dict(record.extra_data or {})
 
     for index, flag in enumerate(summary["flags"], start=1):
-        answer = flag["answer"]
-        extra_data[f"impact_flag_{index}"] = "YES" if answer is True else "NO" if answer is False else ""
+        extra_data[f"impact_flag_{index}"] = _flag_display(flag["answer"])
 
     extra_data["impact_classification"] = summary["grade"]
+    extra_data["impact_confidence"] = summary.get("confidence", "")
     record.extra_data = extra_data
     record.updated_at = datetime.now(timezone.utc)
     record.updated_by = user_id

@@ -815,48 +815,48 @@
     white-space: nowrap;
 }
 
-.csc-impact-toggle {
+.csc-impact-pill-selector {
     display: inline-flex;
     align-items: center;
-    gap: 0.35rem;
-    padding: 0.28rem;
+    gap: 0.25rem;
+    padding: 0.25rem;
     border-radius: 999px;
     background: var(--surface-alt);
+    flex-shrink: 0;
 }
 
-.csc-impact-toggle-btn {
+.csc-impact-pill {
     border: 0;
     border-radius: 999px;
-    padding: 0.45rem 0.8rem;
-    font-size: 0.75rem;
-    font-weight: 700;
-    cursor: pointer;
-    background: transparent;
-    color: var(--muted);
-    transition: background 0.2s ease, color 0.2s ease;
-}
-
-.csc-impact-toggle-btn.is-active.red {
-    background: #791F1F;
-    color: #fff;
-}
-
-.csc-impact-toggle-btn.is-active.amber {
-    background: #633806;
-    color: #fff;
-}
-
-.csc-impact-toggle-btn.is-active.neutral {
-    background: var(--primary);
-    color: #fff;
-}
-
-.csc-impact-toggle-state {
-    min-width: 46px;
-    text-align: center;
+    padding: 0.42rem 0.72rem;
     font-size: 0.73rem;
     font-weight: 700;
-    color: var(--text);
+    cursor: pointer;
+    transition: background 0.18s ease, color 0.18s ease;
+    white-space: nowrap;
+}
+
+/* Resting state (unselected) — muted tint so the track reads cleanly */
+.csc-impact-pill.pill-yes    { background: #FCEBEB; color: #791F1F; }
+.csc-impact-pill.pill-prov   { background: #FAEEDA; color: #633806; }
+.csc-impact-pill.pill-review { background: #F1EFE8; color: #5F5E5A; }
+.csc-impact-pill.pill-no     { background: #EAF3DE; color: #27500A; }
+
+/* Selected state — solid fill */
+.csc-impact-pill.pill-yes.is-active    { background: #C00000; color: #fff; }
+.csc-impact-pill.pill-prov.is-active   { background: #BF8F00; color: #fff; }
+.csc-impact-pill.pill-review.is-active { background: #5F5E5A; color: #fff; }
+.csc-impact-pill.pill-no.is-active     { background: #375623; color: #fff; }
+
+/* Attribution line under each card */
+.csc-impact-attribution {
+    font-size: 0.69rem;
+    color: var(--muted);
+    margin-top: 0.22rem;
+}
+
+.csc-impact-attribution.is-unanswered {
+    font-style: italic;
 }
 
 .csc-impact-flag-detail {
@@ -945,13 +945,57 @@
     color: #633806;
 }
 
+/* Confidence badge (Confirmed / Provisional) */
+.csc-impact-conf-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.32rem 0.65rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    background: rgba(255,255,255,0.62);
+    color: inherit;
+}
+
+/* Triggered flags summary line */
+.csc-impact-triggered {
+    font-size: 0.82rem;
+    margin: 0;
+    opacity: 0.85;
+}
+
+/* Progress bar */
+.csc-impact-progress-wrap {
+    display: grid;
+    gap: 0.35rem;
+}
+
+.csc-impact-progress-label {
+    font-size: 0.78rem;
+    opacity: 0.85;
+}
+
+.csc-impact-progress-track {
+    height: 8px;
+    border-radius: 999px;
+    background: rgba(0,0,0,0.12);
+    overflow: hidden;
+}
+
+.csc-impact-progress-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: #1F4E79;
+    transition: width 0.35s ease;
+}
+
 @media (max-width: 900px) {
     .csc-impact-flag-trigger {
         grid-template-columns: 1fr;
         align-items: flex-start;
     }
 
-    .csc-impact-toggle {
+    .csc-impact-pill-selector {
         justify-self: stretch;
         justify-content: space-between;
     }
@@ -2834,9 +2878,9 @@
     function currentImpactSnapshot() {
         syncImpactChemicalName();
         return JSON.stringify({
-            version: impactChecklistState.version || 1,
+            version: impactChecklistState.version || 2,
             chemical_name: impactChecklistState.chemical_name || '',
-            answers: impactChecklistState.answers || {}
+            flags: impactChecklistState.flags || {}
         });
     }
 
@@ -2877,46 +2921,94 @@
             .replace(/'/g, '&#39;');
     }
 
-    function normalizeImpactAnswer(value) {
-        if (value === true || value === false) return value;
-        if (value === 1 || value === '1' || value === 'true' || value === 'yes') return true;
-        if (value === 0 || value === '0' || value === 'false' || value === 'no') return false;
-        return null;
+    // 4-state values: YES / PROVISIONAL / REVIEW / NO
+    var VALID_IMPACT_VALUES = ['YES', 'PROVISIONAL', 'REVIEW', 'NO'];
+    var IMPACT_DISPLAY_NAME = {{ (current_user.full_name or current_user.username or '')|tojson }};
+
+    function normalizeImpactFlagValue(value) {
+        if (typeof value === 'string') {
+            var token = value.trim().toUpperCase();
+            if (VALID_IMPACT_VALUES.indexOf(token) !== -1) return token;
+            // legacy boolean strings
+            if (token === 'TRUE' || token === '1' || token === 'YES') return 'YES';
+            if (token === 'FALSE' || token === '0' || token === 'NO') return 'NO';
+        }
+        if (value === true) return 'YES';
+        if (value === false) return 'NO';
+        return 'REVIEW';
+    }
+
+    function makeFlagEntry(value, answeredBy, answeredOn, sourceType, finReason) {
+        return {
+            value: normalizeImpactFlagValue(value !== undefined ? value : null),
+            source_type: sourceType || 'COMMITTEE',
+            answered_by: answeredBy || '',
+            answered_on: answeredOn || '',
+            fin_reason: finReason || ''
+        };
     }
 
     function buildDefaultImpactChecklistState() {
-        var answers = {};
+        var flags = {};
         impactChecklistConfig.forEach(function(flag) {
-            answers[flag.id] = null;
+            flags[flag.id] = makeFlagEntry(null);
             if (typeof impactExpandedFlags[flag.id] === 'undefined') {
                 impactExpandedFlags[flag.id] = false;
             }
         });
         return {
-            version: 1,
+            version: 2,
             chemical_name: {{ (draft.chemical_name or '')|tojson }},
-            answers: answers
+            flags: flags
         };
     }
 
     function normalizeImpactChecklistState(rawState) {
         var base = buildDefaultImpactChecklistState();
         var incoming = rawState && typeof rawState === 'object' ? rawState : {};
-        base.version = incoming.version || 1;
+        base.version = incoming.version || 2;
         base.chemical_name = String(incoming.chemical_name || base.chemical_name || '').trim();
 
-        var answers = incoming.answers && typeof incoming.answers === 'object'
-            ? incoming.answers
-            : incoming.flags && typeof incoming.flags === 'object'
-                ? incoming.flags
-                : {};
+        // v2 format: flags dict with metadata objects
+        if (incoming.flags && typeof incoming.flags === 'object') {
+            impactChecklistConfig.forEach(function(flag) {
+                var raw = incoming.flags[flag.id];
+                if (raw && typeof raw === 'object' && 'value' in raw) {
+                    base.flags[flag.id] = makeFlagEntry(
+                        raw.value, raw.answered_by, raw.answered_on,
+                        raw.source_type, raw.fin_reason
+                    );
+                } else if (raw !== undefined) {
+                    // raw scalar in flags dict — treat as value
+                    base.flags[flag.id] = makeFlagEntry(raw);
+                }
+                if (typeof impactExpandedFlags[flag.id] === 'undefined') {
+                    impactExpandedFlags[flag.id] = false;
+                }
+            });
+            return base;
+        }
 
+        // v1 format: "answers" dict with boolean/null values (migration path)
+        var legacyMap = {
+            'flag_1': 'hse_flag', 'flag_2': 'env_flag', 'flag_3': 'op_acute_flag',
+            'flag_4': 'regulatory_flag', 'flag_5': 'supply_flag', 'flag_6': 'financial_flag'
+        };
+        var answers = incoming.answers && typeof incoming.answers === 'object' ? incoming.answers : {};
         impactChecklistConfig.forEach(function(flag) {
             var rawAnswer = answers[flag.id];
-            if (rawAnswer && typeof rawAnswer === 'object') {
-                rawAnswer = rawAnswer.answer;
+            if (rawAnswer === undefined) {
+                // Try legacy mapping
+                for (var legacyId in legacyMap) {
+                    if (legacyMap[legacyId] === flag.id) {
+                        rawAnswer = answers[legacyId];
+                        break;
+                    }
+                }
             }
-            base.answers[flag.id] = normalizeImpactAnswer(rawAnswer);
+            if (rawAnswer !== undefined && rawAnswer !== null) {
+                base.flags[flag.id] = makeFlagEntry(rawAnswer, 'migrated', null, 'COMMITTEE', '');
+            }
             if (typeof impactExpandedFlags[flag.id] === 'undefined') {
                 impactExpandedFlags[flag.id] = false;
             }
@@ -2934,75 +3026,115 @@
     }
 
     function summarizeImpactChecklistState() {
-        var redYesCount = 0;
-        var amberYesCount = 0;
-        var answeredCount = 0;
-        var flags = impactChecklistConfig.map(function(flag) {
-            var answer = normalizeImpactAnswer(impactChecklistState.answers[flag.id]);
-            if (answer !== null) answeredCount += 1;
-            if (answer === true && flag.type === 'RED') redYesCount += 1;
-            if (answer === true && flag.type === 'AMBER') amberYesCount += 1;
-            return {
-                id: flag.id,
-                order: flag.order,
-                type: flag.type,
-                dimension: flag.dimension,
-                question: flag.question,
-                source: flag.source,
-                detail: flag.detail,
-                section_label: flag.section_label,
-                answer: answer
-            };
+        var redYesCount = 0, amberYesCount = 0, amberProvCount = 0, answeredCount = 0;
+        var triggeredFlags = [];
+
+        var flagRows = impactChecklistConfig.map(function(flag) {
+            var entry = (impactChecklistState.flags || {})[flag.id] || {};
+            var val = (typeof entry === 'object' && entry.value) ? entry.value : 'REVIEW';
+            val = normalizeImpactFlagValue(val);
+            if (val !== 'REVIEW') answeredCount += 1;
+            if (val === 'YES'         && flag.type === 'RED')   redYesCount++;
+            if (val === 'YES'         && flag.type === 'AMBER') amberYesCount++;
+            if (val === 'PROVISIONAL' && flag.type === 'AMBER') amberProvCount++;
+            return Object.assign({}, flag, { meta: entry, answer: val });
         });
 
-        var classification = 'Pending';
-        var rule = 'Pending — answer flags above';
-        var tone = 'pending';
+        var tier, confidence, rule, tone, score;
 
         if (redYesCount > 0) {
-            classification = 'HIGH IMPACT';
+            tier = 'HIGH'; confidence = 'Confirmed'; tone = 'red'; score = 3.0;
             rule = redYesCount + ' red flag(s) answered YES';
-            tone = 'red';
+            triggeredFlags = flagRows.filter(function(f) { return f.type === 'RED' && f.answer === 'YES'; }).map(function(f) { return f.id; });
         } else if (amberYesCount > 0) {
-            classification = 'MEDIUM IMPACT';
+            tier = 'MEDIUM'; confidence = 'Confirmed'; tone = 'amber'; score = 2.0;
             rule = 'No red flags, but ' + amberYesCount + ' amber flag(s) answered YES';
-            tone = 'amber';
-        } else if (answeredCount === 0) {
-            classification = 'Pending';
-            rule = 'Pending — answer flags above';
-            tone = 'pending';
-        } else if (answeredCount === impactChecklistConfig.length) {
-            classification = 'LOW IMPACT';
-            rule = 'All ' + impactChecklistConfig.length + ' flags answered NO';
-            tone = 'green';
+            triggeredFlags = flagRows.filter(function(f) { return f.type === 'AMBER' && f.answer === 'YES'; }).map(function(f) { return f.id; });
+        } else if (amberProvCount > 0) {
+            tier = 'MEDIUM'; confidence = 'Provisional'; tone = 'amber'; score = 2.0;
+            rule = 'No confirmed triggers, but ' + amberProvCount + ' amber flag(s) PROVISIONAL';
+            triggeredFlags = flagRows.filter(function(f) { return f.type === 'AMBER' && f.answer === 'PROVISIONAL'; }).map(function(f) { return f.id; });
+        } else if (answeredCount >= impactChecklistConfig.length) {
+            tier = 'LOW'; confidence = 'Confirmed'; tone = 'green'; score = 1.0;
+            rule = 'All ' + impactChecklistConfig.length + ' flags answered — no triggers';
+            triggeredFlags = [];
         } else {
-            classification = 'Pending';
-            rule = 'Pending — answer remaining flags above';
-            tone = 'pending';
+            tier = 'LOW'; confidence = 'Provisional'; tone = 'green'; score = 1.0;
+            rule = 'No triggers found — ' + (impactChecklistConfig.length - answeredCount) + ' flag(s) still at REVIEW';
+            triggeredFlags = [];
         }
 
         return {
-            classification: classification,
+            tier: tier,
+            confidence: confidence,
             rule: rule,
             tone: tone,
+            score: score,
+            triggeredFlags: triggeredFlags,
             redYesCount: redYesCount,
             amberYesCount: amberYesCount,
+            amberProvCount: amberProvCount,
             answeredCount: answeredCount,
             totalFlags: impactChecklistConfig.length,
-            flags: flags
+            flags: flagRows
         };
     }
 
-    function renderImpactFlag(flag, summary) {
-        var answer = normalizeImpactAnswer(impactChecklistState.answers[flag.id]);
+    function formatAttributionDate(isoStr) {
+        if (!isoStr || isoStr === 'null') return '';
+        try {
+            var d = new Date(isoStr);
+            if (isNaN(d.getTime())) return '';
+            return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+        } catch(e) { return ''; }
+    }
+
+    function renderImpactFlag(flag) {
+        var entry = (impactChecklistState.flags || {})[flag.id] || {};
+        var curVal = normalizeImpactFlagValue(typeof entry === 'object' ? (entry.value || 'REVIEW') : entry);
         var isExpanded = !!impactExpandedFlags[flag.id];
         var flagTone = flag.type === 'RED' ? 'red' : 'amber';
-        var answerLabel = answer === true ? 'YES' : answer === false ? 'NO' : '--';
-        var activeClass = answer === true ? 'is-' + flagTone + '-yes' : '';
+        var activeClass = curVal === 'YES' ? 'is-' + flagTone + '-yes' : (curVal === 'PROVISIONAL' ? 'is-amber-yes' : '');
         var expandLabel = isExpanded ? 'Hide detail' : 'Click to view detail';
 
+        // Attribution line
+        var attrHtml;
+        var answeredBy = typeof entry === 'object' ? (entry.answered_by || '') : '';
+        var answeredOn = typeof entry === 'object' ? (entry.answered_on || '') : '';
+        if (curVal === 'REVIEW' || !answeredBy || answeredBy === 'migrated') {
+            attrHtml = '<span class="csc-impact-attribution is-unanswered">Not yet answered</span>';
+        } else {
+            var dateStr = formatAttributionDate(answeredOn);
+            var attrText = 'Set by ' + escapeHtml(answeredBy) + (dateStr ? ' · ' + dateStr : '');
+            attrHtml = '<span class="csc-impact-attribution">' + attrText + '</span>';
+        }
+
+        // Pre-fill note (PROVISIONAL from MB51 or keyword)
+        var prefillNote = '';
+        if (curVal === 'PROVISIONAL' && typeof entry === 'object' && entry.source_type !== 'COMMITTEE') {
+            var finReason = entry.fin_reason || '';
+            var prefillText = entry.source_type === 'MB51'
+                ? 'MB51 signal: ' + escapeHtml(finReason)
+                : 'Pre-classified from SAP description keyword match — please confirm';
+            prefillNote = '<p style="margin:0.4rem 0 0;font-size:0.8rem;color:#633806;font-style:italic;">' + prefillText + '</p>';
+        }
+
+        // 4-state pill selector
+        var pills = [
+            { val: 'YES',         label: 'YES',  cls: 'pill-yes'    },
+            { val: 'PROVISIONAL', label: 'PROV', cls: 'pill-prov'   },
+            { val: 'REVIEW',      label: 'REVIEW',cls:'pill-review'  },
+            { val: 'NO',          label: 'NO',   cls: 'pill-no'     }
+        ].map(function(p) {
+            var active = curVal === p.val ? ' is-active' : '';
+            return '<button type="button" class="csc-impact-pill ' + p.cls + active + '" ' +
+                'data-impact-flag="' + escapeHtml(flag.id) + '" data-impact-value="' + p.val + '" ' +
+                'aria-pressed="' + (curVal === p.val ? 'true' : 'false') + '">' +
+                p.label + '</button>';
+        }).join('');
+
         return '' +
-            '<div class="csc-impact-flag ' + activeClass + '">' +
+            '<div class="csc-impact-flag ' + activeClass + '" id="flag-card-' + escapeHtml(flag.id) + '">' +
                 '<div class="csc-impact-flag-trigger" data-impact-expand="' + escapeHtml(flag.id) + '" role="button" tabindex="0" aria-expanded="' + (isExpanded ? 'true' : 'false') + '">' +
                     '<span class="csc-impact-dimension-pill ' + flagTone + '">' + escapeHtml(flag.dimension) + '</span>' +
                     '<div class="csc-impact-flag-copy">' +
@@ -3010,18 +3142,116 @@
                         '<div class="csc-impact-flag-meta">' +
                             '<span class="csc-impact-expand-label">' + escapeHtml(expandLabel) + '</span>' +
                         '</div>' +
+                        attrHtml +
                     '</div>' +
                     '<span class="csc-impact-source">' + escapeHtml(flag.source) + '</span>' +
-                    '<div class="csc-impact-toggle" aria-label="Answer toggle">' +
-                        '<button type="button" class="csc-impact-toggle-btn ' + (answer === true ? 'is-active ' + flagTone : '') + '" data-impact-answer="' + escapeHtml(flag.id) + '" data-impact-value="yes">YES</button>' +
-                        '<button type="button" class="csc-impact-toggle-btn ' + (answer === false ? 'is-active neutral' : '') + '" data-impact-answer="' + escapeHtml(flag.id) + '" data-impact-value="no">NO</button>' +
-                        '<span class="csc-impact-toggle-state">' + escapeHtml(answerLabel) + '</span>' +
-                    '</div>' +
+                    '<div class="csc-impact-pill-selector" aria-label="Flag answer">' + pills + '</div>' +
                 '</div>' +
                 (isExpanded
-                    ? '<div class="csc-impact-flag-detail"><p>' + escapeHtml(flag.detail) + '</p></div>'
+                    ? '<div class="csc-impact-flag-detail"><p>' + escapeHtml(flag.detail) + '</p>' + prefillNote + '</div>'
                     : '') +
             '</div>';
+    }
+
+    function buildResultBar(summary) {
+        var pct = summary.totalFlags > 0
+            ? Math.round((summary.answeredCount / summary.totalFlags) * 100)
+            : 0;
+        var triggeredLabel = summary.triggeredFlags.length
+            ? 'Triggered: ' + summary.triggeredFlags.join(', ')
+            : '';
+        return '<div class="csc-impact-result ' + summary.tone + '" id="impact-result-bar">' +
+                '<div class="csc-impact-result-head">' +
+                    '<div>' +
+                        '<h3 class="csc-impact-result-title">' + escapeHtml(summary.tier + ' IMPACT') + '</h3>' +
+                        '<p class="csc-impact-result-rule">' + escapeHtml(summary.rule) + '</p>' +
+                    '</div>' +
+                    '<div class="csc-impact-counts">' +
+                        '<span class="csc-impact-conf-badge">' + escapeHtml(summary.confidence) + '</span>' +
+                        '<span class="csc-impact-count-pill red">🔴 ' + summary.redYesCount + ' YES</span>' +
+                        '<span class="csc-impact-count-pill amber">🟡 ' + summary.amberYesCount + ' YES</span>' +
+                    '</div>' +
+                '</div>' +
+                (triggeredLabel ? '<p class="csc-impact-triggered">' + escapeHtml(triggeredLabel) + '</p>' : '') +
+                '<div class="csc-impact-progress-wrap">' +
+                    '<span class="csc-impact-progress-label">' + summary.answeredCount + ' of ' + summary.totalFlags + ' flags answered</span>' +
+                    '<div class="csc-impact-progress-track">' +
+                        '<div class="csc-impact-progress-fill" style="width:' + pct + '%"></div>' +
+                    '</div>' +
+                '</div>' +
+            '</div>';
+    }
+
+    // ── AJAX flag update ────────────────────────────────────────────────────
+    function setFlag(flagId, newValue, pillEl) {
+        if (!flagId || !newValue) return;
+
+        // Optimistic UI update
+        var card = pillEl ? pillEl.closest('[id^="flag-card-"]') : null;
+        var prevEntry = (impactChecklistState.flags || {})[flagId]
+            ? Object.assign({}, impactChecklistState.flags[flagId])
+            : { value: 'REVIEW', source_type: 'COMMITTEE', answered_by: '', answered_on: '', fin_reason: '' };
+
+        if (!impactChecklistState.flags) impactChecklistState.flags = {};
+        impactChecklistState.flags[flagId] = {
+            value: newValue,
+            source_type: 'COMMITTEE',
+            answered_by: IMPACT_DISPLAY_NAME,
+            answered_on: new Date().toISOString(),
+            fin_reason: prevEntry.fin_reason || ''
+        };
+        renderImpactChecklist();
+        updateChangesChecklist();
+
+        // Server update
+        fetch('/csc/api/draft/' + draftId + '/flag', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify({ flag_name: flagId, new_value: newValue })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (!data.success) {
+                // Revert on error
+                impactChecklistState.flags[flagId] = prevEntry;
+                renderImpactChecklist();
+                return;
+            }
+            // Apply server-confirmed metadata (answered_by, answered_on from server)
+            if (data.flag_meta) {
+                impactChecklistState.flags[flagId] = data.flag_meta;
+            }
+            // Update result bar from server classification
+            if (data.classification) {
+                var bar = document.getElementById('impact-result-bar');
+                if (bar) {
+                    var cl = data.classification;
+                    var toneMap = { HIGH: 'red', MEDIUM: 'amber', LOW: 'green' };
+                    var serverSummary = {
+                        tier: cl.tier,
+                        confidence: cl.confidence,
+                        rule: '',
+                        tone: toneMap[cl.tier] || 'green',
+                        redYesCount: 0,
+                        amberYesCount: 0,
+                        amberProvCount: 0,
+                        answeredCount: cl.flags_answered,
+                        totalFlags: cl.flags_total,
+                        triggeredFlags: cl.triggered_flags || []
+                    };
+                    // Re-render the single card attribution line too
+                    renderImpactChecklist();
+                }
+            }
+        })
+        .catch(function() {
+            // Revert on network error
+            impactChecklistState.flags[flagId] = prevEntry;
+            renderImpactChecklist();
+        });
     }
 
     function renderImpactChecklist() {
@@ -3030,8 +3260,8 @@
 
         syncImpactChemicalName();
         var summary = summarizeImpactChecklistState();
-        var redFlags = summary.flags.filter(function(flag) { return flag.type === 'RED'; });
-        var amberFlags = summary.flags.filter(function(flag) { return flag.type === 'AMBER'; });
+        var redFlags  = summary.flags.filter(function(f) { return f.type === 'RED'; });
+        var amberFlags = summary.flags.filter(function(f) { return f.type === 'AMBER'; });
 
         mount.innerHTML = '' +
             '<div class="csc-impact-shell">' +
@@ -3044,25 +3274,15 @@
                 '</div>' +
                 '<div class="csc-impact-section">' +
                     '<div class="csc-impact-section-heading amber">' +
-                        '<span>Amber flags — any YES (with no red flags) = Medium Impact</span>' +
+                        '<span>Amber flags — any YES (no red flags) = Medium Impact</span>' +
                         '<span>' + amberFlags.length + ' cards</span>' +
                     '</div>' +
                     '<div class="csc-impact-stack">' + amberFlags.map(renderImpactFlag).join('') + '</div>' +
                 '</div>' +
-                '<div class="csc-impact-result ' + summary.tone + '">' +
-                    '<div class="csc-impact-result-head">' +
-                        '<div>' +
-                            '<h3 class="csc-impact-result-title">' + escapeHtml(summary.classification) + '</h3>' +
-                            '<p class="csc-impact-result-rule">' + escapeHtml(summary.rule) + '</p>' +
-                        '</div>' +
-                        '<div class="csc-impact-counts">' +
-                            '<span class="csc-impact-count-pill red">Red YES: ' + summary.redYesCount + '</span>' +
-                            '<span class="csc-impact-count-pill amber">Amber YES: ' + summary.amberYesCount + '</span>' +
-                        '</div>' +
-                    '</div>' +
-                '</div>' +
+                buildResultBar(summary) +
             '</div>';
 
+        // ── Expand/collapse handlers ─────────────────────────────────────
         mount.querySelectorAll('[data-impact-expand]').forEach(function(element) {
             element.addEventListener('click', function() {
                 var flagId = this.getAttribute('data-impact-expand');
@@ -3077,14 +3297,13 @@
             });
         });
 
-        mount.querySelectorAll('[data-impact-answer]').forEach(function(button) {
-            button.addEventListener('click', function(event) {
+        // ── Pill click handlers — call setFlag AJAX ──────────────────────
+        mount.querySelectorAll('.csc-impact-pill[data-impact-flag]').forEach(function(pill) {
+            pill.addEventListener('click', function(event) {
                 event.stopPropagation();
-                var flagId = this.getAttribute('data-impact-answer');
-                var nextValue = this.getAttribute('data-impact-value') === 'yes';
-                impactChecklistState.answers[flagId] = nextValue;
-                renderImpactChecklist();
-                updateChangesChecklist();
+                var flagId = this.getAttribute('data-impact-flag');
+                var newVal = this.getAttribute('data-impact-value');
+                setFlag(flagId, newVal, this);
             });
         });
     }
@@ -4176,8 +4395,9 @@
     });
 
     document.getElementById('impactResetBtn')?.addEventListener('click', function() {
+        if (!impactChecklistState.flags) impactChecklistState.flags = {};
         impactChecklistConfig.forEach(function(flag) {
-            impactChecklistState.answers[flag.id] = false;
+            impactChecklistState.flags[flag.id] = makeFlagEntry(null);
         });
         renderImpactChecklist();
         updateChangesChecklist();
