@@ -2160,7 +2160,8 @@ def _build_comparison_value_rows(
 ) -> list[dict[str, str]]:
     """Annotate label/value rows with published baseline and change status."""
     current_rows = current_rows or []
-    source_rows = source_rows or current_rows
+    if source_rows is None:
+        source_rows = current_rows
 
     current_map = {
         str(row.get("label") or "").strip(): _display_review_value(row.get("value"))
@@ -2201,6 +2202,27 @@ def _build_comparison_value_rows(
             }
         )
     return comparison_rows
+
+
+def _blank_comparison_source_labels(
+    source_rows: list[dict[str, object]] | None,
+    labels_to_blank: set[str] | None,
+) -> list[dict[str, object]] | None:
+    if source_rows is None:
+        return None
+    labels_to_blank = {str(label or "").strip() for label in (labels_to_blank or set()) if str(label or "").strip()}
+    if not labels_to_blank:
+        return list(source_rows)
+
+    normalized_rows: list[dict[str, object]] = []
+    for row in source_rows:
+        if not isinstance(row, dict):
+            continue
+        normalized = dict(row)
+        if str(normalized.get("label") or "").strip() in labels_to_blank:
+            normalized["value"] = "—"
+        normalized_rows.append(normalized)
+    return normalized_rows
 
 
 def _review_section_label(section_name: str | None) -> str:
@@ -2873,6 +2895,10 @@ def _build_revision_review_context(revision: CSCRevision) -> dict[str, object]:
     parent_material_values = get_material_properties_values(parent_draft) if parent_draft is not None else {}
     parent_storage_values = get_storage_handling_values(parent_draft) if parent_draft is not None else {}
     blank_supporting_baseline = _should_blank_legacy_supporting_baseline(parent_draft)
+    blank_master_labels = (
+        {"Storage Conditions - General", "Primary Storage Classification"}
+        if blank_supporting_baseline else set()
+    )
     workflow_scope = _load_workflow_scope(draft)
     workflow_stream = _infer_workflow_stream_name(draft)
 
@@ -2962,10 +2988,13 @@ def _build_revision_review_context(revision: CSCRevision) -> dict[str, object]:
                 [("material_code", "Material Code"), *MASTER_DATA_FIELDS, *MASTER_EXTRA_FIELDS],
                 master_values,
             ),
-            _build_labeled_value_rows(
-                [("material_code", "Material Code"), *MASTER_DATA_FIELDS, *MASTER_EXTRA_FIELDS],
-                parent_master_values,
-            ) if parent_draft is not None else None,
+            _blank_comparison_source_labels(
+                _build_labeled_value_rows(
+                    [("material_code", "Material Code"), *MASTER_DATA_FIELDS, *MASTER_EXTRA_FIELDS],
+                    parent_master_values,
+                ) if parent_draft is not None else None,
+                blank_master_labels,
+            ),
         ),
         "material_property_rows": _build_comparison_value_rows(
             [
@@ -3026,6 +3055,10 @@ def _build_draft_export_review_context(draft: CSCDraft) -> dict[str, object]:
     parent_storage_values = get_storage_handling_values(parent_draft) if parent_draft is not None else {}
     blank_supporting_baseline = _should_blank_legacy_supporting_baseline(parent_draft)
     hide_legacy_supporting_sections = _should_hide_legacy_supporting_sections(draft)
+    blank_master_labels = (
+        {"Storage Conditions - General", "Primary Storage Classification"}
+        if blank_supporting_baseline else set()
+    )
 
     summary_rows = [
         {"label": "Specification", "value": _display_review_value(draft.spec_number)},
@@ -3069,10 +3102,13 @@ def _build_draft_export_review_context(draft: CSCDraft) -> dict[str, object]:
                 [("material_code", "Material Code"), *MASTER_DATA_FIELDS, *MASTER_EXTRA_FIELDS],
                 master_values,
             ),
-            _build_labeled_value_rows(
-                [("material_code", "Material Code"), *MASTER_DATA_FIELDS, *MASTER_EXTRA_FIELDS],
-                parent_master_values,
-            ) if parent_draft is not None else None,
+            _blank_comparison_source_labels(
+                _build_labeled_value_rows(
+                    [("material_code", "Material Code"), *MASTER_DATA_FIELDS, *MASTER_EXTRA_FIELDS],
+                    parent_master_values,
+                ) if parent_draft is not None else None,
+                blank_master_labels,
+            ),
         ),
         "material_property_rows": _build_comparison_value_rows(
             ([] if hide_legacy_supporting_sections else [

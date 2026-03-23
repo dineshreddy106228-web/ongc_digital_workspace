@@ -211,6 +211,10 @@
     align-content: start;
 }
 
+.csc-form-group.is-hidden {
+    display: none;
+}
+
 .csc-master-grid .csc-form-label {
     min-height: 2.8rem;
 }
@@ -2005,12 +2009,20 @@
                             {% endfor %}
                         </select>
                         {% elif field.input_type == 'suggest' %}
-                        <input type="text" id="master_{{ field.field_name }}" class="csc-input" value="{{ master_data.get(field.field_name, '') }}" placeholder="{{ field.placeholder or '' }}" list="master_{{ field.field_name }}_options" data-master-view-field="{{ field.field_name }}" data-master-edit-field="{{ field.field_name }}" {% if not master_data_editable %}readonly{% endif %}>
+                        {% set field_value = master_data.get(field.field_name, '') %}
+                        {% set field_uses_other = field.field_name == 'group' and field_value and field_value not in field.options %}
+                        <input type="text" id="master_{{ field.field_name }}" class="csc-input" value="{{ 'Other' if field_uses_other else field_value }}" placeholder="{{ field.placeholder or '' }}" list="master_{{ field.field_name }}_options" data-master-view-field="{{ field.field_name }}" data-master-edit-field="{{ field.field_name }}" {% if not master_data_editable %}readonly{% endif %}>
                         <datalist id="master_{{ field.field_name }}_options">
                             {% for option in field.options %}
                             <option value="{{ option }}"></option>
                             {% endfor %}
                         </datalist>
+                        {% if field.field_name == 'group' %}
+                        <div class="csc-form-group {% if not field_uses_other and field_value != 'Other' %}is-hidden{% endif %}" id="master_group_other_wrap">
+                            <label for="master_group_other" class="csc-form-label">Specify if Other</label>
+                            <input type="text" id="master_group_other" class="csc-input" value="{{ field_value if field_uses_other else '' }}" placeholder="Enter the custom group" {% if not master_data_editable %}readonly{% endif %}>
+                        </div>
+                        {% endif %}
                         {% else %}
                         <input type="text" id="master_{{ field.field_name }}" class="csc-input" value="{{ master_data.get(field.field_name, '') }}" placeholder="{{ field.placeholder or '' }}" data-master-view-field="{{ field.field_name }}" data-master-edit-field="{{ field.field_name }}" {% if not master_data_editable %}readonly{% endif %}>
                         {% endif %}
@@ -2845,11 +2857,38 @@
         });
     }
 
+    function getResolvedGroupValue() {
+        var groupField = document.getElementById('master_group');
+        if (!groupField) return '';
+        var groupValue = normalizedValue(groupField.value || '');
+        if (groupValue !== 'Other') {
+            return groupValue;
+        }
+        var otherField = document.getElementById('master_group_other');
+        return normalizedValue(otherField ? otherField.value : '');
+    }
+
+    function syncGroupOtherField() {
+        var groupField = document.getElementById('master_group');
+        var otherWrap = document.getElementById('master_group_other_wrap');
+        var otherField = document.getElementById('master_group_other');
+        if (!groupField || !otherWrap || !otherField) return;
+
+        var useOther = normalizedValue(groupField.value || '') === 'Other';
+        otherWrap.classList.toggle('is-hidden', !useOther);
+        if (!useOther) {
+            otherField.value = '';
+        }
+    }
+
     function applyMasterDataPayload(masterData) {
         if (!masterData || typeof masterData !== 'object') return;
         Object.keys(masterData).forEach(function(key) {
             var viewFields = document.querySelectorAll('[data-master-view-field="' + key + '"]');
             viewFields.forEach(function(field) {
+                if (key === 'group' && field.id === 'master_group') {
+                    continue;
+                }
                 field.value = masterData[key] || '';
                 if (key === 'material_code' && normalizedValue(masterData[key] || '')) {
                     field.setAttribute('readonly', 'readonly');
@@ -2862,6 +2901,24 @@
                 storageHandlingState[key] = masterData[key] || '';
             }
         });
+        var groupField = document.getElementById('master_group');
+        var groupOtherField = document.getElementById('master_group_other');
+        if (groupField) {
+            var storedGroup = normalizedValue((masterData.group || ''));
+            var knownGroupOptions = {{ (editable_master_fields|selectattr('field_name', 'equalto', 'group')|first).options|tojson }};
+            if (storedGroup && knownGroupOptions.indexOf(storedGroup) === -1) {
+                groupField.value = 'Other';
+                if (groupOtherField) {
+                    groupOtherField.value = storedGroup;
+                }
+            } else {
+                groupField.value = storedGroup;
+                if (groupOtherField) {
+                    groupOtherField.value = '';
+                }
+            }
+            syncGroupOtherField();
+        }
         normalizeGridState(materialPropertiesConfig, materialPropertiesState);
         normalizeGridState(storageHandlingConfig, storageHandlingState);
         renderMaterialProperties();
@@ -2869,11 +2926,7 @@
     }
 
     function currentMasterDataSnapshot() {
-        var snapshot = {};
-        document.querySelectorAll('[data-master-edit-field]').forEach(function(field) {
-            snapshot[field.getAttribute('data-master-edit-field')] = normalizedValue(field.value);
-        });
-        return snapshot;
+        return buildMasterDataPayload();
     }
 
     function currentGridSnapshot(config, state) {
@@ -3777,6 +3830,17 @@
         element.addEventListener('input', updateChangesChecklist);
         element.addEventListener('change', updateChangesChecklist);
     });
+    document.getElementById('master_group')?.addEventListener('input', function() {
+        syncGroupOtherField();
+        updateChangesChecklist();
+    });
+    document.getElementById('master_group')?.addEventListener('change', function() {
+        syncGroupOtherField();
+        updateChangesChecklist();
+    });
+    document.getElementById('master_group_other')?.addEventListener('input', updateChangesChecklist);
+    document.getElementById('master_group_other')?.addEventListener('change', updateChangesChecklist);
+    syncGroupOtherField();
 
     // ═══════════════════════════════════════════════════════════════════════════
     // Generic save section handler
@@ -3803,7 +3867,12 @@
     function buildMasterDataPayload() {
         var payload = {};
         document.querySelectorAll('[data-master-edit-field]').forEach(function(field) {
-            payload[field.getAttribute('data-master-edit-field')] = field.value || '';
+            var fieldName = field.getAttribute('data-master-edit-field');
+            if (fieldName === 'group') {
+                payload.group = getResolvedGroupValue();
+                return;
+            }
+            payload[fieldName] = field.value || '';
         });
         return payload;
     }

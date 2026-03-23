@@ -13,6 +13,7 @@ from app.core.services.csc_master_data import (
     get_material_properties_fields,
 )
 from app.modules.csc.routes import (
+    _blank_comparison_source_labels,
     _build_comparison_value_rows,
     _build_workbook_created_notification_message,
     _editor_grid_snapshot,
@@ -45,6 +46,39 @@ def test_build_comparison_value_rows_marks_published_delta() -> None:
             "source_value": "OLD-001",
             "change_status": "Revised",
         }
+    ]
+
+
+def test_build_comparison_value_rows_preserves_explicit_blank_baseline() -> None:
+    rows = _build_comparison_value_rows(
+        [{"label": "Impact Grade", "value": "Amber"}],
+        [],
+    )
+
+    assert rows == [
+        {
+            "label": "Impact Grade",
+            "value": "Amber",
+            "source_value": "—",
+            "change_status": "Revised",
+        }
+    ]
+
+
+def test_blank_comparison_source_labels_clears_selected_baseline_rows() -> None:
+    rows = _blank_comparison_source_labels(
+        [
+            {"label": "Storage Conditions - General", "value": "Store cool"},
+            {"label": "Primary Storage Classification", "value": "Class A"},
+            {"label": "Material Code", "value": "MAT-01"},
+        ],
+        {"Storage Conditions - General", "Primary Storage Classification"},
+    )
+
+    assert rows == [
+        {"label": "Storage Conditions - General", "value": "—"},
+        {"label": "Primary Storage Classification", "value": "—"},
+        {"label": "Material Code", "value": "MAT-01"},
     ]
 
 
@@ -244,6 +278,8 @@ def test_subset_scope_helper_respects_configured_subset_codes() -> None:
 def _run_direct() -> None:
     tests = [
         test_build_comparison_value_rows_marks_published_delta,
+        test_build_comparison_value_rows_preserves_explicit_blank_baseline,
+        test_blank_comparison_source_labels_clears_selected_baseline_rows,
         test_build_flask_review_document_uses_comparison_layout_without_update_fields,
         test_legacy_v0_supporting_rules,
         test_normalize_editor_proposed_summary_text_strips_generated_wrapper,
