@@ -3742,6 +3742,14 @@
         );
     }
 
+    function safeUpdateChangesChecklist() {
+        try {
+            updateChangesChecklist();
+        } catch (error) {
+            console.error('Failed to update CSC change checklist', error);
+        }
+    }
+
     function getCheckedChangeSections() {
         var changedSections = [];
         [
@@ -3788,7 +3796,7 @@
         if (button) visitedTabs[tabName] = true;
 
         localStorage.setItem('csc-active-tab', button ? tabName : 'background');
-        updateChangesChecklist();
+        window.requestAnimationFrame(safeUpdateChangesChecklist);
     }
 
     tabButtons.forEach(function(btn) {
@@ -4429,7 +4437,7 @@
     renderStorageHandling();
     renderImpactChecklist();
     captureInitialEditorState();
-    updateChangesChecklist();
+    safeUpdateChangesChecklist();
 
     function saveProposedChangesSection() {
         return saveTextSection('proposed_changes', buildProposedChangesPayload())
