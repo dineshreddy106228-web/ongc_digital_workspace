@@ -372,7 +372,7 @@
                             <span class="notification-widget-title">{{ notification.title }}</span>
                             <span class="notification-widget-time">{{ notification.created_at|datetime_ist('%d %b %Y') }}</span>
                         </div>
-                        <p>{{ notification.message }}</p>
+                        <p>{{ notification.message|replace('\n', ' ')|truncate(140, True, '…') }}</p>
                     </a>
                     {% else %}
                     <div class="notification-empty-state">
