@@ -4511,6 +4511,99 @@
         }, Promise.resolve());
     }
 
+    function refreshEditorSavedState() {
+        captureInitialEditorState();
+        safeUpdateChangesChecklist();
+    }
+
+    function saveDirtySectionsAndRefresh() {
+        return saveDirtySections().then(function(result) {
+            refreshEditorSavedState();
+            return result;
+        });
+    }
+
+    function runDraftToolbarAction(button, config) {
+        if (!button) {
+            return Promise.resolve();
+        }
+        if (button.disabled) {
+            return Promise.resolve();
+        }
+        button.disabled = true;
+        showSaveIndicator(config.indicatorId, 'info', config.pendingMessage);
+
+        return Promise.resolve()
+            .then(config.action)
+            .then(function(result) {
+                showSaveIndicator(config.indicatorId, 'success', config.successMessage);
+                return result;
+            })
+            .catch(function(error) {
+                showSaveIndicator(
+                    config.indicatorId,
+                    'error',
+                    (config.errorPrefix || 'Action failed: ') + (error.message || 'Unexpected error')
+                );
+                throw error;
+            })
+            .finally(function() {
+                button.disabled = false;
+            });
+    }
+
+    function extractDownloadFilename(response, fallbackName) {
+        var disposition = response.headers.get('Content-Disposition') || '';
+        var utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+        if (utf8Match && utf8Match[1]) {
+            return decodeURIComponent(utf8Match[1]);
+        }
+        var simpleMatch = disposition.match(/filename=\"?([^\";]+)\"?/i);
+        if (simpleMatch && simpleMatch[1]) {
+            return simpleMatch[1];
+        }
+        return fallbackName;
+    }
+
+    function downloadDraftDossierDocx() {
+        var exportUrl = '/csc/draft/' + draftId + '/export/docx';
+        var fallbackName = 'CSC_REVIEW_DOSSIER_' + (draftSpecNumber || ('draft_' + draftId)) + '.docx';
+
+        return fetch(exportUrl, {
+            method: 'GET',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        })
+            .then(function(response) {
+                if (!response.ok) {
+                    return response.text().then(function(text) {
+                        throw new Error(text || ('HTTP ' + response.status));
+                    });
+                }
+                return response.blob().then(function(blob) {
+                    return {
+                        blob: blob,
+                        filename: extractDownloadFilename(response, fallbackName),
+                    };
+                });
+            })
+            .then(function(result) {
+                var downloadUrl = window.URL.createObjectURL(result.blob);
+                var link = document.createElement('a');
+                link.href = downloadUrl;
+                link.download = result.filename;
+                link.style.display = 'none';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                window.setTimeout(function() {
+                    window.URL.revokeObjectURL(downloadUrl);
+                }, 1000);
+                return result;
+            });
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // Section 5: Proposed Changes
     // ═══════════════════════════════════════════════════════════════════════════
@@ -4635,81 +4728,50 @@
 
     document.getElementById('saveDraftDossierBtn')?.addEventListener('click', function() {
         var button = this;
-        button.disabled = true;
-        showSaveIndicator('exportIndicator', 'info', hasUnsavedChanges()
-            ? 'Saving changes and preparing draft dossier...'
-            : 'Preparing draft dossier...');
-
-        Promise.resolve()
-            .then(function() {
-                if (!hasUnsavedChanges()) return null;
-                return saveDirtySections().then(function() {
-                    captureInitialEditorState();
-                    updateChangesChecklist();
-                });
-            })
-            .then(function() {
-                return loadDraftDossierPreview();
-            })
-            .then(function() {
-                showSaveIndicator('exportIndicator', 'success', '✓ Saved. Draft dossier opened.');
-            })
-            .catch(function(error) {
-                showSaveIndicator(
-                    'exportIndicator',
-                    'error',
-                    '✗ Save stopped: ' + (error.message || 'Unable to prepare the draft dossier.')
-                );
-            })
-            .finally(function() {
-                button.disabled = false;
-            });
+        runDraftToolbarAction(button, {
+            indicatorId: 'exportIndicator',
+            pendingMessage: hasUnsavedChanges()
+                ? 'Saving changes and preparing draft dossier...'
+                : 'Preparing draft dossier...',
+            successMessage: '✓ Saved. Draft dossier opened.',
+            errorPrefix: '✗ Save stopped: ',
+            action: function() {
+                return Promise.resolve()
+                    .then(function() {
+                        if (!hasUnsavedChanges()) return null;
+                        return saveDirtySectionsAndRefresh();
+                    })
+                    .then(function() {
+                        return loadDraftDossierPreview();
+                    });
+            }
+        }).catch(function() {
+            // Indicator already updated by the shared action runner.
+        });
     });
 
     document.getElementById('exportDocxBtn')?.addEventListener('click', function() {
         var button = this;
-        var exportUrl = '/csc/draft/' + draftId + '/export/docx';
-        var exportWindow = null;
-        button.disabled = true;
-        showSaveIndicator('exportIndicator', 'info', hasUnsavedChanges()
-            ? 'Saving changes before export...'
-            : 'Preparing Word export...');
-
-        try {
-            exportWindow = window.open('', '_blank', 'noopener');
-        } catch (error) {
-            exportWindow = null;
-        }
-
-        Promise.resolve()
-            .then(function() {
-                if (!hasUnsavedChanges()) return null;
-                return saveDirtySections().then(function() {
-                    captureInitialEditorState();
-                    updateChangesChecklist();
-                });
-            })
-            .then(function() {
-                showSaveIndicator('exportIndicator', 'success', '✓ Saved. Opening Word export...');
-                if (exportWindow && !exportWindow.closed) {
-                    exportWindow.location = exportUrl;
-                    return;
-                }
-                window.location.href = exportUrl;
-            })
-            .catch(function(error) {
-                if (exportWindow && !exportWindow.closed) {
-                    exportWindow.close();
-                }
-                showSaveIndicator(
-                    'exportIndicator',
-                    'error',
-                    '✗ Export stopped: ' + (error.message || 'Unable to save the draft before export.')
-                );
-            })
-            .finally(function() {
-                button.disabled = false;
-            });
+        runDraftToolbarAction(button, {
+            indicatorId: 'exportIndicator',
+            pendingMessage: hasUnsavedChanges()
+                ? 'Saving changes before export...'
+                : 'Preparing Word export...',
+            successMessage: '✓ Dossier export downloaded.',
+            errorPrefix: '✗ Export stopped: ',
+            action: function() {
+                return Promise.resolve()
+                    .then(function() {
+                        if (!hasUnsavedChanges()) return null;
+                        return saveDirtySectionsAndRefresh();
+                    })
+                    .then(function() {
+                        return downloadDraftDossierDocx();
+                    });
+            }
+        }).catch(function() {
+            // Indicator already updated by the shared action runner.
+        });
     });
 
     document.getElementById('submitDraftBtn')?.addEventListener('click', function() {
@@ -5076,7 +5138,7 @@
             setSubmitReviewStatus('No unsaved draft changes detected. Submitting to Committee Head...', '');
         }
 
-        saveDirtySections()
+        saveDirtySectionsAndRefresh()
             .then(function() {
                 if (dirtyLabels.length) {
                     setSubmitReviewStatus(
@@ -5104,8 +5166,6 @@
                 });
             })
             .then(function(data) {
-                captureInitialEditorState();
-                updateChangesChecklist();
                 closeSubmitReviewModal();
                 return showWorkflowDialog({
                     tone: 'success',
