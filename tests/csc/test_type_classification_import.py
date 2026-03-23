@@ -223,6 +223,32 @@ def test_ensure_default_draft_sections_normalizes_legacy_changes_placeholder(mon
     )
 
 
+def test_ensure_default_draft_sections_replaces_parent_recommendation_for_material_handling(monkeypatch):
+    recommendation = CSCSection(
+        id=12,
+        draft_id=8,
+        section_name="recommendation",
+        section_text=_default_recommendation_section_text(),
+        sort_order=70,
+    )
+    draft = type(
+        "Draft",
+        (),
+        {
+            "id": 8,
+            "sections": _FakeOrderedSections([recommendation]),
+        },
+    )()
+    fake_session = _FakeSession()
+
+    monkeypatch.setattr(csc_routes.db, "session", fake_session)
+
+    _ensure_default_draft_sections(draft, "material_handling")
+
+    assert recommendation.section_text == _default_recommendation_section_text("material_handling")
+    assert recommendation.sort_order == 70
+
+
 def test_seed_child_draft_master_snapshot_backfills_missing_impact_classification(monkeypatch):
     parent = FakeParentDraft(
         id=7,

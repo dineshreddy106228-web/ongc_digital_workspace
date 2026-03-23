@@ -1567,6 +1567,14 @@ def _ensure_default_draft_sections(draft: CSCDraft, stream_name: str | None = No
         "Migration to 2026 version with revised material handling, storage conditions, "
         "packing controls, and updated specification numbering."
     )
+    previous_material_handling_recommendation = (
+        "Migration to 2026 version with defined material handling and storage conditions"
+    )
+    material_handling_recommendation_placeholders = {
+        legacy_material_handling_recommendation,
+        previous_material_handling_recommendation,
+        _default_recommendation_section_text(),
+    }
 
     existing_sections: dict[str, CSCSection] = {}
     for section in draft.sections.order_by(CSCSection.sort_order).all():
@@ -1609,7 +1617,7 @@ def _ensure_default_draft_sections(draft: CSCDraft, stream_name: str | None = No
             or (
                 stream_name == MATERIAL_HANDLING_STREAM
                 and section_name == "recommendation"
-                and section_text.strip() == legacy_material_handling_recommendation
+                and section_text.strip() in material_handling_recommendation_placeholders
             )
         ):
             section.section_text = default_text
