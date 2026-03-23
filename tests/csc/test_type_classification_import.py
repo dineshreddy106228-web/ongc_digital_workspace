@@ -24,16 +24,20 @@ from app.core.services.csc_type_classification_import import (
     parse_material_handling_workbook,
     parse_type_classification_workbook,
 )
+from app.modules.csc import routes as csc_routes
 from app.modules.csc.routes import (
     _default_proposed_changes_section_text,
     _default_recommendation_section_text,
     _default_section_rows,
     _discard_staged_material_handling_workbook_payload,
+    _ensure_default_draft_sections,
     _load_staged_material_handling_workbook_payload,
     _material_handling_preview_comparisons,
+    _set_draft_section_text,
     _resolve_material_handling_row_for_preview,
     _stage_material_handling_workbook_payload,
 )
+from app.models.csc.section import CSCSection
 
 
 @dataclass
@@ -62,6 +66,46 @@ class FakeParentDraft:
     spec_number: str
     material_code: str
     chemical_name: str
+
+
+class _FakeOrderedSections:
+    def __init__(self, sections: list[CSCSection]):
+        self._sections = sections
+
+    def order_by(self, *_args, **_kwargs):
+        return self
+
+    def all(self):
+        return list(self._sections)
+
+
+class _FakeSession:
+    def __init__(self):
+        self.added: list[object] = []
+        self.deleted: list[object] = []
+
+    def add(self, value):
+        self.added.append(value)
+
+    def delete(self, value):
+        self.deleted.append(value)
+
+
+class _FakeSectionQuery:
+    def __init__(self, sections: list[CSCSection]):
+        self._sections = sections
+        self._filters: dict[str, object] = {}
+
+    def filter_by(self, **kwargs):
+        clone = _FakeSectionQuery(self._sections)
+        clone._filters = kwargs
+        return clone
+
+    def first(self):
+        for section in self._sections:
+            if all(getattr(section, key) == value for key, value in self._filters.items()):
+                return section
+        return None
 
 
 def _make_workbook(sheet_rows: dict[str, list[list[object]]]) -> BytesIO:
@@ -144,6 +188,59 @@ def _material_header(
     if include_officers_responsible:
         columns.insert(columns.index("Unit") + 1, "Officers Responsible")
     return columns
+
+
+def test_ensure_default_draft_sections_normalizes_legacy_changes_placeholder(monkeypatch):
+    legacy_changes = CSCSection(
+        id=11,
+        draft_id=7,
+        section_name="changes",
+        section_text="Testing",
+        sort_order=0,
+    )
+    draft = type(
+        "Draft",
+        (),
+        {
+            "id": 7,
+            "sections": _FakeOrderedSections([legacy_changes]),
+        },
+    )()
+    fake_session = _FakeSession()
+
+    monkeypatch.setattr(csc_routes.db, "session", fake_session)
+
+    _ensure_default_draft_sections(draft)
+
+    assert legacy_changes.section_name == "proposed_changes"
+    assert legacy_changes.section_text == _default_proposed_changes_section_text()
+    assert legacy_changes.sort_order == 30
+    assert any(
+        isinstance(section, CSCSection) and section.section_name == "background"
+        for section in fake_session.added
+    )
+
+
+def test_set_draft_section_text_renames_legacy_changes_row(monkeypatch):
+    legacy_changes = CSCSection(
+        id=21,
+        draft_id=9,
+        section_name="changes",
+        section_text="Testing",
+        sort_order=5,
+    )
+    draft = type("Draft", (), {"id": 9})()
+    fake_session = _FakeSession()
+
+    monkeypatch.setattr(csc_routes.CSCSection, "query", _FakeSectionQuery([legacy_changes]))
+    monkeypatch.setattr(csc_routes.db, "session", fake_session)
+    monkeypatch.setattr(csc_routes, "_infer_workflow_stream_name", lambda _draft: None)
+
+    _set_draft_section_text(draft, "proposed_changes", "Updated proposed changes text")
+
+    assert legacy_changes.section_name == "proposed_changes"
+    assert legacy_changes.section_text == "Updated proposed changes text"
+    assert legacy_changes.sort_order == 30
 
 
 def test_parse_type_classification_workbook_across_multiple_sheets():

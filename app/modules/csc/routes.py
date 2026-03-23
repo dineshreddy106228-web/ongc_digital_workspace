@@ -1538,6 +1538,13 @@ def _is_exact_testing_placeholder(text: str | None) -> bool:
     return str(text or "").strip().lower() == "testing"
 
 
+def _canonical_section_name(section_name: str | None) -> str:
+    normalized = str(section_name or "").strip()
+    if normalized == "changes":
+        return "proposed_changes"
+    return normalized
+
+
 def _default_section_rows(stream_name: str | None = None) -> list[tuple[str, str, int]]:
     return [
         ("background", _default_background_section_text(), 10),
@@ -1559,10 +1566,27 @@ def _ensure_default_draft_sections(draft: CSCDraft, stream_name: str | None = No
         "packing controls, and updated specification numbering."
     )
 
-    existing_sections = {
-        section.section_name: section
-        for section in draft.sections.order_by(CSCSection.sort_order).all()
-    }
+    existing_sections: dict[str, CSCSection] = {}
+    for section in draft.sections.order_by(CSCSection.sort_order).all():
+        canonical_name = _canonical_section_name(section.section_name)
+        existing = existing_sections.get(canonical_name)
+        if canonical_name != (section.section_name or ""):
+            section.section_name = canonical_name
+        if existing is None:
+            existing_sections[canonical_name] = section
+            continue
+
+        section_text = (section.section_text or "").strip()
+        existing_text = (existing.section_text or "").strip()
+        if (
+            (not existing_text or _is_exact_testing_placeholder(existing_text))
+            and section_text
+            and not _is_exact_testing_placeholder(section_text)
+        ):
+            existing.section_text = section.section_text
+        if not existing.sort_order and section.sort_order:
+            existing.sort_order = section.sort_order
+        db.session.delete(section)
 
     for section_name, (default_text, sort_order) in section_defaults.items():
         section = existing_sections.get(section_name)
@@ -1587,14 +1611,12 @@ def _ensure_default_draft_sections(draft: CSCDraft, stream_name: str | None = No
             )
         ):
             section.section_text = default_text
-        if not section.sort_order:
+        if section.sort_order != sort_order:
             section.sort_order = sort_order
 
 
 def _section_name_aliases(section_name: str | None) -> list[str]:
-    normalized = str(section_name or "").strip()
-    if normalized == "changes":
-        return ["changes", "proposed_changes"]
+    normalized = _canonical_section_name(section_name)
     if normalized == "proposed_changes":
         return ["proposed_changes", "changes"]
     return [normalized] if normalized else []
@@ -3289,10 +3311,17 @@ def _serialize_parameters_for_export(draft: CSCDraft) -> list[dict[str, object]]
 
 
 def _serialize_sections_for_export(draft: CSCDraft) -> dict[str, str]:
-    return {
-        section.section_name: section.section_text or ""
-        for section in draft.sections.order_by(CSCSection.sort_order).all()
-    }
+    sections: dict[str, str] = {}
+    for section in draft.sections.order_by(CSCSection.sort_order).all():
+        canonical_name = _canonical_section_name(section.section_name)
+        section_text = section.section_text or ""
+        existing_text = sections.get(canonical_name, "")
+        if (
+            canonical_name not in sections
+            or ((not existing_text.strip() or _is_exact_testing_placeholder(existing_text)) and section_text.strip())
+        ):
+            sections[canonical_name] = section_text
+    return sections
 
 
 def _serialize_flags_for_export(draft: CSCDraft) -> list[dict[str, object]]:
@@ -4147,7 +4176,16 @@ def editor(draft_id: int):
             for section_name, default_text, _sort_order in _default_section_rows(workflow_stream)
         }
         section_rows = draft.sections.order_by(CSCSection.sort_order).all()
-        sections = {section.section_name: section.section_text or "" for section in section_rows}
+        sections: dict[str, str] = {}
+        for section in section_rows:
+            canonical_name = _canonical_section_name(section.section_name)
+            section_text = section.section_text or ""
+            existing_text = sections.get(canonical_name, "")
+            if (
+                canonical_name not in sections
+                or ((not existing_text.strip() or _is_exact_testing_placeholder(existing_text)) and section_text.strip())
+            ):
+                sections[canonical_name] = section_text
         for section_name, default_text in section_defaults.items():
             sections[section_name] = sections.get(section_name, "").strip() or default_text
         sections = {
@@ -4513,23 +4551,18 @@ def save_section(draft_id: int, section_name: str):
         data = request.get_json() or {}
         section_text = data.get("section_text", "")
 
-        section = CSCSection.query.filter_by(
-            draft_id=draft_id, section_name=section_name
-        ).first()
-
-        if not section:
-            section = CSCSection(
-                draft_id=draft_id,
-                section_name=section_name,
-                section_text=section_text,
-                sort_order=0,
-            )
-            db.session.add(section)
-        else:
-            section.section_text = section_text
+        _set_draft_section_text(draft, section_name, section_text)
 
         draft.updated_at = datetime.now(timezone.utc)
         db.session.commit()
+
+        section = None
+        for candidate_name in _section_name_aliases(section_name):
+            section = CSCSection.query.filter_by(
+                draft_id=draft_id, section_name=candidate_name
+            ).first()
+            if section is not None:
+                break
 
         _create_audit_entry(draft_id, f"Section saved: {section_name}")
 
@@ -6731,7 +6764,7 @@ def _get_draft_section_text(draft: CSCDraft, section_name: str) -> str:
 
 def _set_draft_section_text(draft: CSCDraft, section_name: str, section_text: str) -> None:
     alias_names = _section_name_aliases(section_name)
-    canonical_name = alias_names[0] if alias_names else section_name
+    canonical_name = alias_names[0] if alias_names else _canonical_section_name(section_name)
     section_sort_orders = {
         section_name: sort_order
         for section_name, _default_text, sort_order in _default_section_rows(_infer_workflow_stream_name(draft))
@@ -6742,8 +6775,6 @@ def _set_draft_section_text(draft: CSCDraft, section_name: str, section_text: st
         if section is not None:
             break
     if section is None:
-        if not section_text:
-            return
         section = CSCSection(
             draft_id=draft.id,
             section_name=canonical_name,
@@ -6752,7 +6783,15 @@ def _set_draft_section_text(draft: CSCDraft, section_name: str, section_text: st
         )
         db.session.add(section)
         return
+    section.section_name = canonical_name
+    section.sort_order = section_sort_orders.get(canonical_name, section.sort_order)
     section.section_text = section_text
+    for candidate_name in alias_names:
+        if candidate_name == canonical_name:
+            continue
+        duplicate = CSCSection.query.filter_by(draft_id=draft.id, section_name=candidate_name).first()
+        if duplicate is not None and duplicate.id != section.id:
+            db.session.delete(duplicate)
 
 
 def _stage_material_handling_master_values(draft: CSCDraft, staged_values: dict[str, str]) -> int:
