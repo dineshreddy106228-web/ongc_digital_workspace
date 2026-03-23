@@ -974,6 +974,8 @@ def merge_material_handling_section_block(
     elif start_marker == MATERIAL_HANDLING_JUSTIFICATION_START:
         manual_text = _MATERIAL_HANDLING_VISIBLE_JUSTIFICATION_RE.sub("", manual_text)
     manual_text = manual_text.strip()
+    if manual_text.lower() == "testing":
+        manual_text = ""
     if not imported_text:
         return manual_text
     if not manual_text:

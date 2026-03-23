@@ -1489,16 +1489,17 @@ def _default_justification_section_text(stream_name: str | None = None) -> str:
 
 def _default_recommendation_section_text(stream_name: str | None = None) -> str:
     if stream_name == MATERIAL_HANDLING_STREAM:
-        return (
-            "Version Change Reason/\n"
-            "Migration to 2026 version with revised material handling, storage conditions, "
-            "packing controls, and updated specification numbering."
-        )
+        return "Migration to 2026 version with defined material handling and storage conditions"
     return (
         "Version Change Reason/\n"
         "Migration to 2026 version with type classification of all parameters into Vital and Desirable. "
         "Material Handling and Storage Conditions also defined"
     )
+
+
+def _is_exact_testing_placeholder(text: str | None) -> bool:
+    """Identify the seeded placeholder text that should not appear in drafts."""
+    return str(text or "").strip().lower() == "testing"
 
 
 def _default_section_rows(stream_name: str | None = None) -> list[tuple[str, str, int]]:
@@ -1516,6 +1517,11 @@ def _ensure_default_draft_sections(draft: CSCDraft, stream_name: str | None = No
         section_name: (default_text, sort_order)
         for section_name, default_text, sort_order in _default_section_rows(stream_name)
     }
+    legacy_material_handling_recommendation = (
+        "Version Change Reason/\n"
+        "Migration to 2026 version with revised material handling, storage conditions, "
+        "packing controls, and updated specification numbering."
+    )
 
     existing_sections = {
         section.section_name: section
@@ -1534,7 +1540,16 @@ def _ensure_default_draft_sections(draft: CSCDraft, stream_name: str | None = No
                 )
             )
             continue
-        if not (section.section_text or "").strip():
+        section_text = section.section_text or ""
+        if (
+            not section_text.strip()
+            or _is_exact_testing_placeholder(section_text)
+            or (
+                stream_name == MATERIAL_HANDLING_STREAM
+                and section_name == "recommendation"
+                and section_text.strip() == legacy_material_handling_recommendation
+            )
+        ):
             section.section_text = default_text
         if not section.sort_order:
             section.sort_order = sort_order
@@ -1780,6 +1795,238 @@ def _normalize_review_compare_value(value: object) -> str:
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     lines = [line.strip() for line in text.split("\n")]
     return "\n".join(lines).strip()
+
+
+def _normalize_editor_text(value: object) -> str:
+    """Match the editor text normalization used by the browser UI."""
+    if value is None:
+        return ""
+    return str(value).replace("\r\n", "\n").replace("\r", "\n").strip()
+
+
+def _normalize_editor_proposed_summary_text(value: object) -> str:
+    """Strip auto-generated checklist wrappers from the changes summary baseline."""
+    text = _normalize_editor_text(value)
+    if text.startswith("Sections updated:\n"):
+        marker = "\n\nChange summary:\n"
+        return _normalize_editor_text(text.split(marker, 1)[1] if marker in text else "")
+    if text.startswith("Change types: "):
+        segments = text.split("\n\n")
+        return _normalize_editor_text("\n\n".join(segments[1:]) if len(segments) > 1 else "")
+    return text
+
+
+def _editor_grid_snapshot(
+    config: list[dict[str, object]] | None,
+    state: dict[str, object] | None,
+    *,
+    include_defaults: bool = True,
+) -> str:
+    """Serialize a material-properties/storage grid the same way as the editor UI."""
+    config = config or []
+    snapshot_state = {str(key): _normalize_editor_text(value) for key, value in (state or {}).items()}
+    snapshot: dict[str, str] = {}
+
+    for field in config:
+        field_name = str(field.get("field_name") or "").strip()
+        if not field_name:
+            continue
+        default_value = _normalize_editor_text(field.get("default_value"))
+        current_value = snapshot_state.get(field_name, "")
+        if include_defaults and not current_value and default_value:
+            current_value = default_value
+        snapshot_state[field_name] = current_value
+
+        show_if = field.get("show_if") if isinstance(field, dict) else None
+        if isinstance(show_if, dict):
+            dependency_name = str(show_if.get("field_name") or "").strip()
+            dependency_value = snapshot_state.get(dependency_name, "")
+            expected_value = _normalize_editor_text(show_if.get("equals"))
+            if dependency_value != expected_value:
+                snapshot_state[field_name] = ""
+                snapshot[field_name] = ""
+                continue
+
+        if include_defaults and not snapshot_state[field_name] and default_value:
+            snapshot_state[field_name] = default_value
+        snapshot[field_name] = snapshot_state[field_name]
+
+    return json.dumps(snapshot)
+
+
+def _serialize_editor_issues(issues: list[dict[str, object]]) -> str:
+    """Serialize issue flags using the same shape as the editor snapshot."""
+    return json.dumps(
+        [
+            {
+                "flagged": bool(issue.get("flagged")),
+                "notes": _normalize_editor_text(issue.get("notes")),
+            }
+            for issue in issues
+        ]
+    )
+
+
+def _serialize_editor_impact_state(checklist_state: dict[str, object] | None, chemical_name: str) -> str:
+    """Serialize impact checklist state using the editor snapshot shape."""
+    state = dict(checklist_state or {})
+    state["chemical_name"] = chemical_name or ""
+    return json.dumps(
+        {
+            "version": state.get("version") or 2,
+            "chemical_name": state.get("chemical_name") or "",
+            "flags": state.get("flags") or {},
+        }
+    )
+
+
+def _build_editor_issue_rows(draft: CSCDraft | None) -> list[dict[str, object]]:
+    """Return the editor issue rows for a draft or a blank issue baseline."""
+    issue_rows = (
+        draft.issue_flags.order_by(CSCIssueFlag.sort_order).all()
+        if draft is not None
+        else []
+    )
+    issues: list[dict[str, object]] = []
+    for index, label in enumerate(EDITOR_ISSUE_LABELS):
+        issue = issue_rows[index] if index < len(issue_rows) else None
+        issues.append(
+            {
+                "issue_type": label,
+                "flagged": bool(issue.is_present) if issue else False,
+                "notes": issue.note if issue else "",
+            }
+        )
+    return issues
+
+
+def _build_editor_parameter_baseline(
+    draft: CSCDraft,
+    parent_draft: CSCDraft | None,
+    *,
+    phase1_locked: bool,
+) -> str:
+    """Serialize the published baseline for editor-side parameter change detection."""
+    parent_by_sort: dict[int, CSCParameter] = {}
+    parent_by_name: dict[str, CSCParameter] = {}
+    if parent_draft is not None:
+        parent_parameters = parent_draft.parameters.order_by(CSCParameter.sort_order).all()
+        parent_by_sort = {parameter.sort_order: parameter for parameter in parent_parameters}
+        parent_by_name = {
+            (parameter.parameter_name or "").strip().lower(): parameter
+            for parameter in parent_parameters
+            if (parameter.parameter_name or "").strip()
+        }
+
+    baseline_rows: list[dict[str, object]] = []
+    for parameter in draft.parameters.order_by(CSCParameter.sort_order).all():
+        parent_parameter = _match_parent_parameter(parameter, parent_by_sort, parent_by_name)
+        source_parameter = parent_parameter or parameter
+        if phase1_locked:
+            baseline_rows.append(
+                {
+                    "id": str(parameter.id or ""),
+                    "proposed_value": "",
+                }
+            )
+            continue
+
+        baseline_rows.append(
+            {
+                "parameter_name": _normalize_editor_text(source_parameter.parameter_name),
+                "parameter_type": _normalize_editor_text(source_parameter.parameter_type or "Desirable"),
+                "unit_of_measure": _normalize_editor_text(source_parameter.unit_of_measure),
+                "required_value_type": _normalize_editor_text(source_parameter.required_value_type or "text"),
+                "required_value_text": _normalize_editor_text(
+                    source_parameter.required_value_text or source_parameter.existing_value or ""
+                ),
+                "required_value_operator_1": _normalize_editor_text(source_parameter.required_value_operator_1),
+                "required_value_value_1": _normalize_editor_text(source_parameter.required_value_value_1),
+                "required_value_operator_2": _normalize_editor_text(source_parameter.required_value_operator_2),
+                "required_value_value_2": _normalize_editor_text(source_parameter.required_value_value_2),
+                "parameter_conditions": _normalize_editor_text(source_parameter.parameter_conditions),
+                "test_procedure_type": _normalize_editor_text(
+                    normalize_test_procedure_type(
+                        source_parameter.test_procedure_type or source_parameter.test_method or ""
+                    )
+                ),
+                "test_procedure_text": _normalize_editor_text(
+                    source_parameter.test_procedure_text or source_parameter.test_method or ""
+                ),
+            }
+        )
+
+    return json.dumps(baseline_rows)
+
+
+def _build_editor_comparison_baseline(
+    draft: CSCDraft,
+    parent_draft: CSCDraft | None,
+    *,
+    phase1_locked: bool,
+) -> dict[str, str]:
+    """Build the published baseline used by the editor Changes tab."""
+    source_draft = parent_draft or draft
+    blank_supporting_baseline = _should_blank_legacy_supporting_baseline(parent_draft)
+    source_sections = {
+        "background": _strip_system_bracket_lines(_get_draft_section_text(source_draft, "background")),
+        "existing_spec": _strip_system_bracket_lines(_get_draft_section_text(source_draft, "existing_spec")),
+        "proposed_changes": _normalize_editor_proposed_summary_text(
+            _strip_system_bracket_lines(_get_draft_section_text(source_draft, "proposed_changes"))
+        ),
+        "justification": _strip_system_bracket_lines(_get_draft_section_text(source_draft, "justification")),
+        "recommendation": _strip_system_bracket_lines(_get_draft_section_text(source_draft, "recommendation")),
+        "recommendation_remarks": _strip_system_bracket_lines(
+            _get_draft_section_text(source_draft, "recommendation_remarks")
+        ),
+    }
+
+    material_properties_state = (
+        {}
+        if blank_supporting_baseline and parent_draft is not None
+        else get_material_properties_values(source_draft)
+    )
+    storage_handling_state = (
+        {}
+        if blank_supporting_baseline and parent_draft is not None
+        else get_storage_handling_values(source_draft)
+    )
+
+    if blank_supporting_baseline and parent_draft is not None:
+        impact_state = build_default_impact_checklist_state(draft.chemical_name)
+    elif source_draft.impact_analysis and (source_draft.impact_analysis.checklist_state_json or "").strip():
+        impact_state = deserialize_impact_checklist_state(
+            source_draft.impact_analysis.checklist_state_json,
+            draft.chemical_name,
+        )
+    else:
+        impact_state = build_default_impact_checklist_state(draft.chemical_name)
+
+    return {
+        "background": _normalize_editor_text(source_sections["background"]),
+        "existing": _normalize_editor_text(source_sections["existing_spec"]),
+        "issues": _serialize_editor_issues(_build_editor_issue_rows(source_draft)),
+        "materialProperties": _editor_grid_snapshot(
+            get_material_properties_fields(),
+            material_properties_state,
+            include_defaults=not (blank_supporting_baseline and parent_draft is not None),
+        ),
+        "storageHandling": _editor_grid_snapshot(
+            get_storage_handling_fields(),
+            storage_handling_state,
+            include_defaults=not (blank_supporting_baseline and parent_draft is not None),
+        ),
+        "parameters": _build_editor_parameter_baseline(
+            draft,
+            parent_draft,
+            phase1_locked=phase1_locked,
+        ),
+        "impact": _serialize_editor_impact_state(impact_state, draft.chemical_name or ""),
+        "changes": _normalize_editor_text(source_sections["proposed_changes"]),
+        "justification": _normalize_editor_text(source_sections["justification"]),
+        "recommendation": _normalize_editor_text(source_sections["recommendation"]),
+        "recommendationRemarks": _normalize_editor_text(source_sections["recommendation_remarks"]),
+    }
 
 
 def _format_parameter_requirement_for_review(parameter: CSCParameter) -> str:
@@ -3817,6 +4064,7 @@ def editor(draft_id: int):
             db.session.commit()
 
         workflow_stream = _infer_workflow_stream_name(draft)
+        _ensure_default_draft_sections(draft, workflow_stream)
         section_defaults = {
             section_name: default_text
             for section_name, default_text, _sort_order in _default_section_rows(workflow_stream)
@@ -3830,21 +4078,10 @@ def editor(draft_id: int):
             for section_name, section_text in sections.items()
         }
 
-        issue_rows = draft.issue_flags.order_by(CSCIssueFlag.sort_order).all()
-        issues = []
-        for index, label in enumerate(EDITOR_ISSUE_LABELS):
-            issue = issue_rows[index] if index < len(issue_rows) else None
-            issues.append(
-                {
-                    "issue_type": label,
-                    "flagged": bool(issue.is_present) if issue else False,
-                    "notes": issue.note if issue else "",
-                }
-            )
-
         parent_by_sort: dict[int, CSCParameter] = {}
         parent_by_name: dict[str, CSCParameter] = {}
         parent_draft = db.session.get(CSCDraft, draft.parent_draft_id) if draft.parent_draft_id else None
+        issues = _build_editor_issue_rows(draft)
         if parent_draft is not None:
             parent_parameters = parent_draft.parameters.order_by(CSCParameter.sort_order).all()
             parent_by_sort = {parameter.sort_order: parameter for parameter in parent_parameters}
@@ -3908,6 +4145,11 @@ def editor(draft_id: int):
                 "legacy_only": not bool((draft.impact_analysis.checklist_state_json or "").strip()),
             }
         workflow_scope = _load_workflow_scope(draft)
+        comparison_baseline = _build_editor_comparison_baseline(
+            draft,
+            parent_draft,
+            phase1_locked=bool(draft.phase1_locked),
+        )
 
         return render_template(
             "csc/editor.html",
@@ -3931,6 +4173,7 @@ def editor(draft_id: int):
             master_impact_fields=MASTER_IMPACT_FIELDS,
             editable_master_fields=ADMIN_MASTER_FIELDS,
             editable_master_extra_fields=ADMIN_MASTER_EXTRA_FIELDS,
+            comparison_baseline=comparison_baseline,
             workflow_scope=workflow_scope,
             workflow_scope_summary=_summarize_workflow_scope(workflow_scope),
             draft_type_label=_draft_type_label(draft),
@@ -5859,10 +6102,12 @@ def _render_admin_revisions_workbench(
             }
             for revision in revisions
         ]
+        deletable_revision_count = sum(1 for row in revision_rows if row["can_force_delete"])
 
         return render_template(
             "csc/admin/revisions.html",
             revision_rows=revision_rows,
+            deletable_revision_count=deletable_revision_count,
             can_import_workbooks=True,
             workflow_nav_active="admin",
             workbench_title="Secretary Workbench",
@@ -5892,6 +6137,143 @@ def _render_admin_revisions_workbench(
         logger.error(f"Error loading revisions: {e}")
         flash("Error loading revisions.", "danger")
         return redirect(url_for("csc.admin_index"))
+
+
+def _revision_can_be_force_deleted_by_secretary(revision: CSCRevision | None) -> bool:
+    """Return whether a revision is deletable from the Secretary workbench."""
+    return bool(
+        revision
+        and revision.status in {
+            WORKFLOW_DRAFTING_STAGING,
+            WORKFLOW_DRAFTING_OPEN,
+            WORKFLOW_DRAFTING_SUBMITTED,
+            WORKFLOW_DRAFTING_HEAD_APPROVED,
+            WORKFLOW_DRAFTING_RETURNED,
+        }
+    )
+
+
+def _build_workbook_created_notification_message(
+    stream_label: str,
+    subset_codes: list[str] | set[str] | None,
+    draft_labels: list[str] | None,
+) -> str:
+    """Format grouped workbook-import notifications with a numbered draft list."""
+    normalized_subset_codes = sorted(
+        {
+            str(code or "").strip().upper()
+            for code in (subset_codes or [])
+            if str(code or "").strip()
+        }
+    )
+    subset_phrase = ""
+    if normalized_subset_codes:
+        subset_phrase = f" under your subset coverage ({', '.join(normalized_subset_codes)})"
+
+    cleaned_labels = [
+        str(label or "").strip()
+        for label in (draft_labels or [])
+        if str(label or "").strip()
+    ]
+    if not cleaned_labels:
+        return (
+            f"{stream_label} drafts have been created{subset_phrase}. "
+            "Review them in your committee workspace."
+        )
+
+    numbered_lines = [f"{index}. {label}" for index, label in enumerate(cleaned_labels, start=1)]
+    return (
+        f"{stream_label} drafts have been created for the following chemicals{subset_phrase}:\n"
+        + "\n".join(numbered_lines)
+        + "\nReview them in your committee workspace."
+    )
+
+
+def _delete_revision_as_module_admin(
+    revision: CSCRevision,
+    reviewer_notes: str,
+    *,
+    commit_changes: bool = True,
+) -> dict[str, object]:
+    """Delete one active workflow revision using the Secretary workbench rules."""
+    if not revision:
+        raise ValueError("Revision not found")
+    if not _revision_can_be_force_deleted_by_secretary(revision):
+        raise ValueError("Only staged or active drafts can be deleted")
+    if revision.child_draft is None or revision.parent_draft is None:
+        raise ValueError("Revision draft is incomplete")
+
+    child_draft = revision.child_draft
+    parent_draft = revision.parent_draft
+    is_new_spec = _draft_type_label(child_draft) == "New Specification"
+
+    parent_draft_id = parent_draft.id
+    parent_spec_number = parent_draft.spec_number
+    parent_chemical_name = parent_draft.chemical_name
+    proposer_id = child_draft.created_by_id
+    child_draft_id = child_draft.id
+    committee_slug = _get_revision_committee_slug(revision)
+    committee_head_user_ids = _get_committee_user_ids_for_committee_slug(
+        committee_slug,
+        "committee_head",
+    )
+    if revision.committee_head_user_id:
+        committee_head_user_ids.append(revision.committee_head_user_id)
+
+    revision.status = WORKFLOW_DRAFTING_REJECTED
+    revision.reviewed_at = datetime.now(timezone.utc)
+    revision.reviewer_notes = reviewer_notes
+    revision.module_admin_reviewed_at = datetime.now(timezone.utc)
+    revision.module_admin_notes = reviewer_notes
+    revision.module_admin_user_id = current_user.id
+    if not is_new_spec:
+        parent_draft.status = "Published"
+        parent_draft.admin_stage = ADMIN_STAGE_PUBLISHED
+        parent_draft.updated_at = datetime.now(timezone.utc)
+
+    if not is_new_spec:
+        db.session.add(
+            CSCAudit(
+                draft_id=parent_draft_id,
+                action="Drafting rejected and deleted",
+                user_name=current_user.username,
+                action_time=datetime.now(timezone.utc),
+                new_value=json.dumps({"submitted_draft_id": child_draft_id}),
+                remarks=reviewer_notes,
+            )
+        )
+
+    seen_user_ids: set[int] = set()
+    for user_id in [proposer_id, *committee_head_user_ids]:
+        if not user_id or user_id in seen_user_ids:
+            continue
+        seen_user_ids.add(user_id)
+        create_notification(
+            user_id=user_id,
+            title="Draft deleted",
+            message=(
+                f"{parent_spec_number} — {parent_chemical_name} was deleted by the Material Master Management Admin. "
+                f"Note: {reviewer_notes}"
+            ),
+            severity="danger",
+            link=url_for("csc.workspace"),
+        )
+
+    clear_staged_master_payload(child_draft)
+    db.session.delete(revision)
+    db.session.delete(child_draft)
+    if is_new_spec:
+        db.session.delete(parent_draft)
+    if commit_changes:
+        db.session.commit()
+
+    return {
+        "parent_draft_id": parent_draft_id,
+        "child_draft_id": child_draft_id,
+        "spec_number": parent_spec_number,
+        "chemical_name": parent_chemical_name,
+        "is_new_spec": is_new_spec,
+    }
 
 
 def _material_handling_import_staging_paths(token: str) -> dict[str, str]:
@@ -6472,15 +6854,23 @@ def _open_revisions_for_committee_workflow_bulk(
                 {
                     "stream_label": stream_label,
                     "subset_codes": set(),
-                    "chemicals": [],
+                    "draft_labels": [],
                 },
             )
             payload["stream_label"] = stream_label
             if subset_code:
                 payload["subset_codes"].add(subset_code)
-            chemical_name = str(revision.parent_draft.chemical_name or revision.child_draft.chemical_name or "").strip()
-            if chemical_name and chemical_name not in payload["chemicals"]:
-                payload["chemicals"].append(chemical_name)
+            draft_spec_number = str(
+                revision.child_draft.spec_number or revision.parent_draft.spec_number or ""
+            ).strip()
+            chemical_name = str(
+                revision.parent_draft.chemical_name or revision.child_draft.chemical_name or ""
+            ).strip()
+            draft_label = " — ".join(part for part in [draft_spec_number, chemical_name] if part)
+            if not draft_label:
+                draft_label = f"Draft {revision.child_draft.id}"
+            if draft_label not in payload["draft_labels"]:
+                payload["draft_labels"].append(draft_label)
         audit_rows.append(
             CSCAudit(
                 draft_id=revision.parent_draft.id,
@@ -6498,17 +6888,13 @@ def _open_revisions_for_committee_workflow_bulk(
         )
 
     for user_id, payload in notifications_by_user.items():
-        subset_codes = sorted(payload["subset_codes"])
-        subset_phrase = ""
-        if subset_codes:
-            subset_phrase = f" under your subset coverage ({', '.join(subset_codes)})"
-        chemical_list = ", ".join(payload["chemicals"]) if payload["chemicals"] else "the assigned chemicals"
         create_notification(
             user_id=user_id,
             title=f"{payload['stream_label']} drafts created for your subset",
-            message=(
-                f"{payload['stream_label']} drafts have been created for the following chemicals{subset_phrase}: "
-                f"{chemical_list}. Review them in your committee workspace."
+            message=_build_workbook_created_notification_message(
+                payload["stream_label"],
+                payload["subset_codes"],
+                payload["draft_labels"],
             ),
             severity="info",
             link=url_for("csc.workspace"),
@@ -6795,6 +7181,61 @@ def admin_cancel_material_handling_workbook_import():
     _discard_staged_material_handling_workbook_payload(token)
     flash("Discarded the staged material handling workbook review.", "info")
     return _render_admin_revisions_workbench()
+
+
+@csc_bp.route("/admin/revisions/delete-all-drafts", methods=["POST"])
+@login_required
+@module_access_required("csc")
+@module_admin_required("csc")
+def admin_delete_all_revisions():
+    """Delete all active workflow drafts currently deletable from the Secretary workbench."""
+    try:
+        confirmation = (request.form.get("confirmation_phrase") or "").strip()
+        if confirmation != "DELETE ALL DRAFTS":
+            flash('Type "DELETE ALL DRAFTS" to confirm bulk deletion.', "warning")
+            return _render_admin_revisions_workbench()
+
+        revisions = (
+            CSCRevision.query.order_by(CSCRevision.updated_at.desc(), CSCRevision.id.desc()).all()
+        )
+        deletable_revisions = [
+            revision for revision in revisions if _revision_can_be_force_deleted_by_secretary(revision)
+        ]
+        if not deletable_revisions:
+            flash("No active workflow drafts are currently available for bulk deletion.", "info")
+            return _render_admin_revisions_workbench()
+
+        deleted_count = 0
+        for revision in deletable_revisions:
+            child_draft = revision.child_draft
+            parent_draft = revision.parent_draft
+            if child_draft is None or parent_draft is None:
+                continue
+
+            is_new_spec = _draft_type_label(child_draft) == "New Specification"
+            if not is_new_spec:
+                parent_draft.status = "Published"
+                parent_draft.admin_stage = ADMIN_STAGE_PUBLISHED
+                parent_draft.updated_at = datetime.now(timezone.utc)
+
+            clear_staged_master_payload(child_draft)
+            db.session.delete(revision)
+            db.session.delete(child_draft)
+            if is_new_spec:
+                db.session.delete(parent_draft)
+            deleted_count += 1
+
+        db.session.commit()
+        flash(
+            f"Deleted {deleted_count} workflow draft(s) from the Secretary workbench.",
+            "success",
+        )
+        return _render_admin_revisions_workbench()
+    except Exception as exc:
+        logger.error(f"Error bulk deleting revisions from Secretary workbench: {exc}")
+        db.session.rollback()
+        flash("Unable to delete all workflow drafts right now.", "danger")
+        return _render_admin_revisions_workbench()
 
 
 def _open_revision_for_committee_workflow(revision: CSCRevision) -> tuple[bool, str]:
@@ -7344,67 +7785,14 @@ def admin_reject_revision(revision_id: int):
             return jsonify({"error": "Revision not found"}), 404
 
         data = request.get_json() or {}
-        if revision.status not in {
-            WORKFLOW_DRAFTING_STAGING,
-            WORKFLOW_DRAFTING_OPEN,
-            WORKFLOW_DRAFTING_SUBMITTED,
-            WORKFLOW_DRAFTING_HEAD_APPROVED,
-            WORKFLOW_DRAFTING_RETURNED,
-        }:
+        if not _revision_can_be_force_deleted_by_secretary(revision):
             return jsonify({"error": "Only staged or active drafts can be deleted"}), 400
 
-        child_draft = revision.child_draft
-        parent_draft = revision.parent_draft
         reviewer_notes = (data.get("reviewer_notes") or "").strip()
         if not reviewer_notes:
             return jsonify({"error": "Reviewer notes are required"}), 400
 
-        is_new_spec = _draft_type_label(child_draft) == "New Specification"
-        revision.status = WORKFLOW_DRAFTING_REJECTED
-        revision.reviewed_at = datetime.now(timezone.utc)
-        revision.reviewer_notes = reviewer_notes
-        revision.module_admin_reviewed_at = datetime.now(timezone.utc)
-        revision.module_admin_notes = reviewer_notes
-        revision.module_admin_user_id = current_user.id
-        if not is_new_spec:
-            parent_draft.status = "Published"
-            parent_draft.admin_stage = ADMIN_STAGE_PUBLISHED
-            parent_draft.updated_at = datetime.now(timezone.utc)
-
-        proposer_id = child_draft.created_by_id
-        child_draft_id = child_draft.id
-        clear_staged_master_payload(child_draft)
-        db.session.delete(revision)
-        db.session.delete(child_draft)
-        if is_new_spec:
-            db.session.delete(parent_draft)
-        db.session.commit()
-
-        if not is_new_spec:
-            _create_audit_entry(
-                parent_draft.id,
-                "Drafting rejected and deleted",
-                new_value=json.dumps({"submitted_draft_id": child_draft_id}),
-                remarks=reviewer_notes,
-            )
-
-        committee_head_user_ids = _get_committee_user_ids_for_committee_slug(
-            _get_revision_committee_slug(revision),
-            "committee_head",
-        )
-        if revision.committee_head_user_id:
-            committee_head_user_ids.append(revision.committee_head_user_id)
-
-        _notify_users(
-            [proposer_id, *committee_head_user_ids],
-            title="Draft deleted",
-            message=(
-                f"{parent_draft.spec_number} — {parent_draft.chemical_name} was deleted by the Material Master Management Admin. "
-                f"Note: {reviewer_notes}"
-            ),
-            severity="danger",
-            link=url_for("csc.workspace"),
-        )
+        _delete_revision_as_module_admin(revision, reviewer_notes)
 
         return jsonify({"success": True})
     except Exception as e:

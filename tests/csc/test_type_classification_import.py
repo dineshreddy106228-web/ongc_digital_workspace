@@ -13,11 +13,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from app.core.services.csc_type_classification_import import (
     IMPORTED_JUSTIFICATION_END,
     IMPORTED_JUSTIFICATION_START,
+    MATERIAL_HANDLING_JUSTIFICATION_END,
+    MATERIAL_HANDLING_JUSTIFICATION_START,
     apply_material_handling_core_updates,
     build_parent_lookup,
     build_parent_lookup_by_material_code,
     import_material_handling_workbook,
     import_type_classification_workbook,
+    merge_material_handling_section_block,
     parse_material_handling_workbook,
     parse_type_classification_workbook,
 )
@@ -876,7 +879,18 @@ def test_material_handling_section_defaults_cover_background_changes_and_reason(
     assert defaults["proposed_changes"] == _default_proposed_changes_section_text("material_handling")
     assert "material handling" in defaults["proposed_changes"].lower()
     assert defaults["recommendation"] == _default_recommendation_section_text("material_handling")
-    assert "updated specification numbering" in defaults["recommendation"].lower()
+    assert defaults["recommendation"] == "Migration to 2026 version with defined material handling and storage conditions"
+
+
+def test_merge_material_handling_section_block_drops_testing_placeholder():
+    merged = merge_material_handling_section_block(
+        "Testing",
+        "Imported material handling text",
+        start_marker=MATERIAL_HANDLING_JUSTIFICATION_START,
+        end_marker=MATERIAL_HANDLING_JUSTIFICATION_END,
+    )
+
+    assert merged == "Imported material handling text"
 
 
 def test_material_handling_staged_payload_round_trip():

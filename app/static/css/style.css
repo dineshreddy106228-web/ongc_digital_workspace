@@ -1122,6 +1122,7 @@ body.workspace-flyout-open .workspace-backdrop {
     font-size: .8rem;
     color: var(--muted);
     line-height: 1.5;
+    white-space: pre-line;
 }
 
 .notification-empty {
@@ -4324,6 +4325,7 @@ body.workspace-flyout-open .workspace-backdrop {
     color: var(--muted);
     margin-top: .35rem;
     font-size: .88rem;
+    white-space: pre-line;
 }
 
 .notification-card-meta {

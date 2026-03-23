@@ -29,7 +29,7 @@ ISSUE_TYPES = [
     ("operational", "Operational Issue"),
     ("quality", "Quality Issue"),
     ("supply", "Supply Issue"),
-    ("testing", "Testing / Evaluation Issue"),
+    ("testing", "Evaluation Issue"),
 ]
 
 # Impact sub-sections
@@ -37,7 +37,7 @@ IMPACT_SUBTYPES = [
     ("Impact::operational", "Operational Impact"),
     ("Impact::supply_chain", "Supply Chain Impact"),
     ("Impact::cost", "Cost Impact"),
-    ("Impact::quality_testing", "Quality / Testing Impact"),
+    ("Impact::quality_testing", "Quality / Evaluation Impact"),
     ("Impact::safety_regulatory", "Safety / Regulatory Impact"),
 ]
 

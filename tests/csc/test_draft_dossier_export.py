@@ -10,10 +10,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from app.core.services.csc_export import build_flask_review_document
 from app.modules.csc.routes import (
     _build_comparison_value_rows,
+    _build_workbook_created_notification_message,
+    _editor_grid_snapshot,
+    _normalize_editor_proposed_summary_text,
+    _revision_can_be_force_deleted_by_secretary,
     _subset_code_is_within_scope,
     _should_blank_legacy_supporting_baseline,
     _should_hide_legacy_supporting_sections,
     _workflow_subset_code_for_draft,
+)
+from app.core.services.csc_utils import (
+    WORKFLOW_DRAFTING_HEAD_APPROVED,
+    WORKFLOW_DRAFTING_OPEN,
+    WORKFLOW_DRAFTING_REJECTED,
+    WORKFLOW_DRAFTING_STAGING,
 )
 
 
@@ -115,6 +125,64 @@ def test_legacy_v0_supporting_rules() -> None:
     assert _should_hide_legacy_supporting_sections(DraftStub(0, 99)) is False
 
 
+def test_normalize_editor_proposed_summary_text_strips_generated_wrapper() -> None:
+    wrapped = (
+        "Sections updated:\n"
+        "- Material Properties\n"
+        "- Storage and Handling\n\n"
+        "Change summary:\n"
+        "Updated packing controls."
+    )
+    assert _normalize_editor_proposed_summary_text(wrapped) == "Updated packing controls."
+    assert _normalize_editor_proposed_summary_text("Change types: Material\n\nManual summary") == "Manual summary"
+
+
+def test_editor_grid_snapshot_can_keep_legacy_v0_baseline_blank() -> None:
+    config = [
+        {
+            "field_name": "storage_conditions_general",
+            "default_value": "Store in a cool and dry place",
+        },
+        {
+            "field_name": "container_type",
+            "show_if": {"field_name": "storage_conditions_general", "equals": "Store in a cool and dry place"},
+            "default_value": "HDPE Drum",
+        },
+    ]
+
+    assert _editor_grid_snapshot(config, {}, include_defaults=True) == (
+        '{"storage_conditions_general": "Store in a cool and dry place", "container_type": "HDPE Drum"}'
+    )
+    assert _editor_grid_snapshot(config, {}, include_defaults=False) == (
+        '{"storage_conditions_general": "", "container_type": ""}'
+    )
+
+
+def test_secretary_force_delete_helper_matches_active_workflow_statuses() -> None:
+    class RevisionStub:
+        def __init__(self, status: str | None):
+            self.status = status
+
+    assert _revision_can_be_force_deleted_by_secretary(RevisionStub(WORKFLOW_DRAFTING_STAGING)) is True
+    assert _revision_can_be_force_deleted_by_secretary(RevisionStub(WORKFLOW_DRAFTING_OPEN)) is True
+    assert _revision_can_be_force_deleted_by_secretary(RevisionStub(WORKFLOW_DRAFTING_HEAD_APPROVED)) is True
+    assert _revision_can_be_force_deleted_by_secretary(RevisionStub(WORKFLOW_DRAFTING_REJECTED)) is False
+    assert _revision_can_be_force_deleted_by_secretary(None) is False
+
+
+def test_workbook_created_notification_message_uses_numbered_list() -> None:
+    message = _build_workbook_created_notification_message(
+        "Type Classification",
+        ["DFC"],
+        ["ONGC/DFC/01/2026 — ALUMINIUM STEARATE", "ONGC/DFC/02/2026 — BENTONITE"],
+    )
+
+    assert "under your subset coverage (DFC)" in message
+    assert "1. ONGC/DFC/01/2026 — ALUMINIUM STEARATE" in message
+    assert "2. ONGC/DFC/02/2026 — BENTONITE" in message
+    assert "\nReview them in your committee workspace." in message
+
+
 def test_workflow_subset_code_prefers_published_parent_subset() -> None:
     class DraftStub:
         def __init__(self, subset: str | None):
@@ -144,6 +212,10 @@ def _run_direct() -> None:
         test_build_comparison_value_rows_marks_published_delta,
         test_build_flask_review_document_uses_comparison_layout_without_update_fields,
         test_legacy_v0_supporting_rules,
+        test_normalize_editor_proposed_summary_text_strips_generated_wrapper,
+        test_editor_grid_snapshot_can_keep_legacy_v0_baseline_blank,
+        test_secretary_force_delete_helper_matches_active_workflow_statuses,
+        test_workbook_created_notification_message_uses_numbered_list,
         test_workflow_subset_code_prefers_published_parent_subset,
         test_subset_scope_helper_respects_configured_subset_codes,
     ]

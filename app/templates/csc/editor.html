@@ -2687,6 +2687,7 @@
     var storageHandlingConfig = {{ storage_handling_fields|tojson }};
     var storageHandlingInitialState = {{ storage_handling_values|tojson }};
     var storageHandlingExpanded = {};
+    var comparisonBaselineState = {{ comparison_baseline|tojson }};
     var draftDossierModal = document.getElementById('draftDossierModal');
     var draftDossierTitle = document.getElementById('draftDossierTitle');
     var draftDossierSubtitle = document.getElementById('draftDossierSubtitle');
@@ -3566,49 +3567,59 @@
         card.classList.toggle('is-checked', !!checked);
     }
 
+    function checklistBaselineValue(key) {
+        if (comparisonBaselineState && Object.prototype.hasOwnProperty.call(comparisonBaselineState, key)) {
+            return comparisonBaselineState[key];
+        }
+        if (initialEditorState && Object.prototype.hasOwnProperty.call(initialEditorState, key)) {
+            return initialEditorState[key];
+        }
+        return '';
+    }
+
     function updateChangesChecklist() {
-        if (!initialEditorState) return;
+        if (!initialEditorState && !comparisonBaselineState) return;
 
         setChecklistState(
             'Background',
-            normalizedValue(document.getElementById('backgroundText')?.value || '') !== initialEditorState.background
+            normalizedValue(document.getElementById('backgroundText')?.value || '') !== checklistBaselineValue('background')
         );
         setChecklistState(
             'Existing',
-            normalizedValue(document.getElementById('existingText')?.value || '') !== initialEditorState.existing
+            normalizedValue(document.getElementById('existingText')?.value || '') !== checklistBaselineValue('existing')
         );
         setChecklistState(
             'Issues',
-            currentIssuesSnapshot() !== initialEditorState.issues
+            currentIssuesSnapshot() !== checklistBaselineValue('issues')
         );
         setChecklistState(
             'MaterialProperties',
-            currentMaterialPropertiesSnapshot() !== initialEditorState.materialProperties
+            currentMaterialPropertiesSnapshot() !== checklistBaselineValue('materialProperties')
         );
         setChecklistState(
             'StorageHandling',
-            currentStorageHandlingSnapshot() !== initialEditorState.storageHandling
+            currentStorageHandlingSnapshot() !== checklistBaselineValue('storageHandling')
         );
         setChecklistState(
             'Parameters',
-            currentParametersSnapshot() !== initialEditorState.parameters || hasParameterTypeChanges()
+            currentParametersSnapshot() !== checklistBaselineValue('parameters') || hasParameterTypeChanges()
         );
         setChecklistState(
             'Impact',
-            currentImpactSnapshot() !== initialEditorState.impact
+            currentImpactSnapshot() !== checklistBaselineValue('impact')
         );
         setChecklistState(
             'Changes',
-            normalizedValue(document.getElementById('proposedSummary')?.value || '') !== initialEditorState.changes
+            normalizedValue(document.getElementById('proposedSummary')?.value || '') !== checklistBaselineValue('changes')
         );
         setChecklistState(
             'Justification',
-            normalizedValue(document.getElementById('justificationText')?.value || '') !== initialEditorState.justification
+            normalizedValue(document.getElementById('justificationText')?.value || '') !== checklistBaselineValue('justification')
         );
         setChecklistState(
             'Recommendation',
-            normalizedValue(document.getElementById('mainRec')?.value || '') !== initialEditorState.recommendation ||
-            normalizedValue(document.getElementById('remarksRec')?.value || '') !== initialEditorState.recommendationRemarks
+            normalizedValue(document.getElementById('mainRec')?.value || '') !== checklistBaselineValue('recommendation') ||
+            normalizedValue(document.getElementById('remarksRec')?.value || '') !== checklistBaselineValue('recommendationRemarks')
         );
     }
 
