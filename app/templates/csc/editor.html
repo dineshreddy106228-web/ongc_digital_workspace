@@ -200,8 +200,41 @@
 
 .csc-master-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 1rem 1.25rem;
+    align-items: start;
+}
+
+.csc-master-grid .csc-form-group {
+    display: grid;
+    grid-template-rows: auto auto auto;
+    align-content: start;
+}
+
+.csc-master-grid .csc-form-label {
+    min-height: 2.8rem;
+}
+
+@media (max-width: 1440px) {
+    .csc-master-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 980px) {
+    .csc-master-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 680px) {
+    .csc-master-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .csc-master-grid .csc-form-label {
+        min-height: 0;
+    }
 }
 
 .csc-master-note {
@@ -1932,43 +1965,69 @@
         <div class="csc-section-panel">
             <div class="csc-section-header">
                 <h2 class="csc-section-title">Master Data</h2>
-                <p class="csc-section-guidance">Edit the core master-data fields for this workflow draft here. Material Properties, Storage &amp; Handling, and Impact remain managed from their dedicated tabs.</p>
+                <p class="csc-section-guidance">
+                    {% if master_data_editable %}
+                    Edit the core master-data fields for this workflow draft here. Material Properties, Storage &amp; Handling, and Impact remain managed from their dedicated tabs.
+                    {% else %}
+                    Master data is shown here as a read-only snapshot for this Type Classification draft. Direct editing remains enabled only for Material Handling and Storage Conditions Classification drafts to keep merging predictable.
+                    {% endif %}
+                </p>
             </div>
 
-            <p class="csc-master-note">Committee users maintain the base master-data details here. If the Material Master Management Admin needs to change them directly, they must open a self draft from Draft Generation for Revision in Secretary Workspace.</p>
+            <p class="csc-master-note">
+                {% if master_data_editable %}
+                Committee users maintain the base master-data details here. If the Material Master Management Admin needs to change them directly, they must open a self draft from Draft Generation for Revision in Secretary Workspace.
+                {% else %}
+                Committee users can review these values here, but changes are frozen for this workflow stream.
+                {% endif %}
+            </p>
             <p class="csc-master-note">Fields controlled by the workbook or impact workflow stay on their dedicated tabs to avoid conflicting edits.</p>
 
             <form id="masterDataForm" data-section="master_data">
                 <div class="csc-master-grid">
                     <div class="csc-form-group">
                         <label for="masterChemicalName" class="csc-form-label">Chemical Name</label>
-                        <input type="text" id="masterChemicalName" class="csc-input" value="{{ draft.chemical_name or '' }}" data-master-view-field="chemical_name" data-master-edit-field="chemical_name">
+                        <input type="text" id="masterChemicalName" class="csc-input" value="{{ draft.chemical_name or '' }}" data-master-view-field="chemical_name" data-master-edit-field="chemical_name" {% if not master_data_editable %}readonly{% endif %}>
                     </div>
                     <div class="csc-form-group">
                         <label for="masterMaterialCode" class="csc-form-label">Material Code</label>
-                        <input type="text" id="masterMaterialCode" class="csc-input" value="{{ master_data.get('material_code', '') }}" data-master-view-field="material_code" data-master-edit-field="material_code" {% if master_data.get('material_code', '') %}readonly{% endif %}>
+                        <input type="text" id="masterMaterialCode" class="csc-input" value="{{ master_data.get('material_code', '') }}" data-master-view-field="material_code" data-master-edit-field="material_code" {% if master_data.get('material_code', '') or not master_data_editable %}readonly{% endif %}>
                         <div class="csc-form-hint">Material Code becomes read-only after it is established.</div>
                     </div>
-                    {% for field_name, label in editable_master_fields %}
+                    {% for field in editable_master_fields %}
                     <div class="csc-form-group">
-                        <label for="master_{{ field_name }}" class="csc-form-label">{{ label }}</label>
-                        <input type="text" id="master_{{ field_name }}" class="csc-input" value="{{ master_data.get(field_name, '') }}" data-master-view-field="{{ field_name }}" data-master-edit-field="{{ field_name }}">
+                        <label for="master_{{ field.field_name }}" class="csc-form-label">{{ field.label }}</label>
+                        {% if field.input_type == 'select' %}
+                        <select id="master_{{ field.field_name }}" class="csc-input" data-master-view-field="{{ field.field_name }}" data-master-edit-field="{{ field.field_name }}" {% if not master_data_editable %}disabled{% endif %}>
+                            <option value="">Select</option>
+                            {% for option in field.options %}
+                            <option value="{{ option }}" {% if master_data.get(field.field_name, '') == option %}selected{% endif %}>{{ option }}</option>
+                            {% endfor %}
+                        </select>
+                        {% else %}
+                        <input type="text" id="master_{{ field.field_name }}" class="csc-input" value="{{ master_data.get(field.field_name, '') }}" placeholder="{{ field.placeholder or '' }}" data-master-view-field="{{ field.field_name }}" data-master-edit-field="{{ field.field_name }}" {% if not master_data_editable %}readonly{% endif %}>
+                        {% endif %}
+                        {% if field.hint %}
+                        <div class="csc-form-hint">{{ field.hint }}</div>
+                        {% endif %}
                     </div>
                     {% endfor %}
                     {% for field_name, label in editable_master_extra_fields %}
                     <div class="csc-form-group">
                         <label for="master_extra_{{ field_name }}" class="csc-form-label">{{ label }}</label>
-                        <input type="text" id="master_extra_{{ field_name }}" class="csc-input" value="{{ master_data.get('extra__' + field_name, '') }}" data-master-view-field="extra__{{ field_name }}" data-master-edit-field="extra__{{ field_name }}">
+                        <input type="text" id="master_extra_{{ field_name }}" class="csc-input" value="{{ master_data.get('extra__' + field_name, '') }}" data-master-view-field="extra__{{ field_name }}" data-master-edit-field="extra__{{ field_name }}" {% if not master_data_editable %}readonly{% endif %}>
                     </div>
                     {% endfor %}
                 </div>
 
+                {% if master_data_editable %}
                 <div class="csc-section-actions">
                     <button type="button" class="btn btn-primary btn-sm" data-save-section="master-data">
                         <i class="bi bi-check-circle"></i> Save Master Data
                     </button>
                     <span class="csc-save-indicator" id="masterDataIndicator"></span>
                 </div>
+                {% endif %}
             </form>
         </div>
     </div>

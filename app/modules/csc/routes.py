@@ -119,6 +119,7 @@ from app.core.services.csc_utils import (
 from app.core.services.csc_master_data import (
     ADMIN_MASTER_EXTRA_FIELDS,
     ADMIN_MASTER_FIELDS,
+    ADMIN_MASTER_FIELD_CONFIGS,
     CSC_ADMIN_DRAFT_FIELDS,
     MASTER_DATA_FIELDS,
     MASTER_EXTRA_FIELDS,
@@ -389,11 +390,14 @@ def _copy_draft_content(source: CSCDraft, target: CSCDraft) -> None:
             WORKFLOW_STREAM_SECTION_NAME,
         }:
             continue
+        section_text = section.section_text or ""
+        if _is_exact_testing_placeholder(section_text):
+            section_text = ""
         db.session.add(
             CSCSection(
                 draft_id=target.id,
                 section_name=section.section_name,
-                section_text=section.section_text,
+                section_text=section_text,
                 sort_order=section.sort_order,
             )
         )
@@ -1012,6 +1016,14 @@ def _infer_workflow_stream_name(draft: CSCDraft | None) -> str:
     if committee_slug == "material-handling":
         return MATERIAL_HANDLING_STREAM
     return TYPE_CLASSIFICATION_STREAM
+
+
+def _master_data_editable_for_stream(stream_name: str | None) -> bool:
+    return (stream_name or "").strip().lower() == MATERIAL_HANDLING_STREAM
+
+
+def _master_data_editable_for_draft(draft: CSCDraft | None) -> bool:
+    return _master_data_editable_for_stream(_infer_workflow_stream_name(draft))
 
 
 def _get_workflow_committee_section(draft: CSCDraft) -> CSCSection | None:
@@ -4145,6 +4157,7 @@ def editor(draft_id: int):
                 "legacy_only": not bool((draft.impact_analysis.checklist_state_json or "").strip()),
             }
         workflow_scope = _load_workflow_scope(draft)
+        master_data_editable = _master_data_editable_for_draft(draft)
         comparison_baseline = _build_editor_comparison_baseline(
             draft,
             parent_draft,
@@ -4171,11 +4184,12 @@ def editor(draft_id: int):
             master_fields=MASTER_DATA_FIELDS,
             master_extra_fields=MASTER_EXTRA_FIELDS,
             master_impact_fields=MASTER_IMPACT_FIELDS,
-            editable_master_fields=ADMIN_MASTER_FIELDS,
+            editable_master_fields=ADMIN_MASTER_FIELD_CONFIGS,
             editable_master_extra_fields=ADMIN_MASTER_EXTRA_FIELDS,
             comparison_baseline=comparison_baseline,
             workflow_scope=workflow_scope,
             workflow_scope_summary=_summarize_workflow_scope(workflow_scope),
+            master_data_editable=master_data_editable,
             draft_type_label=_draft_type_label(draft),
             editor_lock_enabled=_committee_editor_lock_enabled_for_draft(draft, editor_mode),
         )
@@ -4288,6 +4302,10 @@ def save_master_data(draft_id: int):
 
         if not _can_edit_draft(draft):
             return jsonify({"error": "Unauthorized"}), 403
+        if not _master_data_editable_for_draft(draft):
+            return jsonify({
+                "error": "Master data is read-only for Type Classification drafts.",
+            }), 403
         lock_response = _json_editor_lock_conflict_response(draft, "committee_user")
         if lock_response is not None:
             return lock_response

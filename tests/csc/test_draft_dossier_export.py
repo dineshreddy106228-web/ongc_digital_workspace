@@ -8,10 +8,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from app.core.services.csc_export import build_flask_review_document
+from app.core.services.csc_master_data import ADMIN_MASTER_FIELD_CONFIGS
 from app.modules.csc.routes import (
     _build_comparison_value_rows,
     _build_workbook_created_notification_message,
     _editor_grid_snapshot,
+    _master_data_editable_for_stream,
     _normalize_editor_proposed_summary_text,
     _revision_can_be_force_deleted_by_secretary,
     _subset_code_is_within_scope,
@@ -183,6 +185,24 @@ def test_workbook_created_notification_message_uses_numbered_list() -> None:
     assert "\nReview them in your committee workspace." in message
 
 
+def test_admin_master_field_configs_define_group_text_and_selects_for_type_and_centralization() -> None:
+    by_name = {field["field_name"]: field for field in ADMIN_MASTER_FIELD_CONFIGS}
+
+    assert by_name["group"]["input_type"] == "text"
+    assert by_name["group"]["label"] == "Group"
+    assert "Other" in by_name["group"]["hint"]
+    assert by_name["material_type"]["label"] == "Performance / Other"
+    assert by_name["material_type"]["options"] == ["Performance", "Other"]
+    assert by_name["centralization"]["label"] == "Centralization for Procurement (Yes / No)"
+    assert by_name["centralization"]["options"] == ["Yes", "No"]
+
+
+def test_master_data_editable_only_for_material_handling_stream() -> None:
+    assert _master_data_editable_for_stream("material_handling") is True
+    assert _master_data_editable_for_stream("type_classification") is False
+    assert _master_data_editable_for_stream(None) is False
+
+
 def test_workflow_subset_code_prefers_published_parent_subset() -> None:
     class DraftStub:
         def __init__(self, subset: str | None):
@@ -216,6 +236,8 @@ def _run_direct() -> None:
         test_editor_grid_snapshot_can_keep_legacy_v0_baseline_blank,
         test_secretary_force_delete_helper_matches_active_workflow_statuses,
         test_workbook_created_notification_message_uses_numbered_list,
+        test_admin_master_field_configs_define_group_text_and_selects_for_type_and_centralization,
+        test_master_data_editable_only_for_material_handling_stream,
         test_workflow_subset_code_prefers_published_parent_subset,
         test_subset_scope_helper_respects_configured_subset_codes,
     ]

@@ -57,6 +57,34 @@ MASTER_IMPACT_FIELDS = [
     ("impact_confidence", "Impact Confidence"),
 ]
 
+MASTER_GROUP_OPTIONS = [
+    "Demulsifier",
+    "Low Temperature Demulsifier",
+    "Weighing Agent",
+    "Flow Improver",
+    "Corrosion Inhibitor",
+    "Scale Inhibitor",
+    "Biocide",
+    "Hydrate Inhibitor",
+    "Paraffin Inhibitor",
+    "Asphaltene Dispersant",
+    "Surfactant",
+    "Defoamer",
+    "Viscosifier",
+    "Clay Stabilizer",
+    "Mutual Solvent",
+]
+
+MASTER_TYPE_OPTIONS = [
+    "Performance",
+    "Other",
+]
+
+MASTER_CENTRALIZATION_OPTIONS = [
+    "Yes",
+    "No",
+]
+
 MATERIAL_CLASSIFICATION_SOURCE_PATH = Path(
     "/Users/dineshreddy/Downloads/Chemical_Properties_Register_Version_1.xlsx"
 )
@@ -246,6 +274,37 @@ ADMIN_MASTER_FIELDS = [
     (field_name, label)
     for field_name, label in MASTER_DATA_FIELDS
     if field_name not in WORKFLOW_MANAGED_MASTER_FIELD_NAMES
+]
+
+_ADMIN_MASTER_FIELD_OVERRIDES = {
+    "group": {
+        "label": "Group",
+        "input_type": "text",
+        "placeholder": "Enter group",
+        "hint": "Examples: Demulsifier, Low Temperature Demulsifier, Weighing Agent, Flow Improver, Other.",
+    },
+    "material_type": {
+        "label": "Performance / Other",
+        "input_type": "select",
+        "options": MASTER_TYPE_OPTIONS,
+    },
+    "centralization": {
+        "label": "Centralization for Procurement (Yes / No)",
+        "input_type": "select",
+        "options": MASTER_CENTRALIZATION_OPTIONS,
+    },
+}
+
+ADMIN_MASTER_FIELD_CONFIGS = [
+    {
+        "field_name": field_name,
+        "label": _ADMIN_MASTER_FIELD_OVERRIDES.get(field_name, {}).get("label", label),
+        "input_type": _ADMIN_MASTER_FIELD_OVERRIDES.get(field_name, {}).get("input_type", "text"),
+        "options": list(_ADMIN_MASTER_FIELD_OVERRIDES.get(field_name, {}).get("options", [])),
+        "placeholder": _ADMIN_MASTER_FIELD_OVERRIDES.get(field_name, {}).get("placeholder", ""),
+        "hint": _ADMIN_MASTER_FIELD_OVERRIDES.get(field_name, {}).get("hint", ""),
+    }
+    for field_name, label in ADMIN_MASTER_FIELDS
 ]
 
 ADMIN_MASTER_EXTRA_FIELDS = [
