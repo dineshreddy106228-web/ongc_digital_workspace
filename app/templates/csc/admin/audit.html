@@ -45,6 +45,7 @@
         action="{{ url_for('csc.admin_reset_audit_test_state') }}"
         onsubmit="return confirm('This will delete all CSC audit rows and active workflow child drafts created during testing. Published parent drafts stay. Continue?');"
       >
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button type="submit" class="btn btn-danger">
           <i class="bi bi-arrow-counterclockwise"></i> One-Time Reset Test State
         </button>
