@@ -130,6 +130,10 @@ class Config:
         os.environ.get("ENABLE_CSC"),
         default=True,
     )
+    ENABLE_NABL = _as_bool(
+        os.environ.get("ENABLE_NABL"),
+        default=True,
+    )
     ENABLE_REPORTS = _as_bool(
         os.environ.get("ENABLE_REPORTS"),
         default=False,

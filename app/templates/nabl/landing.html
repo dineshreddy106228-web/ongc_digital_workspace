@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %}NABL AccredKit{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/nabl.css') }}">
+{% endblock %}
+{% block content %}
+<div class="nabl-shell nabl-landing-shell">
+    <section class="nabl-hero nabl-hero-enterprise">
+        <div class="nabl-hero-copy">
+            <div class="nabl-kicker">NABL ISO/IEC 17025 Programme</div>
+            <h1>NABL AccredKit</h1>
+            <p class="nabl-hero-text">
+                Enterprise workspace for converting guided lab inputs into accreditation-ready SOP and REC drafts,
+                aligned to the IDWE master document set and routed through governance review.
+            </p>
+            <div class="nabl-chip-row">
+                <span class="nabl-chip nabl-chip-signal">{{ summaries|length }} configured labs</span>
+                <span class="nabl-chip nabl-chip-signal">{{ source_summary.catalog_count }} source-controlled docs indexed</span>
+                <span class="nabl-chip nabl-chip-signal">{{ source_summary.files_count }} IDWE master files loaded</span>
+            </div>
+            <div class="nabl-action-row">
+                {% if recommended_href %}
+                <a class="btn btn-primary" href="{{ recommended_href }}">{{ recommended_label }}</a>
+                {% endif %}
+                {% if role_mode == 'admin' %}
+                <a class="btn btn-secondary" href="{{ url_for('nabl.governance') }}">View all labs</a>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="nabl-hero-panel">
+            <div class="nabl-panel-label">Source Library</div>
+            <h2>IDWE master alignment</h2>
+            <p class="nabl-muted">
+                The module now reads from the clause-wise IDWE DOCX baseline under
+                <strong>{{ source_summary.source_dir or 'NABL IDWE docs/IDWE Docs' }}</strong>.
+            </p>
+            <ul class="nabl-source-list">
+                {% for file_name in source_summary.files %}
+                <li>{{ file_name }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </section>
+
+    <section class="nabl-summary-grid nabl-summary-grid-landing">
+        <article>
+            <div class="nabl-panel-label">Programme status</div>
+            <h3>{{ summaries|selectattr('wizard_complete')|list|length }} labs ready for workbench</h3>
+            <p class="nabl-muted">Labs with a completed companion wizard and active draft set.</p>
+        </article>
+        <article>
+            <div class="nabl-panel-label">Governance queue</div>
+            <h3>{{ summaries|sum(attribute='documents_pending_review') }} documents awaiting action</h3>
+            <p class="nabl-muted">Submitted or returned items currently in the review cycle.</p>
+        </article>
+        <article>
+            <div class="nabl-panel-label">Document backbone</div>
+            <h3>{{ source_summary.catalog_count }} mapped master entries</h3>
+            <p class="nabl-muted">Procedure and record titles are now aligned to the IDWE controlled source pack.</p>
+        </article>
+    </section>
+
+    {% if lab_matches and not resolved_lab %}
+    <section class="nabl-card nabl-card-emphasis">
+        <div class="nabl-table-actions">
+            <div>
+                <h2>Select your lab</h2>
+                <p class="nabl-muted">Your account appears to match more than one lab context.</p>
+            </div>
+        </div>
+        <div class="nabl-chip-row">
+            {% for lab_id in lab_matches %}
+            <a class="btn btn-primary" href="{{ url_for('nabl.landing', lab_id=lab_id) }}">{{ lab_lookup[lab_id]['display_name'] }}</a>
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
+
+    <section class="nabl-card nabl-portfolio-card">
+        <div class="nabl-table-actions">
+            <div>
+                <div class="nabl-panel-label">Lab portfolio</div>
+                <h2>Accreditation readiness by laboratory</h2>
+            </div>
+            <p class="nabl-muted">Progress, document queue, and recommended next action across the six lab profiles.</p>
+        </div>
+
+        <div class="nabl-lab-grid">
+            {% for summary in summaries %}
+            <article class="nabl-lab-card {{ 'is-selected' if resolved_lab == summary.lab_id else '' }}">
+                <div class="nabl-lab-card-top">
+                    <div>
+                        <div class="nabl-panel-label">{{ summary.lab_id|replace('_', ' ')|upper }}</div>
+                        <h3>{{ summary.profile.display_name }}</h3>
+                    </div>
+                    <span class="nabl-chip {% if summary.wizard_complete %}nabl-chip-green{% else %}nabl-chip-amber{% endif %}">
+                        {% if summary.wizard_complete %}Workbench Ready{% else %}Wizard In Progress{% endif %}
+                    </span>
+                </div>
+
+                <p class="nabl-muted">{{ summary.profile.location }}</p>
+                <div class="nabl-metric-band">
+                    <div>
+                        <span>Wizard</span>
+                        <strong>{{ summary.wizard_progress.percent }}%</strong>
+                    </div>
+                    <div>
+                        <span>Pending</span>
+                        <strong>{{ summary.documents_pending_review }}</strong>
+                    </div>
+                    <div>
+                        <span>Version</span>
+                        <strong>v{{ summary.current_version }}</strong>
+                    </div>
+                </div>
+                <div class="nabl-progress" aria-label="Wizard progress">
+                    <span style="width: {{ summary.wizard_progress.percent }}%"></span>
+                </div>
+                <div class="nabl-inline-actions">
+                    <a class="btn btn-secondary" href="{{ url_for('nabl.landing', lab_id=summary.lab_id) }}">Inspect</a>
+                    {% if role_mode == 'admin' %}
+                    <a class="btn btn-primary" href="{{ url_for('nabl.governance', lab_id=summary.lab_id) }}">Review lab</a>
+                    {% elif resolved_lab == summary.lab_id %}
+                        {% if summary.wizard_complete %}
+                        <a class="btn btn-primary" href="{{ url_for('nabl.workbench', lab_id=summary.lab_id) }}">Open workbench</a>
+                        {% else %}
+                        <a class="btn btn-primary" href="{{ url_for('nabl.wizard', lab_id=summary.lab_id) }}">Continue wizard</a>
+                        {% endif %}
+                    {% endif %}
+                </div>
+            </article>
+            {% endfor %}
+        </div>
+    </section>
+</div>
+{% endblock %}

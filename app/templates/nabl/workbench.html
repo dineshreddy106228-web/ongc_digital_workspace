@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+{% block title %}NABL Workbench{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/nabl.css') }}">
+{% endblock %}
+{% block content %}
+<div class="nabl-shell">
+    <section class="nabl-hero">
+        <div>
+            <h1>{{ lab.display_name }}</h1>
+            <p class="nabl-muted">{{ lab.location }} · Lab User Workbench</p>
+        </div>
+        <div class="nabl-inline-actions">
+            <a class="btn btn-secondary" href="{{ url_for('nabl.wizard', lab_id=lab.lab_id) }}">Open companion wizard</a>
+            <form method="POST" action="{{ url_for('nabl.compile_api', lab_id=lab.lab_id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-primary">Compile my lab set</button>
+            </form>
+        </div>
+    </section>
+
+    <section class="nabl-summary-grid">
+        <article>
+            <h3>Drafts assigned</h3>
+            <p>{{ workbench.assigned_drafts|length }}</p>
+        </article>
+        <article>
+            <h3>Submitted to admin</h3>
+            <p>{{ workbench.submitted_documents|length }}</p>
+        </article>
+        <article>
+            <h3>Published for my lab</h3>
+            <p>{{ workbench.published_documents|length }}</p>
+        </article>
+        <article>
+            <h3>Wizard completion</h3>
+            <div class="nabl-progress"><span style="width: {{ progress.percent }}%"></span></div>
+            <p>{{ progress.percent }}%</p>
+        </article>
+    </section>
+
+    <section class="nabl-card" id="drafts">
+        <div class="nabl-table-actions">
+            <div>
+                <h2>Drafts assigned to my lab</h2>
+                <p class="nabl-muted">These drafts were pushed from Governance Workbench and are open for lab drafting.</p>
+            </div>
+        </div>
+        {% if workbench.assigned_drafts %}
+        <table class="nabl-doc-table">
+            <thead>
+                <tr>
+                    <th>Doc ID</th>
+                    <th>Title</th>
+                    <th>State</th>
+                    <th>Custom</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in workbench.assigned_drafts %}
+                <tr>
+                    <td>{{ row.doc_id }}</td>
+                    <td>{{ row.title }}</td>
+                    <td><span class="nabl-chip {% if row.state == 'Returned' %}nabl-chip-amber{% elif row.state == 'In Drafting' %}nabl-chip-grey{% endif %}">{{ row.state }}</span></td>
+                    <td>{{ row.custom_sections_count }}</td>
+                    <td class="nabl-inline-actions">
+                        <a class="btn btn-primary" href="{{ url_for('nabl.document_review', lab_id=lab.lab_id, doc_id=row.doc_id) }}">
+                            {% if row.state == 'Returned' %}Revise{% else %}Draft{% endif %}
+                        </a>
+                        <a class="btn btn-secondary" href="{{ url_for('nabl.document_api', lab_id=lab.lab_id, doc_id=row.doc_id, download=1) }}">Download</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="nabl-empty">No drafts have been pushed to this lab yet.</div>
+        {% endif %}
+    </section>
+
+    <section class="nabl-card">
+        <div class="nabl-table-actions">
+            <div>
+                <h2>Submitted by my lab</h2>
+                <p class="nabl-muted">Submitted drafts are waiting for governance review.</p>
+            </div>
+        </div>
+        {% if workbench.submitted_documents %}
+        <table class="nabl-doc-table">
+            <thead>
+                <tr>
+                    <th>Doc ID</th>
+                    <th>Title</th>
+                    <th>State</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in workbench.submitted_documents %}
+                <tr>
+                    <td>{{ row.doc_id }}</td>
+                    <td>{{ row.title }}</td>
+                    <td><span class="nabl-chip nabl-chip-grey">{{ row.state }}</span></td>
+                    <td><a class="btn btn-secondary" href="{{ url_for('nabl.document_review', lab_id=lab.lab_id, doc_id=row.doc_id) }}">View</a></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="nabl-empty">No submitted drafts are pending right now.</div>
+        {% endif %}
+    </section>
+
+    <section class="nabl-card">
+        <div class="nabl-table-actions">
+            <div>
+                <h2>Published documents · {{ lab.display_name }}</h2>
+                <p class="nabl-muted">Read-only governed versions for this lab.</p>
+            </div>
+        </div>
+        {% if workbench.published_documents %}
+        <table class="nabl-doc-table">
+            <thead>
+                <tr>
+                    <th>Doc ID</th>
+                    <th>Title</th>
+                    <th>Latest version</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in workbench.published_documents %}
+                <tr>
+                    <td>{{ row.doc_id }}</td>
+                    <td>{{ row.title }}</td>
+                    <td>v{{ (row.versions|last).version }}</td>
+                    <td class="nabl-inline-actions">
+                        <a class="btn btn-secondary" href="{{ url_for('nabl.published_document_view', lab_id=lab.lab_id, doc_id=row.doc_id) }}">View published</a>
+                        <a class="btn btn-secondary" href="{{ url_for('nabl.document_api', lab_id=lab.lab_id, doc_id=row.doc_id, download=1, version=(row.versions|last).version) }}">Download</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="nabl-empty">No published documents exist for this lab yet.</div>
+        {% endif %}
+    </section>
+
+    <section class="nabl-card">
+        <div class="nabl-table-actions">
+            <div>
+                <h2>Published documents · Other labs</h2>
+                <p class="nabl-muted">Read-only cross-lab reference library visible to all lab users.</p>
+            </div>
+        </div>
+        {% if workbench.cross_lab_published %}
+            {% for library_row in workbench.cross_lab_published %}
+            <h3 class="nabl-group-heading">{{ library_row.profile.display_name }}</h3>
+            <table class="nabl-doc-table">
+                <thead>
+                    <tr>
+                        <th>Doc ID</th>
+                        <th>Title</th>
+                        <th>Latest version</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in library_row.documents %}
+                    <tr>
+                        <td>{{ row.doc_id }}</td>
+                        <td>{{ row.title }}</td>
+                        <td>v{{ (row.versions|last).version }}</td>
+                        <td>
+                            <a class="btn btn-secondary" href="{{ url_for('nabl.published_document_view', lab_id=library_row.lab_id, doc_id=row.doc_id) }}">Open read-only</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% endfor %}
+        {% else %}
+        <div class="nabl-empty">No published documents are available from other labs yet.</div>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

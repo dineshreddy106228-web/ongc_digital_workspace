@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% block title %}NABL Wizard{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/nabl.css') }}">
+{% endblock %}
+{% block content %}
+<div class="nabl-shell">
+    <section class="nabl-hero">
+        <div>
+            <h1>{{ lab.display_name }}</h1>
+            <p class="nabl-muted">{{ section_code }} · {{ section.title }}</p>
+        </div>
+        <div style="min-width:240px;">
+            <div class="nabl-progress"><span style="width: {{ progress.percent }}%"></span></div>
+            <p class="nabl-muted" style="margin-top:0.5rem;">{{ progress.completed }} of {{ progress.total }} sections saved</p>
+        </div>
+    </section>
+
+    <section class="nabl-card">
+        <div class="nabl-chip-row">
+            {% for item in all_sections %}
+            <span class="nabl-chip {{ 'nabl-chip-green' if item.slug in answers.wizard_progress.saved_sections else '' }}">{{ item.code }}</span>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="nabl-form-shell">
+        <form method="POST" action="{{ url_for('nabl.wizard_save', lab_id=lab.lab_id) }}" enctype="multipart/form-data">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="section" value="{{ section.slug }}">
+
+            {% if section.type == 'chemical_table' %}
+            <div class="nabl-table-actions">
+                <div>
+                    <h2>Chemical scope</h2>
+                    <p class="nabl-muted">Confirm the default chemical list for this lab. You can add or remove rows before continuing.</p>
+                </div>
+                <button type="button" class="btn btn-secondary js-add-row" data-target="chem-table">Add chemical</button>
+            </div>
+            <table class="nabl-data-table" id="chem-table">
+                <thead>
+                    <tr>
+                        <th>Chemical</th>
+                        <th>Specification</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in current_value %}
+                    <tr>
+                        <td><input type="text" name="chemical_name" value="{{ row.name }}"></td>
+                        <td><input type="text" name="chemical_spec" value="{{ row.spec }}"></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% elif section.type == 'lab_profile' %}
+            <div class="nabl-form-grid">
+                <label>
+                    <div>Laboratory name</div>
+                    <input type="text" name="display_name" value="{{ current_value.display_name }}">
+                </label>
+                <label>
+                    <div>Location</div>
+                    <input type="text" name="location" value="{{ current_value.location }}">
+                </label>
+                <label>
+                    <div>Parent organisation</div>
+                    <input type="text" name="parent_organisation" value="{{ current_value.parent_organisation }}">
+                </label>
+            </div>
+            {% elif section.type == 'approval_authority' %}
+            <label>
+                <div>Approved by</div>
+                <input type="text" name="approval_authority" value="{{ current_value }}">
+            </label>
+            {% elif section.type == 'equipment_entry' %}
+            <div class="nabl-choice-card">
+                <label><input type="radio" name="entry_method" value="upload" {% if current_value.entry_method == 'upload' %}checked{% endif %}> Upload equipment register</label>
+                <label><input type="radio" name="entry_method" value="manual" {% if current_value.entry_method != 'upload' %}checked{% endif %}> Enter one by one</label>
+                <input type="file" name="equipment_file" accept=".csv,.xlsx,.xls">
+            </div>
+            <div class="nabl-table-actions">
+                <div>
+                    <h2>Equipment list</h2>
+                    <p class="nabl-muted">Columns: Equipment Name, Make, Model, Serial No., Calibration Due Date, Calibrating Agency.</p>
+                </div>
+                <button type="button" class="btn btn-secondary js-add-row" data-target="equipment-table">Add equipment</button>
+            </div>
+            <table class="nabl-data-table" id="equipment-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Make</th>
+                        <th>Model</th>
+                        <th>Serial</th>
+                        <th>Calibration due</th>
+                        <th>Agency</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in current_value.equipment_list %}
+                    <tr>
+                        <td><input type="text" name="equipment_name" value="{{ row.name }}"></td>
+                        <td><input type="text" name="equipment_make" value="{{ row.make }}"></td>
+                        <td><input type="text" name="equipment_model" value="{{ row.model }}"></td>
+                        <td><input type="text" name="equipment_serial" value="{{ row.serial }}"></td>
+                        <td><input type="date" name="equipment_cal_due" value="{{ row.cal_due }}"></td>
+                        <td><input type="text" name="equipment_cal_agency" value="{{ row.cal_agency }}"></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% elif section.type == 'records_table' %}
+            <p class="nabl-muted">{{ standard_answer }}</p>
+            <table class="nabl-data-table">
+                <thead>
+                    <tr>
+                        <th>Confirm</th>
+                        <th>Record</th>
+                        <th>Responsible</th>
+                        <th>Retention</th>
+                        <th>Storage</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in current_value %}
+                    <tr>
+                        <td>
+                            <input type="checkbox" name="confirmed" value="{{ row.rec_id }}" {% if row.confirmed %}checked{% endif %}>
+                            <input type="hidden" name="rec_id" value="{{ row.rec_id }}">
+                            <input type="hidden" name="title" value="{{ row.title }}">
+                        </td>
+                        <td>{{ row.rec_id }}<br><span class="nabl-muted">{{ row.title }}</span></td>
+                        <td>
+                            <select name="responsible">
+                                {% for role in role_options %}
+                                <option value="{{ role }}" {% if role == row.responsible %}selected{% endif %}>{{ role }}</option>
+                                {% endfor %}
+                            </select>
+                        </td>
+                        <td><input type="text" name="retention" value="{{ row.retention }}"></td>
+                        <td>
+                            <select name="storage">
+                                {% for storage in storage_options %}
+                                <option value="{{ storage }}" {% if storage == row.storage %}selected{% endif %}>{{ storage }}</option>
+                                {% endfor %}
+                            </select>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="nabl-choice-card">
+                <label>
+                    <input type="radio" name="choice" value="standard" {% if current_value.choice != 'own' %}checked{% endif %}>
+                    Use standard answer
+                </label>
+                <blockquote>{{ standard_answer }}</blockquote>
+                <label>
+                    <input type="radio" name="choice" value="own" {% if current_value.choice == 'own' %}checked{% endif %}>
+                    Write my own
+                </label>
+                <textarea name="custom_text">{{ current_value.custom_text or standard_answer }}</textarea>
+            </div>
+            {% endif %}
+
+            <div class="nabl-action-row">
+                {% if section_nav.previous %}
+                <a class="btn btn-secondary" href="{{ url_for('nabl.wizard_section', lab_id=lab.lab_id, section=section_nav.previous) }}">Back</a>
+                {% endif %}
+                <button type="submit" class="btn btn-primary">Save &amp; Continue</button>
+            </div>
+        </form>
+    </section>
+</div>
+
+<script nonce="{{ csp_nonce() }}">
+document.querySelectorAll('.js-add-row').forEach(function (button) {
+  button.addEventListener('click', function () {
+    const table = document.getElementById(button.dataset.target).querySelector('tbody');
+    const row = table.insertRow();
+    if (button.dataset.target === 'chem-table') {
+      row.innerHTML = '<td><input type="text" name="chemical_name"></td><td><input type="text" name="chemical_spec"></td>';
+      return;
+    }
+    row.innerHTML = '<td><input type="text" name="equipment_name"></td><td><input type="text" name="equipment_make"></td><td><input type="text" name="equipment_model"></td><td><input type="text" name="equipment_serial"></td><td><input type="date" name="equipment_cal_due"></td><td><input type="text" name="equipment_cal_agency"></td>';
+  });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}NABL Governance{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/nabl.css') }}">
+{% endblock %}
+{% block content %}
+<div class="nabl-shell">
+    <section class="nabl-hero">
+        <div>
+            <h1>Governance Workbench</h1>
+            <p class="nabl-muted">Module Admin control center for draft creation, bulk push, review, and publishing across all labs.</p>
+        </div>
+    </section>
+
+    <section class="nabl-summary-grid">
+        {% for summary in summaries %}
+        <article>
+            <h3>{{ summary.profile.display_name }}</h3>
+            <p class="nabl-muted">{{ summary.profile.location }}</p>
+            <div class="nabl-progress"><span style="width: {{ summary.wizard_progress.percent }}%"></span></div>
+            <p>{{ summary.drafts_pushed }} pushed · {{ summary.drafts_in_progress }} drafting</p>
+            <p>{{ summary.documents_submitted }} submitted · {{ summary.published_documents }} published</p>
+            <a class="btn btn-secondary" href="{{ url_for('nabl.governance', lab_id=summary.lab_id) }}">Open lab</a>
+        </article>
+        {% endfor %}
+    </section>
+
+    {% if detail %}
+    <section class="nabl-doc-table-wrap">
+        <div class="nabl-table-actions">
+            <div>
+                <h2>{{ detail.summary.profile.display_name }}</h2>
+                <p class="nabl-muted">Version {{ detail.summary.current_version }} · {{ detail.summary.documents_pending_review }} requiring governance action</p>
+            </div>
+            <div class="nabl-inline-actions">
+                <form method="POST" action="{{ url_for('nabl.lab_push_all_drafts', lab_id=selected_lab) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-primary">Push all drafts to lab</button>
+                </form>
+                <form method="POST" action="{{ url_for('nabl.compile_api', lab_id=selected_lab) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-secondary">Compile lab set</button>
+                </form>
+            </div>
+        </div>
+        <table class="nabl-doc-table">
+            <thead>
+                <tr>
+                    <th>Doc ID</th>
+                    <th>Title</th>
+                    <th>State</th>
+                    <th>Custom</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in detail.documents %}
+                <tr>
+                    <td>{{ row.doc_id }}</td>
+                    <td>{{ row.title }}</td>
+                    <td>
+                        <span class="nabl-chip {% if row.state == 'Returned' %}nabl-chip-amber{% elif row.state == 'Published' %}nabl-chip-green{% else %}nabl-chip-grey{% endif %}">
+                            {{ row.state }}
+                        </span>
+                    </td>
+                    <td>{{ row.custom_sections_count }}</td>
+                    <td class="nabl-inline-actions">
+                        <a class="btn btn-secondary" href="{{ url_for('nabl.admin_document_review', lab_id=selected_lab, doc_id=row.doc_id) }}">Open</a>
+                        <form method="POST" action="{{ url_for('nabl.document_initiate', lab_id=selected_lab, doc_id=row.doc_id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-secondary">
+                                {% if row.state == 'Not Initiated' %}Push draft{% else %}Re-push draft{% endif %}
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+    {% else %}
+    <section class="nabl-empty">Select a lab to create drafts, bulk push documents, and review submissions.</section>
+    {% endif %}
+</div>
+{% endblock %}

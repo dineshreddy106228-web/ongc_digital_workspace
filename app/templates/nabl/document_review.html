@@ -1,0 +1,270 @@
+{% extends "base.html" %}
+{% block title %}{{ meta.doc_id }}{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/nabl.css') }}">
+{% endblock %}
+{% block content %}
+<div class="nabl-shell">
+    <section class="nabl-hero">
+        <div>
+            <h1>{{ meta.doc_id }} · {{ meta.title }}</h1>
+            <p class="nabl-muted">
+                {{ lab.display_name }} · {{ meta.clause }} · {{ doc.state }}
+                {% if meta.source_file %}· Source {{ meta.source_file }}{% endif %}
+            </p>
+        </div>
+        <div class="nabl-inline-actions">
+            <a class="btn btn-secondary" href="{% if is_readonly %}{{ url_for('nabl.published_document_download', lab_id=lab.lab_id, doc_id=meta.doc_id) }}{% else %}{{ url_for('nabl.document_api', lab_id=lab.lab_id, doc_id=meta.doc_id, download=1) }}{% endif %}">Download DOCX</a>
+            <a class="btn btn-secondary" href="{{ back_href }}">
+                {% if is_admin_review %}Back to governance{% else %}Back to workbench{% endif %}
+            </a>
+        </div>
+    </section>
+
+    <div class="nabl-review-layout">
+        <section>
+            <h2>
+                {% if is_admin_review %}
+                    Submitted document
+                {% elif is_readonly %}
+                    Published document
+                {% else %}
+                    Editable draft
+                {% endif %}
+            </h2>
+            {% if is_admin_review %}
+                {% if document_docx_view %}
+                <p class="nabl-muted">
+                    Exact generated DOCX preview for {{ meta.doc_id }}{% if doc.versions %} using the latest governed structure and current draft content{% else %} using the current draft content{% endif %}.
+                </p>
+                <div class="nabl-docx-view nabl-docx-view-generated">
+                    {% for block in document_docx_view.blocks %}
+                        {% if block.type == 'title' %}
+                        <div class="nabl-docx-title">{{ block.text }}</div>
+                        {% elif block.type == 'heading' %}
+                        <div class="nabl-docx-heading">{{ block.text }}</div>
+                        {% elif block.type == 'bullet' %}
+                        <div class="nabl-docx-bullet">{{ block.text }}</div>
+                        {% elif block.type == 'table' %}
+                        <div class="nabl-docx-table-wrap">
+                            <table class="nabl-data-table nabl-docx-table">
+                                <tbody>
+                                    {% for row in block.rows %}
+                                    <tr>
+                                        {% for cell in row %}
+                                        <td>{{ cell|replace('\n', '<br>')|safe }}</td>
+                                        {% endfor %}
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% else %}
+                        <div class="nabl-docx-paragraph">{{ block.text|replace('\n', '<br>')|safe }}</div>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+                {% endif %}
+                <div class="nabl-section-traceability">
+                    <h3>Section traceability</h3>
+                    <p class="nabl-muted">Review which wizard answer populated each subsection and where custom drafting was introduced.</p>
+                </div>
+                {% for section in doc.current_draft.sections %}
+                <div class="nabl-section-card">
+                    <div class="nabl-chip-row">
+                        <strong>{{ section.title }}</strong>
+                        {% if section.choice == 'own' or section.manual_override %}
+                        <span class="nabl-chip nabl-chip-amber">Custom</span>
+                        {% else %}
+                        <span class="nabl-chip nabl-chip-grey">Standard</span>
+                        {% endif %}
+                    </div>
+                    {% if section.source_question %}
+                    <div class="nabl-source-tag">From {{ section.source_question }}</div>
+                    {% endif %}
+                    <div class="nabl-source-tag">
+                        {% if section.manual_override %}
+                        Manual drafting override applied
+                        {% else %}
+                        Auto-filled content currently in draft
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            {% elif not is_readonly %}
+            <form class="nabl-review-form" method="POST" action="{{ url_for('nabl.document_save', lab_id=lab.lab_id, doc_id=meta.doc_id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                {% for section in doc.current_draft.sections %}
+                <div class="nabl-section-card">
+                    <div class="nabl-chip-row">
+                        <strong>{{ section.title }}</strong>
+                        {% if section.choice == 'own' or section.manual_override %}
+                        <span class="nabl-chip nabl-chip-amber">Custom</span>
+                        {% else %}
+                        <span class="nabl-chip nabl-chip-grey">Standard</span>
+                        {% endif %}
+                    </div>
+                    {% if section.source_question %}
+                    <div class="nabl-source-tag">From {{ section.source_question }}</div>
+                    {% endif %}
+                    <input type="hidden" name="section_id" value="{{ section.section_id }}">
+                    <textarea name="section_body">{{ section.body }}</textarea>
+                </div>
+                {% endfor %}
+                <div class="nabl-inline-actions">
+                    <button type="submit" class="btn btn-secondary">Save draft</button>
+                </div>
+            </form>
+            {% else %}
+                {% if document_docx_view %}
+                <p class="nabl-muted">Exact generated DOCX preview for the published version.</p>
+                <div class="nabl-docx-view nabl-docx-view-generated">
+                    {% for block in document_docx_view.blocks %}
+                        {% if block.type == 'title' %}
+                        <div class="nabl-docx-title">{{ block.text }}</div>
+                        {% elif block.type == 'heading' %}
+                        <div class="nabl-docx-heading">{{ block.text }}</div>
+                        {% elif block.type == 'bullet' %}
+                        <div class="nabl-docx-bullet">{{ block.text }}</div>
+                        {% elif block.type == 'table' %}
+                        <div class="nabl-docx-table-wrap">
+                            <table class="nabl-data-table nabl-docx-table">
+                                <tbody>
+                                    {% for row in block.rows %}
+                                    <tr>
+                                        {% for cell in row %}
+                                        <td>{{ cell|replace('\n', '<br>')|safe }}</td>
+                                        {% endfor %}
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% else %}
+                        <div class="nabl-docx-paragraph">{{ block.text|replace('\n', '<br>')|safe }}</div>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="nabl-empty">Generated DOCX preview is not available for this document.</div>
+                {% endif %}
+            {% endif %}
+        </section>
+
+        <section>
+            <h2>{% if is_admin_review %}IDWE master reference{% else %}Version history{% endif %}</h2>
+            {% if is_admin_review %}
+                {% if reference_docx_view %}
+                <p class="nabl-muted">
+                    Exact source rendered from {{ reference_docx_view.source_file }}.
+                    {% if not reference_docx_view.found_exact_block and reference_docx_view.fallback_whole_file %}
+                    No exact doc subsection exists for {{ meta.doc_id }}, so the full related source file is shown.
+                    {% elif not reference_docx_view.found_exact_block %}
+                    Exact source subsection was not found.
+                    {% endif %}
+                </p>
+                <div class="nabl-docx-view">
+                    {% for block in reference_docx_view.blocks %}
+                        {% if block.type == 'title' %}
+                        <div class="nabl-docx-title">{{ block.text }}</div>
+                        {% elif block.type == 'heading' %}
+                        <div class="nabl-docx-heading">{{ block.text }}</div>
+                        {% elif block.type == 'bullet' %}
+                        <div class="nabl-docx-bullet">{{ block.text }}</div>
+                        {% elif block.type == 'table' %}
+                        <div class="nabl-docx-table-wrap">
+                            <table class="nabl-data-table nabl-docx-table">
+                                <tbody>
+                                    {% for row in block.rows %}
+                                    <tr>
+                                        {% for cell in row %}
+                                        <td>{{ cell|replace('\n', '<br>')|safe }}</td>
+                                        {% endfor %}
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% else %}
+                        <div class="nabl-docx-paragraph">{{ block.text|replace('\n', '<br>')|safe }}</div>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="nabl-empty">Exact source DOCX reference is not available for this document.</div>
+                {% endif %}
+            {% else %}
+                {% if doc.versions %}
+                    {% for version in doc.versions|reverse %}
+                    <div class="nabl-section-card">
+                        <strong>v{{ version.version }}</strong>
+                        <div class="nabl-muted">{{ version.published_at }} by {{ version.published_by }}</div>
+                        <div>{{ version.notes }}</div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                <div class="nabl-empty">No published versions yet.</div>
+                {% endif %}
+            {% endif %}
+        </section>
+    </div>
+
+    <section class="nabl-review-actions">
+        {% if is_admin_review %}
+        <h2>Admin actions</h2>
+        <form method="POST" action="{{ url_for('nabl.document_return', lab_id=lab.lab_id, doc_id=meta.doc_id) }}" class="nabl-review-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label>
+                <div>Return comments</div>
+                <textarea name="comments" required></textarea>
+            </label>
+            {% for section in doc.current_draft.sections %}
+            <label>
+                <div>Comment for {{ section.title }}</div>
+                <input type="text" name="comment_{{ section.section_id }}">
+            </label>
+            {% endfor %}
+            <button type="submit" class="btn btn-secondary">Return with comments</button>
+        </form>
+        <form method="POST" action="{{ url_for('nabl.document_publish', lab_id=lab.lab_id, doc_id=meta.doc_id) }}" class="nabl-review-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label>
+                <div>Version bump</div>
+                <select name="version_mode">
+                    <option value="decimal">Decimal</option>
+                    <option value="major">Major</option>
+                </select>
+            </label>
+            <label>
+                <div>Version notes</div>
+                <textarea name="version_notes" required></textarea>
+            </label>
+            <button type="submit" class="btn btn-primary">Publish</button>
+        </form>
+        {% elif not is_readonly %}
+        <h2>Submission</h2>
+        <p class="nabl-muted">Submit after finishing your drafting updates for governance review.</p>
+        <form method="POST" action="{{ url_for('nabl.document_submit', lab_id=lab.lab_id, doc_id=meta.doc_id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-primary">Submit for Admin Approval</button>
+        </form>
+        {% if doc.return_comments %}
+        <div class="nabl-section-card">
+            <strong>Latest return comments</strong>
+            <div>{{ doc.return_comments }}</div>
+        </div>
+        {% endif %}
+        {% else %}
+        <h2>Read-only publication</h2>
+        <p class="nabl-muted">Published documents are read-only. Lab users can view their own lab publications and other labs' published sets for reference.</p>
+        {% if doc.versions %}
+        <div class="nabl-section-card">
+            <strong>Latest version</strong>
+            <div>v{{ (doc.versions|last).version }} · {{ (doc.versions|last).published_at }} by {{ (doc.versions|last).published_by }}</div>
+            <div>{{ (doc.versions|last).notes }}</div>
+        </div>
+        {% endif %}
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

@@ -1,0 +1,2213 @@
+{
+  "lab_id": "rgl_rajahmundry",
+  "q1": {
+    "chemicals": [
+      {
+        "name": "Surfactant",
+        "spec": "ONGC/MC/xx/xxxx"
+      },
+      {
+        "name": "Demulsifier (Rajahmundry)",
+        "spec": "ONGC/MC/xx/xxxx"
+      },
+      {
+        "name": "Deoiler (Rajahmundry)",
+        "spec": "ONGC/MC/xx/xxxx"
+      },
+      {
+        "name": "PPD (Gopavaram Crude)",
+        "spec": "ONGC/MC/xx/xxxx"
+      },
+      {
+        "name": "Bactericide (Aldehyde Type)",
+        "spec": "ONGC/MC/xx/xxxx"
+      },
+      {
+        "name": "Bactericide (Amine Type)",
+        "spec": "ONGC/MC/xx/xxxx"
+      }
+    ],
+    "test_parameters": {
+      "choice": "standard",
+      "custom_text": ""
+    },
+    "measurement_units": {
+      "choice": "standard",
+      "custom_text": ""
+    },
+    "test_methods": {
+      "choice": "standard",
+      "custom_text": ""
+    }
+  },
+  "q2": {
+    "organisation": {
+      "independence": {
+        "choice": "standard",
+        "custom_text": ""
+      },
+      "roles": {
+        "choice": "standard",
+        "custom_text": ""
+      },
+      "approval_authority": "Regional Manager, RGL Rajahmundry"
+    },
+    "personnel": {
+      "qualifications": {
+        "choice": "standard",
+        "custom_text": ""
+      },
+      "competence_assessment": {
+        "choice": "standard",
+        "custom_text": ""
+      },
+      "training": {
+        "choice": "standard",
+        "custom_text": ""
+      },
+      "ongoing_monitoring": {
+        "choice": "standard",
+        "custom_text": ""
+      }
+    },
+    "facility": {
+      "description": {
+        "choice": "standard",
+        "custom_text": ""
+      },
+      "environmental_monitoring": {
+        "choice": "standard",
+        "custom_text": ""
+      },
+      "maintenance": {
+        "choice": "standard",
+        "custom_text": ""
+      },
+      "access_control": {
+        "choice": "standard",
+        "custom_text": ""
+      }
+    },
+    "equipment": {
+      "entry_method": "manual",
+      "equipment_list": [],
+      "identification": {
+        "choice": "standard",
+        "custom_text": ""
+      },
+      "calibration": {
+        "choice": "standard",
+        "custom_text": ""
+      },
+      "crm": {
+        "choice": "standard",
+        "custom_text": ""
+      },
+      "breakdown": {
+        "choice": "standard",
+        "custom_text": ""
+      }
+    },
+    "testing_process": {
+      "sample_receipt": {
+        "choice": "standard",
+        "custom_text": ""
+      },
+      "traceability": {
+        "choice": "standard",
+        "custom_text": ""
+      },
+      "nonconforming_samples": {
+        "choice": "standard",
+        "custom_text": ""
+      },
+      "contract_review": {
+        "choice": "standard",
+        "custom_text": ""
+      },
+      "lsn_format": "[LAB]-[YEAR]-[NNN]"
+    },
+    "qc": {
+      "frequency": {
+        "choice": "standard",
+        "custom_text": ""
+      },
+      "out_of_control": {
+        "choice": "standard",
+        "custom_text": ""
+      },
+      "proficiency_testing": {
+        "choice": "standard",
+        "custom_text": ""
+      },
+      "uncertainty_method": {
+        "choice": "standard",
+        "custom_text": ""
+      }
+    },
+    "reporting": {
+      "report_content": {
+        "choice": "standard",
+        "custom_text": ""
+      },
+      "authorisation": {
+        "choice": "standard",
+        "custom_text": ""
+      },
+      "amendments": {
+        "choice": "standard",
+        "custom_text": ""
+      },
+      "turnaround": {
+        "choice": "standard",
+        "custom_text": ""
+      },
+      "report_number_format": "[LAB]-TR-[YEAR]-[NNN]"
+    }
+  },
+  "q3": {
+    "records": [
+      {
+        "rec_id": "REC-01A",
+        "title": "Personnel Impartiality Declaration",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-01B",
+        "title": "Impartiality Risk Register",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-02A",
+        "title": "Personnel Confidentiality Agreement",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-03A",
+        "title": "Competence Requirements Matrix",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-03B",
+        "title": "Personnel Authorization Register",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-03C",
+        "title": "Training Record",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-03D",
+        "title": "Competence Assessment Record",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-03E",
+        "title": "Supervision Record",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-04A",
+        "title": "Organizational Chart",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-04B",
+        "title": "Scope of Accreditation Register",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": false,
+        "available": false
+      },
+      {
+        "rec_id": "REC-04C",
+        "title": "Job Descriptions / Role Profiles",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-07A",
+        "title": "Daily Environmental Monitoring Log",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-07B",
+        "title": "Facility Access / Visitor Register",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-07C",
+        "title": "Facility Maintenance and Cleaning Log",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-07D",
+        "title": "Distilled Water Quality Log",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-09A",
+        "title": "Equipment Master Register",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-09B",
+        "title": "Equipment Calibration Schedule",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-09C",
+        "title": "Individual Equipment Calibration Record",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-09E",
+        "title": "Equipment Defect / Out-of-Service Record",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-09F",
+        "title": "Equipment Maintenance Log",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-12B",
+        "title": "Certified Reference Material (CRM) Log",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-17A",
+        "title": "Test Request Form / Work Order",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-17B",
+        "title": "Contract Review Checklist",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-17C",
+        "title": "Customer Communication Log",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-20A",
+        "title": "Method Validation Report",
+        "responsible": "Quality Manager",
+        "retention": "Life of method + 5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-22A",
+        "title": "Sample Receipt Register",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-22B",
+        "title": "Sample Condition Assessment Form",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-23X",
+        "title": "Test Worksheet (per chemical)",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": false,
+        "available": false
+      },
+      {
+        "rec_id": "REC-25A",
+        "title": "Measurement Uncertainty Budget (per chemical)",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": false,
+        "available": false
+      },
+      {
+        "rec_id": "REC-25B",
+        "title": "Repeatability Study Data Record (per chemical)",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": false,
+        "available": false
+      },
+      {
+        "rec_id": "REC-27A",
+        "title": "QC Control Chart (per chemical)",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": false,
+        "available": false
+      },
+      {
+        "rec_id": "REC-27B",
+        "title": "PT Participation Record",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-27C",
+        "title": "Duplicate / Replicate Test Record",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-27D",
+        "title": "QC Out-of-Control Investigation Record",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-28A",
+        "title": "Test Report Template (per chemical)",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": false,
+        "available": false
+      },
+      {
+        "rec_id": "REC-28B",
+        "title": "Report Review and Authorisation Record",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-28C",
+        "title": "Report Amendment Register",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-28D",
+        "title": "Customer Communication Log",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-29A",
+        "title": "Complaint Register",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-29B",
+        "title": "Complaint Investigation Report",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-30A",
+        "title": "Nonconforming Work Report Form",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-30B",
+        "title": "NCW Register",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-30C",
+        "title": "Customer Notification of NCW",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-31A",
+        "title": "Spreadsheet / LIMS Validation Record",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-31B",
+        "title": "Data Backup Log",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-31C",
+        "title": "System Failure Log",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-32A",
+        "title": "Document Master List",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-32B",
+        "title": "Document Change Record",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-32C",
+        "title": "External Document Register",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-33A",
+        "title": "Records Master List / Retention Schedule",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-33B",
+        "title": "Records Disposal Register",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-34A",
+        "title": "Risk Register",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-35A",
+        "title": "Improvement Log",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-35B",
+        "title": "Customer Feedback Record",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-36A",
+        "title": "CAPA Report Form",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-36B",
+        "title": "CAPA Register",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-36C",
+        "title": "CAPA Effectiveness Verification Record",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-37A",
+        "title": "Annual Internal Audit Programme",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-37B",
+        "title": "Internal Audit Report",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-37C",
+        "title": "Audit Findings Register",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-38A",
+        "title": "Management Review Minutes",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      },
+      {
+        "rec_id": "REC-38B",
+        "title": "Management Review Action Tracker",
+        "responsible": "Quality Manager",
+        "retention": "5 years",
+        "storage": "Physical + Electronic",
+        "confirmed": true,
+        "available": true
+      }
+    ]
+  },
+  "wizard_progress": {
+    "saved_sections": [],
+    "last_section": null
+  },
+  "sop_sections": {
+    "SOP-STR-01": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2A.1",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2A.3",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_3": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2A.4",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_4": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q1.1",
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "QM-01": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q1.1",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_3": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q1.4",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_4": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2G.2",
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "SOP-QS-01": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2A.2",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_3": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q1.1",
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "SOP-QS-02": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2C.4",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_3": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q1.1",
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "SOP-QS-03": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2B.1",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_3": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q1.1",
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "SOP-QS-04": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2C.1",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_3": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q1.1",
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "SOP-QS-05": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2D.2",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_3": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q1.1",
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "SOP-QS-06": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2D.3",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_3": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q1.1",
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "SOP-QS-07": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_3": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q1.1",
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "SOP-QS-08": {
+      "section_5_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q1.1",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_5_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2E.4",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_5_3": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2E.1",
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "SOP-QS-09": {
+      "section_5_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q1.4",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_5_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q1.3",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_5_3": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q1.2",
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "SOP-QS-10": {
+      "section_5_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2E.1",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_5_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2E.2",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_5_3": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2E.3",
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "SOP-QS-11": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_3": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q1.1",
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "SOP-QS-12": {
+      "section_5_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2F.4",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_5_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q1.2",
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "SOP-QS-13": {
+      "section_5_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2F.1",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_5_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2F.2",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_5_3": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2F.3",
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "SOP-QS-14": {
+      "section_5_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2G.1",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_5_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2G.2",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_5_3": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2G.3",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_5_4": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2G.4",
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "SOP-QS-15": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_3": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q1.1",
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "SOP-QS-16": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_3": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q1.1",
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "SOP-QS-17": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_3": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q1.1",
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "SOP-QS-18": {
+      "section_placeholder": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "SOP-QS-19": {
+      "section_placeholder": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "SOP-QS-20": {
+      "section_placeholder": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "SOP-QS-21": {
+      "section_placeholder": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "SOP-QS-22": {
+      "section_placeholder": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "SOP-QS-23": {
+      "section_placeholder": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "SOP-QS-24": {
+      "section_placeholder": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "SOP-TP": {
+      "section_future": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    }
+  },
+  "rec_sections": {
+    "REC-01A": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-01B": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2A.2",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-02A": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-03A": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-03B": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-03C": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-03D": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-03E": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-04A": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2A.1",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2A.3",
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-04B": {
+      "section_future": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-04C": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2A.3",
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-07A": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2C.2",
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-07B": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-07C": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-07D": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-09A": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2D.2",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_3": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2D.3",
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-09B": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2D.2",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_3": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2D.3",
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-09C": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-09E": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-09F": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-12B": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-17A": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2E.4",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q1.1",
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-17B": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-17C": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-20A": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-22A": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2E.1",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-22B": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2E.1",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-23X": {
+      "section_future": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-25A": {
+      "section_future": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-25B": {
+      "section_future": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-27A": {
+      "section_future": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-27B": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-27C": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-27D": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-28A": {
+      "section_future": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-28B": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2G.2",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-28C": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2G.2",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-28D": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2G.2",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-29A": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-29B": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-30A": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-30B": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-30C": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-31A": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-31B": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-31C": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-32A": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-32B": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-32C": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-33A": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q3",
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-33B": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-34A": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-35A": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-35B": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-36A": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2F.2",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-36B": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2F.2",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-36C": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": "Q2F.2",
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-37A": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-37B": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-37C": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-38A": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    },
+    "REC-38B": {
+      "section_1": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      },
+      "section_2": {
+        "choice": "standard",
+        "custom_text": "",
+        "source_question": null,
+        "auto_filled": true,
+        "reviewed": false
+      }
+    }
+  },
+  "last_saved": "2026-03-24T06:05:16+00:00",
+  "wizard_complete": false
+}
