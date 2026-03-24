@@ -16,7 +16,6 @@ from app.core.services.csc_type_classification_import import (
     MATERIAL_HANDLING_JUSTIFICATION_END,
     MATERIAL_HANDLING_JUSTIFICATION_START,
     apply_material_handling_core_updates,
-    build_parent_lookup,
     build_parent_lookup_by_material_code,
     import_material_handling_workbook,
     import_type_classification_workbook,
@@ -476,7 +475,7 @@ def test_import_creates_draft_and_normalizes_essential_to_desirable():
 
     summary = import_type_classification_workbook(
         workbook,
-        build_parent_lookup([parent]),
+        build_parent_lookup_by_material_code([parent]),
         open_draft_for_parent=lambda _parent: (draft, True, None),
         get_justification_text=lambda _draft: sections["justification"],
         set_justification_text=lambda _draft, text: sections.__setitem__("justification", text),
@@ -551,7 +550,7 @@ def test_import_reuses_existing_draft_and_replaces_only_imported_block():
 
     summary = import_type_classification_workbook(
         workbook,
-        build_parent_lookup([parent]),
+        build_parent_lookup_by_material_code([parent]),
         open_draft_for_parent=lambda _parent: (draft, False, None),
         get_justification_text=lambda _draft: sections["justification"],
         set_justification_text=lambda _draft, text: sections.__setitem__("justification", text),
@@ -633,7 +632,7 @@ def test_import_reports_unmatched_sheets_and_parameter_rows():
 
     summary = import_type_classification_workbook(
         workbook,
-        build_parent_lookup([parent]),
+        build_parent_lookup_by_material_code([parent]),
         open_draft_for_parent=lambda _parent: (draft, False, None),
         get_justification_text=lambda _draft: sections["justification"],
         set_justification_text=lambda _draft, text: sections.__setitem__("justification", text),
@@ -644,6 +643,259 @@ def test_import_reports_unmatched_sheets_and_parameter_rows():
     assert len(summary.unmatched_parameter_rows) == 1
     assert summary.unmatched_parameter_rows[0].parameter_serial == 99
     assert "No draft parameter matched" in summary.unmatched_parameter_rows[0].reason
+
+
+def test_import_matches_parent_by_material_code_even_when_workbook_spec_number_differs():
+    workbook_buffer = _make_workbook(
+        {
+            "ONGC-CCA-03-2026": [
+                _header(),
+                [
+                    "ONGC/CCA/99/2026",
+                    "CEMENT CHANGED",
+                    "100200300",
+                    "draft-1",
+                    "param-1",
+                    1,
+                    "Setting time",
+                    "60 min",
+                    "Desirable",
+                    "Vital",
+                    "Operational need",
+                    "",
+                    "",
+                    "",
+                    "No",
+                    "",
+                    "",
+                ],
+            ]
+        }
+    )
+    workbook = parse_type_classification_workbook(workbook_buffer, "fallback.xlsx")
+
+    parent = FakeParentDraft(
+        id=10,
+        spec_number="ONGC/CCA/03/2026",
+        material_code="100200300",
+        chemical_name="CEMENT",
+    )
+    draft = FakeDraft(
+        id=20,
+        spec_number=parent.spec_number,
+        material_code="100200300",
+        chemical_name=parent.chemical_name,
+        parameters=[FakeParameter(sort_order=1, parameter_name="Setting time")],
+    )
+    sections = {"justification": ""}
+
+    summary = import_type_classification_workbook(
+        workbook,
+        build_parent_lookup_by_material_code([parent]),
+        open_draft_for_parent=lambda _parent: (draft, True, None),
+        get_justification_text=lambda _draft: sections["justification"],
+        set_justification_text=lambda _draft, text: sections.__setitem__("justification", text),
+    )
+
+    assert summary.specs_matched == 1
+    assert summary.unmatched_sheets == []
+    assert draft.parameters[0].parameter_type == "Vital"
+
+
+def test_import_does_not_match_when_material_code_differs_even_if_spec_number_matches():
+    workbook_buffer = _make_workbook(
+        {
+            "ONGC-DFC-03-2026": [
+                _header(),
+                [
+                    "ONGC/DFC/03/2026",
+                    "BARYTES",
+                    "090001044",
+                    "draft-1",
+                    "param-1",
+                    1,
+                    "Density",
+                    "4.10 (Minimum)",
+                    "Desirable",
+                    "Vital",
+                    "Field Performance",
+                    "",
+                    "",
+                    "",
+                    "No",
+                    "",
+                    "",
+                ],
+            ]
+        }
+    )
+    workbook = parse_type_classification_workbook(workbook_buffer, "numeric-mismatch.xlsx")
+
+    parent = FakeParentDraft(
+        id=10,
+        spec_number="ONGC/DFC/03/2026",
+        material_code="090001043",
+        chemical_name="BARYTES",
+    )
+    draft = FakeDraft(
+        id=20,
+        spec_number=parent.spec_number,
+        material_code=parent.material_code,
+        chemical_name=parent.chemical_name,
+        parameters=[FakeParameter(sort_order=1, parameter_name="Density")],
+    )
+    sections = {"justification": ""}
+
+    summary = import_type_classification_workbook(
+        workbook,
+        build_parent_lookup_by_material_code([parent]),
+        open_draft_for_parent=lambda _parent: (draft, True, None),
+        get_justification_text=lambda _draft: sections["justification"],
+        set_justification_text=lambda _draft, text: sections.__setitem__("justification", text),
+    )
+
+    assert summary.specs_matched == 0
+    assert len(summary.unmatched_sheets) == 1
+    assert summary.unmatched_sheets[0].reason == "No published parent specification matched this sheet's Material Code."
+
+
+def test_import_cleaned_workbook_shape_uses_parameter_serial_for_reason_entries():
+    workbook_buffer = _make_workbook(
+        {
+            "1. ONGC-DFC-01-2026": [
+                [
+                    "Spec Number",
+                    "Chemical Name",
+                    "Material Code",
+                    "Draft ID",
+                    "Parameter ID",
+                    "S. No.",
+                    "Current Type",
+                    "Type",
+                    "Vital Reason 1",
+                    "Vital Reason 2",
+                    "Vital Reason 3",
+                    "Vital Reason 4",
+                ],
+                [
+                    "ONGC/DFC/01/2026",
+                    "ALUMINIUM STEARATE",
+                    "100101102",
+                    "draft-1",
+                    "param-1",
+                    1,
+                    "Desirable",
+                    "Vital",
+                    "Process Efficiency",
+                    "Field Performance",
+                    "",
+                    "",
+                ],
+            ]
+        }
+    )
+    workbook = parse_type_classification_workbook(workbook_buffer, "cleaned-first-18.xlsx")
+
+    parent = FakeParentDraft(
+        id=10,
+        spec_number="ONGC/DFC/01/2026",
+        material_code="100101102",
+        chemical_name="ALUMINIUM STEARATE",
+    )
+    draft = FakeDraft(
+        id=20,
+        spec_number=parent.spec_number,
+        material_code=parent.material_code,
+        chemical_name=parent.chemical_name,
+        parameters=[FakeParameter(sort_order=1, parameter_name="Physical state")],
+    )
+    sections = {"justification": ""}
+
+    summary = import_type_classification_workbook(
+        workbook,
+        build_parent_lookup_by_material_code([parent]),
+        open_draft_for_parent=lambda _parent: (draft, True, None),
+        get_justification_text=lambda _draft: sections["justification"],
+        set_justification_text=lambda _draft, text: sections.__setitem__("justification", text),
+    )
+
+    assert summary.specs_matched == 1
+    assert summary.parameters_matched == 1
+    assert "Parameter 1\nType classification: Vital" in sections["justification"]
+    assert "Parameter 1 - Parameter 1" not in sections["justification"]
+
+
+def test_import_matches_cleaned_workbook_serials_against_zero_based_parameter_order():
+    workbook_buffer = _make_workbook(
+        {
+            "1. ONGC-DFC-01-2026": [
+                [
+                    "Spec Number",
+                    "Chemical Name",
+                    "Material Code",
+                    "Draft ID",
+                    "Parameter ID",
+                    "S. No.",
+                    "Current Type",
+                    "Type",
+                    "Vital Reason 1",
+                ],
+                [
+                    "ONGC/DFC/01/2026",
+                    "ALUMINIUM STEARATE",
+                    "100101102",
+                    "draft-1",
+                    "param-1",
+                    1,
+                    "Desirable",
+                    "Vital",
+                    "Process Efficiency",
+                ],
+                [
+                    "ONGC/DFC/01/2026",
+                    "ALUMINIUM STEARATE",
+                    "100101102",
+                    "draft-1",
+                    "param-2",
+                    2,
+                    "Desirable",
+                    "Desirable",
+                    "",
+                ],
+            ]
+        }
+    )
+    workbook = parse_type_classification_workbook(workbook_buffer, "zero-based-order.xlsx")
+
+    parent = FakeParentDraft(
+        id=10,
+        spec_number="ONGC/DFC/01/2026",
+        material_code="100101102",
+        chemical_name="ALUMINIUM STEARATE",
+    )
+    draft = FakeDraft(
+        id=20,
+        spec_number=parent.spec_number,
+        material_code=parent.material_code,
+        chemical_name=parent.chemical_name,
+        parameters=[
+            FakeParameter(sort_order=0, parameter_name="Physical state", parameter_type="Desirable"),
+            FakeParameter(sort_order=1, parameter_name="Moisture content", parameter_type="Desirable"),
+        ],
+    )
+    sections = {"justification": ""}
+
+    summary = import_type_classification_workbook(
+        workbook,
+        build_parent_lookup_by_material_code([parent]),
+        open_draft_for_parent=lambda _parent: (draft, True, None),
+        get_justification_text=lambda _draft: sections["justification"],
+        set_justification_text=lambda _draft, text: sections.__setitem__("justification", text),
+    )
+
+    assert summary.parameters_matched == 2
+    assert draft.parameters[0].parameter_type == "Vital"
+    assert draft.parameters[1].parameter_type == "Desirable"
 
 
 def test_parse_material_handling_workbook_and_normalize_spec_numbers():
@@ -1041,7 +1293,7 @@ def test_type_and_material_handling_imports_can_target_separate_drafts_for_same_
 
     type_summary = import_type_classification_workbook(
         type_workbook,
-        build_parent_lookup([parent]),
+        build_parent_lookup_by_material_code([parent]),
         open_draft_for_parent=lambda _parent: (type_draft, True, None),
         get_justification_text=lambda _draft: "",
         set_justification_text=lambda _draft, text: None,

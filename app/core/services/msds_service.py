@@ -30,6 +30,14 @@ class MSDSNotFoundError(MSDSError):
     """Raised when the requested MSDS file does not exist."""
 
 
+MYSQL_BLOB_TYPE_LIMITS = {
+    "tinyblob": 255,
+    "blob": 65_535,
+    "mediumblob": 16_777_215,
+    "longblob": 4_294_967_295,
+}
+
+
 def _metadata_options():
     return (
         load_only(
@@ -132,6 +140,72 @@ def _validate_pdf_bytes(file_bytes: bytes, filename: str) -> None:
         raise MSDSError("Uploaded file does not appear to be a valid PDF.")
 
 
+def _infer_mysql_blob_capacity(column_type: object) -> tuple[str | None, int | None]:
+    column_label = str(column_type or "").strip()
+    normalized = column_label.lower().replace(" ", "")
+    for blob_type, limit in (
+        ("tinyblob", MYSQL_BLOB_TYPE_LIMITS["tinyblob"]),
+        ("mediumblob", MYSQL_BLOB_TYPE_LIMITS["mediumblob"]),
+        ("longblob", MYSQL_BLOB_TYPE_LIMITS["longblob"]),
+        ("blob", MYSQL_BLOB_TYPE_LIMITS["blob"]),
+    ):
+        if blob_type in normalized:
+            return blob_type.upper(), limit
+    return (column_label or None, None)
+
+
+def _format_capacity_label(size_bytes: int) -> str:
+    if size_bytes >= 1024 * 1024:
+        return f"{size_bytes / (1024 * 1024):.0f} MB"
+    if size_bytes >= 1024:
+        return f"{size_bytes / 1024:.0f} KB"
+    return f"{size_bytes} bytes"
+
+
+def get_msds_storage_diagnostics() -> dict[str, object]:
+    inspector = inspect(db.engine)
+    payload: dict[str, object] = {
+        "dialect_name": inspector.bind.dialect.name,
+        "table_present": False,
+        "data_column_type": None,
+        "data_column_capacity_bytes": None,
+    }
+    if "msds_files" not in inspector.get_table_names():
+        return payload
+
+    payload["table_present"] = True
+    for column in inspector.get_columns("msds_files"):
+        if column.get("name") != "data":
+            continue
+        column_type = column.get("type")
+        payload["data_column_type"] = str(column_type)
+        column_type_label, limit = _infer_mysql_blob_capacity(column_type)
+        if column_type_label and not payload["data_column_type"]:
+            payload["data_column_type"] = column_type_label
+        payload["data_column_capacity_bytes"] = limit
+        break
+    return payload
+
+
+def _raise_for_storage_capacity(file_size: int) -> None:
+    try:
+        storage = get_msds_storage_diagnostics()
+    except SQLAlchemyError as exc:
+        raise _msds_query_error(exc) from exc
+
+    if storage.get("dialect_name") != "mysql":
+        return
+    capacity = storage.get("data_column_capacity_bytes")
+    if not isinstance(capacity, int) or file_size <= capacity:
+        return
+    column_type = storage.get("data_column_type") or "BLOB"
+    raise MSDSError(
+        "MSDS storage is still using "
+        f"{column_type} with a limit of {_format_capacity_label(capacity)}. "
+        "Apply the MSDS blob-widening migration and retry the upload."
+    )
+
+
 def _msds_query_error(exc: Exception) -> MSDSError:
     current_app.logger.warning("MSDS query failed", exc_info=True)
     message = str(exc).lower()
@@ -146,6 +220,34 @@ def _msds_query_error(exc: Exception) -> MSDSError:
             "Apply the database migration and try again."
         )
     return MSDSError("MSDS data could not be loaded right now.")
+
+
+def _msds_write_error(exc: Exception) -> MSDSError:
+    current_app.logger.warning("MSDS write failed", exc_info=True)
+    message = str(exc).lower()
+    if "data too long" in message or "data truncated" in message:
+        try:
+            storage = get_msds_storage_diagnostics()
+        except Exception:
+            storage = {}
+        capacity = storage.get("data_column_capacity_bytes")
+        column_type = storage.get("data_column_type") or "database binary column"
+        if isinstance(capacity, int):
+            return MSDSError(
+                "MSDS upload is larger than the current "
+                f"{column_type} limit of {_format_capacity_label(capacity)}. "
+                "Apply the MSDS blob-widening migration and retry."
+            )
+        return MSDSError(
+            "MSDS upload could not be stored because the database binary column is too small. "
+            "Apply the latest MSDS migration and retry."
+        )
+    if "max_allowed_packet" in message or "packet for query is too large" in message:
+        return MSDSError(
+            "MSDS upload exceeds the current MySQL packet limit. "
+            "Increase max_allowed_packet and retry."
+        )
+    return MSDSError("MSDS PDF could not be stored right now.")
 
 
 def list_msds_files(
@@ -228,6 +330,7 @@ def store_msds_bytes(
     safe_filename = _normalize_filename(filename)
     _validate_material_exists(clean_material)
     _validate_pdf_bytes(file_bytes, safe_filename)
+    _raise_for_storage_capacity(len(file_bytes))
 
     raw_slot = _raw_slot_code(slot_code)
     explicit_slot = bool(raw_slot)
@@ -267,7 +370,10 @@ def store_msds_bytes(
         for duplicate in existing_files[1:]:
             db.session.delete(duplicate)
 
-    db.session.flush()
+    try:
+        db.session.flush()
+    except SQLAlchemyError as exc:
+        raise _msds_write_error(exc) from exc
     return msds_file
 
 

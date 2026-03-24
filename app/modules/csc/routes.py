@@ -173,7 +173,6 @@ from app.core.services.csc_type_classification_import import (
     apply_material_handling_core_updates,
     build_material_handling_background_text,
     build_material_handling_justification_text,
-    build_parent_lookup,
     build_parent_lookup_by_material_code,
     canonicalize_spec_number,
     import_type_classification_workbook,
@@ -2436,7 +2435,6 @@ def _build_parameter_review_rows_for_draft(
             parent_parameter.parameter_conditions if parent_parameter is not None else parameter.parameter_conditions
         )
         revised_conditions = _display_review_value(parameter.parameter_conditions)
-
         requirement_changed = source_requirement != revised_requirement
 
         changed = any(
@@ -3305,7 +3303,6 @@ def _get_export_subset_options() -> list[dict[str, object]]:
             }
         )
     return options
-
 
 def _serialize_draft_for_export(draft: CSCDraft) -> dict[str, object]:
     payload = draft.to_dict()
@@ -6322,7 +6319,8 @@ def _render_admin_revisions_workbench(
             for revision in revisions
         ]
 
-        return render_template(
+        response = make_response(
+            render_template(
             "csc/admin/revisions.html",
             revision_rows=revision_rows,
             can_import_workbooks=True,
@@ -6349,7 +6347,9 @@ def _render_admin_revisions_workbench(
             return_endpoint_name="csc.admin_return_revision",
             reject_endpoint_name="csc.admin_reject_revision",
             require_publish_fields=True,
+            )
         )
+        return _mark_response_no_store(response)
     except Exception:
         logger.exception("Error loading revisions")
         flash("Error loading revisions.", "danger")
@@ -7151,25 +7151,12 @@ def admin_import_type_classification_workbook():
             flash("The uploaded workbook did not contain any populated specification sheets.", "warning")
             return _render_admin_revisions_workbench()
 
-        spec_numbers = list(
-            {
-                sheet.spec_number
-                for sheet in workbook.sheets
-                if (sheet.spec_number or "").strip()
-            }
-        )
-        parent_drafts = []
-        if spec_numbers:
-            parent_drafts = (
-                CSCDraft.query.filter(CSCDraft.parent_draft_id.is_(None))
-                .filter(CSCDraft.spec_number.in_(spec_numbers))
-                .all()
-            )
-        parent_lookup = build_parent_lookup(parent_drafts)
+        parent_drafts = CSCDraft.query.filter(CSCDraft.parent_draft_id.is_(None)).all()
+        parent_lookup_by_material_code = build_parent_lookup_by_material_code(parent_drafts)
 
         import_summary = import_type_classification_workbook(
             workbook,
-            parent_lookup,
+            parent_lookup_by_material_code,
             open_draft_for_parent=lambda parent_draft: _open_committee_workflow_draft_for_parent(
                 parent_draft,
                 _type_classification_import_scope(),
@@ -7406,15 +7393,6 @@ def admin_cancel_material_handling_workbook_import():
     return _render_admin_revisions_workbench()
 
 
-@csc_bp.route("/admin/revisions/delete-all-drafts", methods=["POST"])
-@login_required
-@module_access_required("csc")
-@module_admin_required("csc")
-def admin_delete_all_revisions():
-    """Bulk deletion from the Secretary workbench has been removed."""
-    abort(404)
-
-
 def _open_revision_for_committee_workflow(revision: CSCRevision) -> tuple[bool, str]:
     if revision.child_draft is None or revision.parent_draft is None:
         return False, "Revision draft is incomplete."
@@ -7566,7 +7544,10 @@ def admin_msds_diagnostics():
     """Report live web-process MSDS diagnostics for Railway debugging."""
     from sqlalchemy import inspect
 
-    from app.core.services.msds_service import list_msds_files
+    from app.core.services.msds_service import (
+        get_msds_storage_diagnostics,
+        list_msds_files,
+    )
 
     payload: dict[str, object] = {
         "app_environment_name": current_app.config.get("APP_ENVIRONMENT_NAME"),
@@ -7578,6 +7559,8 @@ def admin_msds_diagnostics():
         "msds_table_present": False,
         "msds_query_ok": False,
         "msds_count": None,
+        "msds_data_column_type": None,
+        "msds_data_column_capacity_bytes": None,
         "error": None,
     }
     try:
@@ -7591,6 +7574,9 @@ def admin_msds_diagnostics():
     try:
         payload["current_database"] = db.engine.url.database
         payload["msds_table_present"] = "msds_files" in inspect(db.engine).get_table_names()
+        storage = get_msds_storage_diagnostics()
+        payload["msds_data_column_type"] = storage.get("data_column_type")
+        payload["msds_data_column_capacity_bytes"] = storage.get("data_column_capacity_bytes")
         documents = list_msds_files()
         payload["msds_query_ok"] = True
         payload["msds_count"] = len(documents)
@@ -7797,6 +7783,133 @@ def committee_head_delete_revision(revision_id: int):
     return jsonify({"error": "Only Secretary Workspace can delete drafts for revision."}), 403
 
 
+def _publish_revision_to_parent(
+    revision: CSCRevision,
+    *,
+    version_increment: str,
+    reviewer_notes: str,
+    approval_authorized_by: str,
+    approval_disha_file_number: str,
+    allowed_statuses: set[str] | None = None,
+    source_action_prefix: str = "admin_approve",
+    audit_action: str = "Drafting approved and published",
+) -> dict[str, object]:
+    """Publish one workflow revision into the parent and stage the snapshot/audit rows."""
+    if revision is None or revision.child_draft is None or revision.parent_draft is None:
+        raise ValueError("Revision not found")
+
+    allowed = allowed_statuses or {WORKFLOW_DRAFTING_HEAD_APPROVED}
+    if revision.status not in allowed:
+        raise ValueError("Only committee-head-approved drafts can be published")
+    if version_increment not in {"whole", "decimal"}:
+        raise ValueError("Choose whole or decimal version increment")
+    if not reviewer_notes:
+        raise ValueError("Approval notes are required")
+    if not approval_authorized_by:
+        raise ValueError("Enter the Approved By name before publishing")
+    if not approval_disha_file_number:
+        raise ValueError("Enter the Disha File Number before publishing")
+
+    child_draft = revision.child_draft
+    parent_draft = revision.parent_draft
+    stream_name = _infer_workflow_stream_name(child_draft)
+    next_spec_version = increment_spec_version(
+        parent_draft.spec_version,
+        version_increment,
+    )
+    next_version_label = format_spec_version(next_spec_version)
+    approval_notes = _compose_approval_notes(
+        reviewer_notes,
+        approval_authorized_by,
+        approval_disha_file_number,
+    )
+    published_review_context = _build_revision_review_context(revision)
+    _override_review_context_summary_value(
+        published_review_context,
+        "Version",
+        f"v{next_version_label}",
+    )
+    _override_review_context_summary_value(
+        published_review_context,
+        "Current Status",
+        "Published",
+    )
+    published_review_context["latest_review_notes"] = approval_notes
+
+    published_master_data = _apply_approved_revision_stream_to_parent(
+        parent_draft,
+        child_draft,
+        revision,
+    )
+    record = upsert_master_record_from_form(
+        parent_draft,
+        published_master_data,
+        user_id=current_user.id,
+    )
+    if record is not None and record not in db.session:
+        db.session.add(record)
+
+    revision.status = WORKFLOW_DRAFTING_APPROVED
+    revision.reviewed_at = datetime.now(timezone.utc)
+    revision.reviewer_notes = approval_notes
+    revision.module_admin_reviewed_at = datetime.now(timezone.utc)
+    revision.module_admin_notes = revision.reviewer_notes
+    revision.module_admin_user_id = current_user.id
+
+    parent_draft.status = "Published"
+    parent_draft.admin_stage = ADMIN_STAGE_PUBLISHED
+    parent_draft.reviewed_by = current_user.username
+    parent_draft.spec_version = next_spec_version
+    parent_draft.updated_at = datetime.now(timezone.utc)
+
+    snapshot = CSCSpecVersion(
+        draft_id=parent_draft.id,
+        spec_version=parent_draft.spec_version,
+        created_by=current_user.username,
+        source_action=f"{source_action_prefix}_{stream_name}_{version_increment}",
+        remarks=revision.reviewer_notes or None,
+        payload_json=json.dumps(
+            {
+                "draft": parent_draft.to_dict(),
+                "master_data": published_master_data,
+                "bundle": _build_export_bundle(parent_draft),
+                "review_context": _serialize_review_context_for_snapshot(published_review_context),
+            }
+        ),
+    )
+    db.session.add(snapshot)
+    clear_staged_master_payload(child_draft)
+
+    proposer_id = child_draft.created_by_id
+    committee_head_user_id = revision.committee_head_user_id
+    child_draft_id = child_draft.id
+    db.session.delete(revision)
+    db.session.delete(child_draft)
+
+    _create_audit_entry(
+        parent_draft.id,
+        audit_action,
+        new_value=json.dumps(
+            {
+                "version": next_version_label,
+                "increment_type": version_increment,
+                "submitted_draft_id": child_draft_id,
+                "workflow_stream": stream_name,
+            }
+        ),
+        remarks=approval_notes,
+    )
+
+    return {
+        "parent_draft_id": parent_draft.id,
+        "spec_number": parent_draft.spec_number,
+        "chemical_name": parent_draft.chemical_name,
+        "applied_version": next_version_label,
+        "proposer_id": proposer_id,
+        "committee_head_user_id": committee_head_user_id,
+    }
+
+
 @csc_bp.route("/admin/revision/<int:revision_id>/approve", methods=["POST"])
 @login_required
 @module_access_required("csc")
@@ -7809,130 +7922,28 @@ def admin_approve_revision(revision_id: int):
             return jsonify({"error": "Revision not found"}), 404
 
         data = request.get_json() or {}
-        if revision.status != WORKFLOW_DRAFTING_HEAD_APPROVED:
-            return jsonify({"error": "Only committee-head-approved drafts can be published"}), 400
+        try:
+            publish_result = _publish_revision_to_parent(
+                revision,
+                version_increment=(data.get("version_increment") or "whole").strip().lower(),
+                reviewer_notes=(data.get("reviewer_notes") or "").strip(),
+                approval_authorized_by=(data.get("approval_authorized_by") or "").strip(),
+                approval_disha_file_number=(data.get("approval_disha_file_number") or "").strip(),
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
 
-        child_draft = revision.child_draft
-        parent_draft = revision.parent_draft
-        version_increment = (data.get("version_increment") or "whole").strip().lower()
-        reviewer_notes = (data.get("reviewer_notes") or "").strip()
-        approval_authorized_by = (data.get("approval_authorized_by") or "").strip()
-        approval_disha_file_number = (data.get("approval_disha_file_number") or "").strip()
-
-        if version_increment not in {"whole", "decimal"}:
-            return jsonify({"error": "Choose whole or decimal version increment"}), 400
-        if not reviewer_notes:
-            return jsonify({"error": "Approval notes are required"}), 400
-        if not approval_authorized_by:
-            return jsonify({"error": "Enter the Approved By name before publishing"}), 400
-        if not approval_disha_file_number:
-            return jsonify({"error": "Enter the Disha File Number before publishing"}), 400
-
-        next_spec_version = increment_spec_version(
-            parent_draft.spec_version,
-            version_increment,
-        )
-        next_version_label = format_spec_version(next_spec_version)
-        approval_notes = _compose_approval_notes(
-            reviewer_notes,
-            approval_authorized_by,
-            approval_disha_file_number,
-        )
-        published_review_context = _build_revision_review_context(revision)
-        _override_review_context_summary_value(
-            published_review_context,
-            "Version",
-            f"v{next_version_label}",
-        )
-        _override_review_context_summary_value(
-            published_review_context,
-            "Current Status",
-            "Published",
-        )
-        published_review_context["latest_review_notes"] = approval_notes
-
-        published_master_data = _apply_approved_revision_stream_to_parent(
-            parent_draft,
-            child_draft,
-            revision,
-        )
-        record = upsert_master_record_from_form(
-            parent_draft,
-            published_master_data,
-            user_id=current_user.id,
-        )
-        if record is not None and record not in db.session:
-            db.session.add(record)
-
-        revision.status = WORKFLOW_DRAFTING_APPROVED
-        revision.reviewed_at = datetime.now(timezone.utc)
-        revision.reviewer_notes = approval_notes
-        revision.module_admin_reviewed_at = datetime.now(timezone.utc)
-        revision.module_admin_notes = revision.reviewer_notes
-        revision.module_admin_user_id = current_user.id
-
-        parent_draft.status = "Published"
-        parent_draft.admin_stage = ADMIN_STAGE_PUBLISHED
-        parent_draft.reviewed_by = current_user.username
-        parent_draft.spec_version = next_spec_version
-        parent_draft.updated_at = datetime.now(timezone.utc)
-
-        published_review_context = _serialize_review_context_for_snapshot(
-            published_review_context
-        )
-        published_bundle = _build_export_bundle(parent_draft)
-
-        snapshot = CSCSpecVersion(
-            draft_id=parent_draft.id,
-            spec_version=parent_draft.spec_version,
-            created_by=current_user.username,
-            source_action=(
-                f"admin_approve_{_infer_workflow_stream_name(child_draft)}_{version_increment}"
-            ),
-            remarks=revision.reviewer_notes or None,
-            payload_json=json.dumps(
-                {
-                    "draft": parent_draft.to_dict(),
-                    "master_data": published_master_data,
-                    "bundle": published_bundle,
-                    "review_context": published_review_context,
-                }
-            ),
-        )
-        db.session.add(snapshot)
-        clear_staged_master_payload(child_draft)
-
-        proposer_id = child_draft.created_by_id
-        child_draft_id = child_draft.id
-        applied_version = next_version_label
-        db.session.delete(revision)
-        db.session.delete(child_draft)
         db.session.commit()
-
-        _create_audit_entry(
-            parent_draft.id,
-            "Drafting approved and published",
-            new_value=json.dumps(
-                {
-                    "version": applied_version,
-                    "increment_type": version_increment,
-                    "submitted_draft_id": child_draft_id,
-                    "workflow_stream": _infer_workflow_stream_name(child_draft),
-                }
-            ),
-            remarks=revision.reviewer_notes,
-        )
         _notify_users(
-            [proposer_id, revision.committee_head_user_id],
+            [publish_result.get("proposer_id"), publish_result.get("committee_head_user_id")],
             title="Draft published",
             message=(
-                f"{parent_draft.spec_number} — {parent_draft.chemical_name} was approved "
-                f"and published as v{applied_version}."
+                f"{publish_result['spec_number']} — {publish_result['chemical_name']} was approved "
+                f"and published as v{publish_result['applied_version']}."
             ),
             severity="success",
             link=url_for("csc.workspace"),
         )
-
         return jsonify({"success": True})
     except Exception:
         logger.exception("Error approving revision")
@@ -8103,64 +8114,6 @@ def admin_audit_log_download():
     response.headers["Content-Type"] = "text/csv; charset=utf-8"
     response.headers["Content-Disposition"] = "attachment; filename=csc_audit_log.csv"
     return response
-
-
-@csc_bp.route("/admin/classification")
-@login_required
-@module_access_required("csc")
-@module_admin_required("csc")
-def admin_classification():
-    """Type classification exercise page."""
-    return render_template("csc/admin/classification.html")
-
-
-@csc_bp.route("/admin/classification/download")
-@login_required
-@module_access_required("csc")
-@module_admin_required("csc")
-def admin_classification_download():
-    """Download classification workbook."""
-    try:
-        flash("Classification download not yet implemented.", "info")
-        return redirect(url_for("csc.admin_classification"))
-    except Exception:
-        logger.exception("Error downloading classification")
-        flash("Error downloading classification.", "danger")
-        return redirect(url_for("csc.admin_classification"))
-
-
-@csc_bp.route("/admin/classification/upload", methods=["POST"])
-@login_required
-@module_access_required("csc")
-@module_admin_required("csc")
-def admin_classification_upload():
-    """Upload completed classification workbook."""
-    try:
-        if "file" not in request.files:
-            return jsonify({"error": "No file provided"}), 400
-
-        file = request.files["file"]
-        if file.filename == "":
-            return jsonify({"error": "No file selected"}), 400
-
-        flash("Classification uploaded successfully.", "success")
-        return jsonify({"success": True})
-    except Exception:
-        logger.exception("Error uploading classification")
-        return jsonify({"error": "An internal error occurred. Please try again."}), 500
-
-
-@csc_bp.route("/admin/classification/apply", methods=["POST"])
-@login_required
-@module_access_required("csc")
-@module_admin_required("csc")
-def admin_classification_apply():
-    """Apply classification changes."""
-    try:
-        return jsonify({"success": True})
-    except Exception:
-        logger.exception("Error applying classification")
-        return jsonify({"error": "An internal error occurred. Please try again."}), 500
 
 
 @csc_bp.route("/admin/export")

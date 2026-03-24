@@ -474,6 +474,23 @@ def build_parent_lookup(parent_drafts: list[object]) -> dict[tuple[str, str], ob
     return lookup
 
 
+def build_parent_lookup_by_spec_number(parent_drafts: list[object]) -> dict[str, object]:
+    unique_lookup: dict[str, object] = {}
+    duplicate_specs: set[str] = set()
+    for parent_draft in parent_drafts:
+        spec_number = canonicalize_spec_number(getattr(parent_draft, "spec_number", ""))
+        if not spec_number:
+            continue
+        if spec_number in duplicate_specs:
+            continue
+        if spec_number in unique_lookup:
+            unique_lookup.pop(spec_number, None)
+            duplicate_specs.add(spec_number)
+            continue
+        unique_lookup[spec_number] = parent_draft
+    return unique_lookup
+
+
 def build_parent_lookup_by_material_code(parent_drafts: list[object]) -> dict[str, object]:
     lookup: dict[str, object] = {}
     for parent_draft in parent_drafts:
@@ -570,7 +587,7 @@ def parse_material_handling_workbook(file_obj, workbook_name: str) -> ParsedMate
 
 def import_type_classification_workbook(
     workbook: ParsedTypeClassificationWorkbook,
-    parent_lookup: Mapping[tuple[str, str], object],
+    parent_lookup_by_material_code: Mapping[str, object],
     open_draft_for_parent: Callable[[object], tuple[object | None, bool, str | None]],
     get_justification_text: Callable[[object], str],
     set_justification_text: Callable[[object, str], None],
@@ -583,14 +600,16 @@ def import_type_classification_workbook(
 
     for sheet in workbook.sheets:
         summary.sheets_processed += 1
-        parent_draft = parent_lookup.get(sheet.match_key)
+        parent_draft = parent_lookup_by_material_code.get(
+            material_code_lookup_key(sheet.material_code)
+        )
         if parent_draft is None:
             summary.unmatched_sheets.append(
                 TypeClassificationSheetIssue(
                     sheet_name=sheet.sheet_name,
                     spec_number=sheet.spec_number,
                     material_code=sheet.material_code,
-                    reason="No published parent specification matched this sheet's Spec No. and Material Code.",
+                    reason="No published parent specification matched this sheet's Material Code.",
                 )
             )
             continue
@@ -851,11 +870,17 @@ def build_parameter_justification_entry(row: TypeClassificationWorkbookRow) -> s
     if not reasons:
         return ""
 
-    parameter_label = row.parameter_name or f"Parameter {row.parameter_serial or ''}".strip()
-    lines = [
-        f"Parameter {row.parameter_serial} - {parameter_label}",
-        f"Type classification: {normalize_parameter_type_label(row.target_type)}",
-    ]
+    parameter_prefix = f"Parameter {row.parameter_serial}" if row.parameter_serial is not None else "Parameter"
+    if row.parameter_name:
+        lines = [
+            f"{parameter_prefix} - {row.parameter_name}",
+            f"Type classification: {normalize_parameter_type_label(row.target_type)}",
+        ]
+    else:
+        lines = [
+            parameter_prefix,
+            f"Type classification: {normalize_parameter_type_label(row.target_type)}",
+        ]
 
     normalized_type = normalize_test_procedure_type(row.test_procedure_type)
     if normalized_type:
@@ -1102,8 +1127,28 @@ def _build_parameter_lookup(draft: object) -> dict[int, object]:
     else:
         parameters = list(parameters_attr)
 
+    def _parameter_order_key(item: object) -> tuple[int, str]:
+        serial = _coerce_parameter_serial(getattr(item, "sort_order", None))
+        normalized_serial = serial if serial is not None else 10**9
+        name = sanitize_multiline_text(getattr(item, "parameter_name", "") or "", max_length=255)
+        return normalized_serial, name
+
+    ordered_parameters = sorted(parameters, key=_parameter_order_key)
+    exact_serials = [
+        _coerce_parameter_serial(getattr(parameter, "sort_order", None))
+        for parameter in ordered_parameters
+    ]
+    non_null_serials = [serial for serial in exact_serials if serial is not None]
+    use_one_based_position = bool(non_null_serials) and non_null_serials == list(range(len(non_null_serials)))
+
     lookup: dict[int, object] = {}
-    for parameter in parameters:
+    if use_one_based_position:
+        for index, parameter in enumerate(ordered_parameters, start=1):
+            if index not in lookup:
+                lookup[index] = parameter
+        return lookup
+
+    for parameter in ordered_parameters:
         serial = _coerce_parameter_serial(getattr(parameter, "sort_order", None))
         if serial is not None and serial not in lookup:
             lookup[serial] = parameter
