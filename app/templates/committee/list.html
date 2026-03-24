@@ -591,7 +591,7 @@
                 {% endif %}
               </p>
             </div>
-            <form method="GET" action="{{ url_for('committee.list_tasks') }}" class="committee-filter-inline-form">
+            <form method="GET" action="{{ url_for('committee.list_tasks') }}" class="committee-filter-inline-form" id="committeeSelectorForm">
               <input type="hidden" name="status" value="{{ filters.status }}">
               <input type="hidden" name="priority" value="{{ filters.priority }}">
               <input type="hidden" name="office_id" value="{{ filters.office_id }}">
@@ -599,7 +599,7 @@
               <input type="hidden" name="due_to" value="{{ filters.due_to }}">
               <div class="form-group">
                 <label class="form-label" for="committeeFilter">Committee</label>
-                <select name="committee" id="committeeFilter" class="form-control" onchange="this.form.submit()" {{ 'disabled' if not committee_filter_options }}>
+                <select name="committee" id="committeeFilter" class="form-control" {{ 'disabled' if not committee_filter_options }}>
                   {% if not committee_filter_options %}
                   <option value="">No mapped committees</option>
                   {% endif %}
@@ -608,9 +608,11 @@
                   {% endfor %}
                 </select>
               </div>
-              <noscript>
-                <button type="submit" class="btn btn-secondary btn-sm">Open Committee</button>
-              </noscript>
+              <div class="task-form-actions committee-filter-actions">
+                <button type="submit" class="btn btn-secondary btn-sm" {{ 'disabled' if not committee_filter_options }}>
+                  Open Committee
+                </button>
+              </div>
             </form>
           </div>
         </div>
@@ -717,4 +719,18 @@
 
 </div>
 {% include "tasks/_task_summary_modal.html" %}
+<script>
+  (function () {
+    var committeeForm = document.getElementById('committeeSelectorForm');
+    var committeeFilter = document.getElementById('committeeFilter');
+    if (!committeeForm || !committeeFilter) return;
+    committeeFilter.addEventListener('change', function () {
+      if (typeof committeeForm.requestSubmit === 'function') {
+        committeeForm.requestSubmit();
+        return;
+      }
+      committeeForm.submit();
+    });
+  })();
+</script>
 {% endblock %}
