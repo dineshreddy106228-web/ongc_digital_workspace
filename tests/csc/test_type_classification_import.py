@@ -1057,6 +1057,8 @@ def test_import_material_handling_reuses_separate_draft_stream_and_stages_only_d
     assert parent.spec_number == "ONGC/DFC/01/2026"
     assert staged_payloads[0]["physical_state"] == "Solid"
     assert staged_payloads[0]["container_type"] == "HDPE Bags"
+    assert staged_payloads[0]["container_type_2"] == ""
+    assert staged_payloads[0]["container_capacity_4"] == ""
     assert "Material Code: 100101102" in sections["background"]
     assert "[" not in sections["background"]
     assert "Proposed specification number - ONGC/DFC/01/2026" in sections["justification"]

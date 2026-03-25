@@ -40,8 +40,32 @@ MASTER_DATA_COLUMN_MAP: dict[str, str] = {
     "Storage Conditions \u2013 General":  "storage_conditions_general",   # –
     "Storage Conditions \u2013 Special":  "storage_conditions_special",
     "Container Type":                 "container_type",
+    "Container Type 1":               "container_type",
+    "Packing Type 1":                 "container_type",
     "Container Capacity":             "container_capacity",
+    "Container Capacity 1":           "container_capacity",
+    "Packing Size 1":                 "container_capacity",
+    "Container Type 2":               "container_type_2",
+    "Packing Type 2":                 "container_type_2",
+    "Container Capacity 2":           "container_capacity_2",
+    "Packing Size 2":                 "container_capacity_2",
+    "Container Type 3":               "container_type_3",
+    "Packing Type 3":                 "container_type_3",
+    "Container Capacity 3":           "container_capacity_3",
+    "Packing Size 3":                 "container_capacity_3",
+    "Container Type 4":               "container_type_4",
+    "Packing Type 4":                 "container_type_4",
+    "Container Capacity 4":           "container_capacity_4",
+    "Packing Size 4":                 "container_capacity_4",
     "Container Description":          "container_description",
+    "Container Description 1":        "container_description",
+    "Packing Description 1":          "container_description",
+    "Container Description 2":        "container_description_2",
+    "Packing Description 2":          "container_description_2",
+    "Container Description 3":        "container_description_3",
+    "Packing Description 3":          "container_description_3",
+    "Container Description 4":        "container_description_4",
+    "Packing Description 4":          "container_description_4",
     "Primary Storage Classification": "primary_storage_classification",
 }
 
@@ -81,7 +105,16 @@ class MaterialMaster(db.Model):
     storage_conditions_special      = db.Column(db.String(255), nullable=True)
     container_type                  = db.Column(db.String(100), nullable=True)
     container_capacity              = db.Column(db.String(100), nullable=True)
+    container_type_2                = db.Column(db.String(100), nullable=True)
+    container_capacity_2            = db.Column(db.String(100), nullable=True)
+    container_type_3                = db.Column(db.String(100), nullable=True)
+    container_capacity_3            = db.Column(db.String(100), nullable=True)
+    container_type_4                = db.Column(db.String(100), nullable=True)
+    container_capacity_4            = db.Column(db.String(100), nullable=True)
     container_description           = db.Column(db.String(255), nullable=True)
+    container_description_2         = db.Column(db.String(255), nullable=True)
+    container_description_3         = db.Column(db.String(255), nullable=True)
+    container_description_4         = db.Column(db.String(255), nullable=True)
     primary_storage_classification  = db.Column(db.String(100), nullable=True)
 
     # ── Flexible bucket for truly unknown future columns ──────────
@@ -132,7 +165,16 @@ class MaterialMaster(db.Model):
             "storage_conditions_special":     self.storage_conditions_special    or "",
             "container_type":                 self.container_type                or "",
             "container_capacity":             self.container_capacity            or "",
+            "container_type_2":               self.container_type_2              or "",
+            "container_capacity_2":           self.container_capacity_2          or "",
+            "container_type_3":               self.container_type_3              or "",
+            "container_capacity_3":           self.container_capacity_3          or "",
+            "container_type_4":               self.container_type_4              or "",
+            "container_capacity_4":           self.container_capacity_4          or "",
             "container_description":          self.container_description         or "",
+            "container_description_2":        self.container_description_2       or "",
+            "container_description_3":        self.container_description_3       or "",
+            "container_description_4":        self.container_description_4       or "",
             "primary_storage_classification": self.primary_storage_classification or "",
             "extra_data":                     self.extra_data or {},
             "updated_at": (

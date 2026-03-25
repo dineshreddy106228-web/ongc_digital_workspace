@@ -6744,9 +6744,9 @@ def _material_handling_preview_comparisons(
         ("Corrosive", _preview_text_value(current_master_values.get("corrosive")), workbook_row.corrosive, resolved_row.corrosive),
         ("Storage Conditions - General", _preview_text_value(current_master_values.get("storage_conditions_general")), workbook_row.storage_conditions_general, resolved_row.storage_conditions_general),
         ("Storage Conditions - Special", _preview_text_value(current_master_values.get("storage_conditions_special")), workbook_row.storage_conditions_special, resolved_row.storage_conditions_special),
-        ("Container Type", _preview_text_value(current_master_values.get("container_type")), workbook_row.container_type, resolved_row.container_type),
-        ("Container Capacity", _preview_text_value(current_master_values.get("container_capacity")), workbook_row.container_capacity, resolved_row.container_capacity),
-        ("Container Description", _preview_text_value(current_master_values.get("container_description")), workbook_row.container_description, resolved_row.container_description),
+        ("Packing Type 1", _preview_text_value(current_master_values.get("container_type")), workbook_row.container_type, resolved_row.container_type),
+        ("Packing Size 1", _preview_text_value(current_master_values.get("container_capacity")), workbook_row.container_capacity, resolved_row.container_capacity),
+        ("Packing Description 1", _preview_text_value(current_master_values.get("container_description")), workbook_row.container_description, resolved_row.container_description),
         ("Primary Storage Classification", _preview_text_value(current_master_values.get("primary_storage_classification")), workbook_row.primary_storage_classification, resolved_row.primary_storage_classification),
         ("Remarks", "", workbook_row.remarks, resolved_row.remarks),
     ]

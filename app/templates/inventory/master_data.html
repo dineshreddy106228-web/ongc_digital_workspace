@@ -400,9 +400,18 @@ tr.is-saving td { opacity: 0.6; }
               <th class="md-col-sm">Corrosive</th>
               <th class="md-col-med">Storage – General</th>
               <th class="md-col-med">Storage – Special</th>
-              <th class="md-col-sm">Container Type</th>
-              <th class="md-col-sm">Container Capacity</th>
-              <th class="md-col-med">Container Description</th>
+              <th class="md-col-sm">Packing Type 1</th>
+              <th class="md-col-sm">Packing Size 1</th>
+              <th class="md-col-med">Packing Description 1</th>
+              <th class="md-col-sm">Packing Type 2</th>
+              <th class="md-col-sm">Packing Size 2</th>
+              <th class="md-col-med">Packing Description 2</th>
+              <th class="md-col-sm">Packing Type 3</th>
+              <th class="md-col-sm">Packing Size 3</th>
+              <th class="md-col-med">Packing Description 3</th>
+              <th class="md-col-sm">Packing Type 4</th>
+              <th class="md-col-sm">Packing Size 4</th>
+              <th class="md-col-med">Packing Description 4</th>
               <th class="md-col-med">Primary Storage Class.</th>
               {% for key in extra_keys %}
               <th class="md-col-med">{{ key }}</th>
@@ -530,6 +539,51 @@ tr.is-saving td { opacity: 0.6; }
                 <span class="md-cell-view">{{ row.container_description }}</span>
                 <input class="md-edit-input md-cell-edit" type="text"
                        data-field="container_description" value="{{ row.container_description }}" style="display:none;">
+              </td>
+              <td class="md-col-sm">
+                <span class="md-cell-view">{{ row.container_type_2 }}</span>
+                <input class="md-edit-input md-cell-edit" type="text"
+                       data-field="container_type_2" value="{{ row.container_type_2 }}" style="display:none;">
+              </td>
+              <td class="md-col-sm">
+                <span class="md-cell-view">{{ row.container_capacity_2 }}</span>
+                <input class="md-edit-input md-cell-edit" type="text"
+                       data-field="container_capacity_2" value="{{ row.container_capacity_2 }}" style="display:none;">
+              </td>
+              <td class="md-col-med">
+                <span class="md-cell-view">{{ row.container_description_2 }}</span>
+                <input class="md-edit-input md-cell-edit" type="text"
+                       data-field="container_description_2" value="{{ row.container_description_2 }}" style="display:none;">
+              </td>
+              <td class="md-col-sm">
+                <span class="md-cell-view">{{ row.container_type_3 }}</span>
+                <input class="md-edit-input md-cell-edit" type="text"
+                       data-field="container_type_3" value="{{ row.container_type_3 }}" style="display:none;">
+              </td>
+              <td class="md-col-sm">
+                <span class="md-cell-view">{{ row.container_capacity_3 }}</span>
+                <input class="md-edit-input md-cell-edit" type="text"
+                       data-field="container_capacity_3" value="{{ row.container_capacity_3 }}" style="display:none;">
+              </td>
+              <td class="md-col-med">
+                <span class="md-cell-view">{{ row.container_description_3 }}</span>
+                <input class="md-edit-input md-cell-edit" type="text"
+                       data-field="container_description_3" value="{{ row.container_description_3 }}" style="display:none;">
+              </td>
+              <td class="md-col-sm">
+                <span class="md-cell-view">{{ row.container_type_4 }}</span>
+                <input class="md-edit-input md-cell-edit" type="text"
+                       data-field="container_type_4" value="{{ row.container_type_4 }}" style="display:none;">
+              </td>
+              <td class="md-col-sm">
+                <span class="md-cell-view">{{ row.container_capacity_4 }}</span>
+                <input class="md-edit-input md-cell-edit" type="text"
+                       data-field="container_capacity_4" value="{{ row.container_capacity_4 }}" style="display:none;">
+              </td>
+              <td class="md-col-med">
+                <span class="md-cell-view">{{ row.container_description_4 }}</span>
+                <input class="md-edit-input md-cell-edit" type="text"
+                       data-field="container_description_4" value="{{ row.container_description_4 }}" style="display:none;">
               </td>
               <td class="md-col-med">
                 <span class="md-cell-view">{{ row.primary_storage_classification }}</span>

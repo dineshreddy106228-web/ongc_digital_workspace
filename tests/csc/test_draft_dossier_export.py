@@ -191,13 +191,17 @@ def test_editor_grid_snapshot_can_keep_legacy_v0_baseline_blank() -> None:
             "show_if": {"field_name": "storage_conditions_general", "equals": "Store in a cool and dry place"},
             "default_value": "HDPE Drum",
         },
+        {
+            "field_name": "container_type_2",
+            "default_value": "",
+        },
     ]
 
     assert _editor_grid_snapshot(config, {}, include_defaults=True) == (
-        '{"storage_conditions_general": "Store in a cool and dry place", "container_type": "HDPE Drum"}'
+        '{"storage_conditions_general": "Store in a cool and dry place", "container_type": "HDPE Drum", "container_type_2": ""}'
     )
     assert _editor_grid_snapshot(config, {}, include_defaults=False) == (
-        '{"storage_conditions_general": "", "container_type": ""}'
+        '{"storage_conditions_general": "", "container_type": "", "container_type_2": ""}'
     )
 
 

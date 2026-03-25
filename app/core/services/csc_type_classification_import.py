@@ -939,7 +939,16 @@ def build_material_handling_master_payload(row: MaterialHandlingWorkbookRow) -> 
         "storage_conditions_special": row.storage_conditions_special,
         "container_type": row.container_type,
         "container_capacity": row.container_capacity,
+        "container_type_2": "",
+        "container_capacity_2": "",
+        "container_type_3": "",
+        "container_capacity_3": "",
+        "container_type_4": "",
+        "container_capacity_4": "",
         "container_description": row.container_description,
+        "container_description_2": "",
+        "container_description_3": "",
+        "container_description_4": "",
         "primary_storage_classification": row.primary_storage_classification,
     }
 
