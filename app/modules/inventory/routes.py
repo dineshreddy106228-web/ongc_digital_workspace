@@ -55,6 +55,31 @@ def _set_pending_token(token: str | None) -> None:
         session.pop("inventory_seed_pending_token", None)
 
 
+def _empty_cleanup_preview(threshold: float) -> dict:
+    return {
+        "threshold": threshold,
+        "is_staged": False,
+        "source_label": "current ingested procurement file",
+        "count": 0,
+        "columns": [
+            "Excel Row",
+            "doc_date",
+            "po_number",
+            "plant",
+            "material_code",
+            "material_desc",
+            "vendor",
+            "order_qty",
+            "still_to_be_delivered_qty",
+            "procured_qty",
+            "order_unit",
+            "effective_value",
+            "unit_price",
+        ],
+        "rows": [],
+    }
+
+
 def _render_seed_files_page(
     audit_report: dict | None = None,
     upload_error: str | None = None,
@@ -80,13 +105,20 @@ def _render_seed_files_page(
         except ValueError:
             _set_pending_token(None)
             token = None
+    should_load_cleanup_preview = bool(token) or request.args.get("show_cleanup") == "1"
+    cleanup_preview = (
+        get_procurement_rows_below_threshold(LOW_VALUE_THRESHOLD, token=token)
+        if should_load_cleanup_preview
+        else _empty_cleanup_preview(LOW_VALUE_THRESHOLD)
+    )
     return render_template(
         "inventory/seed_upload.html",
         schema=get_seed_upload_schema(),
         fy_status=get_seed_upload_status(),
         audit_report=audit_report,
         upload_error=upload_error,
-        cleanup_preview=get_procurement_rows_below_threshold(LOW_VALUE_THRESHOLD, token=token),
+        cleanup_preview=cleanup_preview,
+        cleanup_preview_loaded=should_load_cleanup_preview,
         cleanup_threshold=LOW_VALUE_THRESHOLD,
         pending_token=token,
         target_fy=(target_fy if target_fy is not None else request.args.get("target_fy", "")).strip(),
@@ -596,6 +628,23 @@ def export_excel():
     plant = request.args.get("plant")
     query = request.args.get("q", "")
     stream, filename = store.build_export_workbook(plant=plant, query=query)
+    return send_file(
+        stream,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@inventory_bp.route("/export/financial-year-summary")
+@login_required
+@module_access_required("inventory")
+def export_financial_year_summary_excel():
+    """Download the FY-wise material intelligence summary workbook."""
+    store = _get_inventory_store()
+    plant = request.args.get("plant")
+    query = request.args.get("q", "")
+    stream, filename = store.build_financial_year_summary_workbook(plant=plant, query=query)
     return send_file(
         stream,
         as_attachment=True,

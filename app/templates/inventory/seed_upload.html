@@ -228,7 +228,7 @@
                             <h2 class="inv-card-title">Procurement Cleanup Preview</h2>
                             <p class="inv-card-subtitle">Current ingested procurement rows below ₹ {{ '{:,.2f}'.format(cleanup_threshold) }} effective value.</p>
                         </div>
-                        {% if cleanup_preview["count"] %}
+                        {% if cleanup_preview_loaded and cleanup_preview["count"] %}
                         <form method="POST" action="{{ url_for('inventory.procurement_low_value_delete') }}">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             {% if pending_token %}
@@ -241,7 +241,14 @@
                         {% endif %}
                     </div>
 
-                    {% if cleanup_preview["count"] %}
+                    {% if not cleanup_preview_loaded and not pending_token %}
+                    <div class="inv-muted">Preview is loaded on demand to keep the page responsive.</div>
+                    <div style="margin-top:0.75rem;">
+                        <a href="{{ url_for('inventory.seed_files', target_fy=target_fy or None, show_cleanup=1) }}#seed-upload-form" class="btn btn-sm btn-secondary">
+                            <i class="bi bi-search"></i> Load Cleanup Preview
+                        </a>
+                    </div>
+                    {% elif cleanup_preview["count"] %}
                     <div class="inv-note">These rows are from the {{ cleanup_preview["source_label"] }}. They will be deleted only if you confirm.</div>
                     <div class="inv-audit-table-wrap">
                         <table class="inv-expand-table inv-audit-table">

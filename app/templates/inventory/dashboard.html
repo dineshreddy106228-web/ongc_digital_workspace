@@ -118,6 +118,9 @@
             <a id="btnExport" href="{{ url_for('inventory.export_excel') }}" class="btn btn-sm btn-primary">
                 <i class="bi bi-file-earmark-excel"></i> Export Excel
             </a>
+            <a id="btnFyExport" href="{{ url_for('inventory.export_financial_year_summary_excel') }}" class="btn btn-sm btn-secondary">
+                <i class="bi bi-file-earmark-spreadsheet"></i> FY Summary Excel
+            </a>
             <button type="button" id="btnCollapseAll" class="btn btn-sm btn-secondary" title="Collapse all expanded rows">
                 <i class="bi bi-arrows-collapse"></i> Collapse All
             </button>
@@ -473,6 +476,10 @@
     function updateExportLink() {
         var query = document.getElementById('materialSearch').value.trim();
         document.getElementById('btnExport').href = '/inventory/export' + buildQuery({
+            plant: currentPlant,
+            q: query
+        });
+        document.getElementById('btnFyExport').href = '/inventory/export/financial-year-summary' + buildQuery({
             plant: currentPlant,
             q: query
         });

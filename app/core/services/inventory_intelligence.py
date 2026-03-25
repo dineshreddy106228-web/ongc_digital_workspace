@@ -75,6 +75,7 @@ PLANT_GROUPING_FILE = os.path.join(_BASE_DIR, "inventory_plant_grouping.json")
 _CACHE_DIR = os.path.join(_BASE_DIR, ".cache", "inventory")
 _FORECAST_CACHE_FILE = os.path.join(_CACHE_DIR, "forecast_precomputed.pkl")
 _FORECAST_CACHE_SCHEMA_VERSION = 4
+_NORMALIZED_CACHE_SCHEMA_VERSION = 3
 
 _PERIOD_RE = re.compile(r"^\s*(\d{1,2})\.(\d{4})\s*$")
 _PRICE_SWING_THRESHOLD_PCT = 15.0
@@ -277,6 +278,11 @@ _DEFAULT_PLANT_GROUPING_CONFIG = {
 _PLANT_GROUPING_CACHE = {
     "mtime": None,
     "config": None,
+}
+_SEED_UPLOAD_STATUS_CACHE = {
+    "signature": None,
+    "years": None,
+    "results": None,
 }
 _DB_SEED_TABLES_READY: bool | None = None
 
@@ -1237,8 +1243,10 @@ def _normalize_legacy_consumption_frame(df: pd.DataFrame) -> pd.DataFrame:
     frame["storage_location"] = frame["storage_location"].map(_normalize_text)
     frame["month_raw"] = frame["month_raw"].map(_normalize_text)
     frame["uom"] = frame["uom"].map(_normalize_code)
+    frame["actual_uom"] = frame["uom"]
     frame["currency"] = frame["currency"].map(_clean_currency)
     frame["usage_qty"] = pd.to_numeric(frame["usage_qty"], errors="coerce")
+    frame["actual_usage_qty"] = frame["usage_qty"]
     frame["usage_value"] = pd.to_numeric(frame["usage_value"], errors="coerce")
     frame["usage_qty"], frame["uom"] = _normalize_quantity_series(frame["usage_qty"], frame["uom"])
 
@@ -1305,6 +1313,7 @@ def _normalize_mb51_consumption_frame(df: pd.DataFrame) -> pd.DataFrame:
     frame["material_document_item"] = frame["material_document_item"].map(_normalize_code)
     frame["uom"] = frame["uom"].map(_normalize_code)
     frame["base_uom"] = frame["base_uom"].map(_normalize_code)
+    frame["actual_uom"] = frame["uom"]
     frame["receiving_plant"] = frame["receiving_plant"].map(_normalize_code)
     frame["po_number"] = frame["po_number"].map(_normalize_code)
     frame["posting_date"] = pd.to_datetime(frame["posting_date"], errors="coerce")
@@ -1313,6 +1322,7 @@ def _normalize_mb51_consumption_frame(df: pd.DataFrame) -> pd.DataFrame:
     frame["movement_sign"] = frame["movement_type"].map(_CONSUMPTION_MOVEMENT_SIGNS)
     frame["usage_qty_raw"] = frame["entry_qty"]
     frame["usage_value_raw"] = frame["usage_value"]
+    frame["actual_usage_qty"] = frame["entry_qty"].abs() * frame["movement_sign"]
     frame["usage_qty"] = frame["entry_qty"].abs() * frame["movement_sign"]
     frame["usage_value"] = frame["usage_value"].abs() * frame["movement_sign"]
     frame["usage_qty"], frame["uom"] = _normalize_quantity_series(frame["usage_qty"], frame["uom"])
@@ -1493,6 +1503,7 @@ def _load_normalized_cache(
 ) -> pd.DataFrame:
     signature = _source_signature(source_path)
     cache_path = _cache_path(cache_name)
+    cache_signature = (_NORMALIZED_CACHE_SCHEMA_VERSION, signature)
 
     if signature and os.path.exists(cache_path):
         try:
@@ -1500,7 +1511,7 @@ def _load_normalized_cache(
                 payload = pickle.load(fh)
             if (
                 isinstance(payload, dict)
-                and payload.get("signature") == signature
+                and payload.get("signature") == cache_signature
                 and isinstance(payload.get("frame"), pd.DataFrame)
             ):
                 logger.info("Loaded normalized inventory cache from %s", cache_path)
@@ -1514,7 +1525,7 @@ def _load_normalized_cache(
     if signature:
         try:
             with open(cache_path, "wb") as fh:
-                pickle.dump({"signature": signature, "frame": frame}, fh, protocol=pickle.HIGHEST_PROTOCOL)
+                pickle.dump({"signature": cache_signature, "frame": frame}, fh, protocol=pickle.HIGHEST_PROTOCOL)
         except Exception:
             logger.warning("Failed to write inventory cache %s", cache_path, exc_info=True)
 
@@ -1814,6 +1825,19 @@ def _format_financial_year_from_start(start_year: int) -> str:
 
 
 def get_seed_upload_status(years: int = 5) -> list[dict]:
+    cache_signature = (
+        years,
+        _source_signature(CONS_FILE),
+        _source_signature(PROC_FILE),
+        _source_signature(MC9_FILE),
+    )
+    if (
+        _SEED_UPLOAD_STATUS_CACHE["signature"] == cache_signature
+        and _SEED_UPLOAD_STATUS_CACHE["years"] == years
+        and isinstance(_SEED_UPLOAD_STATUS_CACHE["results"], list)
+    ):
+        return list(_SEED_UPLOAD_STATUS_CACHE["results"])
+
     expected_starts = [
         _current_financial_year_start() - offset
         for offset in range(years)
@@ -1926,6 +1950,9 @@ def get_seed_upload_status(years: int = 5) -> list[dict]:
                 "status_detail": status_detail,
             }
         )
+    _SEED_UPLOAD_STATUS_CACHE["signature"] = cache_signature
+    _SEED_UPLOAD_STATUS_CACHE["years"] = years
+    _SEED_UPLOAD_STATUS_CACHE["results"] = list(results)
     return results
 
 
@@ -3326,6 +3353,53 @@ def _filter_material_rows(materials: list[dict], query: str = "") -> list[dict]:
     return filtered
 
 
+def _first_non_empty(values) -> str:
+    for value in values:
+        text = _normalize_text(value)
+        if text:
+            return text
+    return ""
+
+
+def _preferred_uom(values) -> str:
+    series = pd.Series(list(values), dtype="object").fillna("").astype(str).str.strip()
+    series = series[series != ""]
+    if series.empty:
+        return ""
+    mode = series.mode()
+    if not mode.empty:
+        return _normalize_text(mode.iloc[0])
+    return _normalize_text(series.iloc[0])
+
+
+def _quantity_to_mt(quantity, uom) -> float:
+    qty = _safe_float(quantity)
+    unit = _normalize_code(uom)
+    if not unit:
+        return qty
+    if unit in {"KG", "KGS"}:
+        return qty / 1000.0
+    if unit in {"G", "GM", "GRAM", "GRAMS"}:
+        return qty / 1_000_000.0
+    if unit in {"L", "LT", "LTR", "LTRS", "LTS"}:
+        return qty / 1000.0
+    if unit == "ML":
+        return qty / 1_000_000.0
+    if unit in {"KL", "KLS"}:
+        return qty
+    if unit in {"MT", "T", "TON", "TONS", "TONNE", "TONNES"}:
+        return qty
+    return qty
+
+
+def _financial_year_sort_value(label: str) -> int:
+    match = re.match(r"^FY(\d{2})-(\d{2})$", _normalize_text(label).upper())
+    if not match:
+        return -1
+    start = 2000 + int(match.group(1))
+    return start
+
+
 class _DataStore:
     """Lazy-loaded, cached data store for inventory intelligence."""
 
@@ -4516,6 +4590,196 @@ class _DataStore:
 
         plant_suffix = (_normalize_plant(plant) or "all-plants").lower()
         filename = f"mi-report-{plant_suffix}.xlsx"
+        return stream, filename
+
+    def build_financial_year_summary_workbook(self, plant: str | None = None, query: str = "") -> tuple[BytesIO, str]:
+        cons = self._filtered_consumption(plant)
+        proc = self._filtered_procurement(plant)
+        fiscal_month_order = [4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2, 3]
+        fiscal_month_labels = [calendar.month_abbr[month] for month in fiscal_month_order]
+
+        if query:
+            payload = self.get_dashboard_payload(plant=plant)
+            materials = _filter_material_rows(payload["materials"], query)
+            material_names = {m["material"] for m in materials}
+            if material_names:
+                cons = cons[cons["material_desc"].isin(material_names)].copy()
+                proc = proc[proc["material_desc"].isin(material_names)].copy()
+            else:
+                cons = cons.iloc[0:0].copy()
+                proc = proc.iloc[0:0].copy()
+
+        cons_summary = pd.DataFrame(
+            columns=[
+                "financial_year",
+                "financial_year_start",
+                "material_code",
+                "material_desc",
+                "actual_uom",
+                "annual_consumption_actual",
+                "annual_consumption_mt",
+            ]
+        )
+        if not cons.empty:
+            cons_rows = cons.copy()
+            cons_rows["financial_year"] = cons_rows["financial_year"].fillna("").astype(str).str.strip()
+            cons_rows = cons_rows.loc[cons_rows["financial_year"] != ""].copy()
+            if not cons_rows.empty:
+                cons_rows["financial_year_start"] = pd.to_numeric(cons_rows["financial_year_start"], errors="coerce")
+                cons_rows["actual_usage_qty"] = pd.to_numeric(
+                    cons_rows.get("actual_usage_qty", cons_rows.get("usage_qty")),
+                    errors="coerce",
+                )
+                cons_rows["consumption_mt"] = cons_rows.apply(
+                    lambda row: _quantity_to_mt(row.get("actual_usage_qty"), row.get("actual_uom") or row.get("uom")),
+                    axis=1,
+                )
+                cons_annual = (
+                    cons_rows.groupby(["financial_year", "financial_year_start", "material_code", "material_desc"], as_index=False)
+                    .agg(
+                        actual_uom=("actual_uom", _preferred_uom),
+                        annual_consumption_actual=("actual_usage_qty", "sum"),
+                        annual_consumption_mt=("consumption_mt", "sum"),
+                    )
+                )
+                cons_monthly = (
+                    cons_rows.groupby(
+                        ["financial_year", "financial_year_start", "material_code", "material_desc", "month"],
+                        as_index=False,
+                    )
+                    .agg(
+                        monthly_actual=("actual_usage_qty", "sum"),
+                        monthly_mt=("consumption_mt", "sum"),
+                    )
+                )
+                cons_monthly["month"] = pd.to_numeric(cons_monthly["month"], errors="coerce")
+                for month_num, month_label in zip(fiscal_month_order, fiscal_month_labels):
+                    month_rows = (
+                        cons_monthly.loc[cons_monthly["month"] == month_num]
+                        .drop(columns=["month"])
+                        .rename(
+                            columns={
+                                "monthly_actual": f"{month_label} (Actual)",
+                                "monthly_mt": f"{month_label} (MT)",
+                            }
+                        )
+                    )
+                    cons_annual = cons_annual.merge(
+                        month_rows,
+                        on=["financial_year", "financial_year_start", "material_code", "material_desc"],
+                        how="left",
+                    )
+                month_value_columns = [
+                    f"{month_label} ({suffix})"
+                    for month_label in fiscal_month_labels
+                    for suffix in ("Actual", "MT")
+                ]
+                for column in month_value_columns:
+                    if column not in cons_annual.columns:
+                        cons_annual[column] = 0.0
+                cons_summary = cons_annual.sort_values(
+                    ["financial_year_start", "annual_consumption_mt", "material_desc"],
+                    ascending=[False, False, True],
+                )
+
+        proc_summary = pd.DataFrame(columns=["financial_year", "financial_year_start", "material_code", "material_desc", "actual_uom", "annual_procurement_value"])
+        if not proc.empty:
+            proc_rows = proc.copy()
+            proc_rows["financial_year"] = proc_rows["financial_year"].fillna("").astype(str).str.strip()
+            proc_rows = proc_rows.loc[proc_rows["financial_year"] != ""].copy()
+            if not proc_rows.empty:
+                proc_rows["financial_year_start"] = pd.to_numeric(proc_rows["financial_year_start"], errors="coerce")
+                proc_summary = (
+                    proc_rows.groupby(["financial_year", "financial_year_start", "material_code", "material_desc"], as_index=False)
+                    .agg(
+                        actual_uom=("order_unit", _preferred_uom),
+                        annual_procurement_value=("effective_value", "sum"),
+                    )
+                    .sort_values(["financial_year_start", "annual_procurement_value", "material_desc"], ascending=[False, False, True])
+                )
+
+        fy_labels = sorted(
+            {
+                *cons_summary.get("financial_year", pd.Series(dtype="object")).dropna().astype(str).tolist(),
+                *proc_summary.get("financial_year", pd.Series(dtype="object")).dropna().astype(str).tolist(),
+            },
+            key=_financial_year_sort_value,
+            reverse=True,
+        )
+
+        workbook = Workbook()
+        default_sheet = workbook.active
+        workbook.remove(default_sheet)
+
+        if not fy_labels:
+            empty_sheet = workbook.create_sheet("FY Summary")
+            empty_sheet.append(
+                [
+                    "Material",
+                    "Name of Chemical",
+                    "Unit of Measurement (actual)",
+                    "Annual Consumption (Actual)",
+                    "Annual Consumption (MT)",
+                    *[
+                        item
+                        for month_label in fiscal_month_labels
+                        for item in (f"{month_label} (Actual)", f"{month_label} (MT)")
+                    ],
+                ]
+            )
+            self._format_export_sheet(empty_sheet, header_row=1)
+            empty_sheet.append(["", "No data available for the selected filters.", "", "", ""])
+        else:
+            for fy in fy_labels:
+                safe_fy = fy.replace("/", "-")
+
+                cons_sheet = workbook.create_sheet(f"Consumption {safe_fy}"[:31])
+                consumption_headers = [
+                    "Material",
+                    "Name of Chemical",
+                    "Unit of Measurement (actual)",
+                    "Annual Consumption (Actual)",
+                    "Annual Consumption (MT)",
+                    *[
+                        item
+                        for month_label in fiscal_month_labels
+                        for item in (f"{month_label} (Actual)", f"{month_label} (MT)")
+                    ],
+                ]
+                cons_sheet.append(consumption_headers)
+                cons_rows = cons_summary.loc[cons_summary["financial_year"] == fy]
+                for _, row in cons_rows.iterrows():
+                    cons_sheet.append([
+                        _normalize_text(row.get("material_code")),
+                        _normalize_text(row.get("material_desc")),
+                        _normalize_text(row.get("actual_uom")),
+                        round(_safe_float(row.get("annual_consumption_actual")), 2),
+                        round(_safe_float(row.get("annual_consumption_mt")), 2),
+                        *[
+                            round(_safe_float(row.get(column)), 2)
+                            for month_label in fiscal_month_labels
+                            for column in (f"{month_label} (Actual)", f"{month_label} (MT)")
+                        ],
+                    ])
+                self._format_export_sheet(cons_sheet, header_row=1)
+
+                proc_sheet = workbook.create_sheet(f"Procurement {safe_fy}"[:31])
+                proc_sheet.append(["Material", "Name of Chemical", "Unit of Measurement (actual)", "Annual Procurement Value"])
+                proc_rows = proc_summary.loc[proc_summary["financial_year"] == fy]
+                for _, row in proc_rows.iterrows():
+                    proc_sheet.append([
+                        _normalize_text(row.get("material_code")),
+                        _normalize_text(row.get("material_desc")),
+                        _normalize_text(row.get("actual_uom")),
+                        round(_safe_float(row.get("annual_procurement_value")), 2),
+                    ])
+                self._format_export_sheet(proc_sheet, header_row=1)
+
+        stream = BytesIO()
+        workbook.save(stream)
+        stream.seek(0)
+        plant_suffix = (_normalize_plant(plant) or "all-plants").lower()
+        filename = f"material-intelligence-fy-summary-{plant_suffix}.xlsx"
         return stream, filename
 
     def _build_basic_export_workbook(self, plant: str | None = None, query: str = "") -> tuple[BytesIO, str]:

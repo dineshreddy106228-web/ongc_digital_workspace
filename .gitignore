@@ -40,3 +40,5 @@ backups/
 *.sql.gz
 storage/msds/
 .DS_Store
+
+.cache/

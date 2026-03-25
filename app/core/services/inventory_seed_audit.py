@@ -56,6 +56,19 @@ class AuditFinding:
     primary_action: str
 
 
+def _canonical_material_code_for_compare(value) -> str:
+    if pd.isna(value):
+        return ""
+    text = str(value).strip().upper()
+    if not text:
+        return ""
+    if text.endswith(".0"):
+        text = text[:-2]
+    if text.isdigit():
+        return text.lstrip("0") or "0"
+    return text
+
+
 def _normalize_fy_label(value: str | None) -> str:
     if not value:
         return ""
@@ -881,16 +894,19 @@ def _collect_mc9_findings(mc9_raw: pd.DataFrame, mc9: pd.DataFrame, cons: pd.Dat
         mc9_valid["plant"].fillna("").astype(str).str.strip().ne("")
         & mc9_valid["material_code"].fillna("").astype(str).str.strip().ne("")
     ]
+    mc9_valid["material_code_compare"] = mc9_valid["material_code"].map(_canonical_material_code_for_compare)
     mb51_valid = cons.dropna(subset=["year", "month"]).copy()
     mb51_valid = mb51_valid.loc[
         mb51_valid["plant"].fillna("").astype(str).str.strip().ne("")
         & mb51_valid["material_code"].fillna("").astype(str).str.strip().ne("")
     ]
+    mb51_valid["material_code_compare"] = mb51_valid["material_code"].map(_canonical_material_code_for_compare)
 
     mc9_compare = (
-        mc9_valid[compare_cols]
-        .groupby(["plant", "material_code", "year", "month"], as_index=False)
+        mc9_valid[compare_cols + ["material_code_compare"]]
+        .groupby(["plant", "material_code_compare", "year", "month"], as_index=False)
         .agg(
+            material_code=("material_code", "first"),
             material_desc=("material_desc", "first"),
             mc9_usage_qty=("usage_qty", "sum"),
             mc9_usage_value=("usage_value", "sum"),
@@ -904,9 +920,10 @@ def _collect_mc9_findings(mc9_raw: pd.DataFrame, mc9: pd.DataFrame, cons: pd.Dat
         | (mc9_compare["mc9_usage_value"].fillna(0).abs() > 1.0)
     ].copy()
     mb51_compare = (
-        mb51_valid[["plant", "material_code", "material_desc", "year", "month", "usage_qty", "usage_value", "source_excel_row"]]
-        .groupby(["plant", "material_code", "year", "month"], as_index=False)
+        mb51_valid[["plant", "material_code_compare", "material_code", "material_desc", "year", "month", "usage_qty", "usage_value", "source_excel_row"]]
+        .groupby(["plant", "material_code_compare", "year", "month"], as_index=False)
         .agg(
+            material_code=("material_code", "first"),
             material_desc=("material_desc", "first"),
             mb51_usage_qty=("usage_qty", "sum"),
             mb51_usage_value=("usage_value", "sum"),
@@ -922,11 +939,12 @@ def _collect_mc9_findings(mc9_raw: pd.DataFrame, mc9: pd.DataFrame, cons: pd.Dat
 
     comparison = mc9_compare.merge(
         mb51_compare,
-        on=["plant", "material_code", "year", "month"],
+        on=["plant", "material_code_compare", "year", "month"],
         how="outer",
         indicator=True,
         suffixes=("_mc9", "_mb51"),
     )
+    comparison["material_code"] = comparison["material_code_mc9"].combine_first(comparison["material_code_mb51"])
     comparison["material_desc"] = comparison["material_desc_mc9"].combine_first(comparison["material_desc_mb51"])
     comparison["mc9_usage_qty"] = comparison["mc9_usage_qty"].fillna(0.0)
     comparison["mc9_usage_value"] = comparison["mc9_usage_value"].fillna(0.0)
