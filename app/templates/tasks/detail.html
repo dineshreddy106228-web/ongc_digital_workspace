@@ -245,22 +245,46 @@
             <th>Old Status</th>
             <th>New Status</th>
             <th>Remarks</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
           {% if updates %}
             {% for update in updates %}
             <tr>
-              <td>{{ update.created_at|datetime_ist('%d %b %Y') if update.created_at else '—' }}</td>
+              <td>
+                {{ update.created_at|datetime_ist('%d %b %Y %I:%M %p') if update.created_at else '—' }}
+                {% if update.was_edited and update.edited_at %}
+                <div class="form-hint">
+                  Edited {{ update.edited_at|datetime_ist('%d %b %Y %I:%M %p') }}
+                </div>
+                {% endif %}
+              </td>
               <td>{{ update.updater.full_name if update.updater and update.updater.full_name else (update.updater.username if update.updater else '—') }}</td>
               <td>{{ update.old_status or '—' }}</td>
               <td>{{ update.new_status or '—' }}</td>
-              <td class="preserve-whitespace">{{ update.update_text }}</td>
+              <td>
+                <div class="preserve-whitespace">{{ update.update_text }}</div>
+                {% if update.was_edited %}
+                <div class="form-hint">
+                  Edited by {{ update.editor.full_name if update.editor and update.editor.full_name else (update.editor.username if update.editor else '—') }}
+                </div>
+                {% endif %}
+              </td>
+              <td>
+                {% if update.is_editable_by(current_user, task_update_edit_window_hours) %}
+                <a href="{{ url_for('tasks.edit_task_update', task_id=task.id, update_id=update.id) }}" class="btn btn-sm btn-secondary">Edit</a>
+                {% elif update.updated_by == current_user.id %}
+                <span class="form-hint">Edit window closed</span>
+                {% else %}
+                —
+                {% endif %}
+              </td>
             </tr>
             {% endfor %}
           {% else %}
           <tr>
-            <td colspan="5" class="table-empty-row">No updates added yet.</td>
+            <td colspan="6" class="table-empty-row">No updates added yet.</td>
           </tr>
           {% endif %}
         </tbody>

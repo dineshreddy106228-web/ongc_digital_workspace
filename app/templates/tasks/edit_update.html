@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Edit Task Update{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+
+  <div class="page-header">
+    <div class="page-header-left">
+      <h1 class="page-title">Edit Task Update</h1>
+      <p class="page-subtitle">{{ task.task_title }}</p>
+    </div>
+    <div class="page-header-right">
+      <a href="{{ url_for('tasks.task_detail', task_id=task.id) }}" class="btn btn-secondary">← Back to Task</a>
+    </div>
+  </div>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+    <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  <div class="card form-card-narrow">
+    <div class="card-body">
+      <form method="POST" action="{{ url_for('tasks.edit_task_update', task_id=task.id, update_id=update.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <div class="form-section">
+          <div class="form-section-title">Edit Details</div>
+
+          <div class="form-group">
+            <label class="form-label" for="update_text">Update Text <span class="required">*</span></label>
+            <textarea id="update_text" name="update_text" class="form-control"
+                      rows="5" required maxlength="5000">{{ form_data.get('update_text', update.update_text) }}</textarea>
+            <div class="form-hint">
+              Only the original updater can edit this entry, and only within {{ task_update_edit_window_hours }} hours of posting.
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Original Status Change</label>
+            <div class="detail-value">
+              {% if update.old_status and update.new_status %}
+              {{ update.old_status }} → {{ update.new_status }}
+              {% elif update.new_status %}
+              {{ update.new_status }}
+              {% else %}
+              No status change
+              {% endif %}
+            </div>
+            <div class="form-hint">Status history is locked after posting to preserve audit integrity.</div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Edit Deadline</label>
+            <div class="detail-value">
+              {{ update.edit_deadline(task_update_edit_window_hours)|datetime_ist('%d %b %Y %I:%M %p') if update.edit_deadline(task_update_edit_window_hours) else '—' }}
+            </div>
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">Save Changes</button>
+          <a href="{{ url_for('tasks.task_detail', task_id=task.id) }}" class="btn btn-secondary">Cancel</a>
+        </div>
+      </form>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

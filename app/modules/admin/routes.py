@@ -1587,6 +1587,12 @@ def delete_user(user_id):
         )
         _record_dependency_change(dependency_changes, "task update author reference cleared", affected)
 
+        affected = TaskUpdate.query.filter_by(edited_by=target.id).update(
+            {TaskUpdate.edited_by: None},
+            synchronize_session=False,
+        )
+        _record_dependency_change(dependency_changes, "task update editor reference cleared", affected)
+
         affected = TaskCollaborator.query.filter_by(user_id=target.id).delete(
             synchronize_session=False
         )

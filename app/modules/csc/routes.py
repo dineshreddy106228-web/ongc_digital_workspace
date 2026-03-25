@@ -2123,7 +2123,7 @@ def _format_impact_checklist_summary_for_review(summary: object) -> str:
         answer = flag.get("answer_label") or "—"
         flag_bits.append(f"F{order}: {answer}")
     confidence = summary.get("confidence", "")
-    total = summary.get("total_flags", 9)
+    total = summary.get("total_flags", 10)
     parts = [
         f"Classification: {summary.get('classification') or '—'}" + (f" ({confidence})" if confidence else ""),
         f"Rule: {summary.get('rule') or '—'}",
@@ -2173,7 +2173,7 @@ def _build_impact_review_rows(
             {
                 "label": "Flags Answered",
                 "value": _display_review_value(
-                    f"{summary.get('answered_count', 0)}/{summary.get('total_flags', 9)}"
+                    f"{summary.get('answered_count', 0)}/{summary.get('total_flags', 10)}"
                 ),
             },
         ]

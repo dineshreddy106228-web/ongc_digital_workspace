@@ -45,6 +45,8 @@ from app.core.services.csc_utils import (
     SECTION_EXISTING_SPEC,
     SECTION_PROPOSED,
     SECTION_JUSTIFICATION,
+    RED_FLAG_IDS,
+    AMBER_FLAG_IDS,
     REC_MAIN_KEY,
     deserialize_impact_checklist_state,
     summarize_impact_checklist_state,
@@ -1732,7 +1734,7 @@ def _add_impact_section(
             doc.add_paragraph(f"Classification: {summary['classification']}")
             doc.add_paragraph(f"Rule: {summary['rule']}")
             doc.add_paragraph(
-                f"Red flags answered YES: {summary['red_yes_count']}/3 | Amber flags answered YES: {summary['amber_yes_count']}/3"
+                f"Red flags answered YES: {summary['red_yes_count']}/{len(RED_FLAG_IDS)} | Amber flags answered YES: {summary['amber_yes_count']}/{len(AMBER_FLAG_IDS)}"
             )
             for flag in summary["flags"]:
                 doc.add_paragraph(

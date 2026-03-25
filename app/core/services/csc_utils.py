@@ -114,13 +114,13 @@ TEST_PROCEDURE_TYPE_ALIASES = {
     "any other national / international standard": "Any other National / International Standard",
 }
 
-IMPACT_CHECKLIST_VERSION = 2
+IMPACT_CHECKLIST_VERSION = 3
 
 # Valid 4-state flag values
 VALID_FLAG_VALUES = ["YES", "PROVISIONAL", "REVIEW", "NO"]
 
 # Flag group membership
-RED_FLAG_IDS = ["hse_flag", "op_acute_flag", "op_chronic_flag", "safety_flag"]
+RED_FLAG_IDS = ["hse_flag", "op_acute_flag", "op_chronic_flag", "safety_flag", "env_critical_flag"]
 AMBER_FLAG_IDS = ["env_flag", "regulatory_flag", "supply_flag", "seasonal_flag", "financial_flag"]
 ALL_FLAG_IDS = RED_FLAG_IDS + AMBER_FLAG_IDS
 
@@ -177,15 +177,29 @@ IMPACT_CHECKLIST_FLAGS = [
         "question": "Is this chemical used for safety, emergency response, or personnel protection where its absence creates a statutory or life-safety risk under OISD or DGMS — even if production is unaffected?",
         "source": "User Department",
         "detail": (
-            "Firefighting foam (AFFF), H2S neutralisation chemicals, ETP treatment chemicals, "
-            "spill absorbents, emergency response agents. Their absence on the day of an incident "
+            "Firefighting foam (AFFF), H2S neutralisation chemicals, spill absorbents, "
+            "emergency response agents, and personnel-protection support chemicals. Their absence on the day of an incident "
             "is a direct regulatory breach under OISD-STD-109/117."
+        ),
+    },
+    {
+        "id": "env_critical_flag",
+        "order": 5,
+        "dimension": "Environmental-critical",
+        "type": "RED",
+        "section_label": "Red flags — any YES = High Impact",
+        "question": "Will absence of this chemical prevent legally compliant treatment, handling, or disposal of produced water, effluent, sludge, or waste, causing an immediate environmental-compliance breach, disposal stoppage, or operational shutdown?",
+        "source": "User Department",
+        "detail": (
+            "Use YES where the chemical is required to keep produced-water, effluent, sludge, or waste handling within "
+            "permitted discharge or disposal norms. This includes deoilers, produced-water treatment chemicals, ETP treatment "
+            "chemicals, sludge-conditioning chemicals, and any case where absence of the chemical stops compliant disposal operations."
         ),
     },
     # ── Amber flags ────────────────────────────────────────────────────────────
     {
         "id": "env_flag",
-        "order": 5,
+        "order": 6,
         "dimension": "Environment",
         "type": "AMBER",
         "section_label": "Amber flags — any YES (no red flags) = Medium Impact",
@@ -199,7 +213,7 @@ IMPACT_CHECKLIST_FLAGS = [
     },
     {
         "id": "regulatory_flag",
-        "order": 6,
+        "order": 7,
         "dimension": "Regulatory",
         "type": "AMBER",
         "section_label": "Amber flags — any YES (no red flags) = Medium Impact",
@@ -212,7 +226,7 @@ IMPACT_CHECKLIST_FLAGS = [
     },
     {
         "id": "supply_flag",
-        "order": 7,
+        "order": 8,
         "dimension": "Supply Chain",
         "type": "AMBER",
         "section_label": "Amber flags — any YES (no red flags) = Medium Impact",
@@ -225,7 +239,7 @@ IMPACT_CHECKLIST_FLAGS = [
     },
     {
         "id": "seasonal_flag",
-        "order": 8,
+        "order": 9,
         "dimension": "Seasonal",
         "type": "AMBER",
         "section_label": "Amber flags — any YES (no red flags) = Medium Impact",
@@ -239,7 +253,7 @@ IMPACT_CHECKLIST_FLAGS = [
     },
     {
         "id": "financial_flag",
-        "order": 9,
+        "order": 10,
         "dimension": "Financial",
         "type": "AMBER",
         "section_label": "Amber flags — any YES (no red flags) = Medium Impact",

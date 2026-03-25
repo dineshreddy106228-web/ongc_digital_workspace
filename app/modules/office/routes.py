@@ -71,6 +71,7 @@ MAX_TASK_TITLE_LEN = 255
 MAX_TASK_ORIGIN_LEN = 100
 MAX_TASK_DESC_LEN = 5000
 MAX_TASK_UPDATE_LEN = 5000
+TASK_UPDATE_EDIT_WINDOW_HOURS = 12
 TASK_SCHEDULE_MODES = ["ONE_TIME", "RECURRING"]
 
 
@@ -295,6 +296,18 @@ def _can_add_update(task: Task) -> bool:
 def _can_close_task(task: Task) -> bool:
     """Delegate to centralized permission engine. Close = terminal status change."""
     return can_close_task(current_user, task)
+
+
+def _can_edit_task_update(update: TaskUpdate) -> bool:
+    """Only the original updater may edit, and only within the edit window."""
+    if not update:
+        return False
+    if getattr(update, "task", None) is not None and not _can_view_task(update.task):
+        return False
+    return update.is_editable_by(
+        current_user,
+        edit_window_hours=TASK_UPDATE_EDIT_WINDOW_HOURS,
+    )
 
 
 def _can_create_global_task() -> bool:
@@ -1797,6 +1810,7 @@ def task_detail(task_id):
         can_edit=_can_edit_task(task),
         can_close=_can_close_task(task),
         can_add_update=_can_add_update(task),
+        task_update_edit_window_hours=TASK_UPDATE_EDIT_WINDOW_HOURS,
         can_edit_series=_can_edit_recurring_template(task.recurring_template)
         if task.recurring_template else False,
         recurrence_summary=recurrence_summary,
@@ -1824,6 +1838,7 @@ def task_summary(task_id):
         can_edit=_can_edit_task(task),
         can_close=_can_close_task(task),
         can_add_update=_can_add_update(task),
+        task_update_edit_window_hours=TASK_UPDATE_EDIT_WINDOW_HOURS,
         can_edit_series=_can_edit_recurring_template(task.recurring_template)
         if task.recurring_template else False,
         recurrence_summary=recurrence_summary,
@@ -1857,6 +1872,7 @@ def task_command_summary(task_id):
         can_edit=_can_edit_task(task) if can_open_full_page else False,
         can_close=_can_close_task(task) if can_open_full_page else False,
         can_add_update=_can_add_update(task) if can_open_full_page else False,
+        task_update_edit_window_hours=TASK_UPDATE_EDIT_WINDOW_HOURS,
         can_edit_series=(
             _can_edit_recurring_template(task.recurring_template)
             if task.recurring_template and can_open_full_page else False
@@ -2403,6 +2419,94 @@ def add_task_update(task_id):
         task_statuses=TASK_STATUSES,
         can_close=task_can_close,
         form_data={},
+    )
+
+
+@office_bp.route("/<int:task_id>/updates/<int:update_id>/edit", methods=["GET", "POST"])
+@login_required
+@_task_read_access_required
+def edit_task_update(task_id, update_id):
+    task = Task.query.get_or_404(task_id)
+    if not _can_view_task(task):
+        abort(403)
+
+    update = TaskUpdate.query.filter_by(id=update_id, task_id=task.id).first_or_404()
+    if not _can_edit_task_update(update):
+        flash(
+            f"Only the original updater can edit an entry, and only within "
+            f"{TASK_UPDATE_EDIT_WINDOW_HOURS} hours of posting.",
+            "danger",
+        )
+        return redirect(url_for("tasks.task_detail", task_id=task.id))
+
+    if request.method == "POST":
+        update_text = request.form.get("update_text", "").strip()
+        errors = []
+
+        if not update_text:
+            errors.append("Update text is required.")
+        if len(update_text) > MAX_TASK_UPDATE_LEN:
+            errors.append(f"Update text cannot exceed {MAX_TASK_UPDATE_LEN} characters.")
+        if not update.is_within_edit_window(TASK_UPDATE_EDIT_WINDOW_HOURS):
+            errors.append(
+                f"This update can no longer be edited because the "
+                f"{TASK_UPDATE_EDIT_WINDOW_HOURS}-hour edit window has closed."
+            )
+
+        if errors:
+            for err in errors:
+                flash(err, "danger")
+            return render_template(
+                "tasks/edit_update.html",
+                task=task,
+                update=update,
+                form_data=request.form,
+                task_update_edit_window_hours=TASK_UPDATE_EDIT_WINDOW_HOURS,
+            )
+
+        try:
+            update.update_text = update_text
+            update.edited_at = datetime.now(timezone.utc)
+            update.edited_by = current_user.id
+            db.session.flush()
+
+            log_action(
+                action="TASK_UPDATE_EDITED",
+                user_id=current_user.id,
+                entity_type="TaskUpdate",
+                entity_id=str(update.id),
+                details=(
+                    f"Task '{task.task_title}' update edited. "
+                    f"Note: {update_text[:250]}"
+                ),
+            )
+            log_activity(
+                current_user.username,
+                "task_update_edited",
+                "task",
+                task.task_title,
+                details=f"update_id={update.id}",
+            )
+            db.session.commit()
+        except SQLAlchemyError:
+            _db_error("Could not edit task update due to a database error.")
+            return render_template(
+                "tasks/edit_update.html",
+                task=task,
+                update=update,
+                form_data=request.form,
+                task_update_edit_window_hours=TASK_UPDATE_EDIT_WINDOW_HOURS,
+            )
+
+        flash("Task update edited successfully.", "success")
+        return redirect(url_for("tasks.task_detail", task_id=task.id))
+
+    return render_template(
+        "tasks/edit_update.html",
+        task=task,
+        update=update,
+        form_data={},
+        task_update_edit_window_hours=TASK_UPDATE_EDIT_WINDOW_HOURS,
     )
 
 

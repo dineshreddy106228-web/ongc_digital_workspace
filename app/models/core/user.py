@@ -90,6 +90,12 @@ class User(UserMixin, db.Model):
         back_populates="updater",
         lazy="dynamic",
     )
+    task_updates_edited = db.relationship(
+        "TaskUpdate",
+        foreign_keys="TaskUpdate.edited_by",
+        back_populates="editor",
+        lazy="dynamic",
+    )
     task_collaborations = db.relationship(
         "TaskCollaborator",
         foreign_keys="TaskCollaborator.user_id",
