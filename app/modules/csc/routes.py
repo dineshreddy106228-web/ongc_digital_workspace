@@ -2993,14 +2993,6 @@ def _build_revision_review_context(revision: CSCRevision) -> dict[str, object]:
             "is_datetime": True,
         },
         {
-            "label": "Authorized By",
-            "value": _display_review_value(revision.authorized_by_name),
-        },
-        {
-            "label": "Subcommittee Head",
-            "value": _display_review_value(revision.subcommittee_head_name),
-        },
-        {
             "label": "Authorization Confirmed",
             "value": _display_review_value(revision.authorization_confirmed),
         },
@@ -4287,6 +4279,7 @@ def editor(draft_id: int):
         draft = db.session.get(CSCDraft, draft_id)
         if not draft:
             abort(404)
+        revision = _get_revision_for_child(draft.id)
 
         if not _can_edit_draft(draft):
             flash("You do not have permission to edit this draft.", "danger")
@@ -4398,6 +4391,30 @@ def editor(draft_id: int):
             }
         workflow_scope = _load_workflow_scope(draft)
         master_data_editable = _master_data_editable_for_draft(draft)
+        can_submit_draft = (
+            editor_mode != "committee_head"
+            and draft.parent_draft_id is not None
+            and revision is not None
+            and not draft.is_admin_draft
+            and _can_submit_revision(revision)
+        )
+        submit_draft_help = None
+        if editor_mode != "committee_head" and not can_submit_draft:
+            revision_status = (revision.status or "").strip().lower() if revision is not None else ""
+            if revision_status == WORKFLOW_DRAFTING_STAGING:
+                submit_draft_help = (
+                    "This draft is still in Secretary staging and is not yet open for Committee User submission."
+                )
+            elif revision_status == WORKFLOW_DRAFTING_SUBMITTED:
+                submit_draft_help = "This draft has already been submitted to Committee Head."
+            elif revision_status == WORKFLOW_DRAFTING_HEAD_APPROVED:
+                submit_draft_help = "This draft has already been approved by Committee Head."
+            elif revision is None:
+                submit_draft_help = "This draft is missing workflow metadata and cannot be submitted."
+            elif draft.is_admin_draft:
+                submit_draft_help = "Secretary staging drafts cannot be submitted from the Committee User editor."
+            else:
+                submit_draft_help = "This draft is not open for submission."
         comparison_baseline = _build_editor_comparison_baseline(
             draft,
             parent_draft,
@@ -4431,6 +4448,8 @@ def editor(draft_id: int):
             workflow_scope_summary=_summarize_workflow_scope(workflow_scope),
             master_data_editable=master_data_editable,
             draft_type_label=_draft_type_label(draft),
+            can_submit_draft=can_submit_draft,
+            submit_draft_help=submit_draft_help,
             editor_lock_enabled=_committee_editor_lock_enabled_for_draft(draft, editor_mode),
         )
     except Exception:
@@ -5102,17 +5121,10 @@ def submit_revision(draft_id: int):
 
         data = request.get_json(silent=True) or {}
         authorization_confirmed = bool(data.get("authorization_confirmed", False))
-        authorized_by_name = (data.get("authorized_by_name") or "").strip()
-        subcommittee_head_name = (data.get("subcommittee_head_name") or "").strip()
 
         if not authorization_confirmed:
             return jsonify({
                 "error": "Authorization confirmation is required before submission."
-            }), 400
-
-        if not authorized_by_name or not subcommittee_head_name:
-            return jsonify({
-                "error": "Enter your name and the Sub Committee Head name before submission."
             }), 400
 
         draft.status = "Drafting"
@@ -5122,8 +5134,8 @@ def submit_revision(draft_id: int):
         revision.submitted_at = datetime.now(timezone.utc)
         revision.status = WORKFLOW_DRAFTING_SUBMITTED
         revision.authorization_confirmed = authorization_confirmed
-        revision.authorized_by_name = authorized_by_name
-        revision.subcommittee_head_name = subcommittee_head_name
+        revision.authorized_by_name = None
+        revision.subcommittee_head_name = None
         db.session.add(
             CSCAudit(
                 draft_id=draft_id,
@@ -5133,8 +5145,6 @@ def submit_revision(draft_id: int):
                 new_value=json.dumps(
                     {
                         "authorization_confirmed": authorization_confirmed,
-                        "authorized_by_name": authorized_by_name,
-                        "subcommittee_head_name": subcommittee_head_name,
                         "subset": draft.subset,
                     }
                 ),

@@ -2534,9 +2534,16 @@
                 </a>
                 <span class="csc-workflow-subnote">Use Committee Head Workbench to approve and forward this edited draft to Secretary.</span>
                 {% else %}
+                {% if can_submit_draft %}
                 <button type="button" class="btn btn-success btn-sm" id="submitDraftBtn">
                     <i class="bi bi-send"></i> Submit for Committee Head Approval
                 </button>
+                {% else %}
+                <button type="button" class="btn btn-success btn-sm" id="submitDraftBtn" disabled title="{{ submit_draft_help or 'This draft is not open for submission.' }}">
+                    <i class="bi bi-send"></i> Submit for Committee Head Approval
+                </button>
+                <span class="csc-workflow-subnote">{{ submit_draft_help or 'This draft is not open for submission.' }}</span>
+                {% endif %}
                 {% endif %}
                 {% if can_delete_draft %}
                 <button type="button" class="btn btn-danger btn-sm" id="deleteDraftBtn">
@@ -2650,54 +2657,14 @@
                         <p id="submitPreviewParameterTypes"></p>
                     </div>
                 </div>
-            </div>
-
-            <div class="csc-submit-step" id="submitAuthorizationStep">
-                <div class="csc-submit-auth-panel">
-                    <h3>Authorization Declaration</h3>
-                    <p>
-                        Confirm that you are authorized to create and submit drafts for the
-                        <strong id="submitAuthorizationSubset"></strong> sub-group.
-                    </p>
-
-                    <div class="csc-submit-auth-choices">
-                        <div class="csc-submit-auth-choice">
-                            <input type="radio" id="submitAuthYes" name="submitAuthorization" value="yes">
-                            <label for="submitAuthYes">Yes, I am authorized for this sub-group</label>
-                        </div>
-                        <div class="csc-submit-auth-choice">
-                            <input type="radio" id="submitAuthNo" name="submitAuthorization" value="no">
-                            <label for="submitAuthNo">No, I do not have this authorization</label>
-                        </div>
-                    </div>
-
-                    <div class="csc-submit-auth-note warning" id="submitAuthNoMessage" style="display: none;">
-                        Submission is blocked until an authorized user initiates it for this sub-group.
-                    </div>
-
-                    <div id="submitAuthNames" style="display: none;">
-                        <div class="csc-form-group">
-                            <label for="submitAuthorizedByName" class="csc-form-label">Your Name</label>
-                            <input type="text" id="submitAuthorizedByName" class="csc-input" placeholder="Enter your full name">
-                        </div>
-                        <div class="csc-form-group">
-                            <label for="submitSubcommitteeHeadName" class="csc-form-label">Sub Committee Head Name</label>
-                            <input type="text" id="submitSubcommitteeHeadName" class="csc-input" placeholder="Enter the Sub Committee Head name">
-                        </div>
-                    </div>
-
-                    <div class="csc-submit-error" id="submitReviewError"></div>
-                    <div class="csc-submit-status" id="submitReviewStatus" hidden></div>
-                </div>
+                <div class="csc-submit-error" id="submitReviewError"></div>
+                <div class="csc-submit-status" id="submitReviewStatus" hidden></div>
             </div>
         </div>
         <div class="csc-submit-modal-footer">
-            <button type="button" class="btn btn-secondary btn-sm" id="submitReviewBack" style="visibility: hidden;">
-                Back
-            </button>
             <div class="csc-submit-modal-footer-actions">
                 <button type="button" class="btn btn-secondary btn-sm" id="submitReviewCancel">Cancel</button>
-                <button type="button" class="btn btn-primary btn-sm" id="submitReviewNext">Next</button>
+                <button type="button" class="btn btn-primary btn-sm" id="submitReviewNext">Submit to Committee Head</button>
             </div>
         </div>
     </div>
@@ -4567,6 +4534,29 @@
         });
     }
 
+    function withTimeout(promise, timeoutMs, message) {
+        return new Promise(function(resolve, reject) {
+            var settled = false;
+            var timer = window.setTimeout(function() {
+                if (settled) return;
+                settled = true;
+                reject(new Error(message));
+            }, timeoutMs);
+
+            Promise.resolve(promise).then(function(result) {
+                if (settled) return;
+                settled = true;
+                window.clearTimeout(timer);
+                resolve(result);
+            }).catch(function(error) {
+                if (settled) return;
+                settled = true;
+                window.clearTimeout(timer);
+                reject(error);
+            });
+        });
+    }
+
     function runDraftToolbarAction(button, config) {
         if (!button) {
             return Promise.resolve();
@@ -4866,6 +4856,7 @@
     // ═══════════════════════════════════════════════════════════════════════════
 
     var confirmCallback = null;
+    var confirmCancelCallback = null;
 
     function showWorkflowDialog(options) {
         if (window.showAppDialog) {
@@ -4946,22 +4937,26 @@
         window.addEventListener('pagehide', releaseEditorLock);
     }
 
-    function showConfirmModal(title, body, onConfirm) {
+    function showConfirmModal(title, body, onConfirm, onCancel) {
         document.getElementById('confirmTitle').textContent = title;
         document.getElementById('confirmBody').textContent = body;
         document.getElementById('confirmModal').classList.add('show');
         confirmCallback = onConfirm;
+        confirmCancelCallback = onCancel || null;
     }
 
     bindIfPresent(byId('confirmCancel'), 'click', function() {
         document.getElementById('confirmModal').classList.remove('show');
+        if (confirmCancelCallback) confirmCancelCallback();
         confirmCallback = null;
+        confirmCancelCallback = null;
     });
 
     bindIfPresent(byId('confirmOK'), 'click', function() {
         document.getElementById('confirmModal').classList.remove('show');
         if (confirmCallback) confirmCallback();
         confirmCallback = null;
+        confirmCancelCallback = null;
     });
 
     function previewText(value, fallback) {
@@ -5029,32 +5024,19 @@
     }
 
     function setSubmitStep(step) {
-        submitStep = step;
+        submitStep = 1;
         var previewStep = document.getElementById('submitPreviewStep');
-        var authorizationStep = document.getElementById('submitAuthorizationStep');
-        var backButton = document.getElementById('submitReviewBack');
         var nextButton = document.getElementById('submitReviewNext');
         var stepLabel = document.getElementById('submitReviewStepLabel');
         var title = document.getElementById('submitReviewTitle');
         var subtitle = document.getElementById('submitReviewSubtitle');
 
-        previewStep.classList.toggle('is-active', step === 1);
-        authorizationStep.classList.toggle('is-active', step === 2);
-        backButton.style.visibility = step === 1 ? 'hidden' : 'visible';
-
-        if (step === 1) {
-            stepLabel.textContent = 'Step 1 of 2';
-            title.textContent = 'Review Draft Before Submission';
-            subtitle.textContent = 'Validate the draft snapshot before sending it to the Committee Head workbench.';
-            nextButton.textContent = 'Next';
-            nextButton.disabled = false;
-        } else {
-            stepLabel.textContent = 'Step 2 of 2';
-            title.textContent = 'Authorization Confirmation';
-            subtitle.textContent = 'Capture the required authorization declaration before final submission.';
-            nextButton.textContent = 'Submit to Committee Head';
-            updateSubmitAuthorizationState();
-        }
+        previewStep.classList.add('is-active');
+        stepLabel.textContent = 'Step 1 of 1';
+        title.textContent = 'Review Draft Before Submission';
+        subtitle.textContent = 'Validate the draft snapshot before sending it to the Committee Head workbench.';
+        nextButton.textContent = 'Submit to Committee Head';
+        nextButton.disabled = false;
     }
 
     function populateSubmitPreview() {
@@ -5102,20 +5084,13 @@
         document.getElementById('submitPreviewParameterTypes').textContent = currentParameterTypePreview().length
             ? currentParameterTypePreview().join('\n')
             : 'No parameter type changes detected in this draft.';
-        document.getElementById('submitAuthorizationSubset').textContent = draftSubsetDisplay;
     }
 
     function resetSubmitReviewModal() {
         document.getElementById('submitReviewError').textContent = '';
         setSubmitReviewStatus('');
-        document.getElementById('submitAuthYes').checked = false;
-        document.getElementById('submitAuthNo').checked = false;
-        document.getElementById('submitAuthorizedByName').value = '';
-        document.getElementById('submitSubcommitteeHeadName').value = '';
-        document.getElementById('submitAuthNames').style.display = 'none';
-        document.getElementById('submitAuthNoMessage').style.display = 'none';
         document.getElementById('submitReviewNext').disabled = false;
-        document.getElementById('submitReviewNext').textContent = 'Next';
+        document.getElementById('submitReviewNext').textContent = 'Submit to Committee Head';
         setSubmitStep(1);
     }
 
@@ -5129,26 +5104,6 @@
         document.getElementById('submitReviewModal').classList.remove('show');
     }
 
-    function updateSubmitAuthorizationState() {
-        var authorized = document.getElementById('submitAuthYes').checked;
-        var unauthorized = document.getElementById('submitAuthNo').checked;
-        var namesWrapper = document.getElementById('submitAuthNames');
-        var noMessage = document.getElementById('submitAuthNoMessage');
-        var nextButton = document.getElementById('submitReviewNext');
-        var name = document.getElementById('submitAuthorizedByName').value.trim();
-        var head = document.getElementById('submitSubcommitteeHeadName').value.trim();
-
-        namesWrapper.style.display = authorized ? 'block' : 'none';
-        noMessage.style.display = unauthorized ? 'block' : 'none';
-
-        if (!authorized) {
-            nextButton.disabled = true;
-            return;
-        }
-
-        nextButton.disabled = !name || !head;
-    }
-
     function submitDraftForReview() {
         var nextButton = document.getElementById('submitReviewNext');
         var errorElement = document.getElementById('submitReviewError');
@@ -5158,9 +5113,7 @@
             return label !== 'Parameters';
         });
         var payload = {
-            authorization_confirmed: true,
-            authorized_by_name: document.getElementById('submitAuthorizedByName').value.trim(),
-            subcommittee_head_name: document.getElementById('submitSubcommitteeHeadName').value.trim()
+            authorization_confirmed: true
         };
 
         nextButton.disabled = true;
@@ -5180,7 +5133,15 @@
             setSubmitReviewStatus('No unsaved draft changes detected. Submitting to Committee Head...', '');
         }
 
-        saveDirtySectionsAndRefresh()
+        var savePromise = dirtyLabels.length
+            ? withTimeout(
+                saveDirtySectionsAndRefresh(),
+                25000,
+                'Timed out while saving draft changes before submission.'
+            )
+            : Promise.resolve();
+
+        savePromise
             .then(function() {
                 if (dirtyLabels.length) {
                     setSubmitReviewStatus(
@@ -5190,14 +5151,18 @@
                         'success'
                     );
                 }
-                return fetch('/csc/api/draft/' + draftId + '/submit', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': csrfToken
-                    },
-                    body: JSON.stringify(payload)
-                });
+                return withTimeout(
+                    fetch('/csc/api/draft/' + draftId + '/submit', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': csrfToken
+                        },
+                        body: JSON.stringify(payload)
+                    }),
+                    25000,
+                    'Timed out while submitting draft to Committee Head.'
+                );
             })
             .then(function(response) {
                 return response.json().then(function(data) {
@@ -5227,7 +5192,7 @@
                     setSubmitReviewStatus('Submission stopped because one or more draft sections could not be saved.', 'error');
                 }
                 nextButton.textContent = 'Submit to Committee Head';
-                updateSubmitAuthorizationState();
+                nextButton.disabled = false;
             });
     }
 
@@ -5235,22 +5200,18 @@
     bindIfPresent(byId('submitReviewClose'), 'click', closeSubmitReviewModal);
     bindIfPresent(byId('draftDossierClose'), 'click', closeDraftDossierModal);
     bindIfPresent(byId('draftDossierDismiss'), 'click', closeDraftDossierModal);
-    bindIfPresent(byId('submitReviewBack'), 'click', function() {
-        setSubmitStep(1);
-        document.getElementById('submitReviewError').textContent = '';
-    });
     bindIfPresent(byId('submitReviewNext'), 'click', function() {
-        if (submitStep === 1) {
-            setSubmitStep(2);
-            return;
-        }
-        submitDraftForReview();
+        closeSubmitReviewModal();
+        showConfirmModal(
+            'Submit to Committee Head',
+            'Are you sure you want to submit this draft to Committee Head? You will not be able to continue editing unless it is returned.',
+            function() {
+                document.getElementById('submitReviewModal').classList.add('show');
+                submitDraftForReview();
+            },
+            openSubmitReviewModal
+        );
     });
-
-    bindIfPresent(byId('submitAuthYes'), 'change', updateSubmitAuthorizationState);
-    bindIfPresent(byId('submitAuthNo'), 'change', updateSubmitAuthorizationState);
-    bindIfPresent(byId('submitAuthorizedByName'), 'input', updateSubmitAuthorizationState);
-    bindIfPresent(byId('submitSubcommitteeHeadName'), 'input', updateSubmitAuthorizationState);
 
     function setLeaveModalStatus(message, isError) {
         var status = document.getElementById('leavePageStatus');
