@@ -6215,7 +6215,9 @@ def admin_settings_update():
         config.directory_json = json.dumps(normalized, indent=2)
         db.session.commit()
         flash("Committee configuration saved.", "success")
-    except Exception:
+    except Exception as e:
+        logger.exception("Error saving committee configuration")
+        db.session.rollback()
         flash(f"Invalid JSON: {e}", "danger")
     
     return redirect(url_for("csc.admin_settings"))

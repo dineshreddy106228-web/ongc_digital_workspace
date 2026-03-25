@@ -641,6 +641,16 @@
         btn.classList.add('active');
     };
 
+    var tabs = document.querySelectorAll('.gs-tab');
+    if (tabs.length >= 2) {
+        tabs[0].addEventListener('click', function() {
+            window.switchTab('committees', this);
+        });
+        tabs[1].addEventListener('click', function() {
+            window.switchTab('upload', this);
+        });
+    }
+
     // ── Sidebar nav ──────────────────────────────────────────
     window.selectCommittee = function(slug, el) {
         document.querySelectorAll('.gs-sidebar-item').forEach(function(i){ i.classList.remove('active'); });
@@ -648,6 +658,12 @@
         el.classList.add('active');
         document.getElementById('panel-' + slug).style.display = '';
     };
+
+    document.querySelectorAll('.gs-sidebar-item[data-slug]').forEach(function(item) {
+        item.addEventListener('click', function() {
+            window.selectCommittee(item.dataset.slug, item);
+        });
+    });
 
     // ── Add member row ────────────────────────────────────────
     window.addMemberRow = function(containerId) {
@@ -785,6 +801,13 @@
         };
         document.getElementById('directory_json_field').value = JSON.stringify(result, null, 2);
     };
+
+    var committeeForm = document.getElementById('committeeForm');
+    if (committeeForm) {
+        committeeForm.addEventListener('submit', function() {
+            window.prepareJson();
+        });
+    }
 
     // ── Drag & drop file ──────────────────────────────────────
     var fileInput = document.getElementById('fileInput');
