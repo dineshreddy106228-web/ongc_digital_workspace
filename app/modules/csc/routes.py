@@ -4395,7 +4395,6 @@ def editor(draft_id: int):
             editor_mode != "committee_head"
             and draft.parent_draft_id is not None
             and revision is not None
-            and not draft.is_admin_draft
             and _can_submit_revision(revision)
         )
         submit_draft_help = None
@@ -4411,8 +4410,6 @@ def editor(draft_id: int):
                 submit_draft_help = "This draft has already been approved by Committee Head."
             elif revision is None:
                 submit_draft_help = "This draft is missing workflow metadata and cannot be submitted."
-            elif draft.is_admin_draft:
-                submit_draft_help = "Secretary staging drafts cannot be submitted from the Committee User editor."
             else:
                 submit_draft_help = "This draft is not open for submission."
         comparison_baseline = _build_editor_comparison_baseline(
