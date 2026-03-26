@@ -23,6 +23,7 @@ from app.models.inventory.inventory_upload import InventoryUpload            # n
 from app.models.inventory.inventory_record import InventoryRecord            # noqa: F401
 from app.models.inventory.inventory_consumption_seed import InventoryConsumptionSeed  # noqa: F401
 from app.models.inventory.inventory_procurement_seed import InventoryProcurementSeed  # noqa: F401
+from app.models.inventory.monthly_upload_batch import InventoryMonthlyUploadBatch  # noqa: F401
 from app.models.inventory.material_master import MaterialMaster              # noqa: F401
 from app.models.inventory.msds_file import MSDSFile                          # noqa: F401
 from app.models.csc.draft import CSCDraft                                    # noqa: F401

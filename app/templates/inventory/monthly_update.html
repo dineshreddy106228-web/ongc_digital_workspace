@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+{% block title %}Monthly Update — Inventory Intelligence{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+    <div class="inv-page">
+        <div class="inv-module-header">
+            <div>
+                <h1 class="inv-module-title"><i class="bi bi-calendar2-week"></i> Monthly Update</h1>
+                <p class="inv-module-subtitle">
+                    Upload the monthly `MB51`, `ME2M`, and `MC.9` files, then generate a DB-backed monthly inventory report pack with Excel detail and a PDF executive summary.
+                </p>
+            </div>
+            <div class="inv-header-actions">
+                <a href="{{ url_for('inventory.landing') }}" class="btn btn-sm btn-secondary">
+                    <i class="bi bi-arrow-left"></i> Back to Dashboard
+                </a>
+            </div>
+        </div>
+
+        <nav class="inv-subnav" aria-label="Inventory sub-navigation">
+            <a href="{{ url_for('inventory.materials_page') }}" class="inv-subnav-link">
+                <i class="bi bi-bar-chart-line"></i> Materials Intelligence
+            </a>
+            <a href="{{ url_for('inventory.forecast_page') }}" class="inv-subnav-link">
+                <i class="bi bi-graph-up-arrow"></i> Demand Forecast
+            </a>
+            <a href="{{ url_for('inventory.seed_files') }}" class="inv-subnav-link">
+                <i class="bi bi-database-gear"></i> Data Management
+            </a>
+            <a href="{{ url_for('inventory.monthly_update_page') }}" class="inv-subnav-link active">
+                <i class="bi bi-calendar2-week"></i> Monthly Update
+            </a>
+        </nav>
+
+        <div class="inv-upload-grid">
+            <section class="card">
+                <div class="card-body">
+                    <h2 class="inv-card-title">Monthly Batch Upload</h2>
+                    <p class="inv-card-subtitle">
+                        Choose the reporting month and upload the three monthly SAP extracts. Re-uploading the same month replaces the prior batch and regenerates both downloads.
+                    </p>
+                    <div class="inv-note">
+                        This submodule does not overwrite the annual seed workbooks used by Materials Intelligence. It keeps a separate monthly batch history for reporting only.
+                    </div>
+
+                    <form method="POST" action="{{ url_for('inventory.monthly_update_page') }}" enctype="multipart/form-data" class="inv-seed-form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <div class="inv-seed-input-grid">
+                            <div class="inv-seed-input-group">
+                                <label for="reportMonth" class="inv-filter-label">Reporting Month</label>
+                                <input id="reportMonth" name="report_month" type="month" class="form-control" value="{{ selected_month }}" required>
+                                <div class="inv-seed-input-meta">Example: `2026-03` for Mar 2026.</div>
+                            </div>
+
+                            <div class="inv-seed-input-group">
+                                <label for="mb51File" class="inv-filter-label">Monthly MB51 File</label>
+                                <input id="mb51File" name="mb51_file" type="file" class="form-control" accept=".xlsx,.xls,.csv" required>
+                                <div class="inv-seed-input-meta">Consumption export for the selected month.</div>
+                            </div>
+
+                            <div class="inv-seed-input-group">
+                                <label for="me2mFile" class="inv-filter-label">Monthly ME2M File</label>
+                                <input id="me2mFile" name="me2m_file" type="file" class="form-control" accept=".xlsx,.xls,.csv" required>
+                                <div class="inv-seed-input-meta">Procurement snapshot for the selected month.</div>
+                            </div>
+
+                            <div class="inv-seed-input-group">
+                                <label for="mc9File" class="inv-filter-label">Monthly MC.9 File</label>
+                                <input id="mc9File" name="mc9_file" type="file" class="form-control" accept=".xlsx,.xls,.csv" required>
+                                <div class="inv-seed-input-meta">Monthly stock and usage extract for the selected month.</div>
+                            </div>
+                        </div>
+
+                        <div class="inv-seed-actions">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-file-earmark-plus"></i> Generate Monthly Report Pack
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+            <section class="card">
+                <div class="card-body">
+                    <h2 class="inv-card-title">Latest Batch</h2>
+                    {% if latest_batch %}
+                    {% set latest_summary = latest_batch.summary or {} %}
+                    {% set latest_kpis = latest_summary.get('kpis', {}) %}
+                    <div class="inv-note">
+                        <strong>{{ latest_batch.report_label }}</strong> uploaded on
+                        {{ latest_batch.updated_at.strftime('%d %b %Y %H:%M') if latest_batch.updated_at else '—' }}.
+                    </div>
+                    <div class="inv-kpi-row" style="margin-top:1rem;">
+                        <div class="inv-kpi-card">
+                            <div class="inv-kpi-icon inv-kpi-blue"><i class="bi bi-boxes"></i></div>
+                            <div>
+                                <div class="inv-kpi-value">{{ latest_kpis.get('materials', 0) }}</div>
+                                <div class="inv-kpi-label">Materials</div>
+                            </div>
+                        </div>
+                        <div class="inv-kpi-card">
+                            <div class="inv-kpi-icon inv-kpi-green"><i class="bi bi-building"></i></div>
+                            <div>
+                                <div class="inv-kpi-value">{{ latest_kpis.get('reporting_plants', 0) }}</div>
+                                <div class="inv-kpi-label">Reporting Plants</div>
+                            </div>
+                        </div>
+                        <div class="inv-kpi-card">
+                            <div class="inv-kpi-icon inv-kpi-amber"><i class="bi bi-currency-rupee"></i></div>
+                            <div>
+                                <div class="inv-kpi-value inv-kpi-value-sm">{{ '{:,.0f}'.format(latest_kpis.get('total_procurement_value', 0) or 0) }}</div>
+                                <div class="inv-kpi-label">Procurement Value</div>
+                            </div>
+                        </div>
+                        <div class="inv-kpi-card">
+                            <div class="inv-kpi-icon inv-kpi-purple"><i class="bi bi-box-seam"></i></div>
+                            <div>
+                                <div class="inv-kpi-value inv-kpi-value-sm">{{ '{:,.0f}'.format(latest_kpis.get('total_closing_stock_value', 0) or 0) }}</div>
+                                <div class="inv-kpi-label">Closing Stock Value</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="inv-seed-actions" style="margin-top:1rem;">
+                        <a href="{{ url_for('inventory.download_monthly_update_excel', batch_id=latest_batch.id) }}" class="btn btn-sm btn-primary">
+                            <i class="bi bi-file-earmark-excel"></i> Download Excel
+                        </a>
+                        <a href="{{ url_for('inventory.download_monthly_update_pdf', batch_id=latest_batch.id) }}" class="btn btn-sm btn-secondary">
+                            <i class="bi bi-file-earmark-pdf"></i> Download PDF
+                        </a>
+                    </div>
+                    {% else %}
+                    <div class="inv-empty-state" style="display:block;">
+                        <span class="inv-empty-icon"><i class="bi bi-calendar2-week"></i></span>
+                        <p>No monthly batches uploaded yet.</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </section>
+
+            <section class="card">
+                <div class="card-body">
+                    <h2 class="inv-card-title">Monthly Batch History</h2>
+                    <p class="inv-card-subtitle">Latest 18 reporting months stored in the database.</p>
+                    {% if batches %}
+                    <div class="inv-audit-table-wrap">
+                        <table class="inv-expand-table inv-audit-table">
+                            <thead>
+                                <tr>
+                                    <th>Reporting Month</th>
+                                    <th>MB51</th>
+                                    <th>ME2M</th>
+                                    <th>MC.9</th>
+                                    <th>Updated</th>
+                                    <th>Downloads</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for batch in batches %}
+                                <tr>
+                                    <td>
+                                        <strong>{{ batch.report_label }}</strong>
+                                        <div class="inv-seed-input-meta">{{ batch.summary.get('observations', ['']) | first }}</div>
+                                    </td>
+                                    <td>{{ batch.mb51_row_count }} rows</td>
+                                    <td>{{ batch.me2m_row_count }} rows</td>
+                                    <td>{{ batch.mc9_row_count }} rows</td>
+                                    <td>{{ batch.updated_at.strftime('%d %b %Y %H:%M') if batch.updated_at else '—' }}</td>
+                                    <td>
+                                        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                                            <a href="{{ url_for('inventory.download_monthly_update_excel', batch_id=batch.id) }}" class="btn btn-sm btn-primary">Excel</a>
+                                            <a href="{{ url_for('inventory.download_monthly_update_pdf', batch_id=batch.id) }}" class="btn btn-sm btn-secondary">PDF</a>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="inv-empty-state" style="display:block;">
+                        <span class="inv-empty-icon"><i class="bi bi-clock-history"></i></span>
+                        <p>Monthly upload history will appear here after the first batch is generated.</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </section>
+        </div>
+    </div>
+</div>
+{% endblock %}

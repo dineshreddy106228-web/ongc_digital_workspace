@@ -131,6 +131,27 @@
             </div>
         </a>
 
+        <a href="{{ url_for('inventory.monthly_update_page') }}" class="inv-landing-card inv-landing-card-green">
+            <div class="inv-landing-icon">
+                <i class="bi bi-calendar2-week"></i>
+            </div>
+            <div class="inv-landing-card-body">
+                <h2 class="inv-landing-card-title">Monthly Update</h2>
+                <p class="inv-landing-card-desc">
+                    Upload only the latest monthly MB51, ME2M, and MC.9 extracts to generate a month-specific inventory report pack without touching the annual seed workbooks.
+                </p>
+                <ul class="inv-landing-features">
+                    <li><i class="bi bi-check2"></i> One batch per reporting month</li>
+                    <li><i class="bi bi-check2"></i> Excel detail workbook</li>
+                    <li><i class="bi bi-check2"></i> Executive PDF summary</li>
+                    <li><i class="bi bi-check2"></i> Replace-and-regenerate on reupload</li>
+                </ul>
+            </div>
+            <div class="inv-landing-card-footer">
+                <span class="inv-landing-enter">Open Monthly Update <i class="bi bi-arrow-right"></i></span>
+            </div>
+        </a>
+
         {# Master Data — superusers only #}
         {% if current_user.is_super_user() %}
         <a href="{{ url_for('inventory.master_data_page') }}" class="inv-landing-card inv-landing-card-purple">

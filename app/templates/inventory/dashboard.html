@@ -23,6 +23,9 @@
                 <i class="bi bi-file-earmark-pdf"></i> Upload MSDS
             </a>
             {% endif %}
+            <a href="{{ url_for('inventory.monthly_update_page') }}" class="btn btn-sm btn-secondary">
+                <i class="bi bi-calendar2-week"></i> Monthly Update
+            </a>
             <a href="{{ url_for('inventory.seed_files') }}" class="btn btn-sm btn-secondary">
                 <i class="bi bi-upload"></i> Update Seed Files
             </a>
@@ -39,6 +42,9 @@
         </a>
         <a href="{{ url_for('inventory.seed_files') }}" class="inv-subnav-link">
             <i class="bi bi-database-gear"></i> Data Management
+        </a>
+        <a href="{{ url_for('inventory.monthly_update_page') }}" class="inv-subnav-link">
+            <i class="bi bi-calendar2-week"></i> Monthly Update
         </a>
         {% if current_user.is_authenticated and current_user.is_super_user() %}
         <a href="{{ url_for('inventory.msds_page') }}" class="inv-subnav-link">

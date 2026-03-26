@@ -16,89 +16,108 @@ from app.models.inventory.inventory_procurement_seed import InventoryProcurement
 logger = logging.getLogger(__name__)
 
 
-def _scalar(value):
-    if pd.isna(value):
-        return None
-    if isinstance(value, pd.Timestamp):
-        return value.to_pydatetime()
-    if hasattr(value, "item"):
-        try:
-            return value.item()
-        except Exception:
-            return value
-    return value
+_CONSUMPTION_COLUMNS = [
+    "material_code",
+    "material_desc",
+    "plant",
+    "reporting_plant",
+    "storage_location",
+    "movement_type",
+    "posting_date",
+    "year",
+    "month",
+    "month_raw",
+    "financial_year",
+    "usage_qty",
+    "usage_value",
+    "uom",
+    "currency",
+    "po_number",
+    "material_document",
+    "material_document_item",
+]
+
+_PROCUREMENT_COLUMNS = [
+    "material_code",
+    "material_desc",
+    "plant",
+    "reporting_plant",
+    "vendor",
+    "po_number",
+    "item",
+    "doc_date",
+    "year",
+    "month",
+    "financial_year",
+    "order_qty",
+    "still_to_be_delivered_qty",
+    "procured_qty",
+    "order_unit",
+    "unit_price",
+    "price_unit",
+    "effective_value",
+    "currency",
+    "release_indicator",
+]
+
+
+def _prepare_datetime_series(series: pd.Series) -> pd.Series:
+    if pd.api.types.is_datetime64_any_dtype(series):
+        return pd.Series(series.dt.to_pydatetime(), index=series.index, dtype=object)
+    return series.astype(object)
+
+
+def _records_from_frame(
+    frame: pd.DataFrame,
+    *,
+    ordered_columns: list[str],
+    import_batch: str,
+    source_filename: str | None,
+    user_id: int | None,
+    imported_at: datetime,
+) -> list[dict]:
+    if frame.empty:
+        return []
+
+    prepared = frame.reindex(columns=ordered_columns).copy()
+    for column in ("posting_date", "doc_date"):
+        if column in prepared.columns:
+            prepared[column] = _prepare_datetime_series(prepared[column])
+
+    prepared = prepared.astype(object)
+    prepared = prepared.where(pd.notna(prepared), None)
+    prepared.insert(0, "import_batch", import_batch)
+    prepared.insert(1, "source_filename", source_filename)
+    prepared.insert(2, "imported_at", imported_at)
+    prepared.insert(3, "imported_by", user_id)
+    return prepared.to_dict("records")
 
 
 def _consumption_rows(frame: pd.DataFrame, import_batch: str, source_filename: str | None, user_id: int | None):
-    imported_at = datetime.now(timezone.utc)
-    records = []
-    for row in frame.itertuples(index=False):
-        record = {
-            "import_batch": import_batch,
-            "source_filename": source_filename,
-            "imported_at": imported_at,
-            "imported_by": user_id,
-            "material_code": _scalar(getattr(row, "material_code", None)),
-            "material_desc": _scalar(getattr(row, "material_desc", None)),
-            "plant": _scalar(getattr(row, "plant", None)),
-            "reporting_plant": _scalar(getattr(row, "reporting_plant", None)),
-            "storage_location": _scalar(getattr(row, "storage_location", None)),
-            "movement_type": _scalar(getattr(row, "movement_type", None)),
-            "posting_date": _scalar(getattr(row, "posting_date", None)),
-            "year": _scalar(getattr(row, "year", None)),
-            "month": _scalar(getattr(row, "month", None)),
-            "month_raw": _scalar(getattr(row, "month_raw", None)),
-            "financial_year": _scalar(getattr(row, "financial_year", None)),
-            "usage_qty": _scalar(getattr(row, "usage_qty", None)),
-            "usage_value": _scalar(getattr(row, "usage_value", None)),
-            "uom": _scalar(getattr(row, "uom", None)),
-            "currency": _scalar(getattr(row, "currency", None)),
-            "po_number": _scalar(getattr(row, "po_number", None)),
-            "material_document": _scalar(getattr(row, "material_document", None)),
-            "material_document_item": _scalar(getattr(row, "material_document_item", None)),
-        }
-        records.append(record)
-    return records
+    return _records_from_frame(
+        frame,
+        ordered_columns=_CONSUMPTION_COLUMNS,
+        import_batch=import_batch,
+        source_filename=source_filename,
+        user_id=user_id,
+        imported_at=datetime.now(timezone.utc),
+    )
 
 
 def _procurement_rows(frame: pd.DataFrame, import_batch: str, source_filename: str | None, user_id: int | None):
-    imported_at = datetime.now(timezone.utc)
-    records = []
-    for row in frame.itertuples(index=False):
-        doc_date = _scalar(getattr(row, "doc_date", None))
-        year = None
-        month = None
-        if isinstance(doc_date, datetime):
-            year = doc_date.year
-            month = doc_date.month
-        record = {
-            "import_batch": import_batch,
-            "source_filename": source_filename,
-            "imported_at": imported_at,
-            "imported_by": user_id,
-            "material_code": _scalar(getattr(row, "material_code", None)),
-            "material_desc": _scalar(getattr(row, "material_desc", None)),
-            "plant": _scalar(getattr(row, "plant", None)),
-            "reporting_plant": _scalar(getattr(row, "reporting_plant", None)),
-            "vendor": _scalar(getattr(row, "vendor", None)),
-            "po_number": _scalar(getattr(row, "po_number", None)),
-            "item": _scalar(getattr(row, "item", None)),
-            "doc_date": doc_date,
-            "year": year,
-            "month": month,
-            "financial_year": _scalar(getattr(row, "financial_year", None)),
-            "order_qty": _scalar(getattr(row, "order_qty", None)),
-            "still_to_be_delivered_qty": _scalar(getattr(row, "still_to_be_delivered_qty", None)),
-            "procured_qty": _scalar(getattr(row, "procured_qty", None)),
-            "order_unit": _scalar(getattr(row, "order_unit", None)),
-            "unit_price": _scalar(getattr(row, "unit_price", None)),
-            "price_unit": _scalar(getattr(row, "price_unit", None)),
-            "effective_value": _scalar(getattr(row, "effective_value", None)),
-            "currency": _scalar(getattr(row, "currency", None)),
-            "release_indicator": _scalar(getattr(row, "release_indicator", None)),
-        }
-        records.append(record)
-    return records
+    prepared = frame.copy()
+    if "doc_date" in prepared.columns and pd.api.types.is_datetime64_any_dtype(prepared["doc_date"]):
+        prepared["year"] = prepared["doc_date"].dt.year.astype("Int64")
+        prepared["month"] = prepared["doc_date"].dt.month.astype("Int64")
+
+    return _records_from_frame(
+        prepared,
+        ordered_columns=_PROCUREMENT_COLUMNS,
+        import_batch=import_batch,
+        source_filename=source_filename,
+        user_id=user_id,
+        imported_at=datetime.now(timezone.utc),
+    )
 
 
 def _bulk_insert(model, rows: list[dict], chunk_size: int = 2000) -> None:

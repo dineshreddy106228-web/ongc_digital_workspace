@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
+from io import BytesIO
 
 from flask import flash, jsonify, redirect, render_template, request, send_file, session, url_for
 from flask_login import current_user, login_required
@@ -650,6 +651,140 @@ def export_financial_year_summary_excel():
         as_attachment=True,
         download_name=filename,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@inventory_bp.route("/monthly-update", methods=["GET", "POST"])
+@login_required
+@module_access_required("inventory")
+def monthly_update_page():
+    from app.core.services.inventory_monthly_report import (
+        build_monthly_inventory_report_package,
+        get_monthly_inventory_upload_batch,
+        list_monthly_inventory_upload_batches,
+        upsert_monthly_inventory_upload_batch,
+    )
+    from app.extensions import db
+
+    selected_month = (request.form.get("report_month") or request.args.get("report_month") or "").strip()
+
+    if request.method == "POST":
+        mb51_file = request.files.get("mb51_file")
+        me2m_file = request.files.get("me2m_file")
+        mc9_file = request.files.get("mc9_file")
+
+        if not selected_month:
+            flash("Select the reporting month before uploading the monthly files.", "warning")
+            return redirect(url_for("inventory.monthly_update_page"))
+        if len(selected_month) != 7 or "-" not in selected_month:
+            flash("Use the reporting month format YYYY-MM.", "warning")
+            return redirect(url_for("inventory.monthly_update_page"))
+        if not mb51_file or not mb51_file.filename:
+            flash("Upload the monthly MB51 file before generating the report pack.", "warning")
+            return redirect(url_for("inventory.monthly_update_page", report_month=selected_month))
+        if not me2m_file or not me2m_file.filename:
+            flash("Upload the monthly ME2M file before generating the report pack.", "warning")
+            return redirect(url_for("inventory.monthly_update_page", report_month=selected_month))
+        if not mc9_file or not mc9_file.filename:
+            flash("Upload the monthly MC.9 file before generating the report pack.", "warning")
+            return redirect(url_for("inventory.monthly_update_page", report_month=selected_month))
+
+        try:
+            report_year = int(selected_month[:4])
+            report_month = int(selected_month[5:7])
+        except ValueError:
+            flash("Use the reporting month format YYYY-MM.", "warning")
+            return redirect(url_for("inventory.monthly_update_page"))
+
+        try:
+            package = build_monthly_inventory_report_package(
+                report_year=report_year,
+                report_month=report_month,
+                mb51_bytes=mb51_file.read(),
+                mb51_filename=mb51_file.filename,
+                me2m_bytes=me2m_file.read(),
+                me2m_filename=me2m_file.filename,
+                mc9_bytes=mc9_file.read(),
+                mc9_filename=mc9_file.filename,
+            )
+            batch, action = upsert_monthly_inventory_upload_batch(
+                package=package,
+                uploaded_by=getattr(current_user, "id", None),
+            )
+            db.session.commit()
+            flash(
+                (
+                    f"Monthly report pack for {package.report_label} generated."
+                    if action == "created"
+                    else f"Monthly report pack for {package.report_label} regenerated and replaced."
+                ),
+                "success",
+            )
+            return redirect(url_for("inventory.monthly_update_page", batch=batch.id, report_month=selected_month))
+        except ValueError as exc:
+            db.session.rollback()
+            flash(str(exc), "danger")
+            return redirect(url_for("inventory.monthly_update_page", report_month=selected_month))
+        except Exception:
+            db.session.rollback()
+            logger.exception("Failed to build monthly inventory report pack")
+            flash("Could not generate the monthly report pack. Check the uploaded files and try again.", "danger")
+            return redirect(url_for("inventory.monthly_update_page", report_month=selected_month))
+
+    batches = list_monthly_inventory_upload_batches()
+    batch_id = request.args.get("batch", type=int)
+    latest_batch = batches[0] if batches else None
+    if batch_id:
+        for batch in batches:
+            if batch["id"] == batch_id:
+                latest_batch = batch
+                break
+
+    return render_template(
+        "inventory/monthly_update.html",
+        batches=batches,
+        latest_batch=latest_batch,
+        selected_month=selected_month,
+    )
+
+
+@inventory_bp.route("/monthly-update/<int:batch_id>/excel")
+@login_required
+@module_access_required("inventory")
+def download_monthly_update_excel(batch_id: int):
+    from app.core.services.inventory_monthly_report import get_monthly_inventory_upload_batch
+
+    batch = get_monthly_inventory_upload_batch(batch_id, include_excel=True)
+    if batch is None:
+        flash("The requested monthly Excel report no longer exists.", "warning")
+        return redirect(url_for("inventory.monthly_update_page"))
+
+    return send_file(
+        BytesIO(batch.excel_data),
+        mimetype=batch.excel_content_type,
+        as_attachment=True,
+        download_name=batch.excel_filename,
+        max_age=0,
+    )
+
+
+@inventory_bp.route("/monthly-update/<int:batch_id>/pdf")
+@login_required
+@module_access_required("inventory")
+def download_monthly_update_pdf(batch_id: int):
+    from app.core.services.inventory_monthly_report import get_monthly_inventory_upload_batch
+
+    batch = get_monthly_inventory_upload_batch(batch_id, include_pdf=True)
+    if batch is None:
+        flash("The requested monthly PDF summary no longer exists.", "warning")
+        return redirect(url_for("inventory.monthly_update_page"))
+
+    return send_file(
+        BytesIO(batch.pdf_data),
+        mimetype=batch.pdf_content_type,
+        as_attachment=True,
+        download_name=batch.pdf_filename,
+        max_age=0,
     )
 
 
