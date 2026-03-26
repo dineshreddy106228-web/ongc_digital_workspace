@@ -467,6 +467,9 @@
         </div>
         <div class="inv-header-actions">
             <span class="inv-badge inv-badge-info" id="cscTotalBadge">Loading…</span>
+            <a href="{{ url_for('csc.export_material_master_workbook') }}" class="btn btn-sm btn-secondary">
+                <i class="bi bi-file-earmark-excel"></i> Export Master Data
+            </a>
             <a href="{{ url_for('csc.msds_page') }}" class="btn btn-sm btn-secondary">
                 <i class="bi bi-file-earmark-pdf"></i> MSDS Center
             </a>

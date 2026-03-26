@@ -52,6 +52,8 @@ from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError, ProgrammingError
 
@@ -3296,6 +3298,127 @@ def _get_export_subset_options() -> list[dict[str, object]]:
         )
     return options
 
+
+def _material_master_export_headers() -> list[tuple[str, str]]:
+    return [
+        ("material_code", "Material Code"),
+        *MASTER_DATA_FIELDS,
+        *[(f"extra__{field_name}", label) for field_name, label in MASTER_EXTRA_FIELDS],
+    ]
+
+
+def _material_master_export_value(values: dict[str, object], field_name: str) -> str:
+    if field_name == "material_code":
+        return str(values.get("material_code") or values.get("material") or "").strip()
+    if field_name.startswith("extra__"):
+        extra_key = field_name.split("__", 1)[1]
+        extra_data = values.get("extra_data") or {}
+        if isinstance(extra_data, dict):
+            return str(extra_data.get(extra_key) or values.get(field_name) or "").strip()
+        return str(values.get(field_name) or "").strip()
+    return str(values.get(field_name) or "").strip()
+
+
+def _append_material_master_sheet(sheet, headers: list[str], rows: list[list[object]]) -> None:
+    sheet.append(headers)
+    header_fill = PatternFill("solid", fgColor="1F4E78")
+    header_font = Font(color="FFFFFF", bold=True)
+    for cell in sheet[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    for row in rows:
+        sheet.append(row)
+    sheet.freeze_panes = "A2"
+    sheet.auto_filter.ref = f"A1:{get_column_letter(sheet.max_column)}{sheet.max_row}"
+    for column_cells in sheet.columns:
+        max_length = 0
+        letter = column_cells[0].column_letter
+        for cell in column_cells:
+            value = "" if cell.value is None else str(cell.value)
+            max_length = max(max_length, len(value))
+        sheet.column_dimensions[letter].width = min(max_length + 2, 36)
+
+
+def _build_material_master_export_workbook(
+    *,
+    published_rows: list[dict[str, object]],
+    submitted_rows: list[dict[str, object]],
+    committee_user_rows: list[dict[str, object]],
+) -> io.BytesIO:
+    workbook = Workbook()
+    published_sheet = workbook.active
+    published_sheet.title = "Published"
+
+    value_headers = _material_master_export_headers()
+    published_headers = ["Updated At", "Updated By"] + [label for _, label in value_headers]
+    published_data_rows = [
+        [
+            str(row.get("updated_at") or "").strip(),
+            str(row.get("updated_by") or "").strip(),
+            *[_material_master_export_value(row, field_name) for field_name, _ in value_headers],
+        ]
+        for row in published_rows
+    ]
+    _append_material_master_sheet(published_sheet, published_headers, published_data_rows)
+
+    submitted_sheet = workbook.create_sheet("Submitted Drafts")
+    submitted_headers = [
+        "Published Spec Number",
+        "Submitted Draft Spec Number",
+        "Chemical Name",
+        "Subset",
+        "Revision Status",
+        "Submitted At",
+        "Submitted By",
+        *[label for _, label in value_headers],
+    ]
+    submitted_data_rows = [
+        [
+            str(row.get("parent_spec_number") or "").strip(),
+            str(row.get("draft_spec_number") or "").strip(),
+            str(row.get("chemical_name") or "").strip(),
+            str(row.get("subset") or "").strip(),
+            str(row.get("revision_status") or "").strip(),
+            str(row.get("submitted_at") or "").strip(),
+            str(row.get("submitted_by") or "").strip(),
+            *[_material_master_export_value(row, field_name) for field_name, _ in value_headers],
+        ]
+        for row in submitted_rows
+    ]
+    _append_material_master_sheet(submitted_sheet, submitted_headers, submitted_data_rows)
+
+    committee_user_sheet = workbook.create_sheet("Committee User Drafts")
+    committee_user_headers = [
+        "Published Spec Number",
+        "Draft Spec Number",
+        "Chemical Name",
+        "Subset",
+        "Revision Status",
+        "Last Updated At",
+        "Last Updated By",
+        *[label for _, label in value_headers],
+    ]
+    committee_user_data_rows = [
+        [
+            str(row.get("parent_spec_number") or "").strip(),
+            str(row.get("draft_spec_number") or "").strip(),
+            str(row.get("chemical_name") or "").strip(),
+            str(row.get("subset") or "").strip(),
+            str(row.get("revision_status") or "").strip(),
+            str(row.get("updated_at") or "").strip(),
+            str(row.get("updated_by") or "").strip(),
+            *[_material_master_export_value(row, field_name) for field_name, _ in value_headers],
+        ]
+        for row in committee_user_rows
+    ]
+    _append_material_master_sheet(committee_user_sheet, committee_user_headers, committee_user_data_rows)
+
+    stream = io.BytesIO()
+    workbook.save(stream)
+    stream.seek(0)
+    return stream
+
 def _serialize_draft_for_export(draft: CSCDraft) -> dict[str, object]:
     payload = draft.to_dict()
     payload["version_display"] = f"v{format_spec_version(draft.spec_version)}"
@@ -4000,6 +4123,90 @@ def api_overview():
     except Exception:
         logger.exception("Error fetching overview")
         return jsonify({"error": "An internal error occurred. Please try again."}), 500
+
+
+@csc_bp.route("/export/material-master.xlsx")
+@login_required
+@module_access_required("csc")
+def export_material_master_workbook():
+    """Download current published master data and submitted-draft master values."""
+    try:
+        published_rows = get_all_master_data()
+
+        submitted_revisions = (
+            CSCRevision.query
+            .filter(CSCRevision.status.in_([WORKFLOW_DRAFTING_SUBMITTED, WORKFLOW_DRAFTING_HEAD_APPROVED]))
+            .order_by(CSCRevision.submitted_at.desc(), CSCRevision.updated_at.desc())
+            .all()
+        )
+        committee_user_revisions = (
+            CSCRevision.query
+            .filter(CSCRevision.status.in_([WORKFLOW_DRAFTING_OPEN, WORKFLOW_DRAFTING_RETURNED]))
+            .order_by(CSCRevision.updated_at.desc(), CSCRevision.created_at.desc())
+            .all()
+        )
+
+        submitted_rows: list[dict[str, object]] = []
+        for revision in submitted_revisions:
+            draft = revision.child_draft
+            if draft is None:
+                continue
+            subset_code, _, _ = parse_spec_number(
+                (revision.parent_draft.spec_number if revision.parent_draft is not None else draft.spec_number) or ""
+            )
+            submitted_rows.append(
+                {
+                    **get_master_form_values(draft),
+                    "parent_spec_number": revision.parent_draft.spec_number if revision.parent_draft is not None else "",
+                    "draft_spec_number": draft.spec_number or "",
+                    "chemical_name": draft.chemical_name or "",
+                    "subset": SPEC_SUBSET_LABELS.get(subset_code, subset_code),
+                    "revision_status": "Submitted" if revision.status == WORKFLOW_DRAFTING_SUBMITTED else "Head Approved",
+                    "submitted_at": revision.submitted_at.isoformat(sep=" ", timespec="minutes") if revision.submitted_at else "",
+                    "submitted_by": revision.submitted_by or "",
+                }
+            )
+
+        committee_user_rows: list[dict[str, object]] = []
+        for revision in committee_user_revisions:
+            draft = revision.child_draft
+            if draft is None:
+                continue
+            subset_code, _, _ = parse_spec_number(
+                (revision.parent_draft.spec_number if revision.parent_draft is not None else draft.spec_number) or ""
+            )
+            updated_by = ""
+            if getattr(draft, "creator", None) is not None:
+                updated_by = draft.creator.username or draft.creator.full_name or ""
+            committee_user_rows.append(
+                {
+                    **get_master_form_values(draft),
+                    "parent_spec_number": revision.parent_draft.spec_number if revision.parent_draft is not None else "",
+                    "draft_spec_number": draft.spec_number or "",
+                    "chemical_name": draft.chemical_name or "",
+                    "subset": SPEC_SUBSET_LABELS.get(subset_code, subset_code),
+                    "revision_status": "Open" if revision.status == WORKFLOW_DRAFTING_OPEN else "Returned",
+                    "updated_at": revision.updated_at.isoformat(sep=" ", timespec="minutes") if revision.updated_at else "",
+                    "updated_by": updated_by,
+                }
+            )
+
+        stream = _build_material_master_export_workbook(
+            published_rows=published_rows,
+            submitted_rows=submitted_rows,
+            committee_user_rows=committee_user_rows,
+        )
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M")
+        return send_file(
+            stream,
+            as_attachment=True,
+            download_name=f"material_master_export_{stamp}.xlsx",
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    except Exception:
+        logger.exception("Error exporting material master workbook")
+        flash("Could not export the material master workbook.", "danger")
+        return redirect(url_for("csc.index"))
 
 
 # ──────────────────────────────────────────────────────────────────────────────
