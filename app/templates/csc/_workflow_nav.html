@@ -155,15 +155,6 @@
       </span>
     </a>
 
-    {% if csc_can_upload_new_specs %}
-    <a href="{{ url_for('csc.ingest') }}" class="csc-shell-link {{ 'is-active' if active == 'upload' }}">
-      <span class="csc-shell-link-icon"><i class="bi bi-cloud-upload"></i></span>
-      <span class="csc-shell-link-meta">
-        <span class="csc-shell-link-title">New Spec Upload</span>
-        <span class="csc-shell-link-stage">Draft</span>
-      </span>
-    </a>
-    {% endif %}
     {% endif %}
 
     {% if csc_can_access_committee_user_workbench %}
@@ -185,15 +176,6 @@
       </span>
     </a>
 
-    {% if csc_can_upload_new_specs %}
-    <a href="{{ url_for('csc.ingest') }}" class="csc-shell-link {{ 'is-active' if active == 'upload' }}">
-      <span class="csc-shell-link-icon"><i class="bi bi-cloud-upload"></i></span>
-      <span class="csc-shell-link-meta">
-        <span class="csc-shell-link-title">New Spec Upload</span>
-        <span class="csc-shell-link-stage">Draft</span>
-      </span>
-    </a>
-    {% endif %}
     {% endif %}
 
     {% if csc_is_material_master_admin %}

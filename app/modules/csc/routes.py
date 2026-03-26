@@ -796,6 +796,12 @@ def _require_committee_user_upload_scope() -> None:
         abort(403)
 
 
+def _require_secretary_upload_scope() -> None:
+    """Abort when the current user is not allowed to create new specification uploads."""
+    if not (_current_user_is_material_master_admin() or current_user.is_super_user()):
+        abort(403)
+
+
 def _workflow_subset_code_for_draft(
     draft: CSCDraft | None,
     revision: CSCRevision | None = None,
@@ -842,6 +848,8 @@ def _draft_in_current_user_committee_scope(
 
 def _ensure_current_user_can_access_subset(subset_code: str | None) -> None:
     """Raise PermissionError when a committee-scoped user targets an uncovered subset."""
+    if _current_user_is_material_master_admin() or current_user.is_super_user():
+        return
     allowed_subsets = set(_get_effective_committee_user_subset_codes())
     if current_user.is_super_user() and not allowed_subsets:
         return
@@ -4275,8 +4283,8 @@ def workspace():
 @login_required
 @module_access_required("csc")
 def ingest():
-    """Committee-facing ingest page for brand-new specifications."""
-    _require_committee_user_upload_scope()
+    """Secretary-facing ingest page for brand-new specifications."""
+    _require_secretary_upload_scope()
     return render_template("csc/ingest.html", staged_spec=None)
 
 
@@ -4284,8 +4292,8 @@ def ingest():
 @login_required
 @module_access_required("csc")
 def ingest_pdf():
-    """Extract a CSC Format A PDF and stage it for committee review."""
-    _require_committee_user_upload_scope()
+    """Extract a CSC Format A PDF and stage it for secretary review."""
+    _require_secretary_upload_scope()
     try:
         file = request.files.get("pdf_file")
         if file is None or file.filename == "":
@@ -4317,8 +4325,8 @@ def ingest_pdf():
 @login_required
 @module_access_required("csc")
 def ingest_docx():
-    """Extract a single CSC Format A DOCX and stage it for committee review."""
-    _require_committee_user_upload_scope()
+    """Extract a single CSC Format A DOCX and stage it for secretary review."""
+    _require_secretary_upload_scope()
     try:
         file = request.files.get("docx_file")
         if file is None or file.filename == "":
@@ -4353,7 +4361,7 @@ def ingest_docx():
 @module_access_required("csc")
 def create_ingested_draft():
     """Create the workflow draft from the reviewed extraction payload."""
-    _require_committee_user_upload_scope()
+    _require_secretary_upload_scope()
     try:
         source_label = (request.form.get("source_label") or "Upload").strip()
         spec = _spec_document_from_ingest_form()

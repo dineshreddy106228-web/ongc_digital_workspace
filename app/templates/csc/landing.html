@@ -473,11 +473,6 @@
             <a href="{{ url_for('csc.msds_page') }}" class="btn btn-sm btn-secondary">
                 <i class="bi bi-file-earmark-pdf"></i> MSDS Center
             </a>
-            {% if csc_can_upload_new_specs %}
-            <a href="{{ url_for('csc.ingest') }}" class="btn btn-sm btn-primary">
-                <i class="bi bi-cloud-upload"></i> New Specification Upload
-            </a>
-            {% endif %}
         </div>
     </div>
 
@@ -575,24 +570,6 @@
                 <span class="inv-landing-enter">Open Published Specs <i class="bi bi-arrow-right"></i></span>
             </div>
         </a>
-
-        {% if csc_can_upload_new_specs %}
-        <a href="{{ url_for('csc.ingest') }}" class="inv-landing-card inv-landing-card-blue">
-            <div class="inv-landing-icon"><i class="bi bi-cloud-upload"></i></div>
-            <div class="inv-landing-card-body">
-                <h2 class="inv-landing-card-title">New Specification Upload</h2>
-                <p class="inv-landing-card-desc">Ingest a CSC Format A PDF or DOCX and open the same workflow as a new specification draft.</p>
-                <ul class="inv-landing-features">
-                    <li><i class="bi bi-check2"></i> Committee-user upload flow</li>
-                    <li><i class="bi bi-check2"></i> Duplicate serial blocking</li>
-                    <li><i class="bi bi-check2"></i> Same review and approval workflow</li>
-                </ul>
-            </div>
-            <div class="inv-landing-card-footer">
-                <span class="inv-landing-enter">Open Upload <i class="bi bi-arrow-right"></i></span>
-            </div>
-        </a>
-        {% endif %}
 
         {% if can_access_review_workbench %}
         <a href="{{ url_for('csc.review_workbench') }}" class="inv-landing-card inv-landing-card-green">

@@ -14,6 +14,11 @@
             <h1 class="inv-module-title"><i class="bi bi-gear"></i> Secretary Workspace</h1>
             <p class="inv-module-subtitle">Generate revision drafts, govern approvals, and publish committee-approved revisions</p>
         </div>
+        <div class="inv-header-actions">
+            <a href="{{ url_for('csc.ingest') }}" class="btn btn-sm btn-primary">
+                <i class="bi bi-cloud-upload"></i> New Specification Upload
+            </a>
+        </div>
     </div>
 
     {% include "csc/_workflow_nav.html" %}
@@ -102,6 +107,17 @@
             </div>
             <div class="inv-landing-card-footer">
                 <span class="inv-landing-enter">Open Export <i class="bi bi-arrow-right"></i></span>
+            </div>
+        </a>
+
+        <a href="{{ url_for('csc.ingest') }}" class="inv-landing-card inv-landing-card-blue">
+            <div class="inv-landing-icon"><i class="bi bi-cloud-upload"></i></div>
+            <div class="inv-landing-card-body">
+                <h2 class="inv-landing-card-title">New Specification Upload</h2>
+                <p class="inv-landing-card-desc">Ingest a CSC Format A PDF or DOCX and open a brand-new specification draft directly from Secretary Workspace.</p>
+            </div>
+            <div class="inv-landing-card-footer">
+                <span class="inv-landing-enter">Open Upload <i class="bi bi-arrow-right"></i></span>
             </div>
         </a>
 
