@@ -939,114 +939,405 @@ def _build_excel_report(
     return buffer.getvalue()
 
 
-def _escape_pdf_text(text: str) -> str:
-    return text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+# ── Enterprise Chairman-Level PDF Report (ReportLab) ─────────────────────────
+import os as _os
+
+from reportlab.lib.pagesizes import A4 as _RL_A4
+from reportlab.lib.styles import ParagraphStyle as _RLParaStyle
+from reportlab.lib.units import mm as _RL_MM
+from reportlab.lib.colors import HexColor as _RLHex, white as _RL_WHITE, black as _RL_BLACK
+from reportlab.platypus import (
+    SimpleDocTemplate as _RLDoc,
+    Paragraph as _RLPara,
+    Spacer as _RLSpacer,
+    Table as _RLTable,
+    TableStyle as _RLTableStyle,
+    PageBreak as _RLPageBreak,
+)
+from reportlab.lib.enums import TA_CENTER as _TA_C, TA_LEFT as _TA_L, TA_RIGHT as _TA_R
+
+# ── Brand colours ─────────────────────────────────────────────────────────────
+_PDF_NAVY   = _RLHex("#0F3B63")
+_PDF_AMBER  = _RLHex("#C55A11")
+_PDF_GOLD   = _RLHex("#C9A227")
+_PDF_LIGHT  = _RLHex("#DCE6F1")
+_PDF_SLATE  = _RLHex("#5B6B7A")
+_PDF_GREY   = _RLHex("#F5F6F8")
+_PDF_GLINE  = _RLHex("#D0D5DD")
+
+_PDF_PW, _PDF_PH = _RL_A4
+_PDF_ML = 18 * _RL_MM
+_PDF_MR = 18 * _RL_MM
+_PDF_MT = 20 * _RL_MM
+_PDF_MB = 22 * _RL_MM
+_PDF_CW = _PDF_PW - _PDF_ML - _PDF_MR   # usable content width
+
+_PDF_LOGO = _os.path.abspath(
+    _os.path.join(_os.path.dirname(__file__), "..", "..", "..", "..", "ONGC Logo.jpeg")
+)
 
 
-def _build_pdf_pages(summary: dict[str, Any]) -> list[list[tuple[str, int]]]:
-    pages: list[list[tuple[str, int]]] = [[]]
-
-    def add_line(text: str, size: int = 10) -> None:
-        nonlocal pages
-        if len(pages[-1]) >= 48:
-            pages.append([])
-        pages[-1].append((text, size))
-
-    add_line("Inventory Monthly Executive Summary", 16)
-    add_line(summary["report_label"], 12)
-    add_line("", 10)
-    add_line("Key Metrics", 12)
-    for label, value in [
-        ("Materials in rollup", summary["kpis"]["materials"]),
-        ("Reporting plants", summary["kpis"]["reporting_plants"]),
-        ("Vendors", summary["kpis"]["vendors"]),
-        ("MB51 monthly consumption (MT)", f"{summary['kpis']['total_mb51_consumption_mt']:,.2f}"),
-        ("MB51 monthly consumption value", f"Rs {summary['kpis']['total_mb51_consumption_value']:,.2f}"),
-        ("MC.9 closing stock value", f"Rs {summary['kpis']['total_closing_stock_value']:,.2f}"),
-        ("ME2M procurement value", f"Rs {summary['kpis']['total_procurement_value']:,.2f}"),
-        ("ME2M open quantity", f"{summary['kpis']['total_open_qty']:,.2f}"),
-    ]:
-        add_line(f"- {label}: {value}")
-
-    add_line("", 10)
-    add_line("Observations", 12)
-    for observation in summary["observations"]:
-        for part in textwrap.wrap(f"- {observation}", width=92) or ["-"]:
-            add_line(part)
-
-    for title, rows, value_key in [
-        ("Top MB51 Consumption by Value", summary["top_consumption_by_value"], "monthly_usage_value"),
-        ("Top ME2M Procurement by Value", summary["top_procurement_by_value"], "effective_value"),
-        ("Top MC.9 Closing Stock by Value", summary["top_stock_by_value"], "closing_stock_value"),
-    ]:
-        add_line("", 10)
-        add_line(title, 12)
-        if not rows:
-            add_line("- No rows in this section.")
-            continue
-        for index, row in enumerate(rows[:10], start=1):
-            line = f"{index:>2}. {row['material_label'][:56]:<56} Rs {row[value_key]:>12,.2f}"
-            add_line(line)
-
-    return pages
+def _pdf_ps(name: str, **kw) -> _RLParaStyle:
+    return _RLParaStyle(name, **kw)
 
 
-def _render_pdf(pages: list[list[tuple[str, int]]]) -> bytes:
-    objects: list[bytes | None] = []
+# ── Shared paragraph styles ────────────────────────────────────────────────────
+_PS_COVER_TITLE = _pdf_ps("CoverTitle", fontName="Helvetica-Bold", fontSize=24,
+                           leading=30, textColor=_RL_WHITE, alignment=_TA_C)
+_PS_COVER_SUB   = _pdf_ps("CoverSub",   fontName="Helvetica", fontSize=13,
+                           leading=17, textColor=_PDF_LIGHT, alignment=_TA_C, spaceAfter=4)
+_PS_COVER_PERIOD= _pdf_ps("CoverPeriod",fontName="Helvetica-Bold", fontSize=18,
+                           leading=24, textColor=_PDF_GOLD, alignment=_TA_C)
+_PS_SECTION_H   = _pdf_ps("SectionH",   fontName="Helvetica-Bold", fontSize=13,
+                           leading=16, textColor=_PDF_NAVY, spaceBefore=8, spaceAfter=4)
+_PS_BODY        = _pdf_ps("Body",        fontName="Helvetica", fontSize=9,
+                           leading=13, textColor=_RL_BLACK)
+_PS_BODY_RIGHT  = _pdf_ps("BodyR",       fontName="Helvetica", fontSize=9,
+                           leading=13, textColor=_RL_BLACK, alignment=_TA_R)
+_PS_SMALL       = _pdf_ps("Small",       fontName="Helvetica", fontSize=7.5,
+                           leading=11, textColor=_PDF_SLATE)
+_PS_OBS         = _pdf_ps("Obs",         fontName="Helvetica", fontSize=9,
+                           leading=14, textColor=_RL_BLACK, leftIndent=6, spaceAfter=3)
+_PS_TH          = _pdf_ps("TH",  fontName="Helvetica-Bold", fontSize=8.5,
+                           leading=11, textColor=_RL_WHITE, alignment=_TA_C)
+_PS_TD          = _pdf_ps("TD",  fontName="Helvetica", fontSize=8, leading=11, textColor=_RL_BLACK)
+_PS_TDR         = _pdf_ps("TDR", fontName="Helvetica", fontSize=8, leading=11,
+                           textColor=_RL_BLACK, alignment=_TA_R)
 
-    def add_object(payload: bytes) -> int:
-        objects.append(payload)
-        return len(objects)
 
-    font_id = add_object(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
-    pages_id = add_object(b"<< >>")
-    page_ids: list[int] = []
+def _pdf_rule(color=None) -> _RLTable:
+    """Full-width 1.2 pt colour rule."""
+    c = color if color is not None else _PDF_NAVY
+    return _RLTable([[""]], colWidths=[_PDF_CW], rowHeights=[1.2],
+                    style=[("BACKGROUND", (0, 0), (-1, -1), c)])
 
-    for page_lines in pages:
-        commands: list[str] = []
-        y = 790
-        for text, size in page_lines:
-            if text:
-                commands.append(f"BT /F1 {size} Tf 50 {y} Td ({_escape_pdf_text(text)}) Tj ET")
-            y -= 18 if size >= 12 else 14
-        stream = "\n".join(commands).encode("latin-1", errors="replace")
-        content_id = add_object(b"<< /Length " + str(len(stream)).encode("ascii") + b" >>\nstream\n" + stream + b"\nendstream")
-        page_id = add_object(
-            (
-                f"<< /Type /Page /Parent {pages_id} 0 R /MediaBox [0 0 595 842] "
-                f"/Resources << /Font << /F1 {font_id} 0 R >> >> /Contents {content_id} 0 R >>"
-            ).encode("ascii")
-        )
-        page_ids.append(page_id)
 
-    kids = " ".join(f"{page_id} 0 R" for page_id in page_ids)
-    objects[pages_id - 1] = f"<< /Type /Pages /Count {len(page_ids)} /Kids [{kids}] >>".encode("ascii")
-    catalog_id = add_object(f"<< /Type /Catalog /Pages {pages_id} 0 R >>".encode("ascii"))
+def _pdf_fmt_inr(v: float) -> str:
+    """Format a Rupee value as Cr / L / plain, with ₹ symbol."""
+    if v >= 1_00_00_000:           # ≥ 1 Cr
+        return f"\u20b9 {v / 1_00_00_000:,.2f} Cr"
+    if v >= 1_00_000:              # ≥ 1 L
+        return f"\u20b9 {v / 1_00_000:,.2f} L"
+    return f"\u20b9 {v:,.2f}"
 
-    output = BytesIO()
-    output.write(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
-    offsets = [0]
-    for index, obj in enumerate(objects, start=1):
-        offsets.append(output.tell())
-        output.write(f"{index} 0 obj\n".encode("ascii"))
-        output.write(obj or b"")
-        output.write(b"\nendobj\n")
-    xref_offset = output.tell()
-    output.write(f"xref\n0 {len(objects) + 1}\n".encode("ascii"))
-    output.write(b"0000000000 65535 f \n")
-    for offset in offsets[1:]:
-        output.write(f"{offset:010d} 00000 n \n".encode("ascii"))
-    output.write(
-        (
-            f"trailer\n<< /Size {len(objects) + 1} /Root {catalog_id} 0 R >>\n"
-            f"startxref\n{xref_offset}\n%%EOF"
-        ).encode("ascii")
+
+def _pdf_header_footer(canvas, doc) -> None:
+    """Persistent ONGC header band and confidentiality footer on every page."""
+    canvas.saveState()
+    # ── Header band (navy) ─────────────────────────────────────────────────
+    canvas.setFillColor(_PDF_NAVY)
+    canvas.rect(0, _PDF_PH - 14 * _RL_MM, _PDF_PW, 14 * _RL_MM, fill=1, stroke=0)
+    if _os.path.isfile(_PDF_LOGO):
+        try:
+            canvas.drawImage(
+                _PDF_LOGO,
+                _PDF_ML, _PDF_PH - 13 * _RL_MM,
+                width=26 * _RL_MM, height=11 * _RL_MM,
+                preserveAspectRatio=True, mask="auto",
+            )
+        except Exception:
+            pass
+    canvas.setFillColor(_RL_WHITE)
+    canvas.setFont("Helvetica-Bold", 9)
+    canvas.drawCentredString(_PDF_PW / 2, _PDF_PH - 8 * _RL_MM,
+                             "OIL AND NATURAL GAS CORPORATION LIMITED")
+    canvas.setFont("Helvetica", 7.5)
+    canvas.drawCentredString(_PDF_PW / 2, _PDF_PH - 12 * _RL_MM,
+                             "Inventory Status  |  Monthly Executive Report")
+    canvas.drawRightString(_PDF_PW - _PDF_MR, _PDF_PH - 9 * _RL_MM, f"Page {doc.page}")
+    # ── Footer band ────────────────────────────────────────────────────────
+    canvas.setFillColor(_PDF_NAVY)
+    canvas.rect(0, 0, _PDF_PW, 9 * _RL_MM, fill=1, stroke=0)
+    canvas.setFillColor(_PDF_GOLD)
+    canvas.rect(0, 9 * _RL_MM, _PDF_PW, 0.8 * _RL_MM, fill=1, stroke=0)
+    canvas.setFillColor(_RL_WHITE)
+    canvas.setFont("Helvetica", 6.5)
+    canvas.drawString(_PDF_ML, 3.5 * _RL_MM,
+                      "CONFIDENTIAL \u2014 FOR INTERNAL MANAGEMENT USE ONLY")
+    canvas.drawRightString(
+        _PDF_PW - _PDF_MR, 3.5 * _RL_MM,
+        f"Generated: {datetime.now(timezone.utc).strftime('%d %b %Y')}",
     )
-    return output.getvalue()
+    canvas.restoreState()
+
+
+def _pdf_cover_page(story: list, summary: dict[str, Any]) -> None:
+    story.append(_RLSpacer(1, 28 * _RL_MM))
+    t = _RLTable([[_RLPara("INVENTORY STATUS", _PS_COVER_TITLE)]],
+                 colWidths=[_PDF_CW])
+    t.setStyle(_RLTableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), _PDF_NAVY),
+        ("ALIGN",      (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN",     (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING",    (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+    ]))
+    story.append(t)
+    story.append(_RLSpacer(1, 3 * _RL_MM))
+    story.append(_RLPara("Monthly Executive Report", _PS_COVER_SUB))
+    story.append(_RLSpacer(1, 5 * _RL_MM))
+
+    period_t = _RLTable([[_RLPara(summary["report_label"], _PS_COVER_PERIOD)]],
+                        colWidths=[_PDF_CW])
+    period_t.setStyle(_RLTableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), _PDF_LIGHT),
+        ("ALIGN",      (0, 0), (-1, -1), "CENTER"),
+        ("TOPPADDING",    (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+    ]))
+    story.append(period_t)
+    story.append(_RLSpacer(1, 7 * _RL_MM))
+
+    kpis = summary["kpis"]
+    lw = 45 * _RL_MM
+    org_rows = [
+        ["Organisation",  "Oil and Natural Gas Corporation Limited"],
+        ["Division",      "Office of Head Corporate Chemistry"],
+        ["Report Type",   "Monthly Inventory Intelligence Update"],
+        ["Data Sources",  "MB51 (Consumption)  \u00b7  ME2M (Procurement)  \u00b7  MC.9 (Stock)"],
+        ["Coverage",      (f"{kpis['materials']} Materials  |  "
+                           f"{kpis['reporting_plants']} Plants  |  "
+                           f"{kpis['vendors']} Vendors")],
+    ]
+    org_tbl = _RLTable(org_rows, colWidths=[lw, _PDF_CW - lw])
+    org_tbl.setStyle(_RLTableStyle([
+        ("FONTNAME",  (0, 0), (0, -1), "Helvetica-Bold"),
+        ("FONTNAME",  (1, 0), (1, -1), "Helvetica"),
+        ("FONTSIZE",  (0, 0), (-1, -1), 9),
+        ("LEADING",   (0, 0), (-1, -1), 14),
+        ("TEXTCOLOR", (0, 0), (0, -1), _PDF_NAVY),
+        ("TEXTCOLOR", (1, 0), (1, -1), _RL_BLACK),
+        ("TOPPADDING",    (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 6),
+        ("ROWBACKGROUNDS", (0, 0), (-1, -1), [_PDF_GREY, _RL_WHITE]),
+        ("BOX",       (0, 0), (-1, -1), 0.5, _PDF_GLINE),
+        ("INNERGRID", (0, 0), (-1, -1), 0.4, _PDF_GLINE),
+    ]))
+    story.append(org_tbl)
+    story.append(_RLSpacer(1, 8 * _RL_MM))
+    story.append(_pdf_rule(_PDF_AMBER))
+    story.append(_RLSpacer(1, 4 * _RL_MM))
+    story.append(_RLPara(
+        "This report is prepared by the Inventory Intelligence system for review. "
+        "All values are in Indian Rupees (\u20b9) unless stated.",
+        _PS_SMALL,
+    ))
+    story.append(_RLPageBreak())
+
+
+def _pdf_kpi_card(label: str, value: str, accent: bool = False) -> _RLTable:
+    bg   = _PDF_NAVY if accent else _RL_WHITE
+    v_c  = _RL_WHITE if accent else _PDF_NAVY
+    l_c  = _PDF_GOLD if accent else _PDF_SLATE
+    vps  = _pdf_ps(f"KV_{label[:6]}", fontName="Helvetica-Bold", fontSize=13,
+                   leading=17, textColor=v_c, alignment=_TA_C)
+    lps  = _pdf_ps(f"KL_{label[:6]}", fontName="Helvetica", fontSize=7.5,
+                   leading=10, textColor=l_c, alignment=_TA_C)
+    card = _RLTable(
+        [[_RLPara(value, vps)], [_RLPara(label, lps)]],
+        colWidths=[(_PDF_CW - 6 * _RL_MM) / 4],
+    )
+    bc = _PDF_NAVY if accent else _PDF_GLINE
+    card.setStyle(_RLTableStyle([
+        ("BACKGROUND",    (0, 0), (-1, -1), bg),
+        ("ALIGN",         (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING",    (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 4),
+        ("BOX",           (0, 0), (-1, -1), 0.75, bc),
+    ]))
+    return card
+
+
+def _pdf_kpi_row(pairs: list) -> _RLTable:
+    cells = [_pdf_kpi_card(lbl, val, acc) for lbl, val, acc in pairs]
+    outer = _RLTable([cells], colWidths=[(_PDF_CW + 2 * _RL_MM) / 4] * 4)
+    outer.setStyle(_RLTableStyle([
+        ("ALIGN",         (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 0),
+        ("TOPPADDING",    (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    return outer
+
+
+def _pdf_kpi_page(story: list, summary: dict[str, Any]) -> None:
+    kpis = summary["kpis"]
+    story.append(_RLSpacer(1, 5 * _RL_MM))
+    story.append(_RLPara("Key Performance Indicators", _PS_SECTION_H))
+    story.append(_pdf_rule(_PDF_NAVY))
+    story.append(_RLSpacer(1, 4 * _RL_MM))
+
+    row1 = [
+        ("Materials Tracked",        str(kpis["materials"]),                                    True),
+        ("Reporting Plants",          str(kpis["reporting_plants"]),                             False),
+        ("Active Vendors",            str(kpis["vendors"]),                                      False),
+        ("MB51 Consumption (MT)",     f"{kpis['total_mb51_consumption_mt']:,.2f}",                False),
+    ]
+    row2 = [
+        ("MB51 Consumption Value",    _pdf_fmt_inr(kpis["total_mb51_consumption_value"]),         True),
+        ("MC.9 Usage Value",          _pdf_fmt_inr(kpis["total_mc9_usage_value"]),                False),
+        ("MC.9 Closing Stock Value",  _pdf_fmt_inr(kpis["total_closing_stock_value"]),            False),
+        ("ME2M Procurement Value",    _pdf_fmt_inr(kpis["total_procurement_value"]),              False),
+    ]
+    story.append(_pdf_kpi_row(row1))
+    story.append(_RLSpacer(1, 3 * _RL_MM))
+    story.append(_pdf_kpi_row(row2))
+    story.append(_RLSpacer(1, 6 * _RL_MM))
+
+    story.append(_RLPara("Executive Observations", _PS_SECTION_H))
+    story.append(_pdf_rule(_PDF_AMBER))
+    story.append(_RLSpacer(1, 3 * _RL_MM))
+    for idx, obs in enumerate(summary["observations"], start=1):
+        story.append(_RLPara(f"<b>{idx}.</b>&nbsp; {obs}", _PS_OBS))
+    story.append(_RLPageBreak())
+
+
+def _pdf_top_table(title: str, rows: list, value_key: str,
+                   value_label: str, story: list) -> None:
+    story.append(_RLPara(title, _PS_SECTION_H))
+    story.append(_pdf_rule(_PDF_NAVY))
+    story.append(_RLSpacer(1, 3 * _RL_MM))
+    if not rows:
+        story.append(_RLPara("No data available for this section.", _PS_SMALL))
+        story.append(_RLSpacer(1, 4 * _RL_MM))
+        return
+
+    rank_w = 8  * _RL_MM
+    code_w = 22 * _RL_MM
+    val_w  = 32 * _RL_MM
+    name_w = _PDF_CW - rank_w - code_w - val_w
+
+    hdr = [_RLPara(h, _PS_TH) for h in ["#", "Material Code", "Description", value_label]]
+    data: list = [hdr]
+    rk_ps = _pdf_ps("RK", fontName="Helvetica-Bold", fontSize=8,
+                    alignment=_TA_C, leading=11)
+    for i, row in enumerate(rows[:10], start=1):
+        data.append([
+            _RLPara(str(i),                                         rk_ps),
+            _RLPara(str(row.get("material_code", "")),              _PS_TD),
+            _RLPara(str(row.get("material_desc", "")),              _PS_TD),
+            _RLPara(_pdf_fmt_inr(float(row.get(value_key, 0))),     _PS_TDR),
+        ])
+
+    tbl = _RLTable(data, colWidths=[rank_w, code_w, name_w, val_w])
+    tbl.setStyle(_RLTableStyle([
+        ("BACKGROUND",    (0, 0), (-1, 0),  _PDF_NAVY),
+        ("ALIGN",         (0, 0), (-1, 0),  "CENTER"),
+        ("VALIGN",        (0, 0), (-1, -1), "TOP"),
+        ("TOPPADDING",    (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 5),
+        ("ROWBACKGROUNDS",(0, 1), (-1, -1), [_RL_WHITE, _PDF_GREY]),
+        ("GRID",          (0, 0), (-1, -1), 0.4, _PDF_GLINE),
+        ("LINEBELOW",     (0, 0), (-1, 0),  1.2, _PDF_AMBER),
+        ("BACKGROUND",    (0, 1), (0, -1),  _PDF_LIGHT),
+        ("FONTNAME",      (0, 1), (0, -1),  "Helvetica-Bold"),
+        ("ALIGN",         (3, 1), (3, -1),  "RIGHT"),
+    ]))
+    story.append(tbl)
+    story.append(_RLSpacer(1, 5 * _RL_MM))
+
+
+def _pdf_top_materials_page(story: list, summary: dict[str, Any]) -> None:
+    story.append(_RLSpacer(1, 4 * _RL_MM))
+    _pdf_top_table(
+        "Top 10 Materials \u2014 MB51 Monthly Consumption Value",
+        summary["top_consumption_by_value"], "monthly_usage_value",
+        "Consumption Value", story,
+    )
+    _pdf_top_table(
+        "Top 10 Materials \u2014 ME2M Procurement Value",
+        summary["top_procurement_by_value"], "effective_value",
+        "Procurement Value", story,
+    )
+    _pdf_top_table(
+        "Top 10 Materials \u2014 MC.9 Closing Stock Value",
+        summary["top_stock_by_value"], "closing_stock_value",
+        "Closing Stock Value", story,
+    )
+
+
+def _pdf_source_files_page(story: list, summary: dict[str, Any]) -> None:
+    story.append(_RLPageBreak())
+    story.append(_RLSpacer(1, 5 * _RL_MM))
+    story.append(_RLPara("Data Sources & Row Counts", _PS_SECTION_H))
+    story.append(_pdf_rule(_PDF_NAVY))
+    story.append(_RLSpacer(1, 3 * _RL_MM))
+
+    rc = summary["row_counts"]
+    sf = summary["source_files"]
+    src = [
+        [_RLPara(h, _PS_TH) for h in
+         ["Source", "File Name", "Rows (Reporting Month)", "Excluded (Other Months)"]],
+        [_RLPara("MB51 \u2014 Consumption", _PS_TD),
+         _RLPara(sf.get("mb51", "\u2013"), _PS_TD),
+         _RLPara(str(rc.get("mb51_in_month", 0)), _PS_TD),
+         _RLPara(str(rc.get("mb51_excluded_other_months", 0)), _PS_TD)],
+        [_RLPara("ME2M \u2014 Procurement", _PS_TD),
+         _RLPara(sf.get("me2m", "\u2013"), _PS_TD),
+         _RLPara(str(rc.get("me2m_snapshot", 0)), _PS_TD),
+         _RLPara("Snapshot (all rows)", _PS_TD)],
+        [_RLPara("MC.9 \u2014 Stock", _PS_TD),
+         _RLPara(sf.get("mc9", "\u2013"), _PS_TD),
+         _RLPara(str(rc.get("mc9_in_month", 0)), _PS_TD),
+         _RLPara(str(rc.get("mc9_excluded_other_months", 0)), _PS_TD)],
+    ]
+    src_tbl = _RLTable(src, colWidths=[38 * _RL_MM, _PDF_CW - 38 * _RL_MM - 46 * _RL_MM,
+                                       30 * _RL_MM, 16 * _RL_MM])
+    src_tbl.setStyle(_RLTableStyle([
+        ("BACKGROUND",    (0, 0), (-1, 0),  _PDF_NAVY),
+        ("ALIGN",         (0, 0), (-1, 0),  "CENTER"),
+        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING",    (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 5),
+        ("ROWBACKGROUNDS",(0, 1), (-1, -1), [_RL_WHITE, _PDF_GREY]),
+        ("GRID",          (0, 0), (-1, -1), 0.4, _PDF_GLINE),
+        ("LINEBELOW",     (0, 0), (-1, 0),  1.2, _PDF_AMBER),
+    ]))
+    story.append(src_tbl)
+    story.append(_RLSpacer(1, 7 * _RL_MM))
+    story.append(_RLPara(
+        "<b>Note:</b> All monetary values are in Indian Rupees (\u20b9). "
+        "Consumption data is sourced from SAP MB51 goods movement records. "
+        "Procurement data is a point-in-time snapshot from ME2M purchase orders. "
+        "Stock data is sourced from MC.9 plant stock reports. "
+        "This report is system-generated for internal management review.",
+        _PS_SMALL,
+    ))
 
 
 def _build_pdf_report(summary: dict[str, Any]) -> bytes:
-    return _render_pdf(_build_pdf_pages(summary))
+    """Render an enterprise Chairman-level PDF using ReportLab Platypus."""
+    buf = BytesIO()
+    doc = _RLDoc(
+        buf,
+        pagesize=_RL_A4,
+        leftMargin=_PDF_ML,
+        rightMargin=_PDF_MR,
+        topMargin=_PDF_MT + 14 * _RL_MM,   # reserve space for the header band
+        bottomMargin=_PDF_MB + 9 * _RL_MM,  # reserve space for the footer band
+        title=f"ONGC Inventory Monthly Executive Report \u2014 {summary.get('report_label', '')}",
+        author="ONGC Inventory Intelligence System",
+        subject="Inventory Monthly Update",
+        creator="ONGC Inventory Intelligence",
+    )
+    story: list = []
+    _pdf_cover_page(story, summary)
+    _pdf_kpi_page(story, summary)
+    _pdf_top_materials_page(story, summary)
+    _pdf_source_files_page(story, summary)
+    doc.build(story, onFirstPage=_pdf_header_footer, onLaterPages=_pdf_header_footer)
+    return buf.getvalue()
 
 
 def build_monthly_inventory_report_package(
