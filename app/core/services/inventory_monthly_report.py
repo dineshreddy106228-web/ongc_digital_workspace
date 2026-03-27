@@ -942,67 +942,76 @@ def _build_excel_report(
 # ── Enterprise Chairman-Level PDF Report (ReportLab) ─────────────────────────
 import os as _os
 
-from reportlab.lib.pagesizes import A4 as _RL_A4
-from reportlab.lib.styles import ParagraphStyle as _RLParaStyle
-from reportlab.lib.units import mm as _RL_MM
-from reportlab.lib.colors import HexColor as _RLHex, white as _RL_WHITE, black as _RL_BLACK
-from reportlab.platypus import (
-    SimpleDocTemplate as _RLDoc,
-    Paragraph as _RLPara,
-    Spacer as _RLSpacer,
-    Table as _RLTable,
-    TableStyle as _RLTableStyle,
-    PageBreak as _RLPageBreak,
-)
-from reportlab.lib.enums import TA_CENTER as _TA_C, TA_LEFT as _TA_L, TA_RIGHT as _TA_R
+try:
+    from reportlab.lib.colors import HexColor as _RLHex, black as _RL_BLACK, white as _RL_WHITE
+    from reportlab.lib.enums import TA_CENTER as _TA_C, TA_LEFT as _TA_L, TA_RIGHT as _TA_R
+    from reportlab.lib.pagesizes import A4 as _RL_A4
+    from reportlab.lib.styles import ParagraphStyle as _RLParaStyle
+    from reportlab.lib.units import mm as _RL_MM
+    from reportlab.platypus import (
+        PageBreak as _RLPageBreak,
+        Paragraph as _RLPara,
+        SimpleDocTemplate as _RLDoc,
+        Spacer as _RLSpacer,
+        Table as _RLTable,
+        TableStyle as _RLTableStyle,
+    )
+except ModuleNotFoundError as exc:  # pragma: no cover - depends on env packaging
+    _REPORTLAB_IMPORT_ERROR = exc
+else:
+    _REPORTLAB_IMPORT_ERROR = None
 
-# ── Brand colours ─────────────────────────────────────────────────────────────
-_PDF_NAVY   = _RLHex("#0F3B63")
-_PDF_AMBER  = _RLHex("#C55A11")
-_PDF_GOLD   = _RLHex("#C9A227")
-_PDF_LIGHT  = _RLHex("#DCE6F1")
-_PDF_SLATE  = _RLHex("#5B6B7A")
-_PDF_GREY   = _RLHex("#F5F6F8")
-_PDF_GLINE  = _RLHex("#D0D5DD")
+    # ── Brand colours ─────────────────────────────────────────────────────────
+    _PDF_NAVY = _RLHex("#0F3B63")
+    _PDF_AMBER = _RLHex("#C55A11")
+    _PDF_GOLD = _RLHex("#C9A227")
+    _PDF_LIGHT = _RLHex("#DCE6F1")
+    _PDF_SLATE = _RLHex("#5B6B7A")
+    _PDF_GREY = _RLHex("#F5F6F8")
+    _PDF_GLINE = _RLHex("#D0D5DD")
 
-_PDF_PW, _PDF_PH = _RL_A4
-_PDF_ML = 18 * _RL_MM
-_PDF_MR = 18 * _RL_MM
-_PDF_MT = 20 * _RL_MM
-_PDF_MB = 22 * _RL_MM
-_PDF_CW = _PDF_PW - _PDF_ML - _PDF_MR   # usable content width
+    _PDF_PW, _PDF_PH = _RL_A4
+    _PDF_ML = 18 * _RL_MM
+    _PDF_MR = 18 * _RL_MM
+    _PDF_MT = 20 * _RL_MM
+    _PDF_MB = 22 * _RL_MM
+    _PDF_CW = _PDF_PW - _PDF_ML - _PDF_MR
 
-_PDF_LOGO = _os.path.abspath(
-    _os.path.join(_os.path.dirname(__file__), "..", "..", "..", "..", "ONGC Logo.jpeg")
-)
+    _PDF_LOGO = _os.path.abspath(
+        _os.path.join(_os.path.dirname(__file__), "..", "..", "..", "..", "ONGC Logo.jpeg")
+    )
 
+    def _pdf_ps(name: str, **kw) -> _RLParaStyle:
+        return _RLParaStyle(name, **kw)
 
-def _pdf_ps(name: str, **kw) -> _RLParaStyle:
-    return _RLParaStyle(name, **kw)
-
-
-# ── Shared paragraph styles ────────────────────────────────────────────────────
-_PS_COVER_TITLE = _pdf_ps("CoverTitle", fontName="Helvetica-Bold", fontSize=24,
-                           leading=30, textColor=_RL_WHITE, alignment=_TA_C)
-_PS_COVER_SUB   = _pdf_ps("CoverSub",   fontName="Helvetica", fontSize=13,
-                           leading=17, textColor=_PDF_LIGHT, alignment=_TA_C, spaceAfter=4)
-_PS_COVER_PERIOD= _pdf_ps("CoverPeriod",fontName="Helvetica-Bold", fontSize=18,
-                           leading=24, textColor=_PDF_GOLD, alignment=_TA_C)
-_PS_SECTION_H   = _pdf_ps("SectionH",   fontName="Helvetica-Bold", fontSize=13,
-                           leading=16, textColor=_PDF_NAVY, spaceBefore=8, spaceAfter=4)
-_PS_BODY        = _pdf_ps("Body",        fontName="Helvetica", fontSize=9,
-                           leading=13, textColor=_RL_BLACK)
-_PS_BODY_RIGHT  = _pdf_ps("BodyR",       fontName="Helvetica", fontSize=9,
-                           leading=13, textColor=_RL_BLACK, alignment=_TA_R)
-_PS_SMALL       = _pdf_ps("Small",       fontName="Helvetica", fontSize=7.5,
-                           leading=11, textColor=_PDF_SLATE)
-_PS_OBS         = _pdf_ps("Obs",         fontName="Helvetica", fontSize=9,
-                           leading=14, textColor=_RL_BLACK, leftIndent=6, spaceAfter=3)
-_PS_TH          = _pdf_ps("TH",  fontName="Helvetica-Bold", fontSize=8.5,
-                           leading=11, textColor=_RL_WHITE, alignment=_TA_C)
-_PS_TD          = _pdf_ps("TD",  fontName="Helvetica", fontSize=8, leading=11, textColor=_RL_BLACK)
-_PS_TDR         = _pdf_ps("TDR", fontName="Helvetica", fontSize=8, leading=11,
-                           textColor=_RL_BLACK, alignment=_TA_R)
+    # ── Shared paragraph styles ───────────────────────────────────────────────
+    _PS_COVER_TITLE = _pdf_ps(
+        "CoverTitle", fontName="Helvetica-Bold", fontSize=24, leading=30, textColor=_RL_WHITE, alignment=_TA_C
+    )
+    _PS_COVER_SUB = _pdf_ps(
+        "CoverSub", fontName="Helvetica", fontSize=13, leading=17, textColor=_PDF_LIGHT, alignment=_TA_C, spaceAfter=4
+    )
+    _PS_COVER_PERIOD = _pdf_ps(
+        "CoverPeriod", fontName="Helvetica-Bold", fontSize=18, leading=24, textColor=_PDF_GOLD, alignment=_TA_C
+    )
+    _PS_SECTION_H = _pdf_ps(
+        "SectionH", fontName="Helvetica-Bold", fontSize=13, leading=16, textColor=_PDF_NAVY, spaceBefore=8, spaceAfter=4
+    )
+    _PS_BODY = _pdf_ps("Body", fontName="Helvetica", fontSize=9, leading=13, textColor=_RL_BLACK)
+    _PS_BODY_RIGHT = _pdf_ps(
+        "BodyR", fontName="Helvetica", fontSize=9, leading=13, textColor=_RL_BLACK, alignment=_TA_R
+    )
+    _PS_SMALL = _pdf_ps("Small", fontName="Helvetica", fontSize=7.5, leading=11, textColor=_PDF_SLATE)
+    _PS_OBS = _pdf_ps(
+        "Obs", fontName="Helvetica", fontSize=9, leading=14, textColor=_RL_BLACK, leftIndent=6, spaceAfter=3
+    )
+    _PS_TH = _pdf_ps(
+        "TH", fontName="Helvetica-Bold", fontSize=8.5, leading=11, textColor=_RL_WHITE, alignment=_TA_C
+    )
+    _PS_TD = _pdf_ps("TD", fontName="Helvetica", fontSize=8, leading=11, textColor=_RL_BLACK)
+    _PS_TDR = _pdf_ps(
+        "TDR", fontName="Helvetica", fontSize=8, leading=11, textColor=_RL_BLACK, alignment=_TA_R
+    )
 
 
 def _pdf_rule(color=None) -> _RLTable:
@@ -1318,6 +1327,11 @@ def _pdf_source_files_page(story: list, summary: dict[str, Any]) -> None:
 
 def _build_pdf_report(summary: dict[str, Any]) -> bytes:
     """Render an enterprise Chairman-level PDF using ReportLab Platypus."""
+    if _REPORTLAB_IMPORT_ERROR is not None:
+        raise ValueError(
+            "PDF generation requires the `reportlab` package. Install the project requirements and try again."
+        ) from _REPORTLAB_IMPORT_ERROR
+
     buf = BytesIO()
     doc = _RLDoc(
         buf,
