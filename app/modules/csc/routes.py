@@ -3348,15 +3348,178 @@ def _append_material_master_sheet(sheet, headers: list[str], rows: list[list[obj
         sheet.column_dimensions[letter].width = min(max_length + 2, 36)
 
 
+def _revision_subset_code(revision: CSCRevision) -> str:
+    """Return the subset code for a workflow revision using parent-first spec metadata."""
+    draft = revision.parent_draft or revision.child_draft
+    subset_code, _, _ = parse_spec_number((draft.spec_number if draft is not None else "") or "")
+    return subset_code or ""
+
+
+def _issue_rows_match(left_rows: list[dict[str, object]], right_rows: list[dict[str, object]]) -> bool:
+    """Compare editor issue rows using the same normalized value semantics as review export."""
+    if len(left_rows) != len(right_rows):
+        return False
+    for left_row, right_row in zip(left_rows, right_rows):
+        if _normalize_review_compare_value(left_row.get("issue_type")) != _normalize_review_compare_value(right_row.get("issue_type")):
+            return False
+        if bool(left_row.get("flagged")) != bool(right_row.get("flagged")):
+            return False
+        if _normalize_review_compare_value(left_row.get("notes")) != _normalize_review_compare_value(right_row.get("notes")):
+            return False
+    return True
+
+
+def _draft_has_saved_changes_against_parent(
+    draft: CSCDraft | None,
+    parent_draft: CSCDraft | None,
+) -> bool:
+    """Return whether a committee draft currently differs from its published parent snapshot."""
+    if draft is None:
+        return False
+    if parent_draft is None:
+        return True
+
+    if _normalize_review_compare_value(draft.spec_number) != _normalize_review_compare_value(parent_draft.spec_number):
+        return True
+    if _normalize_review_compare_value(draft.chemical_name) != _normalize_review_compare_value(parent_draft.chemical_name):
+        return True
+
+    master_fields = [*MASTER_DATA_FIELDS, *MASTER_EXTRA_FIELDS]
+    draft_master_values = get_master_form_values(draft)
+    parent_master_values = get_master_form_values(parent_draft)
+    current_master_rows = _build_labeled_value_rows(master_fields, draft_master_values)
+    parent_master_rows = _build_labeled_value_rows(master_fields, parent_master_values)
+    if any(
+        row.get("change_status") == "Revised"
+        for row in _build_comparison_value_rows(current_master_rows, parent_master_rows)
+    ):
+        return True
+
+    if any(
+        row.get("change_status") == "Revised"
+        for row in _build_section_review_rows_for_draft(draft, parent_draft=parent_draft)
+    ):
+        return True
+
+    if any(
+        row.get("change_status") == "Revised"
+        for row in _build_parameter_review_rows_for_draft(draft, parent_draft=parent_draft)
+    ):
+        return True
+
+    if not _issue_rows_match(_build_editor_issue_rows(draft), _build_editor_issue_rows(parent_draft)):
+        return True
+
+    current_impact_rows = _build_impact_review_rows(draft, draft_master_values)
+    parent_impact_rows = _build_impact_review_rows(parent_draft, parent_master_values)
+    if any(
+        row.get("change_status") == "Revised"
+        for row in _build_comparison_value_rows(current_impact_rows, parent_impact_rows)
+    ):
+        return True
+
+    return False
+
+
+def _build_material_master_subset_summary_rows(
+    *,
+    submitted_revisions: list[CSCRevision],
+    committee_user_revisions: list[CSCRevision],
+) -> list[dict[str, object]]:
+    """Summarize active workflow drafts by subset for the export workbook."""
+    summary_by_subset: dict[str, dict[str, object]] = {}
+
+    def _ensure_row(subset_code: str) -> dict[str, object]:
+        row = summary_by_subset.get(subset_code)
+        if row is not None:
+            return row
+        row = {
+            "subset_code": subset_code,
+            "subset": SPEC_SUBSET_LABELS.get(subset_code, subset_code),
+            "open_drafts": 0,
+            "submitted_drafts": 0,
+            "saved_not_submitted": 0,
+            "not_yet_saved": 0,
+        }
+        summary_by_subset[subset_code] = row
+        return row
+
+    for revision in submitted_revisions:
+        subset_code = _revision_subset_code(revision)
+        if not subset_code:
+            continue
+        _ensure_row(subset_code)["submitted_drafts"] += 1
+
+    for revision in committee_user_revisions:
+        subset_code = _revision_subset_code(revision)
+        if not subset_code:
+            continue
+        row = _ensure_row(subset_code)
+        row["open_drafts"] += 1
+        if _draft_has_saved_changes_against_parent(revision.child_draft, revision.parent_draft):
+            row["saved_not_submitted"] += 1
+        else:
+            row["not_yet_saved"] += 1
+
+    ordered_rows: list[dict[str, object]] = []
+    seen_codes: set[str] = set()
+    for subset_code in SPEC_SUBSET_ORDER:
+        row = summary_by_subset.get(subset_code)
+        if row is None:
+            continue
+        ordered_rows.append(row)
+        seen_codes.add(subset_code)
+
+    for subset_code in sorted(code for code in summary_by_subset.keys() if code not in seen_codes):
+        ordered_rows.append(summary_by_subset[subset_code])
+
+    if ordered_rows:
+        ordered_rows.append(
+            {
+                "subset_code": "TOTAL",
+                "subset": "All Subsets",
+                "open_drafts": sum(int(row["open_drafts"]) for row in ordered_rows),
+                "submitted_drafts": sum(int(row["submitted_drafts"]) for row in ordered_rows),
+                "saved_not_submitted": sum(int(row["saved_not_submitted"]) for row in ordered_rows),
+                "not_yet_saved": sum(int(row["not_yet_saved"]) for row in ordered_rows),
+            }
+        )
+
+    return ordered_rows
+
+
 def _build_material_master_export_workbook(
     *,
+    subset_summary_rows: list[dict[str, object]],
     published_rows: list[dict[str, object]],
     submitted_rows: list[dict[str, object]],
     committee_user_rows: list[dict[str, object]],
 ) -> io.BytesIO:
     workbook = Workbook()
-    published_sheet = workbook.active
-    published_sheet.title = "Published"
+    summary_sheet = workbook.active
+    summary_sheet.title = "Subset Summary"
+    summary_headers = [
+        "Subset Code",
+        "Subset",
+        "Open Drafts",
+        "Submitted Drafts",
+        "Drafts Saved With Changes (Not Submitted)",
+        "Drafts Not Yet Saved",
+    ]
+    summary_data_rows = [
+        [
+            str(row.get("subset_code") or "").strip(),
+            str(row.get("subset") or "").strip(),
+            int(row.get("open_drafts") or 0),
+            int(row.get("submitted_drafts") or 0),
+            int(row.get("saved_not_submitted") or 0),
+            int(row.get("not_yet_saved") or 0),
+        ]
+        for row in subset_summary_rows
+    ]
+    _append_material_master_sheet(summary_sheet, summary_headers, summary_data_rows)
+
+    published_sheet = workbook.create_sheet("Published")
 
     value_headers = _material_master_export_headers()
     published_headers = ["Updated At", "Updated By"] + [label for _, label in value_headers]
@@ -4153,6 +4316,10 @@ def export_material_master_workbook():
             .order_by(CSCRevision.updated_at.desc(), CSCRevision.created_at.desc())
             .all()
         )
+        subset_summary_rows = _build_material_master_subset_summary_rows(
+            submitted_revisions=submitted_revisions,
+            committee_user_revisions=committee_user_revisions,
+        )
 
         submitted_rows: list[dict[str, object]] = []
         for revision in submitted_revisions:
@@ -4200,6 +4367,7 @@ def export_material_master_workbook():
             )
 
         stream = _build_material_master_export_workbook(
+            subset_summary_rows=subset_summary_rows,
             published_rows=published_rows,
             submitted_rows=submitted_rows,
             committee_user_rows=committee_user_rows,

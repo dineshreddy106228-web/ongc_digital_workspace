@@ -13,6 +13,16 @@ from app.modules.csc.routes import _build_material_master_export_workbook
 
 def test_build_material_master_export_workbook_has_published_and_submitted_sheets() -> None:
     stream = _build_material_master_export_workbook(
+        subset_summary_rows=[
+            {
+                "subset_code": "DFC",
+                "subset": "Drilling Fluid Chemicals",
+                "open_drafts": 2,
+                "submitted_drafts": 1,
+                "saved_not_submitted": 1,
+                "not_yet_saved": 1,
+            }
+        ],
         published_rows=[
             {
                 "material": "090001043",
@@ -59,7 +69,18 @@ def test_build_material_master_export_workbook_has_published_and_submitted_sheet
     )
 
     workbook = load_workbook(BytesIO(stream.getvalue()))
-    assert workbook.sheetnames == ["Published", "Submitted Drafts", "Committee User Drafts"]
+    assert workbook.sheetnames == [
+        "Subset Summary",
+        "Published",
+        "Submitted Drafts",
+        "Committee User Drafts",
+    ]
+
+    summary = workbook["Subset Summary"]
+    assert summary["A1"].value == "Subset Code"
+    assert summary["A2"].value == "DFC"
+    assert summary["C2"].value == 2
+    assert summary["F2"].value == 1
 
     published = workbook["Published"]
     assert published["A1"].value == "Updated At"
