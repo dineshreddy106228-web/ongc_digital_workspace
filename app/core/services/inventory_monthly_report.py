@@ -94,6 +94,12 @@ def _filter_month(frame: pd.DataFrame, report_year: int, report_month: int) -> p
     return frame.loc[mask].copy()
 
 
+def _previous_month(report_year: int, report_month: int) -> tuple[int, int]:
+    if int(report_month) == 1:
+        return int(report_year) - 1, 12
+    return int(report_year), int(report_month) - 1
+
+
 def _material_key_columns() -> list[str]:
     return ["material_code", "material_desc"]
 
@@ -205,18 +211,66 @@ def _summarize_mc9(mc9: pd.DataFrame) -> pd.DataFrame:
     grouped = (
         frame.groupby(_material_key_columns(), as_index=False)
         .agg(
-            usage_uom=("uom", _preferred_uom),
-            stock_uom=("stock_uom", _preferred_uom),
-            monthly_usage_qty_actual=("usage_qty", "sum"),
+            usage_uom=("actual_uom", _preferred_uom),
+            stock_uom=("actual_stock_uom", _preferred_uom),
+            monthly_usage_qty_actual=("actual_usage_qty", "sum"),
             monthly_usage_qty_mt=("usage_qty_mt", "sum"),
             monthly_usage_value=("usage_value", "sum"),
-            closing_stock_qty_actual=("stock_qty", "sum"),
+            closing_stock_qty_actual=("actual_stock_qty", "sum"),
             closing_stock_qty_mt=("stock_qty_mt", "sum"),
             closing_stock_value=("stock_value", "sum"),
             plant_count=("reporting_plant", "nunique"),
             stock_rows=("material_desc", "size"),
         )
         .sort_values(["closing_stock_value", "monthly_usage_value", "material_desc"], ascending=[False, False, True])
+    )
+    return grouped
+
+
+def _summarize_opening_stock(mc9_all: pd.DataFrame, report_year: int, report_month: int) -> pd.DataFrame:
+    if mc9_all.empty:
+        return pd.DataFrame(
+            columns=[
+                "material_code",
+                "material_desc",
+                "opening_stock_uom",
+                "opening_stock_qty_actual",
+                "opening_stock_qty_mt",
+                "opening_stock_value",
+            ]
+        )
+
+    previous_year, previous_month = _previous_month(report_year, report_month)
+    previous_frame = _filter_month(mc9_all, previous_year, previous_month)
+    if previous_frame.empty:
+        return pd.DataFrame(
+            columns=[
+                "material_code",
+                "material_desc",
+                "opening_stock_uom",
+                "opening_stock_qty_actual",
+                "opening_stock_qty_mt",
+                "opening_stock_value",
+            ]
+        )
+
+    frame = previous_frame.copy()
+    frame["material_code"] = frame["material_code"].map(_canonical_material_code)
+    for column in ["stock_qty", "stock_value"]:
+        frame[column] = pd.to_numeric(frame.get(column), errors="coerce")
+    frame["stock_qty_mt"] = frame.apply(
+        lambda row: _quantity_to_mt(row.get("stock_qty"), row.get("stock_uom")),
+        axis=1,
+    )
+    grouped = (
+        frame.groupby(_material_key_columns(), as_index=False)
+        .agg(
+            opening_stock_uom=("actual_stock_uom", _preferred_uom),
+            opening_stock_qty_actual=("actual_stock_qty", "sum"),
+            opening_stock_qty_mt=("stock_qty_mt", "sum"),
+            opening_stock_value=("stock_value", "sum"),
+        )
+        .sort_values(["opening_stock_value", "material_desc"], ascending=[False, True])
     )
     return grouped
 
@@ -258,12 +312,17 @@ def _summarize_procurement(procurement: pd.DataFrame) -> pd.DataFrame:
 
 
 def _build_material_rollup(
+    opening_stock_summary: pd.DataFrame,
     consumption_summary: pd.DataFrame,
     mc9_summary: pd.DataFrame,
     procurement_summary: pd.DataFrame,
 ) -> pd.DataFrame:
     key_columns = _material_key_columns()
-    rollup = consumption_summary.merge(
+    rollup = opening_stock_summary.merge(
+        consumption_summary,
+        on=key_columns,
+        how="outer",
+    ).merge(
         mc9_summary,
         on=key_columns,
         how="outer",
@@ -279,6 +338,10 @@ def _build_material_rollup(
             columns=[
                 "material_code",
                 "material_desc",
+                "opening_stock_uom",
+                "opening_stock_qty_actual",
+                "opening_stock_qty_mt",
+                "opening_stock_value",
                 "consumption_uom",
                 "mb51_usage_qty_actual",
                 "mb51_usage_qty_mt",
@@ -336,6 +399,9 @@ def _build_material_rollup(
     rollup = rollup.rename(columns=rename_map)
 
     numeric_columns = [
+        "opening_stock_qty_actual",
+        "opening_stock_qty_mt",
+        "opening_stock_value",
         "mb51_usage_qty_actual",
         "mb51_usage_qty_mt",
         "mb51_usage_value",
@@ -357,18 +423,93 @@ def _build_material_rollup(
         if column in rollup.columns:
             rollup[column] = pd.to_numeric(rollup[column], errors="coerce").fillna(0.0)
 
-    for column in ["consumption_uom", "mc9_usage_uom", "stock_uom", "procurement_uom"]:
+    for column in ["opening_stock_uom", "consumption_uom", "mc9_usage_uom", "stock_uom", "procurement_uom"]:
         if column not in rollup.columns:
             rollup[column] = ""
         rollup[column] = rollup[column].fillna("").astype(str)
 
     rollup["material_desc"] = rollup["material_desc"].fillna("")
     rollup["material_code"] = rollup["material_code"].fillna("")
+    missing_opening_mask = (
+        rollup["opening_stock_uom"].fillna("").astype(str).str.strip().eq("")
+        & rollup["opening_stock_qty_actual"].eq(0.0)
+        & rollup["opening_stock_qty_mt"].eq(0.0)
+        & rollup["opening_stock_value"].eq(0.0)
+    )
+    if missing_opening_mask.any():
+        for index in rollup.index[missing_opening_mask]:
+            stock_uom = _normalize_text(rollup.at[index, "stock_uom"]).upper()
+            consumption_uom = _normalize_text(rollup.at[index, "consumption_uom"]).upper()
+            estimated_mt = (
+                _safe_float(rollup.at[index, "closing_stock_qty_mt"])
+                - _safe_float(rollup.at[index, "mb51_usage_qty_mt"])
+            )
+            estimated_value = (
+                _safe_float(rollup.at[index, "closing_stock_value"])
+                - _safe_float(rollup.at[index, "mb51_usage_value"])
+            )
+            rollup.at[index, "opening_stock_qty_mt"] = estimated_mt
+            rollup.at[index, "opening_stock_value"] = estimated_value
+
+            if stock_uom and (not consumption_uom or stock_uom == consumption_uom):
+                rollup.at[index, "opening_stock_uom"] = stock_uom
+                rollup.at[index, "opening_stock_qty_actual"] = (
+                    _safe_float(rollup.at[index, "closing_stock_qty_actual"])
+                    - _safe_float(rollup.at[index, "mb51_usage_qty_actual"])
+                )
+            elif consumption_uom and not stock_uom:
+                rollup.at[index, "opening_stock_uom"] = consumption_uom
+                rollup.at[index, "opening_stock_qty_actual"] = (
+                    _safe_float(rollup.at[index, "closing_stock_qty_actual"])
+                    - _safe_float(rollup.at[index, "mb51_usage_qty_actual"])
+                )
+            else:
+                rollup.at[index, "opening_stock_uom"] = "MT"
+                rollup.at[index, "opening_stock_qty_actual"] = estimated_mt
+
     rollup = rollup.sort_values(
         ["mb51_usage_value", "procurement_value", "closing_stock_value", "material_desc"],
         ascending=[False, False, False, True],
     )
     return rollup
+
+
+def _build_stock_movement_sheet(material_rollup: pd.DataFrame) -> pd.DataFrame:
+    movement = material_rollup.loc[
+        :,
+        [
+            "material_code",
+            "material_desc",
+            "opening_stock_uom",
+            "opening_stock_qty_actual",
+            "opening_stock_qty_mt",
+            "consumption_uom",
+            "mb51_usage_qty_actual",
+            "mb51_usage_qty_mt",
+            "stock_uom",
+            "closing_stock_qty_actual",
+            "closing_stock_qty_mt",
+        ],
+    ].copy()
+    movement = movement.rename(
+        columns={
+            "material_code": "Material",
+            "material_desc": "Name of Chemical",
+            "opening_stock_uom": "Opening Stock UoM",
+            "opening_stock_qty_actual": "Opening Stock Qty (Actual)",
+            "opening_stock_qty_mt": "Opening Stock Qty (MT)",
+            "consumption_uom": "Consumption UoM",
+            "mb51_usage_qty_actual": "Consumption Qty (Actual)",
+            "mb51_usage_qty_mt": "Consumption Qty (MT)",
+            "stock_uom": "Closing Stock UoM",
+            "closing_stock_qty_actual": "Closing Stock Qty (Actual)",
+            "closing_stock_qty_mt": "Closing Stock Qty (MT)",
+        }
+    )
+    return movement.sort_values(
+        ["Consumption Qty (MT)", "Consumption Qty (Actual)", "Name of Chemical"],
+        ascending=[False, False, True],
+    )
 
 
 def _top_rows(frame: pd.DataFrame, value_column: str, limit: int = 10) -> list[dict[str, Any]]:
@@ -529,6 +670,7 @@ def _build_excel_report(
     *,
     summary: dict[str, Any],
     material_rollup: pd.DataFrame,
+    opening_stock_summary: pd.DataFrame,
     consumption_summary: pd.DataFrame,
     procurement_summary: pd.DataFrame,
     mc9_summary: pd.DataFrame,
@@ -582,6 +724,10 @@ def _build_excel_report(
         [
             "material_code",
             "material_desc",
+            "opening_stock_uom",
+            "opening_stock_qty_actual",
+            "opening_stock_qty_mt",
+            "opening_stock_value",
             "consumption_uom",
             "mb51_usage_qty_actual",
             "mb51_usage_qty_mt",
@@ -605,6 +751,10 @@ def _build_excel_report(
         columns={
             "material_code": "Material",
             "material_desc": "Name of Chemical",
+            "opening_stock_uom": "Opening Stock UoM",
+            "opening_stock_qty_actual": "Opening Stock Qty (Actual)",
+            "opening_stock_qty_mt": "Opening Stock Qty (MT)",
+            "opening_stock_value": "Opening Stock Value",
             "consumption_uom": "MB51 UoM",
             "mb51_usage_qty_actual": "MB51 Qty (Actual)",
             "mb51_usage_qty_mt": "MB51 Qty (MT)",
@@ -626,6 +776,7 @@ def _build_excel_report(
         }
     )
     _append_dataframe_sheet(workbook, "Material Rollup", material_rollup_sheet)
+    _append_dataframe_sheet(workbook, "Stock Movement", _build_stock_movement_sheet(material_rollup))
     _append_dataframe_sheet(workbook, "MB51 Consumption", consumption_summary.rename(columns={
         "material_code": "Material",
         "material_desc": "Name of Chemical",
@@ -649,6 +800,14 @@ def _build_excel_report(
         "closing_stock_value": "Closing Stock Value",
         "plant_count": "Reporting Plants",
         "stock_rows": "Rows",
+    }))
+    _append_dataframe_sheet(workbook, "Opening Stock", opening_stock_summary.rename(columns={
+        "material_code": "Material",
+        "material_desc": "Name of Chemical",
+        "opening_stock_uom": "Unit of Measurement (actual)",
+        "opening_stock_qty_actual": "Opening Stock Qty (Actual)",
+        "opening_stock_qty_mt": "Opening Stock Qty (MT)",
+        "opening_stock_value": "Opening Stock Value",
     }))
     _append_dataframe_sheet(workbook, "ME2M Snapshot", procurement_summary.rename(columns={
         "material_code": "Material",
@@ -933,10 +1092,11 @@ def build_monthly_inventory_report_package(
             f"Available months: {_available_month_labels(mc9_all)}."
         )
 
+    opening_stock_summary = _summarize_opening_stock(mc9_all, report_year, report_month)
     consumption_summary = _summarize_consumption(consumption_frame)
     procurement_summary = _summarize_procurement(procurement_frame)
     mc9_summary = _summarize_mc9(mc9_frame)
-    material_rollup = _build_material_rollup(consumption_summary, mc9_summary, procurement_summary)
+    material_rollup = _build_material_rollup(opening_stock_summary, consumption_summary, mc9_summary, procurement_summary)
 
     summary = _build_summary(
         report_year=report_year,
@@ -959,6 +1119,7 @@ def build_monthly_inventory_report_package(
     excel_bytes = _build_excel_report(
         summary=summary,
         material_rollup=material_rollup,
+        opening_stock_summary=opening_stock_summary,
         consumption_summary=consumption_summary,
         procurement_summary=procurement_summary,
         mc9_summary=mc9_summary,

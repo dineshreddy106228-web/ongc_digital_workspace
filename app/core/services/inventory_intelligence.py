@@ -1396,9 +1396,13 @@ def _normalize_mc9_frame(df: pd.DataFrame) -> pd.DataFrame:
     frame["stock_value_currency"] = frame["stock_value_currency"].map(_clean_currency)
     frame["stock_uom"] = frame["stock_uom"].map(_normalize_code)
     frame["uom"] = frame["uom"].map(_normalize_code)
+    frame["actual_stock_uom"] = frame["stock_uom"]
+    frame["actual_uom"] = frame["uom"]
     frame["currency"] = frame["currency"].map(_clean_currency)
     for column in ["stock_value", "stock_qty", "usage_qty", "usage_value"]:
         frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    frame["actual_stock_qty"] = frame["stock_qty"]
+    frame["actual_usage_qty"] = frame["usage_qty"]
     frame["stock_qty"], frame["stock_uom"] = _normalize_quantity_series(frame["stock_qty"], frame["stock_uom"])
     frame["usage_qty"], frame["uom"] = _normalize_quantity_series(frame["usage_qty"], frame["uom"])
 
