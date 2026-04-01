@@ -1200,6 +1200,51 @@ def _build_seed_row_financial_years(df: pd.DataFrame, seed_type: str) -> pd.Seri
     )
 
 
+def _build_seed_row_month_tokens(df: pd.DataFrame, seed_type: str) -> pd.Series:
+    frame = df.copy()
+    if frame.empty:
+        return pd.Series(dtype="object")
+
+    variant = _detect_frame_variant([str(column) for column in frame.columns], seed_type)
+    if seed_type == "consumption":
+        if variant == "mb51":
+            frame = _apply_header_aliases(frame, _MB51_CONSUMPTION_ALIASES)
+            posting_dates = pd.to_datetime(frame.get("posting_date"), errors="coerce")
+            return posting_dates.map(
+                lambda value: f"{value.year:04d}-{value.month:02d}" if pd.notna(value) else ""
+            )
+
+        frame = _apply_header_aliases(frame, _LEGACY_CONSUMPTION_ALIASES)
+        month_raw = frame.get("month_raw", pd.Series(index=frame.index, dtype="object")).fillna("").astype(str)
+        month, year = _parse_period(month_raw)
+        result = pd.Series("", index=frame.index, dtype="object")
+        valid = month.notna() & year.notna()
+        result.loc[valid] = [
+            f"{int(y):04d}-{int(m):02d}"
+            for y, m in zip(year.loc[valid], month.loc[valid])
+        ]
+        return result
+
+    if seed_type == "mc9":
+        frame = _apply_header_aliases(frame, _MC9_ALIASES)
+        month_raw = frame.get("month_raw", pd.Series(index=frame.index, dtype="object")).fillna("").astype(str)
+        month, year = _parse_period(month_raw)
+        result = pd.Series("", index=frame.index, dtype="object")
+        valid = month.notna() & year.notna()
+        result.loc[valid] = [
+            f"{int(y):04d}-{int(m):02d}"
+            for y, m in zip(year.loc[valid], month.loc[valid])
+        ]
+        return result
+
+    aliases = _ME2M_PROCUREMENT_ALIASES if variant == "me2m" else _LEGACY_PROCUREMENT_ALIASES
+    frame = _apply_header_aliases(frame, aliases)
+    doc_dates = pd.to_datetime(frame.get("doc_date"), errors="coerce")
+    return doc_dates.map(
+        lambda value: f"{value.year:04d}-{value.month:02d}" if pd.notna(value) else ""
+    )
+
+
 def _build_period_index(df: pd.DataFrame) -> pd.PeriodIndex:
     return pd.PeriodIndex.from_fields(
         year=df["year"].astype(int),
@@ -2084,6 +2129,123 @@ def _merge_seed_collection_frame(existing_df: pd.DataFrame, uploaded_df: pd.Data
         ignore_index=True,
     )
     return merged.reset_index(drop=True)
+
+
+def _merge_monthly_seed_collection_frame(existing_df: pd.DataFrame, uploaded_df: pd.DataFrame, seed_type: str) -> pd.DataFrame:
+    uploaded_variant = _detect_frame_variant([str(column) for column in uploaded_df.columns], seed_type)
+    uploaded_canonical = _canonicalize_seed_dataframe(uploaded_df, seed_type)
+    uploaded_months = {
+        token
+        for token in _build_seed_row_month_tokens(uploaded_canonical, seed_type).tolist()
+        if token
+    }
+    if not uploaded_months:
+        raise ValueError(
+            "The uploaded monthly file did not contain any usable month rows after parsing."
+        )
+
+    if existing_df is None or existing_df.empty:
+        return uploaded_canonical.reset_index(drop=True)
+
+    existing_variant = _detect_frame_variant([str(column) for column in existing_df.columns], seed_type)
+    if existing_variant != uploaded_variant and uploaded_variant in {"mb51", "me2m"}:
+        logger.info(
+            "Replacing legacy %s seed history with canonical %s upload.",
+            seed_type,
+            uploaded_variant,
+        )
+        return uploaded_canonical.reset_index(drop=True)
+
+    existing_canonical = _canonicalize_seed_dataframe(existing_df, seed_type)
+    existing_months = _build_seed_row_month_tokens(existing_canonical, seed_type)
+    keep_mask = ~existing_months.isin(uploaded_months)
+    merged = pd.concat(
+        [
+            existing_canonical.loc[keep_mask].copy(),
+            uploaded_canonical.copy(),
+        ],
+        ignore_index=True,
+    )
+    return merged.reset_index(drop=True)
+
+
+def prepare_monthly_seed_history_merge(
+    *,
+    consumption_bytes: bytes,
+    consumption_filename: str,
+    procurement_bytes: bytes,
+    procurement_filename: str,
+    mc9_bytes: bytes,
+    mc9_filename: str,
+) -> dict[str, pd.DataFrame]:
+    cons_df = _read_uploaded_seed_dataframe(consumption_bytes, consumption_filename)
+    proc_df = _read_uploaded_seed_dataframe(procurement_bytes, procurement_filename)
+    mc9_df = _read_uploaded_seed_dataframe(mc9_bytes, mc9_filename)
+    _validate_seed_frame(cons_df, "consumption")
+    _validate_seed_frame(proc_df, "procurement")
+    _validate_seed_frame(mc9_df, "mc9")
+
+    existing_cons = pd.read_excel(CONS_FILE, sheet_name=0) if os.path.exists(CONS_FILE) else pd.DataFrame()
+    existing_proc = pd.read_excel(PROC_FILE, sheet_name=0) if os.path.exists(PROC_FILE) else pd.DataFrame()
+    existing_mc9 = pd.read_excel(MC9_FILE, sheet_name=0) if os.path.exists(MC9_FILE) else pd.DataFrame()
+
+    merged_cons = _merge_monthly_seed_collection_frame(existing_cons, cons_df, "consumption")
+    merged_proc = _merge_monthly_seed_collection_frame(existing_proc, proc_df, "procurement")
+    merged_mc9 = _merge_monthly_seed_collection_frame(existing_mc9, mc9_df, "mc9")
+
+    return {
+        "consumption_raw": merged_cons,
+        "procurement_raw": merged_proc,
+        "mc9_raw": merged_mc9,
+        "consumption_normalized": _normalize_consumption_frame(merged_cons),
+        "procurement_normalized": _normalize_procurement_frame(merged_proc),
+        "mc9_normalized": _normalize_mc9_frame(merged_mc9),
+    }
+
+
+def persist_monthly_seed_history_merge(
+    *,
+    merged_payload: dict[str, pd.DataFrame],
+    consumption_filename: str,
+    procurement_filename: str,
+    mc9_filename: str,
+    user_id: int | None = None,
+) -> dict[str, str]:
+    from app.core.services.inventory_seed_db import sync_inventory_seed_tables
+
+    targets = {
+        "consumption": CONS_FILE,
+        "procurement": PROC_FILE,
+        "mc9": MC9_FILE,
+    }
+    temp_files = {
+        "consumption": _write_temp_seed_workbook(merged_payload["consumption_raw"], CONS_FILE, "Sheet1"),
+        "procurement": _write_temp_seed_workbook(merged_payload["procurement_raw"], PROC_FILE, "Data"),
+        "mc9": _write_temp_seed_workbook(merged_payload["mc9_raw"], MC9_FILE, "Sheet1"),
+    }
+
+    os.replace(temp_files["consumption"], targets["consumption"])
+    os.replace(temp_files["procurement"], targets["procurement"])
+    os.replace(temp_files["mc9"], targets["mc9"])
+    sync_inventory_seed_tables(
+        consumption_frame=merged_payload["consumption_normalized"],
+        procurement_frame=merged_payload["procurement_normalized"],
+        consumption_filename=consumption_filename,
+        procurement_filename=procurement_filename,
+        user_id=user_id,
+    )
+    try:
+        precompute_forecast_cache(
+            consumption_frame=merged_payload["consumption_normalized"],
+            procurement_frame=merged_payload["procurement_normalized"],
+        )
+    except Exception:
+        logger.warning("Failed to precompute forecast cache after monthly seed merge", exc_info=True)
+    try:
+        get_data_store().reload()
+    except Exception:
+        logger.warning("Failed to reload inventory datastore after monthly seed merge", exc_info=True)
+    return targets
 
 
 def _write_temp_seed_workbook(df: pd.DataFrame, target: str, sheet_name: str) -> str:

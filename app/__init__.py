@@ -4,8 +4,9 @@ import logging
 import secrets
 from importlib import import_module
 from urllib.parse import urlparse
-from flask import Flask, g, jsonify, render_template_string, request, session
+from flask import Flask, flash, g, jsonify, redirect, render_template_string, request, session
 from flask_login import current_user
+from flask_wtf.csrf import CSRFError
 from config import Config
 
 logger = logging.getLogger(__name__)
@@ -253,6 +254,14 @@ def create_app(config_class=Config):
         </div>
         {% endblock %}
         """, limit_mb=limit_mb, back_url=back_url), 413
+
+    @app.errorhandler(CSRFError)
+    def handle_csrf_error(e):
+        referrer = request.referrer or "/"
+        parsed = urlparse(referrer)
+        back_url = referrer if parsed.scheme in ("http", "https", "") else "/"
+        flash("Your form session expired. Reload the page and submit the upload again.", "warning")
+        return redirect(back_url)
 
     # ── Health check endpoint (no auth, no redirect) ─────────────
     @app.route("/health")

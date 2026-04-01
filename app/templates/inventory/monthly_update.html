@@ -46,7 +46,7 @@
                         Choose the reporting month and upload the three monthly SAP extracts. Re-uploading the same month replaces the prior batch and regenerates both downloads.
                     </p>
                     <div class="inv-note">
-                        This submodule does not overwrite the annual seed workbooks used by Materials Intelligence. It keeps a separate monthly batch history for reporting only.
+                        This upload refreshes the selected reporting month inside the local inventory seed history, syncs the local analytics database, and then generates the monthly report pack from the combined history.
                     </div>
 
                     <form method="POST" action="{{ url_for('inventory.monthly_update_page') }}" enctype="multipart/form-data" class="inv-seed-form">

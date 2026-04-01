@@ -664,6 +664,10 @@ def monthly_update_page():
         list_monthly_inventory_upload_batches,
         upsert_monthly_inventory_upload_batch,
     )
+    from app.core.services.inventory_intelligence import (
+        persist_monthly_seed_history_merge,
+        prepare_monthly_seed_history_merge,
+    )
     from app.extensions import db
 
     selected_month = (request.form.get("report_month") or request.args.get("report_month") or "").strip()
@@ -697,15 +701,35 @@ def monthly_update_page():
             return redirect(url_for("inventory.monthly_update_page"))
 
         try:
+            mb51_bytes = mb51_file.read()
+            me2m_bytes = me2m_file.read()
+            mc9_bytes = mc9_file.read()
+            merged_seed_history = prepare_monthly_seed_history_merge(
+                consumption_bytes=mb51_bytes,
+                consumption_filename=mb51_file.filename,
+                procurement_bytes=me2m_bytes,
+                procurement_filename=me2m_file.filename,
+                mc9_bytes=mc9_bytes,
+                mc9_filename=mc9_file.filename,
+            )
             package = build_monthly_inventory_report_package(
                 report_year=report_year,
                 report_month=report_month,
-                mb51_bytes=mb51_file.read(),
+                mb51_bytes=mb51_bytes,
                 mb51_filename=mb51_file.filename,
-                me2m_bytes=me2m_file.read(),
+                me2m_bytes=me2m_bytes,
                 me2m_filename=me2m_file.filename,
-                mc9_bytes=mc9_file.read(),
+                mc9_bytes=mc9_bytes,
                 mc9_filename=mc9_file.filename,
+                consumption_history=merged_seed_history["consumption_normalized"],
+                mc9_history=merged_seed_history["mc9_normalized"],
+            )
+            persist_monthly_seed_history_merge(
+                merged_payload=merged_seed_history,
+                consumption_filename=mb51_file.filename,
+                procurement_filename=me2m_file.filename,
+                mc9_filename=mc9_file.filename,
+                user_id=getattr(current_user, "id", None),
             )
             batch, action = upsert_monthly_inventory_upload_batch(
                 package=package,
@@ -714,9 +738,9 @@ def monthly_update_page():
             db.session.commit()
             flash(
                 (
-                    f"Monthly report pack for {package.report_label} generated."
+                    f"Monthly report pack for {package.report_label} generated and local seed history updated."
                     if action == "created"
-                    else f"Monthly report pack for {package.report_label} regenerated and replaced."
+                    else f"Monthly report pack for {package.report_label} regenerated, replaced, and local seed history updated."
                 ),
                 "success",
             )
