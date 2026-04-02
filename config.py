@@ -126,6 +126,10 @@ class Config:
         os.environ.get("ENABLE_INVENTORY"),
         default=False,
     )
+    ENABLE_MANPOWER_PLANNING = _as_bool(
+        os.environ.get("ENABLE_MANPOWER_PLANNING"),
+        default=True,
+    )
     ENABLE_CSC = _as_bool(
         os.environ.get("ENABLE_CSC"),
         default=True,
@@ -133,4 +137,8 @@ class Config:
     ENABLE_REPORTS = _as_bool(
         os.environ.get("ENABLE_REPORTS"),
         default=False,
+    )
+    MANPOWER_SEED_PATH = os.environ.get(
+        "MANPOWER_SEED_PATH",
+        "data/manpower/Chemistry_Manpower_as_on_26_03_2026.xlsx",
     )

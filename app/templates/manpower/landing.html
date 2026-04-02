@@ -1,0 +1,356 @@
+{% extends "base.html" %}
+{% block title %}Manpower Planning — {{ app_name }}{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/manpower.css') }}">
+{% endblock %}
+
+{% block content %}
+<section class="mp-page">
+    <div class="mp-hero">
+        <div class="mp-hero-copy">
+            <span class="mp-eyebrow">Chemistry Workforce Dashboard</span>
+            <h1>Manpower Planning</h1>
+            <p>
+                Compact planning dashboard for workforce risk, maturity cohorts, and location drilldowns.
+            </p>
+        </div>
+        <div class="mp-hero-meta">
+            <span class="mp-meta-chip">Seed: {{ workspace.source_filename }}</span>
+            <span class="mp-meta-chip">As on {{ workspace.as_of_date_label }}</span>
+        </div>
+    </div>
+
+    {% if workspace.available %}
+    <div class="mp-kpi-grid">
+        <article class="mp-kpi-card">
+            <span class="mp-kpi-label">Planning Locations</span>
+            <strong class="mp-kpi-value">{{ workspace.total_locations }}</strong>
+            <span class="mp-kpi-detail">Workbook tabs converted into active roster buckets</span>
+        </article>
+        <article class="mp-kpi-card">
+            <span class="mp-kpi-label">Total Manpower</span>
+            <strong class="mp-kpi-value">{{ workspace.total_employees }}</strong>
+            <span class="mp-kpi-detail">Employees covered in the seed workbook</span>
+        </article>
+        <article class="mp-kpi-card">
+            <span class="mp-kpi-label">Retiring in 2 Years</span>
+            <strong class="mp-kpi-value">{{ workspace.retirements_within_two_years }}</strong>
+            <span class="mp-kpi-detail">Immediate succession watchlist across all locations</span>
+        </article>
+        <article class="mp-kpi-card">
+            <span class="mp-kpi-label">Average Vintage</span>
+            <strong class="mp-kpi-value">{{ workspace.average_vintage }}</strong>
+            <span class="mp-kpi-detail">Years in the current assignment/location bucket</span>
+        </article>
+    </div>
+
+    <div class="mp-accordion-list">
+        <details class="mp-accordion mp-accordion-priority">
+            <summary class="mp-accordion-summary">
+                <div class="mp-accordion-copy">
+                    <span class="mp-accordion-eyebrow">Retirement Risk</span>
+                    <h2>All Retiring in 2 Years</h2>
+                    <p>Cross-location succession watchlist for the next 24 months.</p>
+                </div>
+                <div class="mp-accordion-meta">
+                    <span class="mp-accordion-count">{{ workspace.retiring_soon_employees|length }}</span>
+                    <span class="mp-accordion-label">Employees</span>
+                    <span class="mp-accordion-toggle"><i class="bi bi-chevron-down"></i></span>
+                </div>
+            </summary>
+
+            <div class="mp-accordion-panel">
+                {% if workspace.retiring_soon_employees %}
+                <div class="mp-location-table-wrap">
+                    <table class="mp-location-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Location</th>
+                                <th>Designation</th>
+                                <th>Level</th>
+                                <th>Vintage</th>
+                                <th>Date of Retirement</th>
+                                <th>Horizon</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for employee in workspace.retiring_soon_employees %}
+                            <tr class="mp-row-retiring">
+                                <td>
+                                    <div class="mp-location-name">{{ employee.name }}</div>
+                                    <div class="mp-location-subtext">CPF {{ employee.cpf_no }} · {{ employee.base_location }}</div>
+                                </td>
+                                <td>
+                                    <a href="{{ url_for('manpower.location_detail', location_slug=employee.location_slug) }}" class="mp-inline-link">
+                                        {{ employee.location_name }}
+                                    </a>
+                                </td>
+                                <td>{{ employee.designation }}</td>
+                                <td>{{ employee.level }}</td>
+                                <td><span class="mp-band-pill">{{ employee.vintage_label }}</span></td>
+                                <td>{{ employee.date_of_retirement }}</td>
+                                <td>{{ employee.retirement_horizon }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="mp-empty-inline">No employees are retiring within the next 2 years.</div>
+                {% endif %}
+            </div>
+        </details>
+
+        {% for cohort in workspace.vintage_cohorts %}
+        <details class="mp-accordion">
+            <summary class="mp-accordion-summary">
+                <div class="mp-accordion-copy">
+                    <span class="mp-accordion-eyebrow">Vintage Cohort</span>
+                    <h2>{{ cohort.label }}</h2>
+                    <p>Employees with exactly {{ cohort.years }} years in the current assignment.</p>
+                </div>
+                <div class="mp-accordion-meta">
+                    <span class="mp-accordion-count">{{ cohort.count }}</span>
+                    <span class="mp-accordion-label">Employees</span>
+                    <span class="mp-band-pill">{{ cohort.years }} yrs</span>
+                    <span class="mp-accordion-toggle"><i class="bi bi-chevron-down"></i></span>
+                </div>
+            </summary>
+
+            <div class="mp-accordion-panel">
+                {% if cohort.employees %}
+                <div class="mp-location-table-wrap">
+                    <table class="mp-location-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Location</th>
+                                <th>Designation</th>
+                                <th>Level</th>
+                                <th>Date of Join Position</th>
+                                <th>Retirement</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for employee in cohort.employees %}
+                            <tr>
+                                <td>
+                                    <div class="mp-location-name">{{ employee.name }}</div>
+                                    <div class="mp-location-subtext">CPF {{ employee.cpf_no }} · {{ employee.base_location }}</div>
+                                </td>
+                                <td>
+                                    <a href="{{ url_for('manpower.location_detail', location_slug=employee.location_slug) }}" class="mp-inline-link">
+                                        {{ employee.location_name }}
+                                    </a>
+                                </td>
+                                <td>{{ employee.designation }}</td>
+                                <td>{{ employee.level }}</td>
+                                <td>{{ employee.date_of_join_position }}</td>
+                                <td>{{ employee.date_of_retirement }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="mp-empty-inline">No employees currently at {{ cohort.years }} years.</div>
+                {% endif %}
+            </div>
+        </details>
+        {% endfor %}
+
+        <details class="mp-accordion">
+            <summary class="mp-accordion-summary">
+                <div class="mp-accordion-copy">
+                    <span class="mp-accordion-eyebrow">Transfer Season</span>
+                    <h2>{{ workspace.northeast_transfer_candidates.label }}</h2>
+                    <p>
+                        Employees in Agartala, Sivasagar/SVS, Nazira, Jorhat, and Silchar with at least 3 years vintage as on May 2026.
+                    </p>
+                </div>
+                <div class="mp-accordion-meta">
+                    <span class="mp-accordion-count">{{ workspace.northeast_transfer_candidates.count }}</span>
+                    <span class="mp-accordion-label">Employees</span>
+                    <span class="mp-band-pill">&ge; 3 yrs</span>
+                    <span class="mp-accordion-toggle"><i class="bi bi-chevron-down"></i></span>
+                </div>
+            </summary>
+
+            <div class="mp-accordion-panel">
+                <div class="mp-empty-inline mp-empty-inline-compact">
+                    Covered locations: {{ workspace.northeast_transfer_candidates.locations|join(', ') }}
+                </div>
+                {% if workspace.northeast_transfer_candidates.employees %}
+                <div class="mp-location-table-wrap">
+                    <table class="mp-location-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Location</th>
+                                <th>Designation</th>
+                                <th>Current Position</th>
+                                <th>Vintage</th>
+                                <th>Date of Join Position</th>
+                                <th>Retirement</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for employee in workspace.northeast_transfer_candidates.employees %}
+                            <tr>
+                                <td>
+                                    <div class="mp-location-name">{{ employee.name }}</div>
+                                    <div class="mp-location-subtext">CPF {{ employee.cpf_no }} · {{ employee.base_location }}</div>
+                                </td>
+                                <td>
+                                    <a href="{{ url_for('manpower.location_detail', location_slug=employee.location_slug) }}" class="mp-inline-link">
+                                        {{ employee.location_name }}
+                                    </a>
+                                </td>
+                                <td>{{ employee.designation }}</td>
+                                <td>{{ employee.position }}</td>
+                                <td><span class="mp-band-pill">{{ employee.vintage_label }}</span></td>
+                                <td>{{ employee.date_of_join_position }}</td>
+                                <td>{{ employee.date_of_retirement }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="mp-empty-inline">No North East employees currently meet the 3-year vintage threshold.</div>
+                {% endif %}
+            </div>
+        </details>
+
+        {% for cohort in workspace.transfer_level_cohorts %}
+        <details class="mp-accordion">
+            <summary class="mp-accordion-summary">
+                <div class="mp-accordion-copy">
+                    <span class="mp-accordion-eyebrow">Transfer Planning</span>
+                    <h2>{{ cohort.label }}</h2>
+                    <p>Cross-location {{ cohort.level }} officer pool for transfer-season position planning.</p>
+                </div>
+                <div class="mp-accordion-meta">
+                    <span class="mp-accordion-count">{{ cohort.count }}</span>
+                    <span class="mp-accordion-label">Officers</span>
+                    <span class="mp-band-pill">{{ cohort.level }}</span>
+                    <span class="mp-accordion-toggle"><i class="bi bi-chevron-down"></i></span>
+                </div>
+            </summary>
+
+            <div class="mp-accordion-panel">
+                {% if cohort.employees %}
+                <div class="mp-location-table-wrap">
+                    <table class="mp-location-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Location</th>
+                                <th>Designation</th>
+                                <th>Current Position</th>
+                                <th>Vintage</th>
+                                <th>Retirement</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for employee in cohort.employees %}
+                            <tr>
+                                <td>
+                                    <div class="mp-location-name">{{ employee.name }}</div>
+                                    <div class="mp-location-subtext">CPF {{ employee.cpf_no }} · {{ employee.base_location }}</div>
+                                </td>
+                                <td>
+                                    <a href="{{ url_for('manpower.location_detail', location_slug=employee.location_slug) }}" class="mp-inline-link">
+                                        {{ employee.location_name }}
+                                    </a>
+                                </td>
+                                <td>{{ employee.designation }}</td>
+                                <td>{{ employee.position }}</td>
+                                <td><span class="mp-band-pill">{{ employee.vintage_label }}</span></td>
+                                <td>{{ employee.date_of_retirement }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="mp-empty-inline">No {{ cohort.level }} officers found in the current workbook.</div>
+                {% endif %}
+            </div>
+        </details>
+        {% endfor %}
+
+        <details class="mp-accordion">
+            <summary class="mp-accordion-summary">
+                <div class="mp-accordion-copy">
+                    <span class="mp-accordion-eyebrow">Location Registry</span>
+                    <h2>Location Summary</h2>
+                    <p>{{ workspace.largest_location }} currently has the largest roster in this seed.</p>
+                </div>
+                <div class="mp-accordion-meta">
+                    <span class="mp-accordion-count">{{ workspace.total_locations }}</span>
+                    <span class="mp-accordion-label">Locations</span>
+                    <span class="mp-accordion-toggle"><i class="bi bi-chevron-down"></i></span>
+                </div>
+            </summary>
+
+            <div class="mp-accordion-panel">
+                <div class="mp-location-table-wrap">
+                    <table class="mp-location-table">
+                        <thead>
+                            <tr>
+                                <th>Planning Location</th>
+                                <th>Manpower</th>
+                                <th>Avg Vintage</th>
+                                <th>Max Vintage</th>
+                                <th>Region</th>
+                                <th>Base Location</th>
+                                <th>Top Levels</th>
+                                <th>Vintage Mix</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for location in workspace.locations %}
+                            <tr>
+                                <td>
+                                    <div class="mp-location-name">{{ location.name }}</div>
+                                    <div class="mp-location-subtext">{{ location.retirements_within_two_years }} retiring within 2 years</div>
+                                </td>
+                                <td>{{ location.employee_count }}</td>
+                                <td>{{ location.average_vintage }}</td>
+                                <td>{{ location.max_vintage }}</td>
+                                <td>{{ location.primary_region }}</td>
+                                <td>{{ location.reported_locations }}</td>
+                                <td>{{ location.top_levels }}</td>
+                                <td>
+                                    <div class="mp-band-list">
+                                        {% for band in location.vintage_bands %}
+                                        <span class="mp-band-pill">{{ band.label }}: {{ band.count }}</span>
+                                        {% endfor %}
+                                    </div>
+                                </td>
+                                <td class="mp-location-action">
+                                    <a href="{{ url_for('manpower.location_detail', location_slug=location.slug) }}" class="btn btn-sm btn-primary">
+                                        Open Roster
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </details>
+    </div>
+    {% else %}
+    <div class="mp-empty-state">
+        <h2>Manpower seed not available</h2>
+        <p>{{ workspace.error_message }}</p>
+        <p class="mp-empty-path">{{ workspace.source_path }}</p>
+    </div>
+    {% endif %}
+</section>
+{% endblock %}

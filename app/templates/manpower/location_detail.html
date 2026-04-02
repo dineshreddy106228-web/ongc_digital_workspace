@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% block title %}{{ location.name }} — Manpower Planning{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/manpower.css') }}">
+{% endblock %}
+
+{% block content %}
+<section class="mp-page">
+    <div class="mp-detail-topbar">
+        <a href="{{ url_for('manpower.landing') }}" class="mp-back-link">
+            <i class="bi bi-arrow-left"></i> Back to location summary
+        </a>
+        <span class="mp-meta-chip">As on {{ workspace.as_of_date_label }}</span>
+    </div>
+
+    <div class="mp-hero mp-hero-detail">
+        <div class="mp-hero-copy">
+            <span class="mp-eyebrow">Planning Location</span>
+            <h1>{{ location.name }}</h1>
+            <p>{{ location.primary_region }} · {{ location.reported_locations }}</p>
+        </div>
+        <div class="mp-hero-meta">
+            <span class="mp-meta-chip">{{ location.employee_count }} employees</span>
+            <span class="mp-meta-chip">Avg vintage {{ location.average_vintage }} years</span>
+        </div>
+    </div>
+
+    <div class="mp-kpi-grid">
+        <article class="mp-kpi-card">
+            <span class="mp-kpi-label">Manpower</span>
+            <strong class="mp-kpi-value">{{ location.employee_count }}</strong>
+            <span class="mp-kpi-detail">Total roster in this planning bucket</span>
+        </article>
+        <article class="mp-kpi-card">
+            <span class="mp-kpi-label">Average Vintage</span>
+            <strong class="mp-kpi-value">{{ location.average_vintage }}</strong>
+            <span class="mp-kpi-detail">Average years in the present assignment</span>
+        </article>
+        <article class="mp-kpi-card">
+            <span class="mp-kpi-label">Max Vintage</span>
+            <strong class="mp-kpi-value">{{ location.max_vintage }}</strong>
+            <span class="mp-kpi-detail">Deepest assignment continuity in this location</span>
+        </article>
+        <article class="mp-kpi-card">
+            <span class="mp-kpi-label">Retiring in 2 Years</span>
+            <strong class="mp-kpi-value">{{ location.retirements_within_two_years }}</strong>
+            <span class="mp-kpi-detail">Immediate succession attention candidates</span>
+        </article>
+    </div>
+
+    <div class="mp-section-card mp-retirement-section">
+        <div class="mp-section-heading">
+            <div>
+                <h2>Retirement Watch</h2>
+                <p>
+                    {% if location.retirements_within_two_years %}
+                    {{ location.retirements_within_two_years }} employees in this location are retiring within the next 2 years.
+                    {% elif location.next_retirement_date %}
+                    No retirements in the next 2 years. Next retirement in this location is on {{ location.next_retirement_date }}.
+                    {% else %}
+                    No retirement dates are available for this location.
+                    {% endif %}
+                </p>
+            </div>
+        </div>
+
+        {% if location.upcoming_retirements %}
+        <div class="mp-retirement-grid">
+            {% for employee in location.upcoming_retirements %}
+            <article class="mp-retirement-card mp-retirement-card-{{ employee.retirement_tone }}">
+                <div class="mp-retirement-topline">
+                    <span class="mp-retirement-chip mp-retirement-chip-{{ employee.retirement_tone }}">
+                        {{ employee.retirement_horizon }}
+                    </span>
+                    <span class="mp-retirement-date">{{ employee.date_of_retirement }}</span>
+                </div>
+                <h3>{{ employee.name }}</h3>
+                <p>{{ employee.designation }} · {{ employee.level }}</p>
+                <div class="mp-retirement-meta">CPF {{ employee.cpf_no }} · {{ employee.base_location }}</div>
+            </article>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="mp-empty-inline">No future retirement dates found in this roster.</div>
+        {% endif %}
+    </div>
+
+    <div class="mp-section-card">
+        <div class="mp-section-heading">
+            <div>
+                <h2>Vintage Distribution</h2>
+                <p>Distribution of employees by completed years in the current assignment.</p>
+            </div>
+        </div>
+        <div class="mp-band-grid">
+            {% for band in location.vintage_bands %}
+            <article class="mp-band-card">
+                <span class="mp-band-card-label">{{ band.label }}</span>
+                <strong class="mp-band-card-value">{{ band.count }}</strong>
+            </article>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="mp-section-card">
+        <div class="mp-section-heading">
+            <div>
+                <h2>Employee Vintage</h2>
+                <p>Search by name, CPF, designation, level, or base location.</p>
+            </div>
+            <label class="mp-search">
+                <i class="bi bi-search"></i>
+                <input id="mpEmployeeSearch" type="search" placeholder="Filter roster">
+            </label>
+        </div>
+
+        <div class="mp-location-table-wrap">
+            <table class="mp-location-table mp-employee-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>CPF</th>
+                        <th>Designation</th>
+                        <th>Level</th>
+                        <th>Base Location</th>
+                        <th>Date of Join Position</th>
+                        <th>Vintage</th>
+                        <th>Date of Retirement</th>
+                    </tr>
+                </thead>
+                <tbody id="mpEmployeeTableBody">
+                    {% for employee in location.employees %}
+                    <tr class="{{ 'mp-row-retiring' if employee.is_retiring_soon else '' }}" data-search="{{ (employee.name ~ ' ' ~ employee.cpf_no ~ ' ' ~ employee.designation ~ ' ' ~ employee.level ~ ' ' ~ employee.base_location)|lower }}">
+                        <td>
+                            <div class="mp-location-name">{{ employee.name }}</div>
+                            <div class="mp-location-subtext">{{ employee.region }} · {{ employee.position }}</div>
+                        </td>
+                        <td>{{ employee.cpf_no }}</td>
+                        <td>{{ employee.designation }}</td>
+                        <td>{{ employee.level }}</td>
+                        <td>{{ employee.base_location }}</td>
+                        <td>{{ employee.date_of_join_position }}</td>
+                        <td><span class="mp-band-pill">{{ employee.vintage_label }}</span></td>
+                        <td>
+                            <div>{{ employee.date_of_retirement }}</div>
+                            {% if employee.retirement_tone != 'none' and employee.retirement_tone != 'past' %}
+                            <div class="mp-location-subtext">{{ employee.retirement_horizon }}</div>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="mp-search-result" id="mpSearchResult">{{ location.employee_count }} employees shown</div>
+    </div>
+</section>
+{% endblock %}
+
+{% block scripts_extra %}
+<script nonce="{{ csp_nonce() }}">
+(function () {
+    const input = document.getElementById('mpEmployeeSearch');
+    const rows = Array.from(document.querySelectorAll('#mpEmployeeTableBody tr'));
+    const result = document.getElementById('mpSearchResult');
+    if (!input || !rows.length || !result) return;
+
+    input.addEventListener('input', function () {
+        const term = input.value.trim().toLowerCase();
+        let visible = 0;
+        rows.forEach(function (row) {
+            const match = !term || row.dataset.search.indexOf(term) !== -1;
+            row.hidden = !match;
+            if (match) visible += 1;
+        });
+        result.textContent = visible + ' employees shown';
+    });
+})();
+</script>
+{% endblock %}

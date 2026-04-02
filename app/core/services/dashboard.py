@@ -27,12 +27,13 @@ from app.models.tasks.task_office import TaskOffice
 CLOSED_TASK_STATUSES = ("Completed", "Cancelled")
 PENDING_UPDATE_STATUSES = ("Not Started", "On Hold")
 COMMITTEE_CLOSED_STATUSES = ("done",)
-SHOWCASE_MODULE_KEYS = ("office_management", "csc_workflow", "inventory")
+SHOWCASE_MODULE_KEYS = ("office_management", "csc_workflow", "inventory", "manpower_planning")
 ADMIN_SHOWCASE_MODULE_KEYS = ("admin_users",)
 MODULE_ICON_MAP = {
     "office_management": "bi-list-task",
     "csc_workflow": "bi-diagram-3",
     "inventory": "bi-box-seam",
+    "manpower_planning": "bi-people-fill",
     "admin_users": "bi-people",
 }
 INDIA_TIMEZONE = ZoneInfo("Asia/Kolkata")
