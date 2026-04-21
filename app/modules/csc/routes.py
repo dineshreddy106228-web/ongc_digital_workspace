@@ -3312,7 +3312,11 @@ def _material_master_export_headers() -> list[tuple[str, str]]:
         ("material_code", "Material Code"),
         *MASTER_DATA_FIELDS,
         *[(f"extra__{field_name}", label) for field_name, label in MASTER_EXTRA_FIELDS],
+        *MASTER_IMPACT_FIELDS,
     ]
+
+
+_MATERIAL_MASTER_IMPACT_FIELD_NAMES = {field_name for field_name, _ in MASTER_IMPACT_FIELDS}
 
 
 def _material_master_export_value(values: dict[str, object], field_name: str) -> str:
@@ -3324,6 +3328,9 @@ def _material_master_export_value(values: dict[str, object], field_name: str) ->
         if isinstance(extra_data, dict):
             return str(extra_data.get(extra_key) or values.get(field_name) or "").strip()
         return str(values.get(field_name) or "").strip()
+    extra_data = values.get("extra_data") or {}
+    if isinstance(extra_data, dict) and field_name in _MATERIAL_MASTER_IMPACT_FIELD_NAMES:
+        return str(extra_data.get(field_name) or values.get(field_name) or "").strip()
     return str(values.get(field_name) or "").strip()
 
 

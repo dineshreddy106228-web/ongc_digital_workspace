@@ -42,3 +42,6 @@ storage/msds/
 .DS_Store
 
 .cache/
+
+# Generated CSC workflow artifacts
+CSC Workflow Automation /generated_pdfs/
