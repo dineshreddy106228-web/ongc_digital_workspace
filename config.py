@@ -128,7 +128,7 @@ class Config:
     )
     ENABLE_MANPOWER_PLANNING = _as_bool(
         os.environ.get("ENABLE_MANPOWER_PLANNING"),
-        default=True,
+        default=False,
     )
     ENABLE_CSC = _as_bool(
         os.environ.get("ENABLE_CSC"),
