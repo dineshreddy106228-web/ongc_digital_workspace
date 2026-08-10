@@ -754,6 +754,9 @@ def _build_module_showcase(user, app=None) -> list[dict]:
             )
             continue
 
+        if not feature_ready:
+            continue
+
         clickable = user_can_access_module(key, user, app)
         cards.append(
             {
