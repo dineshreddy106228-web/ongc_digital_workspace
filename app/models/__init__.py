@@ -26,6 +26,8 @@ from app.models.inventory.inventory_procurement_seed import InventoryProcurement
 from app.models.inventory.monthly_upload_batch import InventoryMonthlyUploadBatch  # noqa: F401
 from app.models.inventory.material_master import MaterialMaster              # noqa: F401
 from app.models.inventory.msds_file import MSDSFile                          # noqa: F401
+from app.models.quality_control.qc_upload_batch import QCUploadBatch         # noqa: F401
+from app.models.quality_control.qc_sample import QCSample                    # noqa: F401
 from app.models.csc.draft import CSCDraft                                    # noqa: F401
 from app.models.csc.parameter import CSCParameter                            # noqa: F401
 from app.models.csc.section import CSCSection                                # noqa: F401

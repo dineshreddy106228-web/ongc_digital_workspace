@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Import Weekly QC Data{% endblock %}
+{% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}">{% endblock %}
+{% block content %}<div class="page-wrapper"><div class="inv-page">
+<div class="inv-module-header"><div><h1 class="inv-module-title"><i class="bi bi-file-earmark-arrow-up"></i> Import Weekly QC Data</h1><p class="inv-module-subtitle">Upload the standard weekly laboratory tracker. The period is read directly from its title.</p></div></div>
+{% include "quality_control/_subnav.html" %}
+<section class="card"><div class="card-body"><h2 class="inv-card-title">Weekly Excel Workbook</h2><p class="inv-card-subtitle">Re-importing the same reporting week updates that batch while keeping the sample database current.</p><form method="POST" enctype="multipart/form-data" class="inv-seed-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><div class="inv-seed-input-grid"><div class="inv-seed-input-group"><label for="qcWorkbook" class="inv-filter-label">Weekly QC data file</label><input id="qcWorkbook" name="qc_workbook" type="file" class="form-control" accept=".xlsx,.xls" required><div class="inv-seed-input-meta">Required headings: Chemical Name, sample receipt date, report date, pass/fail, and remarks.</div></div></div><div class="inv-seed-actions"><button type="submit" class="btn btn-primary"><i class="bi bi-database-add"></i> Import into QC Database</button></div></form></div></section>
+{% if batch %}<section class="card" style="margin-top:1rem"><div class="card-body"><h2 class="inv-card-title">Latest available data</h2><p>{{ batch.report_label }} · {{ summary.total }} samples loaded. Importing another file for this period will replace its weekly source record.</p></div></section>{% endif %}
+</div></div>{% endblock %}
