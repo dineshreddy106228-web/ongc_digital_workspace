@@ -138,7 +138,13 @@
 
           <div class="form-group" style="margin-bottom: 1rem;">
             <label class="form-label" for="backup_file">Select Backup File</label>
-            <input type="file" id="backup_file" name="backup_file" class="form-control" accept=".tar.gz,.sql,.sql.gz" required>
+            {# Browsers match `accept` on the final extension only, so a .tar.gz file reads
+               as .gz and a list of compound extensions greys it out in the picker. List the
+               real trailing extensions and MIME types; the exact suffix is checked below and
+               enforced server-side. #}
+            <input type="file" id="backup_file" name="backup_file" class="form-control"
+                   accept=".gz,.tar,.sql,.tar.gz,.sql.gz,application/gzip,application/x-gzip,application/x-tar,application/sql,text/plain"
+                   required>
             <div class="form-hint">Accepted formats: .tar.gz, .sql, .sql.gz. Full bundles restore the database and committee attachments; stored MSDS PDFs are not part of a bundle and need re-uploading afterwards. Legacy SQL restores the database only.</div>
           </div>
 
@@ -241,9 +247,19 @@
               );
             }
 
+            const SUPPORTED_SUFFIXES = ['.tar.gz', '.sql.gz', '.sql'];
+
             startBtn.addEventListener('click', function() {
               if (!fileInput.value) {
                 alert('Please select a backup file first.');
+                return;
+              }
+              const chosen = fileInput.files.length ? fileInput.files[0].name : fileInput.value;
+              const supported = SUPPORTED_SUFFIXES.some(function(suffix) {
+                return chosen.toLowerCase().endsWith(suffix);
+              });
+              if (!supported) {
+                alert('"' + chosen + '" is not a backup file.\n\nChoose a file ending in .tar.gz, .sql.gz or .sql.');
                 return;
               }
               selectedFile.textContent = fileInput.files.length ? fileInput.files[0].name : fileInput.value;
