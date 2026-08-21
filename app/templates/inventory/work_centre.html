@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}{{ centre.name }} · Inventory Review{% endblock %}
+{% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory_monitoring.css') }}">{% endblock %}
+{% macro cr(v) %}₹ {{ '{:,.2f}'.format((v or 0) / 10000000) }} Cr{% endmacro %}
+{% macro delta(cur, prev) %}{% if prev is not none %}{% set d = (cur or 0) - (prev or 0) %}{% if d > 0 %}<span class="im-delta is-up"><i class="bi bi-arrow-up-short"></i>{{ cr(d) }}</span>{% elif d < 0 %}<span class="im-delta is-down"><i class="bi bi-arrow-down-short"></i>{{ cr(-d) }}</span>{% else %}<span class="im-delta is-flat">No change</span>{% endif %}{% else %}<span class="im-delta is-flat">No comparison</span>{% endif %}{% endmacro %}
+{% from "inventory/_spec_sections.html" import spec_heading, spec_more %}
+{% from "inventory/_monitoring_nav.html" import monitoring_nav %}
+{% block content %}<div class="page-wrapper im-page">
+{{ monitoring_nav('health') }}
+<nav class="im-breadcrumb"><a href="{{ url_for('inventory.landing') }}"><i class="bi bi-arrow-left"></i> Inventory Monitoring</a><span>/</span><a href="{{ url_for('inventory.health') }}">Inventory Health</a><span>/</span><strong>{{ centre.name }}</strong></nav>
+
+<section class="im-centre-health-hero">
+  <div>
+    <span class="im-kicker">{{ centre.zone or 'Unassigned zone' }} · {{ selected_unit or 'Combined asset status' }}</span>
+    <h1>{{ centre.name }}</h1>
+    <p>Management review for this work centre: every mapped chemical it holds{% if reporting_date %} as on {{ reporting_date.strftime('%d %b %Y') }}{% endif %} — Groups 09 and 10 counted together — with coverage bands, movement against an earlier date, and the source-reported non-moving, aged, surplus and transit cases.</p>
+    {% if available_units %}<div class="im-unit-switcher"><a class="{{ 'is-active' if not selected_unit else '' }}" href="{{ url_for('inventory.work_centre', work_center_id=centre.id) }}">Combined</a>{% for unit in available_units %}<a class="{{ 'is-active' if selected_unit == unit else '' }}" href="{{ url_for('inventory.work_centre', work_center_id=centre.id, unit=unit) }}">{{ unit }}</a>{% endfor %}</div>{% endif %}
+  </div>
+  <aside class="im-wc-actions">
+    {% if kpis.line_count %}<a class="im-pf-download" href="{{ url_for('inventory.download_work_centre_presentation', work_center_id=centre.id, unit=selected_unit or none, compare_date=previous_date.isoformat() if previous_date else none) }}"><i class="bi bi-file-earmark-ppt"></i> Download presentation</a>{% endif %}
+    <form class="im-pf-period" method="get" action="{{ url_for('inventory.work_centre', work_center_id=centre.id) }}">
+      {% if selected_unit %}<input type="hidden" name="unit" value="{{ selected_unit }}">{% endif %}
+      <div class="im-pf-period-grid">
+        <div>
+          <label for="wcCompare">Compare with</label>
+          <select id="wcCompare" name="compare_date" class="form-select form-select-sm" {{ 'disabled' if not comparison_dates }}>
+            {% for d in comparison_dates %}<option value="{{ d.isoformat() }}" {{ 'selected' if d == previous_date }}>{{ d.strftime('%d %b %Y') }}{% if loop.first %} · latest earlier{% endif %}</option>{% else %}<option>No earlier date</option>{% endfor %}
+          </select>
+        </div>
+        <button class="btn btn-sm" type="submit">Apply</button>
+      </div>
+      <small>{% if comparison %}{{ comparison.gap_days }} days apart · like-for-like on {{ comparison.common_materials }} materials{% else %}Only one reporting date available{% endif %}</small>
+    </form>
+    <a class="im-wc-link" href="{{ url_for('inventory.health') }}"><i class="bi bi-heart-pulse"></i> Portfolio health</a>
+  </aside>
+</section>
+
+{% if unmapped.count and not selected_unit %}
+<div class="im-pf-pending"><i class="bi bi-diagram-3"></i><span><strong>{{ unmapped.count }} stock lines</strong> ({{ unmapped.materials }} materials, {{ cr(unmapped.value) }}) are held at this work centre on material the current mapping workbook does not link to it, so they are excluded from every figure below.</span><a href="{{ url_for('inventory.exceptions') }}">Review the mapping</a></div>
+{% endif %}
+
+{% if not kpis.line_count %}
+<div class="im-empty"><i class="bi bi-inboxes"></i><strong>No mapped stock at this work centre</strong><span>Once a Group 09 or Group 10 workbook reports stock for a material mapped to this centre, the review appears here.</span><a class="btn btn-primary btn-sm" href="{{ url_for('inventory.imports') }}">Import workbooks</a></div>
+{% else %}
+
+<section class="im-pf-kpis">
+  <article class="im-pf-kpi">
+    <span>Inventory held here</span>
+    <strong>{{ cr(kpis.total_value) }}</strong>
+    {{ delta(kpis.total_value, kpis.prev_total_value) }}
+    <small>Groups 09 and 10 combined · {{ kpis.line_count }} stock lines · {{ kpis.material_count }} materials</small>
+  </article>
+  <article class="im-pf-kpi is-risk">
+    <span>Working capital at risk</span>
+    <strong>{{ cr(kpis.value_at_risk) }}</strong>
+    {{ delta(kpis.value_at_risk, kpis.prev_value_at_risk) }}
+    <small>{{ kpis.at_risk_share }}% of centre value in slow-moving or excess bands</small>
+  </article>
+  <article class="im-pf-kpi is-risk">
+    <span>Stock-out exposure</span>
+    <strong>{{ cr(kpis.stockout_value) }}</strong>
+    {{ delta(kpis.stockout_value, kpis.prev_stockout_value) }}
+    <small>{{ kpis.stockout_share }}% of centre value at or below low-stock coverage</small>
+  </article>
+  <article class="im-pf-kpi">
+    <span>Share of all-ONGC portfolio</span>
+    <strong>{{ kpis.portfolio_share }}%</strong>
+    <span class="im-delta is-flat">of {{ cr(kpis.portfolio_value) }} monitored</span>
+    <small>Mapped Group 09 and 10 stock in the same source workbooks</small>
+  </article>
+  <article class="im-pf-kpi">
+    <span>Source-reported cases</span>
+    <strong>{{ kpis.source_case_count }}</strong>
+    <span class="im-delta is-flat">{{ cr(kpis.source_case_value) }}</span>
+    <small>Non-moving, aged, surplus and transit rows from the workbook</small>
+  </article>
+  <article class="im-pf-kpi">
+    <span>Position as on</span>
+    <strong>{{ reporting_date.strftime('%d %b %Y') if reporting_date else '—' }}</strong>
+    <span class="im-delta is-flat">{{ selected_unit or 'Combined asset' }}</span>
+    <small>{% set dates = as_on_by_group.values()|select|list|unique|list %}{% if dates|length > 1 %}Mixed source dates: {% for group, value in as_on_by_group.items()|sort %}Group {{ group }} as on {{ value.strftime('%d %b %Y') if value else '—' }}{{ ', ' if not loop.last }}{% endfor %}{% else %}All monitored chemicals, Groups 09 and 10 counted together{% endif %}</small>
+  </article>
+</section>
+
+<div class="im-two-col im-pf-two-col">
+  <section class="card im-pf-card"><div class="card-body">
+    <div class="im-section-heading"><div><span>Stock health</span><h2>Value by coverage band</h2><p>Every mapped stock line at this centre banded against the configured thresholds.</p></div></div>
+    <div class="im-mix-bar" role="img" aria-label="Inventory value split by coverage band">
+      {% for m in health_mix %}<i class="im-mix-{{ m.key }}" style="width:{{ m.share }}%" title="{{ m.label }}: {{ m.share }}%"></i>{% endfor %}
+    </div>
+    <div class="im-table-wrap"><table class="im-pf-table">
+      <thead><tr><th>Coverage band</th><th class="im-num">Lines</th><th class="im-num">Value</th><th>Share of centre</th>{% if previous_date %}<th class="im-num">Vs {{ previous_date.strftime('%d %b') }}</th>{% endif %}</tr></thead>
+      <tbody>
+        {% for m in health_mix %}<tr><td><b class="im-mix-dot im-mix-{{ m.key }}"></b>{{ m.label }}</td><td class="im-num">{{ m.count }}</td><td class="im-num im-value">{{ cr(m.value) }}</td><td><div class="im-share-cell"><div class="im-share-track"><i style="width:{{ m.share }}%"></i></div><b>{{ m.share }}%</b></div></td>{% if previous_date %}<td class="im-num">{{ delta(m.value, m.prev) }}</td>{% endif %}</tr>
+        {% else %}<tr class="im-pf-empty-row"><td colspan="5">No mapped stock lines were classified.</td></tr>{% endfor %}
+      </tbody>
+    </table></div>
+  </div></section>
+  <section class="card im-pf-card"><div class="card-body">
+    <div class="im-section-heading"><div><span>Period movement</span><h2>Largest movers</h2></div></div>
+    {% if comparison %}
+      <div class="im-pf-scope">
+        <div><span>Like-for-like</span><strong>{{ cr(comparison.like_for_like_delta) }}</strong><small>{{ comparison.common_materials }} materials held in both periods{% if comparison.like_for_like_change is not none %} · {{ '%+.1f'|format(comparison.like_for_like_change) }}%{% endif %}</small></div>
+        <div class="{{ 'im-pf-scope-warn' if comparison.entrant_count or comparison.exit_count }}"><span>Scope difference</span><strong>{{ comparison.entrant_count }} in · {{ comparison.exit_count }} out</strong><small>{% if comparison.entrant_count or comparison.exit_count %}{{ cr(comparison.entrant_value) }} appears only now, {{ cr(comparison.exit_value) }} held only on {{ comparison.previous_date.strftime('%d %b') }}{% else %}Both dates cover the same materials{% endif %}</small></div>
+      </div>
+      {% if movers.up %}<h3 class="im-mover-heading">Build-ups</h3><ul class="im-mover-list">{% for m in movers.up %}<li><span>{{ m.code }} · {{ m.description or '—' }}</span><b class="is-up">▲ {{ cr(m.delta) }}</b></li>{% endfor %}</ul>{% endif %}
+      {% if movers.down %}<h3 class="im-mover-heading">Draw-downs</h3><ul class="im-mover-list">{% for m in movers.down %}<li><span>{{ m.code }} · {{ m.description or '—' }}</span><b class="is-down">▼ {{ cr(-m.delta) }}</b></li>{% endfor %}</ul>{% endif %}
+      {% if not movers.up and not movers.down %}<p class="im-pf-muted">No material held in both dates changed its value.</p>{% endif %}
+      {% if entrants %}<h3 class="im-mover-heading">Held only now</h3><ul class="im-mover-list">{% for m in entrants[:3] %}<li><span>{{ m.code }} · {{ m.description or '—' }}</span><b class="is-up">{{ cr(m.value) }}</b></li>{% endfor %}</ul>{% endif %}
+      {% if exits %}<h3 class="im-mover-heading">No longer held</h3><ul class="im-mover-list">{% for m in exits[:3] %}<li><span>{{ m.code }} · {{ m.description or '—' }}</span><b class="is-down">{{ cr(m.value) }} on {{ comparison.previous_date.strftime('%d %b') }}</b></li>{% endfor %}</ul>{% endif %}
+    {% else %}<p class="im-pf-muted">Movement appears once this work centre has a second reporting date.</p>{% endif %}
+  </div></section>
+</div>
+
+<section class="im-health-cards"><a href="#critical"><span>Critical low stock</span><strong>{{ groups.critical_low_stock|length }}</strong><small>immediate replenishment action</small></a><a href="#low"><span>Low stock</span><strong>{{ groups.low_stock|length }}</strong><small>plan replenishment</small></a><a href="#slow"><span>Slow-moving</span><strong>{{ groups.slow_moving_stock|length }}</strong><small>review consumption / transfer</small></a><a href="#excess"><span>Excess stock</span><strong>{{ groups.excess_stock|length }}</strong><small>stop-buy / redeploy review</small></a></section>
+
+{% for anchor, title, note, key, tone in [('critical', 'Critical low stock', '≤ ' ~ thresholds.critical_low_stock_months ~ ' months: act now.', 'critical_low_stock', 'critical'), ('low', 'Low stock', '≤ ' ~ thresholds.low_stock_months ~ ' months: plan replenishment.', 'low_stock', 'low'), ('slow', 'Slow-moving stock', '≥ ' ~ thresholds.slow_moving_months ~ ' months: review consumption and transfers.', 'slow_moving_stock', 'slow'), ('excess', 'Excess stock', '≥ ' ~ thresholds.excess_stock_months ~ ' months: stop buying or redeploy.', 'excess_stock', 'excess')] %}{% set records = groups[key] %}<section id="{{ anchor }}" class="card im-health-register"><div class="card-body"><div class="im-card-heading"><div><span class="im-health-label im-health-{{ tone }}">{{ title }}</span><h2>{{ title }}</h2><p>{{ note }}</p></div><strong>{{ records|length }} materials</strong></div><div class="im-table-wrap im-health-table-wrap"><table class="table im-health-table"><thead><tr><th class="im-material-col">Material</th><th class="im-number-col">Months</th><th class="im-number-col">Quantity</th><th class="im-number-col">Inventory value</th></tr></thead><tbody>{% for group in spec_groups[key] %}{{ spec_heading(group, 4) }}{% for row in group.rows %}<tr><td><span class="im-material-code">{{ row.material_code }}</span><small>{{ row.material_description or '—' }}</small></td><td class="im-number-col"><span class="im-month-chip im-month-{{ tone }}">{{ row.stock_months }}</span></td><td class="im-number-col">{{ '{:,.2f}'.format(row.stock_qty or 0) }}<small>{{ row.uom or '—' }}</small></td><td class="im-number-col"><strong>₹ {{ '{:,.0f}'.format(row.inventory_value_inr or 0) }}</strong><small>INR</small></td></tr>{% endfor %}{% else %}<tr><td colspan="4">No materials in this category.</td></tr>{% endfor %}</tbody></table></div></div></section>{% endfor %}
+
+<section class="im-source-findings"><div class="im-card-heading"><div><span class="im-kicker">Workbook-confirmed items</span><h2>Non-moving, aged, surplus and transit cases</h2><p>These are reported directly by the source inventory workbook—not inferred from stock months.</p></div><strong>{{ source_findings|length }} reported cases</strong></div><div class="im-table-wrap im-source-table-wrap"><table class="table im-source-table"><thead><tr><th>Condition</th><th>Material code</th><th>Chemical / material name</th><th>Source evidence</th></tr></thead><tbody>{% for group in source_spec_groups %}{{ spec_heading(group, 4) }}{% for item in group.rows %}<tr><td><span class="im-status im-status-muted">{{ item.exception_type|replace('_', ' ')|title }}</span></td><td><span class="im-material-code">{{ item.material.material_code if item.material else '—' }}</span></td><td><strong>{{ item.material.description if item.material and item.material.description else 'Description not supplied in the source workbook' }}</strong></td><td>{{ item.details }}</td></tr>{% endfor %}{% else %}<tr><td colspan="4">No workbook-confirmed non-moving, aged, surplus or transit cases.</td></tr>{% endfor %}</tbody></table></div></section>
+
+{% endif %}
+</div>{% endblock %}

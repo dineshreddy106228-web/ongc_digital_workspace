@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+{% block title %}{{ entry.spec_number }} — Corporate Specifications — {{ app_name }}{% endblock %}
+{% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/corporate_specifications.css') }}">{% endblock %}
+{% from "csc/_specs_nav.html" import specs_nav %}
+{% from "csc/_spec_blocks.html" import value_groups %}
+{% block content %}<div class="page-wrapper cs-page">
+  {{ specs_nav() }}
+
+  <nav class="cs-breadcrumb" aria-label="Breadcrumb">
+    <a href="{{ url_for('csc.index') }}">Corporate Specifications</a> <span>/</span>
+    <a href="{{ url_for('csc.category', key=entry.category) }}">{{ entry.category_label }}</a> <span>/</span>
+    <span>{{ entry.spec_number }}</span>
+  </nav>
+
+  <div class="cs-title">
+    <div>
+      <span>{{ entry.category_label }}</span>
+      <h1>{{ entry.chemical_name }}</h1>
+      <p>{{ entry.spec_number }}{% if entry.material_code %} · Material code {{ entry.material_code }}{% endif %}{% if record %} · Version {{ entry.version }}{% endif %}</p>
+    </div>
+    <div class="cs-title-actions">
+      {% if record %}<a class="btn btn-secondary" href="{{ url_for('csc.specification_dossier', ref=entry.ref) }}"><i class="bi bi-file-earmark-word"></i> Download dossier</a>{% endif %}
+      {% if csc_is_module_admin %}
+        {% if record %}
+        <a class="btn btn-primary" href="{{ url_for('csc.edit_specification', ref=entry.ref) }}"><i class="bi bi-pencil-square"></i> Modify specification</a>
+        {% else %}
+        <form method="POST" action="{{ url_for('csc.open_specification_record', ref=entry.ref) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn btn-primary" type="submit"><i class="bi bi-plus-lg"></i> Enter specification parameters</button>
+        </form>
+        {% endif %}
+      {% endif %}
+      <a class="btn btn-secondary" href="{{ url_for('csc.category', key=entry.category) }}"><i class="bi bi-arrow-left"></i> Back</a>
+    </div>
+  </div>
+
+  <div class="cs-detail">
+    <div>
+      {% if record and parameters %}
+      <section class="cs-doc">
+        <header class="cs-doc-head">
+          <div><span>Corporate Specification for Oil Field Chemicals</span><strong>{{ entry.spec_number }}</strong></div>
+          <span class="cs-pill is-version">Version {{ entry.version }}</span>
+        </header>
+        <table class="cs-doc-info"><tbody>
+          <tr><th>Chemical Name</th><td>{{ record.chemical_name or '—' }}</td></tr>
+          <tr><th>Specification No.</th><td>{{ record.spec_number or '—' }}</td></tr>
+          <tr><th>Test Procedure</th><td>{{ test_procedure or '—' }}</td></tr>
+          <tr><th>Material Code</th><td>{{ covered_materials or record.material_code or '—' }}</td></tr>
+        </tbody></table>
+        <table class="cs-param-table">
+          <thead><tr><th class="is-serial">S. No.</th><th>Parameter</th><th>Required Value</th></tr></thead>
+          <tbody>
+            {% for parameter in parameters %}
+            <tr>
+              <td class="is-serial">{{ loop.index }}</td>
+              <td>
+                <div class="cs-param-name">{{ parameter.parameter_name }}{% if parameter.parameter_type %}<span class="cs-param-type">({{ parameter.parameter_type }})</span>{% endif %}</div>
+                {% if parameter.conditions %}<div class="cs-param-note">{{ parameter.conditions }}</div>{% endif %}
+                {% if parameter.remarks %}<div class="cs-param-note">Remarks: {{ parameter.remarks }}</div>{% endif %}
+              </td>
+              <td>
+                <div class="cs-param-req">{{ parameter.requirement }}{% if parameter.unit_of_measure %} {{ parameter.unit_of_measure }}{% endif %}</div>
+                {% if parameter.test_method %}<div class="cs-param-note">Method: {{ parameter.test_method }}</div>{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+      {% else %}
+      <div class="cs-empty">
+        <i class="bi bi-file-earmark-plus"></i>
+        <strong>No parameters recorded yet</strong>
+        <p>{{ entry.chemical_name }} is on the corporate specification register as {{ entry.spec_number }}, but its parameters have not been entered into the system.{% if csc_is_module_admin %} Use the button above to enter them.{% else %} A module admin can enter them.{% endif %}</p>
+      </div>
+      {% endif %}
+
+      {% for narrative in narratives if narrative.text %}
+      <section class="cs-block">
+        <div class="cs-block-head"><div><h2>{{ narrative.label }}</h2></div></div>
+        <div class="cs-block-body"><div class="cs-panel-text">{{ narrative.text }}</div></div>
+      </section>
+      {% endfor %}
+
+      {% if record and revision_draft %}
+      <div class="cs-notice">
+        <i class="bi bi-info-circle"></i>
+        <div>
+          <b>Some supporting detail is read from an unpublished revision draft</b>
+          <p>This specification has a committee revision draft that was never published. Where the specification
+          record itself is blank, the material properties, storage detail, impact assessment and narrative below are
+          taken from that draft.{% if csc_is_module_admin %} Saving from the editor commits those values onto the
+          specification record.{% endif %}</p>
+        </div>
+      </div>
+      {% endif %}
+
+      {% if record %}
+      <section class="cs-block">
+        <div class="cs-block-head">
+          <div><h2>Impact assessment</h2><p>The ten-flag CSC checklist — five red flags, five amber.</p></div>
+          {% if impact.from_revision %}<span class="cs-pill is-offregister"><i class="bi bi-journal-text"></i> From revision draft</span>
+          {% elif not impact.recorded %}<span class="cs-pill is-awaiting"><i class="bi bi-hourglass-split"></i> Not assessed</span>{% endif %}
+        </div>
+        <div class="cs-block-body">
+          <div class="cs-impact-banner is-{{ impact.tone }}">
+            <div><b>{{ impact.classification }}{% if impact.confidence %} · {{ impact.confidence }}{% endif %}</b><small>{{ impact.rule }}</small></div>
+            <div class="cs-impact-counts">
+              <div><span>Red YES</span><strong>{{ impact.red_yes_count }}/5</strong></div>
+              <div><span>Amber YES</span><strong>{{ impact.amber_yes_count }}/5</strong></div>
+              <div><span>Answered</span><strong>{{ impact.answered_count }}/{{ impact.total_flags }}</strong></div>
+            </div>
+          </div>
+          <div class="cs-flags">
+            {% for flag in impact.flags %}
+            <div class="cs-flag is-{{ flag.type }}">
+              <div>
+                <b>{{ flag.order }}. {{ flag.dimension }}</b>
+                <p>{{ flag.question }}</p>
+                <small>Source: {{ flag.source }}</small>
+              </div>
+              <span class="cs-answer is-{{ flag.value }}">{{ flag.value }}</span>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+
+      <section class="cs-block">
+        <div class="cs-block-head">
+          <div><h2>Material properties and hazard profile</h2><p>Held on the material master row for code {{ record.material_code or '—' }}.</p></div>
+        </div>
+        <div class="cs-block-body">{{ value_groups(material_properties, 'No material properties have been recorded for this material yet.') }}</div>
+      </section>
+
+      <section class="cs-block">
+        <div class="cs-block-head">
+          <div><h2>Storage, packing and handling</h2><p>Storage conditions, packing configurations and storage classification.</p></div>
+        </div>
+        <div class="cs-block-body">{{ value_groups(storage, 'No storage or packing detail has been recorded for this material yet.') }}</div>
+      </section>
+
+      <section class="cs-block">
+        <div class="cs-block-head">
+          <div><h2>Issue register</h2><p>Standing operational, quality, supply and testing concerns.</p></div>
+        </div>
+        <div class="cs-block-body"><div class="cs-issues">
+          {% for issue in issues %}
+          <div class="cs-issue {{ 'is-flagged' if issue.is_present }}">
+            <span class="cs-pill {{ 'is-awaiting' if issue.is_present else 'is-ready' }}">{{ 'Flagged' if issue.is_present else 'Clear' }}</span>
+            <div><b>{{ issue.label }}</b>{% if issue.note %}<p>{{ issue.note }}</p>{% endif %}</div>
+          </div>
+          {% endfor %}
+        </div></div>
+      </section>
+      {% endif %}
+    </div>
+
+    <aside class="cs-side">
+      <section class="cs-panel">
+        <h3>Revision history</h3>
+        <p>Every change to this specification is versioned with the reason it was made.</p>
+        {% if versions %}
+        <ul class="cs-versions">
+          {% for version in versions %}
+          <li class="{{ 'is-current' if version.is_current }}">
+            <b>Version {{ version.version }}{% if version.is_current %} · current{% endif %}</b>
+            <span>{{ version.created_at|datetime_ist('%d %b %Y %I:%M %p') }} · {{ version.created_by }}</span>
+            {% if version.reason %}<p>{{ version.reason }}</p>{% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="cs-panel-text">No revision has been recorded through this module yet. The specification currently stands at version {{ entry.version or '1' }}.</div>
+        {% endif %}
+      </section>
+
+      {% if identity %}
+      <section class="cs-panel">
+        <h3>Material master</h3>
+        <p>Identity of the material this specification governs.</p>
+        <ul class="cs-versions">
+          {% for row in identity %}<li><b>{{ row.value }}</b><span>{{ row.label }}</span></li>{% endfor %}
+        </ul>
+      </section>
+      {% endif %}
+
+      {% if shared_with %}
+      <section class="cs-panel">
+        <h3>Also covered by this specification</h3>
+        <p>The same specification record governs these register chemicals.</p>
+        <ul class="cs-versions">
+          {% for other in shared_with %}
+          <li><b><a href="{{ url_for('csc.specification', ref=other.ref) }}">{{ other.chemical_name }}</a></b><span>{{ other.material_code or 'No material code' }}</span></li>
+          {% endfor %}
+        </ul>
+      </section>
+      {% endif %}
+
+      <section class="cs-panel">
+        <h3>Register entry</h3>
+        <p>As held on the corporate specification register shared with QC Laboratory Monitoring.</p>
+        <div class="cs-panel-text">{% if entry.on_register %}On the register{% if entry.standard_days %} · standard testing time {{ entry.standard_days }} day{{ '' if entry.standard_days == 1 else 's' }}{% endif %}{% if entry.remarks %}
+{{ entry.remarks }}{% endif %}{% else %}Held in the system but not listed on the corporate specification register.{% endif %}</div>
+      </section>
+
+      {% if entry.material_code %}
+      <section class="cs-panel">
+        <h3>Safety data</h3>
+        <p>Material safety data sheets stored against material {{ entry.material_code }}.</p>
+        <a class="btn btn-secondary btn-sm" href="{{ url_for('csc.msds_page', material_code=entry.material_code) }}"><i class="bi bi-file-earmark-pdf"></i> Open in MSDS Center</a>
+      </section>
+      {% endif %}
+    </aside>
+  </div>
+</div>{% endblock %}

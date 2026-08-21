@@ -107,6 +107,12 @@
           <strong>Important:</strong> this app records that a download was triggered, but the actual bundle is only saved wherever the admin downloads it.
         </div>
         <div class="backup-note backup-note-warning">
+          <strong>MSDS PDFs are not included.</strong> The stored safety-data-sheet files are left out to keep the
+          bundle small, so a restore recreates the MSDS Center empty and the PDFs must be re-uploaded. The bundle
+          carries <code>excluded_files.json</code> listing every skipped file by material code, slot and filename,
+          so you know exactly what to restore.
+        </div>
+        <div class="backup-note backup-note-warning">
           <strong>Runtime requirement:</strong> the deployment environment must include
           <code>mysqldump</code>. On Railway this usually means adding a MySQL client package
           to the service image.
@@ -133,7 +139,7 @@
           <div class="form-group" style="margin-bottom: 1rem;">
             <label class="form-label" for="backup_file">Select Backup File</label>
             <input type="file" id="backup_file" name="backup_file" class="form-control" accept=".tar.gz,.sql,.sql.gz" required>
-            <div class="form-hint">Accepted formats: .tar.gz, .sql, .sql.gz. Full bundles restore the database and committee attachments. Legacy SQL restores the database only.</div>
+            <div class="form-hint">Accepted formats: .tar.gz, .sql, .sql.gz. Full bundles restore the database and committee attachments; stored MSDS PDFs are not part of a bundle and need re-uploading afterwards. Legacy SQL restores the database only.</div>
           </div>
 
           <div class="backup-meta-card" style="margin-bottom: 1rem;">

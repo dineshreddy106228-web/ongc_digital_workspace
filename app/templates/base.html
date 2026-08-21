@@ -312,14 +312,11 @@
     <div class="container">
         {% set workflow_nav_endpoints = [
             'csc.index',
-            'csc.landing',
-            'csc.workspace',
-            'csc.msds_page',
-            'csc.ingest',
-            'csc.review_workbench',
-            'csc.admin_index',
-            'csc.admin_revisions',
-            'csc.admin_revision_generation'
+            'csc.category',
+            'csc.specification',
+            'csc.edit_specification',
+            'csc.master_export',
+            'csc.msds_page'
         ] %}
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
@@ -607,6 +604,9 @@
             });
         })();
     </script>
+    {% if request.endpoint and request.endpoint.startswith('inventory.') %}
+    <script defer src="{{ url_for('static', filename='js/inventory_monitoring.js') }}"></script>
+    {% endif %}
     {% block scripts_extra %}{% endblock %}
 </body>
 </html>

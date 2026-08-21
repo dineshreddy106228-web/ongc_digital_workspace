@@ -90,7 +90,7 @@ MODULES = [
     },
     {
         "key": "inventory",
-        "name": "Inventory Intelligence",
+        "name": "Inventory Monitoring",
         "permission_code": "inventory",
         "blueprint_import": "app.modules.inventory:inventory_bp",
         "url_prefix": "/inventory",
@@ -100,8 +100,8 @@ MODULES = [
         "dashboard_visible": True,
         "roles_allowed": [ADMIN_ROLE, SUPERUSER_ROLE, USER_ROLE],
         "status": "active",
-        "description": "SAP material consumption & procurement analytics with interactive drilldowns",
-        "nav_label": "Inventory Intelligence",
+        "description": "Chemical inventory monitoring, work-centre mapping, and exception intelligence",
+        "nav_label": "Inventory Monitoring",
         "icon": "📦",
     },
     {
@@ -122,7 +122,7 @@ MODULES = [
     },
     {
         "key": "csc_workflow",
-        "name": "Material Master Management",
+        "name": "Corporate Specifications Management",
         "permission_code": "csc",
         "blueprint_import": "app.modules.csc:csc_bp",
         "url_prefix": "/csc",
@@ -132,8 +132,8 @@ MODULES = [
         "dashboard_visible": True,
         "roles_allowed": [ADMIN_ROLE, SUPERUSER_ROLE, USER_ROLE],
         "status": "active",
-        "description": "Material master management with CSC and subcommittee drafting, review, and export workflow",
-        "nav_label": "Material Master Mgmt",
+        "description": "Corporate specification register by chemical category, parameter records with versioned revisions, master export, and the MSDS Center",
+        "nav_label": "Corporate Specs",
         "icon": "🔬",
     },
     {

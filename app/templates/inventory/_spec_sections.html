@@ -1,0 +1,7 @@
+{# Sub-heading row that opens a corporate-specification section inside a material table. #}
+{% macro spec_heading(group, columns) %}
+<tr class="im-spec-row" data-inventory-category="{{ group.key }}" data-inventory-category-label="{{ group.label }}"><td colspan="{{ columns }}"><span>{{ group.label }}</span><b>{{ group.total }} {{ 'material' if group.total == 1 else 'materials' }}{% if group.omitted %} · showing {{ group.rows|length }}{% endif %}</b></td></tr>
+{% endmacro %}
+{% macro spec_more(group, columns) %}
+{% if group.omitted %}<tr class="im-spec-more"><td colspan="{{ columns }}">{{ group.omitted }} further {{ group.label|lower }} {{ 'line' if group.omitted == 1 else 'lines' }} are not shown here.</td></tr>{% endif %}
+{% endmacro %}

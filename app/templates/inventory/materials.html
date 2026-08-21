@@ -1,178 +1,31 @@
 {% extends "base.html" %}
-{% from "components/ui.html" import page_header %}
-{% block title %}Materials – Inventory Intelligence{% endblock %}
-
-{% block head_extra %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}">
-{% endblock %}
-
+{% block title %}Material Register · Inventory Monitoring{% endblock %}
+{% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory_monitoring.css') }}">{% endblock %}
+{% from "inventory/_spec_sections.html" import spec_heading, spec_more %}
+{% from "inventory/_monitoring_nav.html" import monitoring_nav %}
 {% block content %}
-<div class="page-wrapper">
-
-  {% call page_header("Material Usage", "Search and explore all materials with their cumulative usage data.", "Inventory Intelligence") %}
-    <a href="{{ url_for('inventory.top_consumers') }}" class="btn btn-secondary">
-      <i class="bi bi-trophy"></i>
-      <span>Top Consumers</span>
-    </a>
-    <a href="{{ url_for('inventory.landing') }}" class="btn btn-secondary">
-      <i class="bi bi-grid-1x2"></i>
-      <span>Dashboard</span>
-    </a>
-  {% endcall %}
-
-  {% with messages = get_flashed_messages(with_categories=true) %}
-    {% for category, message in messages %}
-    <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
-    {% endfor %}
-  {% endwith %}
-
-  {# ── Search + Filters ──────────────────────────────────────────── #}
-  <div class="card inv-filter-card">
-    <div class="card-body">
-      <form method="get" action="{{ url_for('inventory.materials_list') }}" class="inv-filters-row">
-        <div class="inv-filter-group inv-filter-search">
-          <label for="f-q">Search Material</label>
-          <div class="inv-search-wrap">
-            <i class="bi bi-search inv-search-icon"></i>
-            <input type="text" name="q" id="f-q"
-                   value="{{ q or '' }}"
-                   placeholder="Material code or description…"
-                   class="inv-search-input">
-          </div>
-        </div>
-        <div class="inv-filter-group">
-          <label for="f-plant">Plant</label>
-          <select name="plant" id="f-plant" class="inv-filter-select">
-            <option value="">All Plants</option>
-            {% for p in filter_opts.plants %}
-            <option value="{{ p }}" {{ 'selected' if plant_filter == p }}>{{ p }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="inv-filter-group">
-          <label for="f-matgrp">Material Group</label>
-          <select name="material_group" id="f-matgrp" class="inv-filter-select">
-            <option value="">All Groups</option>
-            {% for mg in filter_opts.material_groups %}
-            <option value="{{ mg }}" {{ 'selected' if material_group_filter == mg }}>{{ mg }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="inv-filter-actions">
-          <button type="submit" class="btn btn-primary btn-sm">
-            <i class="bi bi-search"></i> Search
-          </button>
-          <a href="{{ url_for('inventory.materials_list') }}" class="btn btn-secondary btn-sm">
-            <i class="bi bi-x"></i> Clear
-          </a>
-        </div>
-      </form>
-    </div>
+<div class="page-wrapper im-page">
+  {{ monitoring_nav('materials') }}
+  <section class="im-register-hero">
+    <div><span class="im-kicker">Material monitoring</span><h1>Material register</h1><p>Every material code and its active work-centre mapping. Select a material to drill into stock, source records, and its mapping history.</p></div>
+    <div class="im-register-count"><strong>{{ total_count }}</strong><span>materials{% if total_count > materials|length %} · {{ materials|length }} shown{% endif %}</span></div>
+  </section>
+  <form class="im-search im-register-search"><input class="form-control" name="q" value="{{ term }}" placeholder="Search material code or chemical name"><button class="btn btn-primary"><i class="bi bi-search"></i> Search</button>{% if term %}<a class="btn btn-secondary" href="{{ url_for('inventory.materials', category=category or none) }}">Clear</a>{% endif %}{% if category %}<input type="hidden" name="category" value="{{ category }}">{% endif %}</form>
+  <div class="im-review-filters im-category-filters">
+    <a class="{{ 'is-active' if not category }}" href="{{ url_for('inventory.materials', q=term or none) }}">All materials</a>
+    {% for option in category_options %}<a class="{{ 'is-active' if category == option.key }}" href="{{ url_for('inventory.materials', category=option.key, q=term or none) }}">{{ option.label }}</a>{% endfor %}
   </div>
-
-  {# ── Results ──────────────────────────────────────────────────── #}
-  <div class="card">
-    <div class="card-body">
-      <div class="inv-results-header">
-        <span class="inv-results-count">
-          {{ "{:,}".format(result.total) }} material(s) found
-          {% if q %}matching "<strong>{{ q }}</strong>"{% endif %}
-        </span>
-        <span class="inv-results-page">
-          Page {{ result.page }} of {{ result.pages }}
-        </span>
-      </div>
-
-      {% if result.items %}
-      <div class="table-responsive">
-        <table class="inv-data-table">
-          <thead>
-            <tr>
-              <th>Material</th>
-              <th>Plant</th>
-              <th>Material Group</th>
-              <th>Material Type</th>
-              <th class="text-right">Total Usage</th>
-              <th class="text-right">Usage Value</th>
-              <th class="text-right">Records</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for item in result.items %}
-            <tr>
-              <td>
-                <a href="{{ url_for('inventory.material_detail', material_code=item.material) }}{% if plant_filter %}?plant={{ plant_filter }}{% endif %}"
-                   class="inv-material-link">{{ item.material }}</a>
-              </td>
-              <td>{{ item.plant }}</td>
-              <td>{{ item.material_group }}</td>
-              <td>{{ item.material_type }}</td>
-              <td class="text-right inv-num">{{ "{:,.3f}".format(item.total_usage) }} {{ item.uom }}</td>
-              <td class="text-right inv-num inv-val">
-                {% if item.total_value >= 10000000 %}
-                  ₹{{ "%.2f"|format(item.total_value / 10000000) }} Cr
-                {% elif item.total_value >= 100000 %}
-                  ₹{{ "%.2f"|format(item.total_value / 100000) }} L
-                {% else %}
-                  ₹{{ "{:,.0f}".format(item.total_value) }}
-                {% endif %}
-              </td>
-              <td class="text-right inv-num">{{ item.record_count }}</td>
-              <td>
-                <a href="{{ url_for('inventory.material_detail', material_code=item.material) }}{% if plant_filter %}?plant={{ plant_filter }}{% endif %}"
-                   class="btn btn-secondary btn-sm">
-                  <i class="bi bi-graph-up"></i>
-                </a>
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-
-      {# Pagination #}
-      {% if result.pages > 1 %}
-      <div class="inv-pagination">
-        {% if result.page > 1 %}
-        <a href="{{ url_for('inventory.materials_list', q=q, plant=plant_filter, material_group=material_group_filter, page=result.page-1) }}"
-           class="btn btn-secondary btn-sm">&laquo; Prev</a>
-        {% endif %}
-
-        {% for pg in range(1, result.pages + 1) %}
-          {% if pg == result.page %}
-          <span class="inv-page-active">{{ pg }}</span>
-          {% elif pg <= 2 or pg >= result.pages - 1 or (pg >= result.page - 1 and pg <= result.page + 1) %}
-          <a href="{{ url_for('inventory.materials_list', q=q, plant=plant_filter, material_group=material_group_filter, page=pg) }}"
-             class="btn btn-secondary btn-sm">{{ pg }}</a>
-          {% elif pg == 3 or pg == result.pages - 2 %}
-          <span class="inv-page-ellipsis">…</span>
-          {% endif %}
-        {% endfor %}
-
-        {% if result.page < result.pages %}
-        <a href="{{ url_for('inventory.materials_list', q=q, plant=plant_filter, material_group=material_group_filter, page=result.page+1) }}"
-           class="btn btn-secondary btn-sm">Next &raquo;</a>
-        {% endif %}
-      </div>
-      {% endif %}
-
-      {% else %}
-      <div class="inv-empty-state">
-        <i class="bi bi-search inv-empty-icon"></i>
-        <p>
-          {% if q %}
-            No materials found matching "{{ q }}".
-          {% else %}
-            No material data available yet.
-            <a href="{{ url_for('inventory.upload_form') }}">Upload an SAP export</a> to get started.
-          {% endif %}
-        </p>
-      </div>
-      {% endif %}
-    </div>
-  </div>
-
+  {% if category_label %}<p class="im-pf-muted im-category-note">Showing {{ category_label|lower if category != 'unspecified' else category_label|lower }} — grouped by the current ONGC corporate specification, maintained in <a class="im-pf-link" href="{{ url_for('quality_control.testing_standards') }}">QC Laboratory Monitoring</a>. {% if category == 'unspecified' %}Materials are ordered by latest inventory value, highest first. {% endif %}This register lists every material code known to monitoring, including codes holding no stock at the latest reporting date.</p>{% endif %}
+  {% if current_user.is_super_user() %}
+  <section class="im-mapping-admin" id="add-active-mapping">
+    <div class="im-mapping-admin-heading"><div><span class="im-kicker">Super-user controls</span><h2>Add to active mapping</h2><p>Add an existing or new material code to a plant/work centre. These changes are recorded as manual mapping updates.</p></div></div>
+    {% if mapping_prefill.material_code %}<div class="im-mapping-handoff"><i class="bi bi-arrow-right-circle"></i><span>Review item loaded from the mapping queue. Confirm the material and work centre below, then add it here.</span></div>{% endif %}
+    <form method="post" action="{{ url_for('inventory.update_material_mapping') }}" class="im-add-mapping-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="add"><label>Material code<input class="form-control" name="material_code" required placeholder="e.g. 100215007" value="{{ mapping_prefill.material_code }}"></label><label>Chemical / material name<input class="form-control" name="description" placeholder="Required when adding a new code" value="{{ mapping_prefill.description }}"></label><label>Group<select class="form-select" name="material_group"><option value="">Keep existing / not specified</option><option value="09" {{ 'selected' if mapping_prefill.material_group == '09' }}>09 — Oil well cement</option><option value="10" {{ 'selected' if mapping_prefill.material_group == '10' }}>10 — Chemicals incl. mud chemicals</option></select></label><label>Plant / work centre<select class="form-select" name="work_center_id" required><option value="">Select location</option>{% for centre in work_centres %}<option value="{{ centre.id }}" {{ 'selected' if mapping_prefill.work_center_id == centre.id }}>{{ centre.zone or 'Unassigned' }} · {{ centre.name }}</option>{% endfor %}</select></label><button class="btn btn-primary"><i class="bi bi-plus-circle"></i> Add mapping</button></form>
+    <details class="im-add-location"><summary><i class="bi bi-building-add"></i> Add a plant or work centre</summary><form method="post" action="{{ url_for('inventory.create_mapping_work_centre') }}" class="im-add-location-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>Name<input class="form-control" name="name" required placeholder="Plant or work-centre name"></label><label>Zone<input class="form-control" name="zone" placeholder="e.g. Western offshore"></label><label>Type<input class="form-control" name="work_center_type" placeholder="e.g. DFS, ST, Plant"></label><button class="btn btn-secondary">Add location</button></form></details>
+  </section>
+  {% endif %}
+  {% set show_inventory_value = category == 'unspecified' %}
+  {% set table_columns = 7 if show_inventory_value else 6 %}
+  <section class="card im-mapping-register"><div class="card-body"><div class="im-card-heading"><div><span class="im-kicker">Active mapping</span><h2>Materials and mapped locations</h2><p>Only current mappings are shown. Super-users can remove a mapping from an individual material page.</p></div></div><div class="im-table-wrap im-health-table-wrap"><table class="table im-health-table im-material-register-table"><thead><tr><th>Material</th><th>Group</th><th>Corporate specification</th>{% if show_inventory_value %}<th class="im-number-col">Inventory value</th>{% endif %}<th>Mapped plant / work centre</th><th class="im-number-col">Mappings</th><th></th></tr></thead><tbody>{% for group in material_groups %}{{ spec_heading(group, table_columns) }}{% for item in group.rows %}{% set mappings = mappings_by_material.get(item.id, []) %}<tr><td><span class="im-material-code">{{ item.material_code }}</span><small>{{ item.description or 'Description not supplied' }}</small></td><td><span class="im-group-badge im-group-{{ item.material_group or 'mapping' }}">{{ item.material_group or '—' }}</span></td><td>{% set spec = specifications.get(item.material_code) %}{% if spec %}<strong class="im-spec-name">{{ spec.chemical_name }}</strong><small>{{ spec.specification_no }}{% if spec.category_label %} · {{ spec.category_label }}{% endif %}</small>{% else %}<span class="im-status im-status-muted">No current specification</span>{% endif %}</td>{% if show_inventory_value %}<td class="im-number-col"><strong>₹ {{ '{:,.0f}'.format(inventory_values_by_material.get(item.id, 0)) }}</strong><small>INR</small></td>{% endif %}<td><div class="im-mapping-chips">{% for mapping in mappings[:4] %}<span>{{ mapping.work_center.name }}</span>{% else %}<em>Not mapped</em>{% endfor %}{% if mappings|length > 4 %}<span class="is-more">+{{ mappings|length - 4 }} more</span>{% endif %}</div></td><td class="im-number-col">{{ mappings|length }}</td><td class="im-number-col"><a class="btn btn-sm btn-secondary" href="{{ url_for('inventory.material', material_id=item.id) }}">Drill down <i class="bi bi-arrow-right"></i></a></td></tr>{% endfor %}{% else %}<tr><td colspan="{{ table_columns }}">No materials found.</td></tr>{% endfor %}</tbody></table></div></div></section>
 </div>
 {% endblock %}

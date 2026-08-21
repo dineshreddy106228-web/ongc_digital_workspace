@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Master Export — Corporate Specifications — {{ app_name }}{% endblock %}
+{% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/corporate_specifications.css') }}">{% endblock %}
+{% from "csc/_specs_nav.html" import specs_nav %}
+{% block content %}<div class="page-wrapper cs-page">
+  {{ specs_nav('export') }}
+
+  <nav class="cs-breadcrumb" aria-label="Breadcrumb">
+    <a href="{{ url_for('csc.index') }}">Corporate Specifications</a> <span>/</span> <span>Master Export</span>
+  </nav>
+
+  <div class="cs-title">
+    <div>
+      <span>Module tools</span>
+      <h1>Master Export</h1>
+      <p>Download the corporate specification register as a workbook, or the consolidated specification document in ONGC Format A.</p>
+    </div>
+  </div>
+
+  <section class="cs-stats">
+    <div class="cs-stat"><span>Chemicals</span><strong>{{ chemical_total }}</strong><small>Rows in the register export</small></div>
+    <div class="cs-stat"><span>Specifications</span><strong>{{ specification_total }}</strong><small>Specification sheets available</small></div>
+    <div class="cs-stat"><span>Parameters</span><strong>{{ '{:,}'.format(parameter_total) }}</strong><small>Rows on the parameters sheet</small></div>
+  </section>
+
+  <div class="cs-detail">
+    <section class="cs-card"><div class="cs-card-body">
+      <div class="cs-section-heading cs-section-heading-flush">
+        <div><span>Word</span><h2>Consolidated specification document</h2><p>{{ document_total }} specifications with parameters recorded, one ONGC Format A sheet each, ordered by category and serial.</p></div>
+      </div>
+      <form method="get" action="{{ url_for('csc.export_master_document') }}">
+        <div class="cs-field-grid">
+          <div class="cs-field cs-field-wide">
+            <label for="category">Category</label>
+            <select id="category" name="category">
+              <option value="">All categories ({{ document_total }} specifications)</option>
+              {% for option in categories %}<option value="{{ option.code }}">{{ option.code }} — {{ option.label }} ({{ option.count }})</option>{% endfor %}
+            </select>
+          </div>
+          <div class="cs-field cs-field-wide">
+            <label for="dossier"><input type="checkbox" id="dossier" name="dossier" value="1" checked> Include the full CSC dossier note after each sheet — issue register, impact assessment and narrative</label>
+          </div>
+          <div class="cs-field cs-field-wide">
+            <label for="metadata"><input type="checkbox" id="metadata" name="metadata" value="1"> Include version and revision metadata appendix</label>
+          </div>
+        </div>
+        <div class="cs-editor-actions">
+          <button class="btn btn-primary" type="submit"><i class="bi bi-file-earmark-word"></i> Download .docx</button>
+        </div>
+      </form>
+    </div></section>
+
+    <aside class="cs-side">
+      <section class="cs-panel">
+        <h3>Register workbook</h3>
+        <p>Eight sheets: category summary, the specification register, every parameter, the material master, material properties, storage and handling, impact assessment and the issue register.</p>
+        <a class="btn btn-primary" href="{{ url_for('csc.export_register_workbook') }}"><i class="bi bi-file-earmark-spreadsheet"></i> Download .xlsx</a>
+      </section>
+      <section class="cs-panel">
+        <h3>What is included</h3>
+        <div class="cs-panel-text">Both exports read the live register — the same list QC Laboratory Monitoring maintains and Inventory Monitoring reads. Chemicals whose parameters have not been entered yet appear in the workbook, but are left out of the Word document because they have no sheet to print. A single specification's dossier is downloadable from its own page.</div>
+      </section>
+    </aside>
+  </div>
+</div>{% endblock %}

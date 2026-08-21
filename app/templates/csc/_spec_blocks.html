@@ -1,0 +1,54 @@
+{# Shared renderers for the material-master field blocks. #}
+
+{% macro value_groups(rows, empty_message) %}
+{% set filled = rows | selectattr('value') | list %}
+{% if filled %}
+  {% set sections = [] %}
+  {% for row in filled if row.section not in sections %}{% set _ = sections.append(row.section) %}{% endfor %}
+  {% for section in sections %}
+  <div class="cs-group">
+    <b class="cs-group-label">{{ section or 'Other' }}</b>
+    <div class="cs-values">
+      {% for row in filled if row.section == section %}
+      <div class="cs-value">
+        <span>{{ row.label }}</span>
+        <div class="cs-value-text">{{ row.value }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+{% else %}
+  <div class="cs-panel-text">{{ empty_message }}</div>
+{% endif %}
+{% endmacro %}
+
+{% macro field_inputs(rows, submitted) %}
+{% set sections = [] %}
+{% for row in rows if row.section not in sections %}{% set _ = sections.append(row.section) %}{% endfor %}
+{% for section in sections %}
+<div class="cs-group">
+  <b class="cs-group-label">{{ section or 'Other' }}</b>
+  <div class="cs-field-grid">
+    {% for row in rows if row.section == section %}
+    {% set value = submitted.get(row.field_name, row.value) if submitted else row.value %}
+    <div class="cs-field {{ 'cs-field-wide' if row.input_type == 'textarea' }}">
+      <label for="master_{{ row.field_name }}">{{ row.label }}</label>
+      {% if row.input_type == 'textarea' %}
+      <textarea id="master_{{ row.field_name }}" name="master_{{ row.field_name }}" rows="3" placeholder="{{ row.placeholder }}">{{ value }}</textarea>
+      {% elif row.options %}
+      <select id="master_{{ row.field_name }}" name="master_{{ row.field_name }}">
+        <option value="">— not recorded —</option>
+        {% for option in row.options %}<option value="{{ option }}" {{ 'selected' if value == option }}>{{ option }}</option>{% endfor %}
+        {% if value and value not in row.options %}<option value="{{ value }}" selected>{{ value }}</option>{% endif %}
+      </select>
+      {% else %}
+      <input id="master_{{ row.field_name }}" name="master_{{ row.field_name }}" value="{{ value }}" placeholder="{{ row.placeholder }}">
+      {% endif %}
+      {% if row.dimension %}<small>{{ row.dimension }}</small>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endfor %}
+{% endmacro %}

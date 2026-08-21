@@ -23,6 +23,21 @@ from flask import current_app
 SUPPORTED_BACKUP_EXTENSIONS = (".sql", ".sql.gz", ".tar.gz")
 SQL_PREVIEW_LINE_LIMIT = 5
 BUNDLE_MANIFEST_FILENAME = "manifest.json"
+BUNDLE_EXCLUDED_FILES_MEMBER = "excluded_files.json"
+# Tables whose rows are deliberately left out of the dump. Stored PDFs dominate the
+# backup size and can be re-uploaded, so the schema is kept, the rows are not, and
+# the manifest carries an inventory of what to re-upload after a restore.
+DEFAULT_EXCLUDED_TABLE_DATA = ("msds_files",)
+# How to inventory each excluded table: the columns worth keeping, and the byte-size
+# column so the manifest can report how much was left out.
+EXCLUDED_TABLE_INVENTORY = {
+    "msds_files": {
+        "columns": ("id", "material_code", "filename", "slot_code", "content_type", "file_size", "uploaded_at"),
+        "size_column": "file_size",
+        "order_by": "material_code, slot_code",
+        "describes": "MSDS PDF documents",
+    },
+}
 BUNDLE_DATABASE_MEMBER = "database.sql.gz"
 BUNDLE_COMMITTEE_UPLOADS_DIR = "committee_uploads"
 DATABASE_BACKED_MODULES = (
@@ -384,30 +399,101 @@ def _resolve_mysql_client_binary(
     raise FileNotFoundError(", ".join(candidates) or "mysql client")
 
 
+def get_excluded_table_data() -> tuple[str, ...]:
+    """Tables dumped as schema only. Configurable, defaulting to the stored-PDF table."""
+    configured = current_app.config.get("BACKUP_EXCLUDE_TABLE_DATA", DEFAULT_EXCLUDED_TABLE_DATA)
+    if isinstance(configured, str):
+        configured = [part.strip() for part in configured.split(",")]
+    return tuple(name for name in (configured or ()) if str(name).strip())
+
+
+def collect_excluded_table_inventory(table_names: tuple[str, ...]) -> dict:
+    """List the rows each excluded table holds, so a restore knows what to re-upload.
+
+    Never fatal: a table that is missing or unreadable is reported and skipped rather
+    than failing the backup.
+    """
+    from sqlalchemy import text
+
+    from app.extensions import db
+
+    inventory: dict = {}
+    for table_name in table_names:
+        spec = EXCLUDED_TABLE_INVENTORY.get(table_name)
+        if spec is None:
+            inventory[table_name] = {"rows": [], "row_count": 0, "note": "No inventory columns configured."}
+            continue
+        columns = ", ".join(f"`{column}`" for column in spec["columns"])
+        try:
+            result = db.session.execute(
+                text(f"SELECT {columns} FROM `{table_name}` ORDER BY {spec['order_by']}")
+            )
+            rows = [
+                {key: (value.isoformat() if isinstance(value, datetime) else value) for key, value in row.items()}
+                for row in result.mappings()
+            ]
+        except Exception as exc:  # noqa: BLE001 - inventory must never break a backup
+            db.session.rollback()
+            logger.warning("Could not inventory excluded table %s: %s", table_name, exc)
+            inventory[table_name] = {"rows": [], "row_count": 0, "note": f"Inventory unavailable: {exc}"}
+            continue
+        size_column = spec.get("size_column")
+        inventory[table_name] = {
+            "describes": spec["describes"],
+            "row_count": len(rows),
+            "omitted_bytes": sum(int(row.get(size_column) or 0) for row in rows) if size_column else None,
+            "rows": rows,
+        }
+    return inventory
+
+
 def create_database_backup() -> BackupArtifact:
-    """Run mysqldump into a temporary gzip file and return the artifact."""
+    """Run mysqldump into a temporary gzip file and return the artifact.
+
+    Tables listed in ``BACKUP_EXCLUDE_TABLE_DATA`` are dumped as schema only, in a
+    second pass, so their rows stay out of the file while the table still exists
+    after a restore.
+    """
 
     settings = resolve_database_connection_settings()
     defaults_file = _write_client_defaults_file(settings)
     raw_dump_path = _create_temp_path(".sql")
     compressed_dump_path = _create_temp_path(".sql.gz")
-    dump_command = [
-        _resolve_mysql_client_binary(
-            current_app.config.get("MYSQLDUMP_BIN", "mysqldump"),
-            "mysqldump",
-            "mariadb-dump",
-        ),
+    excluded_tables = get_excluded_table_data()
+    dump_binary = _resolve_mysql_client_binary(
+        current_app.config.get("MYSQLDUMP_BIN", "mysqldump"),
+        "mysqldump",
+        "mariadb-dump",
+    )
+    base_command = [
+        dump_binary,
         f"--defaults-extra-file={defaults_file}",
         "--protocol=TCP",
         "--single-transaction",
         "--quick",
         "--skip-lock-tables",
         "--no-tablespaces",
+        "--default-character-set=utf8mb4",
+    ]
+    # On a GTID-enabled server mysqldump emits SET @@GLOBAL.GTID_PURGED, which makes the
+    # dump unrestorable into any server that already has GTIDs executed. MariaDB's client
+    # has no such option, so only pass it to mysqldump proper.
+    if "mariadb" not in Path(dump_binary).name.lower():
+        base_command.append("--set-gtid-purged=OFF")
+    # Pass 1: everything except the excluded tables, including routines and events.
+    dump_command = [
+        *base_command,
         "--routines",
         "--events",
-        "--default-character-set=utf8mb4",
+        *[f"--ignore-table={settings.database}.{table}" for table in excluded_tables],
         settings.database,
     ]
+    # Pass 2: the excluded tables' schema, so a restore recreates them empty.
+    schema_command = (
+        [*base_command, "--no-data", settings.database, *excluded_tables]
+        if excluded_tables
+        else None
+    )
     backup_created = False
 
     try:
@@ -419,11 +505,29 @@ def create_database_backup() -> BackupArtifact:
                 timeout=_command_timeout_seconds(),
                 check=False,
             )
-        if result.returncode != 0:
-            raise BackupError(
-                "mysqldump failed. "
-                f"{_format_command_failure(result.stderr)}"
-            )
+            if result.returncode != 0:
+                raise BackupError(
+                    "mysqldump failed. "
+                    f"{_format_command_failure(result.stderr)}"
+                )
+            if schema_command is not None:
+                dump_handle.write(
+                    f"\n--\n-- Schema only for excluded tables: {', '.join(excluded_tables)}\n"
+                    "-- Row data was deliberately omitted; see the bundle manifest.\n--\n\n".encode()
+                )
+                dump_handle.flush()
+                schema_result = subprocess.run(
+                    schema_command,
+                    stdout=dump_handle,
+                    stderr=subprocess.PIPE,
+                    timeout=_command_timeout_seconds(),
+                    check=False,
+                )
+                if schema_result.returncode != 0:
+                    raise BackupError(
+                        "mysqldump failed while writing the excluded-table schema. "
+                        f"{_format_command_failure(schema_result.stderr)}"
+                    )
 
         if raw_dump_path.stat().st_size == 0:
             raise BackupError("mysqldump completed but produced an empty backup file.")
@@ -456,9 +560,18 @@ def _is_supported_backup_file(file_path: Path) -> bool:
     return _is_sql_backup_file(file_path) or _is_bundle_backup_file(file_path)
 
 
+def _add_bytes_member(archive: tarfile.TarFile, name: str, payload: bytes) -> None:
+    info = tarfile.TarInfo(name=name)
+    info.size = len(payload)
+    info.mtime = int(datetime.now(timezone.utc).timestamp())
+    archive.addfile(info, io.BytesIO(payload))
+
+
 def create_full_backup_bundle() -> BackupArtifact:
     """Create a tar.gz bundle containing the SQL backup and filesystem uploads."""
 
+    excluded_tables = get_excluded_table_data()
+    inventory = collect_excluded_table_inventory(excluded_tables)
     database_artifact = create_database_backup()
     bundle_path = _create_temp_path(".tar.gz")
     upload_dir = _committee_upload_dir()
@@ -475,6 +588,18 @@ def create_full_backup_bundle() -> BackupArtifact:
             "size_bytes": database_artifact.size_bytes,
             "included_modules": list(DATABASE_BACKED_MODULES),
         },
+        "excluded_table_data": {
+            "tables": list(excluded_tables),
+            "reason": (
+                "Stored PDF payloads are omitted to keep the backup small. The tables are "
+                "recreated empty by a restore and the documents must be re-uploaded."
+            ),
+            "inventory_file": BUNDLE_EXCLUDED_FILES_MEMBER if excluded_tables else None,
+            "row_counts": {name: data.get("row_count", 0) for name, data in inventory.items()},
+            "omitted_bytes": sum(
+                int(data.get("omitted_bytes") or 0) for data in inventory.values()
+            ),
+        },
         "artifacts": {
             "committee_uploads": {
                 "path": BUNDLE_COMMITTEE_UPLOADS_DIR,
@@ -490,10 +615,13 @@ def create_full_backup_bundle() -> BackupArtifact:
             archive.add(database_artifact.temp_path, arcname=BUNDLE_DATABASE_MEMBER)
             if upload_dir_exists:
                 archive.add(upload_dir, arcname=BUNDLE_COMMITTEE_UPLOADS_DIR)
-            manifest_info = tarfile.TarInfo(name=BUNDLE_MANIFEST_FILENAME)
-            manifest_info.size = len(manifest_bytes)
-            manifest_info.mtime = int(datetime.now(timezone.utc).timestamp())
-            archive.addfile(manifest_info, io.BytesIO(manifest_bytes))
+            if excluded_tables:
+                _add_bytes_member(
+                    archive,
+                    BUNDLE_EXCLUDED_FILES_MEMBER,
+                    json.dumps(inventory, indent=2, sort_keys=True, default=str).encode("utf-8"),
+                )
+            _add_bytes_member(archive, BUNDLE_MANIFEST_FILENAME, manifest_bytes)
     except Exception:
         bundle_path.unlink(missing_ok=True)
         raise
@@ -558,6 +686,7 @@ def _validate_bundle_backup_file(path: Path) -> dict:
 
     _validate_sql_preview_lines(preview_lines)
 
+    excluded = manifest.get("excluded_table_data") or {}
     return {
         "path": str(path),
         "format": "bundle",
@@ -571,6 +700,10 @@ def _validate_bundle_backup_file(path: Path) -> dict:
             or member.startswith(f"{BUNDLE_COMMITTEE_UPLOADS_DIR}/")
             for member in members
         ),
+        "excluded_tables": list(excluded.get("tables") or []),
+        "excluded_row_counts": dict(excluded.get("row_counts") or {}),
+        "excluded_bytes": int(excluded.get("omitted_bytes") or 0),
+        "includes_excluded_inventory": BUNDLE_EXCLUDED_FILES_MEMBER in members,
     }
 
 
@@ -605,9 +738,20 @@ def _restore_sql_backup_from_validation(validation: dict) -> dict:
         settings.database,
     ]
 
+    # A gzip file object cannot be handed to a subprocess as stdin: its fileno() is the
+    # descriptor of the *compressed* file, so the client would receive raw gzip bytes.
+    # Decompress to a plain file first and restore from that.
+    plain_sql_path: Path | None = None
     try:
-        open_fn = gzip.open if validation["compressed"] else open
-        with open_fn(validation["path"], "rb") as source:
+        if validation["compressed"]:
+            plain_sql_path = _create_temp_path(".sql")
+            with gzip.open(validation["path"], "rb") as source, plain_sql_path.open("wb") as target:
+                shutil.copyfileobj(source, target)
+            restore_source_path = plain_sql_path
+        else:
+            restore_source_path = Path(validation["path"])
+
+        with restore_source_path.open("rb") as source:
             result = subprocess.run(
                 restore_command,
                 stdin=source,
@@ -622,16 +766,21 @@ def _restore_sql_backup_from_validation(validation: dict) -> dict:
                 f"{_format_command_failure(result.stderr)}"
             )
     except FileNotFoundError as exc:
+        # Raised when the mysql client is absent; must precede the OSError clause.
         raise BackupError(
             "No MySQL client was found on PATH. "
             "Install a MySQL/MariaDB client package in the deployment image or admin shell."
         ) from exc
+    except OSError as exc:
+        raise BackupError(f"Backup file could not be read for restore: {exc}") from exc
     except subprocess.TimeoutExpired as exc:
         raise BackupError(
             "Restore timed out before the mysql client completed."
         ) from exc
     finally:
         defaults_file.unlink(missing_ok=True)
+        if plain_sql_path is not None:
+            plain_sql_path.unlink(missing_ok=True)
 
     return {
         "database": settings.database,
@@ -671,6 +820,8 @@ def _restore_backup_bundle_from_validation(validation: dict) -> dict:
                 "attachments_restored": True,
                 "attachments_path": str(uploads_destination),
                 "bundle_manifest": validation.get("manifest") or {},
+                "excluded_tables": validation.get("excluded_tables") or [],
+                "excluded_row_counts": validation.get("excluded_row_counts") or {},
             }
         )
         return restore_result

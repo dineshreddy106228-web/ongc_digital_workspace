@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}{{ category_label }} — Corporate Specifications — {{ app_name }}{% endblock %}
+{% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/corporate_specifications.css') }}">{% endblock %}
+{% from "csc/_specs_nav.html" import specs_nav %}
+{% block content %}<div class="page-wrapper cs-page">
+  {{ specs_nav() }}
+
+  <nav class="cs-breadcrumb" aria-label="Breadcrumb">
+    <a href="{{ url_for('csc.index') }}">Corporate Specifications</a> <span>/</span> <span>{{ category_label }}</span>
+  </nav>
+
+  <div class="cs-title">
+    <div>
+      <span><i class="bi {{ category_icon }}"></i> {{ category_key if category_key != 'unspecified' else 'Unmapped' }}</span>
+      <h1>{{ category_label }}</h1>
+      <p>{{ entries|length }} chemical{{ '' if entries|length == 1 else 's' }} in this category · {{ specified_count }} with a specification on file.</p>
+    </div>
+    <div class="cs-title-actions">
+      <a class="btn btn-secondary" href="{{ url_for('csc.index') }}"><i class="bi bi-arrow-left"></i> All categories</a>
+    </div>
+  </div>
+
+  <section class="cs-card"><div class="cs-card-body">
+    <form class="cs-toolbar" method="get" action="{{ url_for('csc.category', key=category_key) }}">
+      <input type="search" name="q" value="{{ query }}" placeholder="Search chemical name, specification number or material code" aria-label="Search chemicals">
+      <button class="btn btn-primary" type="submit"><i class="bi bi-search"></i> Search</button>
+      {% if query %}<a class="btn btn-secondary" href="{{ url_for('csc.category', key=category_key) }}">Clear</a>{% endif %}
+    </form>
+
+    {% if entries %}
+    <div class="cs-table-wrap">
+      <table class="cs-table">
+        <thead><tr>
+          <th>Specification No.</th>
+          <th>Chemical</th>
+          <th>Material Code</th>
+          <th>Parameters</th>
+          <th>Version</th>
+          <th>Last revised</th>
+          <th></th>
+        </tr></thead>
+        <tbody>
+          {% for entry in entries %}
+          <tr>
+            <td><a href="{{ url_for('csc.specification', ref=entry.ref) }}">{{ entry.spec_number }}</a>{% if not entry.on_register %}<br><span class="cs-pill is-offregister"><i class="bi bi-signpost-split"></i> Off register</span>{% endif %}</td>
+            <td><span class="cs-chemical">{{ entry.chemical_name }}</span>{% if entry.standard_days %}<span class="cs-code">Standard testing time {{ entry.standard_days }} day{{ '' if entry.standard_days == 1 else 's' }}</span>{% endif %}</td>
+            <td>{{ entry.material_code or '—' }}</td>
+            <td>
+              {% if entry.has_parameters %}<span class="cs-pill is-ready"><i class="bi bi-check-circle-fill"></i> {{ entry.parameter_count }} recorded</span>
+              {% else %}<span class="cs-pill is-awaiting"><i class="bi bi-hourglass-split"></i> Awaiting entry</span>{% endif %}
+            </td>
+            <td>{% if entry.version %}<span class="cs-pill is-version">v{{ entry.version }}</span>{% else %}—{% endif %}</td>
+            <td>{{ entry.updated_at|datetime_ist('%d %b %Y') if entry.updated_at else '—' }}</td>
+            <td><a href="{{ url_for('csc.specification', ref=entry.ref) }}">View specification</a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="cs-empty">
+      <i class="bi bi-search"></i>
+      <strong>No chemicals matched</strong>
+      <p>Nothing in {{ category_label }} matches “{{ query }}”. Clear the search to see the whole category.</p>
+    </div>
+    {% endif %}
+  </div></section>
+</div>{% endblock %}

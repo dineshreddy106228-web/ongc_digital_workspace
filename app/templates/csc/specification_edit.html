@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+{% block title %}Modify {{ entry.spec_number }} — Corporate Specifications — {{ app_name }}{% endblock %}
+{% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/corporate_specifications.css') }}">{% endblock %}
+{% from "csc/_specs_nav.html" import specs_nav %}
+{% from "csc/_spec_blocks.html" import field_inputs %}
+
+{% set narrative_values = {} %}
+{% if submitted %}
+  {% set narrative_values = submitted.narratives %}
+{% else %}
+  {% for narrative in narratives %}{% set _ = narrative_values.update({narrative.key: narrative.text}) %}{% endfor %}
+{% endif %}
+{% set values = submitted or {
+  'chemical_name': record.chemical_name or '',
+  'spec_number': record.spec_number or '',
+  'material_code': record.material_code or '',
+  'test_procedure': test_procedure,
+  'reason': '',
+  'parameters': parameters,
+} %}
+{% set submitted_master = submitted.supporting.master if submitted else None %}
+{% set submitted_impact = submitted.supporting.impact if submitted else None %}
+{% set submitted_issues = submitted.supporting.issues if submitted else None %}
+{% set blank_parameter = {'parameter_name': '', 'parameter_type': '', 'requirement': '', 'unit_of_measure': '', 'conditions': '', 'test_method': '', 'remarks': ''} %}
+
+{% macro parameter_row(index, position, row, types) %}
+<fieldset class="cs-param-row" data-parameter-row>
+  <input type="hidden" name="parameter_index" value="{{ index }}">
+  <div class="cs-param-row-head">
+    <b data-row-label>Parameter {{ position }}</b>
+    <button class="cs-row-remove" type="button" data-remove-row>Remove</button>
+  </div>
+  <div class="cs-field-grid">
+    <div class="cs-field cs-field-wide">
+      <label for="parameter_name_{{ index }}">Parameter</label>
+      <textarea id="parameter_name_{{ index }}" name="parameter_name_{{ index }}" rows="2" required>{{ row.parameter_name }}</textarea>
+    </div>
+    <div class="cs-field">
+      <label for="parameter_type_{{ index }}">Classification</label>
+      <select id="parameter_type_{{ index }}" name="parameter_type_{{ index }}">
+        {% for option in types %}<option value="{{ option }}" {{ 'selected' if row.parameter_type == option }}>{{ option }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="cs-field">
+      <label for="unit_of_measure_{{ index }}">Unit of measure</label>
+      <input id="unit_of_measure_{{ index }}" name="unit_of_measure_{{ index }}" value="{{ row.unit_of_measure }}" placeholder="Optional">
+    </div>
+    <div class="cs-field cs-field-wide">
+      <label for="requirement_{{ index }}">Required value</label>
+      <textarea id="requirement_{{ index }}" name="requirement_{{ index }}" rows="2" required>{{ row.requirement }}</textarea>
+    </div>
+    <div class="cs-field">
+      <label for="conditions_{{ index }}">Test conditions</label>
+      <textarea id="conditions_{{ index }}" name="conditions_{{ index }}" rows="2">{{ row.conditions }}</textarea>
+    </div>
+    <div class="cs-field">
+      <label for="test_method_{{ index }}">Test method</label>
+      <textarea id="test_method_{{ index }}" name="test_method_{{ index }}" rows="2">{{ row.test_method }}</textarea>
+    </div>
+    <div class="cs-field">
+      <label for="remarks_{{ index }}">Remarks</label>
+      <textarea id="remarks_{{ index }}" name="remarks_{{ index }}" rows="2">{{ row.remarks }}</textarea>
+    </div>
+  </div>
+</fieldset>
+{% endmacro %}
+
+{% block content %}<div class="page-wrapper cs-page">
+  {{ specs_nav() }}
+
+  <nav class="cs-breadcrumb" aria-label="Breadcrumb">
+    <a href="{{ url_for('csc.index') }}">Corporate Specifications</a> <span>/</span>
+    <a href="{{ url_for('csc.category', key=entry.category) }}">{{ entry.category_label }}</a> <span>/</span>
+    <a href="{{ url_for('csc.specification', ref=entry.ref) }}">{{ entry.spec_number }}</a> <span>/</span>
+    <span>Modify</span>
+  </nav>
+
+  <div class="cs-title">
+    <div>
+      <span>Module admin · Version {{ entry.version }} in force</span>
+      <h1>Modify specification</h1>
+      <p>Complete every parameter as drafted, then record the reason for the revision. Saving publishes the next whole version; a save that changes nothing leaves the version untouched.</p>
+    </div>
+    <div class="cs-title-actions">
+      <a class="btn btn-secondary" href="{{ url_for('csc.specification', ref=entry.ref) }}"><i class="bi bi-x-lg"></i> Cancel</a>
+    </div>
+  </div>
+
+  <form method="POST" class="cs-editor" id="specificationEditor">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    {% if revision_draft %}
+    <div class="cs-notice">
+      <i class="bi bi-info-circle"></i>
+      <div>
+        <b>Fields below are pre-filled from the unpublished revision draft</b>
+        <p>Where the specification record was blank, values have been carried in from the committee revision draft
+        that was never published. Review them and save to commit them onto the record — a save that only commits
+        these values does not create a new version, because nothing about the specification actually changed.</p>
+      </div>
+    </div>
+    {% endif %}
+
+    <section class="cs-card"><div class="cs-card-body">
+      <div class="cs-section-heading cs-section-heading-flush">
+        <div><span>Specification header</span><h2>Format A details</h2><p>These four fields print at the top of the specification sheet.</p></div>
+      </div>
+      <div class="cs-field-grid">
+        <div class="cs-field"><label for="spec_number">Specification No.</label><input id="spec_number" name="spec_number" value="{{ values.spec_number }}" required></div>
+        <div class="cs-field"><label for="material_code">Material code</label><input id="material_code" name="material_code" value="{{ values.material_code }}" placeholder="Optional"></div>
+        <div class="cs-field cs-field-wide"><label for="chemical_name">Chemical name</label><input id="chemical_name" name="chemical_name" value="{{ values.chemical_name }}" required></div>
+        <div class="cs-field cs-field-wide"><label for="test_procedure">Test procedure reference</label><input id="test_procedure" name="test_procedure" value="{{ values.test_procedure }}" placeholder="ONGC / Test Procedure Vol-IV / …"></div>
+      </div>
+    </div></section>
+
+    <section class="cs-card"><div class="cs-card-body">
+      <div class="cs-section-heading cs-section-heading-flush">
+        <div><span>Specification parameters</span><h2>Parameters and required values</h2><p>Every parameter needs a name and a required value. Rows are numbered in the order shown here.</p></div>
+        <button class="btn btn-secondary" type="button" id="addParameterRow"><i class="bi bi-plus-lg"></i> Add parameter</button>
+      </div>
+      <div class="cs-param-editor" id="parameterRows">
+        {% for row in values.parameters %}{{ parameter_row(loop.index0, loop.index, row, parameter_types) }}{% endfor %}
+      </div>
+    </div></section>
+
+    <section class="cs-card"><div class="cs-card-body">
+      <div class="cs-section-heading cs-section-heading-flush">
+        <div><span>Narrative</span><h2>Supporting notes</h2><p>Carried into the master specification document alongside the parameter table.</p></div>
+      </div>
+      <div class="cs-field-grid">
+        {% for key, label in narrative_sections %}
+        <div class="cs-field cs-field-wide">
+          <label for="section_{{ key }}">{{ label }}</label>
+          <textarea id="section_{{ key }}" name="section_{{ key }}" rows="4">{{ narrative_values.get(key, '') }}</textarea>
+        </div>
+        {% endfor %}
+      </div>
+    </div></section>
+
+    <section class="cs-card"><div class="cs-card-body">
+      <div class="cs-section-heading cs-section-heading-flush">
+        <div><span>Material master</span><h2>Identity, properties and hazard profile</h2><p>Held against material code {{ values.material_code or '—' }} and shared with Inventory Monitoring.</p></div>
+      </div>
+      {% if not values.material_code %}
+      <div class="cs-notice"><i class="bi bi-exclamation-triangle"></i><div><b>No material code on this specification</b><p>Material master, property and storage values are stored against a material code. Enter one in the header above and save, then these fields will persist.</p></div></div>
+      {% endif %}
+      {{ field_inputs(identity_fields, submitted_master) }}
+      {{ field_inputs(material_properties, submitted_master) }}
+    </div></section>
+
+    <section class="cs-card"><div class="cs-card-body">
+      <div class="cs-section-heading cs-section-heading-flush">
+        <div><span>Storage</span><h2>Storage, packing and handling</h2><p>Packing configurations, storage conditions and the primary storage classification.</p></div>
+      </div>
+      {{ field_inputs(storage, submitted_master) }}
+    </div></section>
+
+    <section class="cs-card"><div class="cs-card-body">
+      <div class="cs-section-heading cs-section-heading-flush">
+        <div><span>Impact</span><h2>Impact assessment</h2><p>Answer each flag. Any red YES makes the specification High Impact; the classification is derived, not typed.</p></div>
+        <span class="cs-pill is-version">Currently {{ impact.classification }}</span>
+      </div>
+      <div class="cs-flags">
+        {% for flag in impact.flags %}
+        {% set answer = submitted_impact.get(flag.id, flag.value) if submitted_impact else flag.value %}
+        <div class="cs-flag is-{{ flag.type }}">
+          <div>
+            <b>{{ flag.order }}. {{ flag.dimension }} <span class="cs-param-type">({{ flag.type }} flag · {{ flag.source }})</span></b>
+            <p>{{ flag.question }}</p>
+            <small>{{ flag.detail }}</small>
+          </div>
+          <div class="cs-field">
+            <label for="impact_{{ flag.id }}">Answer</label>
+            <select id="impact_{{ flag.id }}" name="impact_{{ flag.id }}">
+              {% for option in impact_values %}<option value="{{ option }}" {{ 'selected' if answer == option }}>{{ option }}</option>{% endfor %}
+            </select>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div></section>
+
+    <section class="cs-card"><div class="cs-card-body">
+      <div class="cs-section-heading cs-section-heading-flush">
+        <div><span>Issues</span><h2>Issue register</h2><p>Flag any standing concern and record what it is.</p></div>
+      </div>
+      <div class="cs-issues">
+        {% for issue in issues %}
+        {% set stored = submitted_issues.get(issue.issue_type) if submitted_issues else None %}
+        {% set is_present = stored.is_present if stored else issue.is_present %}
+        {% set note = stored.note if stored else issue.note %}
+        <div class="cs-issue-editor">
+          <label class="cs-check" for="issue_{{ issue.issue_type }}_present">
+            <input type="checkbox" id="issue_{{ issue.issue_type }}_present" name="issue_{{ issue.issue_type }}_present" value="1" {{ 'checked' if is_present }}>
+            {{ issue.label }}
+          </label>
+          <div class="cs-field">
+            <label for="issue_{{ issue.issue_type }}_note">Note</label>
+            <textarea id="issue_{{ issue.issue_type }}_note" name="issue_{{ issue.issue_type }}_note" rows="2" placeholder="What is the concern?">{{ note }}</textarea>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div></section>
+
+    <section class="cs-reason">
+      <div class="cs-field">
+        <label for="reason">Reason for this revision</label>
+        <textarea id="reason" name="reason" rows="3" placeholder="What changed and why — recorded permanently against the new version.">{{ values.reason }}</textarea>
+        <small>Required whenever the saved content differs from the version in force.</small>
+      </div>
+    </section>
+
+    <div class="cs-editor-actions">
+      <span class="cs-hint">Saving publishes the revision immediately. The previous version stays readable in the revision history.</span>
+      <a class="btn btn-secondary" href="{{ url_for('csc.specification', ref=entry.ref) }}">Cancel</a>
+      <button class="btn btn-primary" type="submit"><i class="bi bi-check-lg"></i> Save and publish revision</button>
+    </div>
+  </form>
+
+  <template id="parameterRowTemplate">{{ parameter_row('__IDX__', 0, blank_parameter, parameter_types) }}</template>
+</div>{% endblock %}
+
+{% block scripts_extra %}<script nonce="{{ csp_nonce() }}">(() => {
+const rows = document.getElementById('parameterRows');
+const template = document.getElementById('parameterRowTemplate');
+const addButton = document.getElementById('addParameterRow');
+let nextIndex = {{ values.parameters|length }};
+const renumber = () => rows.querySelectorAll('[data-parameter-row]').forEach((row, position) => {
+  row.querySelector('[data-row-label]').textContent = 'Parameter ' + (position + 1);
+});
+const addRow = () => {
+  rows.insertAdjacentHTML('beforeend', template.innerHTML.replace(/__IDX__/g, String(nextIndex++)));
+  renumber();
+  rows.lastElementChild.querySelector('textarea').focus();
+};
+addButton.addEventListener('click', addRow);
+rows.addEventListener('click', event => {
+  const button = event.target.closest('[data-remove-row]');
+  if (!button) return;
+  if (rows.querySelectorAll('[data-parameter-row]').length === 1) return;
+  button.closest('[data-parameter-row]').remove();
+  renumber();
+});
+if (!rows.querySelector('[data-parameter-row]')) addRow();
+})();</script>{% endblock %}
