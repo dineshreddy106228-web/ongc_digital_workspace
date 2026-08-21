@@ -138,14 +138,14 @@
 
           <div class="form-group" style="margin-bottom: 1rem;">
             <label class="form-label" for="backup_file">Select Backup File</label>
-            {# Browsers match `accept` on the final extension only, so a .tar.gz file reads
-               as .gz and a list of compound extensions greys it out in the picker. List the
-               real trailing extensions and MIME types; the exact suffix is checked below and
-               enforced server-side. #}
-            <input type="file" id="backup_file" name="backup_file" class="form-control"
-                   accept=".gz,.tar,.sql,.tar.gz,.sql.gz,application/gzip,application/x-gzip,application/x-tar,application/sql,text/plain"
-                   required>
-            <div class="form-hint">Accepted formats: .tar.gz, .sql, .sql.gz. Full bundles restore the database and committee attachments; stored MSDS PDFs are not part of a bundle and need re-uploading afterwards. Legacy SQL restores the database only.</div>
+            {# No `accept` filter on purpose. A .tar.gz bundle greys out in the native file
+               dialog whatever is listed here: the OS types it as a gzipped-tar, which is a
+               distinct type from a plain .gz, so neither ".tar.gz" nor ".gz" reliably matches
+               it. The file type is checked below before the confirmation step and enforced
+               again on the server, so the picker is left unfiltered rather than blocking the
+               one file this form exists to accept. #}
+            <input type="file" id="backup_file" name="backup_file" class="form-control" required>
+            <div class="form-hint">Accepted formats: <code>.tar.gz</code>, <code>.sql.gz</code>, <code>.sql</code>. All files are shown in the picker; anything else is rejected when you continue. Full bundles restore the database and committee attachments; stored MSDS PDFs are not part of a bundle and need re-uploading afterwards. Legacy SQL restores the database only.</div>
           </div>
 
           <div class="backup-meta-card" style="margin-bottom: 1rem;">
