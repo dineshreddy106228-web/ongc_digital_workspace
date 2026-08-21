@@ -132,7 +132,7 @@ class Config:
     )
     ENABLE_INVENTORY = _as_bool(
         os.environ.get("ENABLE_INVENTORY"),
-        default=False,
+        default=True,
     )
     ENABLE_MANPOWER_PLANNING = _as_bool(
         os.environ.get("ENABLE_MANPOWER_PLANNING"),
@@ -140,7 +140,7 @@ class Config:
     )
     ENABLE_CSC = _as_bool(
         os.environ.get("ENABLE_CSC"),
-        default=False,
+        default=True,
     )
     ENABLE_REPORTS = _as_bool(
         os.environ.get("ENABLE_REPORTS"),
