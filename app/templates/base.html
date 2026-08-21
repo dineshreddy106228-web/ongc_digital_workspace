@@ -27,8 +27,8 @@
             <a href="{{ url_for('main.index') }}" class="workspace-logo" aria-label="{{ app_name }}">
                 <img
                     class="org-logo workspace-emblem"
-                    src="{{ url_for('static', filename='images/hcc-emblem.jpg') }}"
-                    alt="HCC Emblem"
+                    src="{{ url_for('static', filename='images/ongc-corporate-chemistry-logo.png') }}"
+                    alt="ONGC Corporate Chemistry emblem"
                 >
             </a>
 
@@ -226,8 +226,8 @@
             <a href="{{ url_for('main.index') }}" class="logo-strip">
                 <img
                     class="org-logo workspace-emblem"
-                    src="{{ url_for('static', filename='images/hcc-emblem.jpg') }}"
-                    alt="HCC Emblem"
+                    src="{{ url_for('static', filename='images/ongc-corporate-chemistry-logo.png') }}"
+                    alt="ONGC Corporate Chemistry emblem"
                 >
             </a>
             <div class="header-spacer"></div>
@@ -249,12 +249,10 @@
     {% if current_user.is_authenticated %}
     <div class="workspace-header-band">
         <div class="workspace-header-band-copy">
-            <div class="workspace-header-eyebrow">ONGC Digital Workspace</div>
-            <div class="workspace-header-title workspace-header-title-signature">a initiative by Office of Head Corporate Chemistry</div>
-            <div class="workspace-header-location">Mumbai | Dehradun</div>
+            <div class="workspace-header-title">ONGC Corporate Chemistry</div>
         </div>
         <div class="workspace-header-band-meta">
-            <span class="workspace-header-chip workspace-header-chip-version">v1.1</span>
+            <span class="workspace-header-chip workspace-header-chip-version">V2.0</span>
             {% if last_refreshed %}
             <div class="workspace-header-meta-text">Updated {{ last_refreshed|datetime_ist('%d %b %Y · %I:%M %p') }}</div>
             {% endif %}
@@ -265,27 +263,8 @@
     {% if current_user.is_authenticated and session.get('show_login_welcome') and request.endpoint != 'auth.change_password' %}
     <div class="workspace-welcome-overlay" id="loginWelcomeModal" role="dialog" aria-modal="true" aria-labelledby="loginWelcomeTitle">
         <div class="workspace-welcome-modal">
-            <div class="workspace-welcome-eyebrow">ONGC Digital Workspace — Version 1.1</div>
-            <h2 class="workspace-welcome-title" id="loginWelcomeTitle">Version updated to 1.1</h2>
-            <div class="workspace-welcome-copy">
-                <ul class="workspace-welcome-list">
-                    <li>Broadcasts and polling are now available. Superusers can send announcements or launch polls across the workspace.</li>
-                </ul>
-
-                <p>
-                    CSC Workflow is now available inside Material Master Management for structured input collection from the Specification Review Committees and the Material Handling Committee.
-                </p>
-
-                <p class="workspace-welcome-section-title">Processes digitized</p>
-                <ul class="workspace-welcome-list">
-                    <li>Review committee workflow</li>
-                </ul>
-
-                <p class="workspace-welcome-section-title">Processes automated</p>
-                <ul class="workspace-welcome-list">
-                    <li>Compilation of Specifications for the 12th Edition of Corporate Specifications of Oil Field Chemicals</li>
-                </ul>
-            </div>
+            <div class="workspace-welcome-eyebrow">ONGC Corporate Chemistry · V2.0</div>
+            <h2 class="workspace-welcome-title" id="loginWelcomeTitle">Version 2 with QC Lab Monitoring</h2>
             <form id="loginWelcomeForm" method="POST" action="{{ url_for('auth.welcome_acknowledge') }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="workspace-welcome-actions">

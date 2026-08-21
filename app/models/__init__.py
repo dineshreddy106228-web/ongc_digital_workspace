@@ -28,6 +28,7 @@ from app.models.inventory.material_master import MaterialMaster              # n
 from app.models.inventory.msds_file import MSDSFile                          # noqa: F401
 from app.models.quality_control.qc_upload_batch import QCUploadBatch         # noqa: F401
 from app.models.quality_control.qc_sample import QCSample                    # noqa: F401
+from app.models.quality_control.qc_testing_standard import QCTestingStandard  # noqa: F401
 from app.models.csc.draft import CSCDraft                                    # noqa: F401
 from app.models.csc.parameter import CSCParameter                            # noqa: F401
 from app.models.csc.section import CSCSection                                # noqa: F401

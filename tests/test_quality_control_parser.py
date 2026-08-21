@@ -32,3 +32,20 @@ def test_parses_standard_weekly_qc_workbook_and_preserves_missing_outcome():
         "total": 2, "under_testing": 0, "issued": 2, "passed": 0, "failed": 1,
         "delayed_open": 0, "average_turnaround": 25.5,
     }
+
+
+def test_uses_reporting_period_in_filename_when_workbook_has_no_title():
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(["Sl. No.", "Name of Chemical", "Date of sample receipt", "Pass/ Fail"])
+    sheet.append([1, "Methanol", "06.08.2026", "Pass"])
+    stream = BytesIO()
+    workbook.save(stream)
+
+    payload = parse_weekly_qc_workbook(
+        stream.getvalue(), "RGL Rajahmundry_Weekly QC data_06.08.2026 to 12.08.2026.xlsx",
+    )
+
+    assert payload.week_start == date(2026, 8, 6)
+    assert payload.week_end == date(2026, 8, 12)
+    assert payload.rows[0]["chemical_name"] == "Methanol"

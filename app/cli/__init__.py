@@ -1,28 +1,33 @@
-"""CLI command registration."""
+"""CLI command registration.
 
-from app.cli.backups import restore_db, validate_backup
-from app.cli.cache import clear_cache
-from app.cli.csc import (
-    backfill_csc_material_codes_command,
-    import_csc_legacy,
-    resequence_csc_draft_ids_command,
-    sync_csc_master_data_command,
-)
-from app.cli.seed import (
-    fix_password_hashes,
-    list_users,
-    seed_admin,
-    seed_initial_data,
-    seed_module_permissions,
-    seed_notifications,
-    seed_v11_broadcast,
-)
-from app.cli.normalize import normalize_roles
-from app.cli.tasks import generate_recurring_tasks
+Imports intentionally live inside :func:`register_cli`.  The application
+factory calls this module only for ``flask`` CLI processes, so web workers do
+not import command-only dependency trees during startup.
+"""
 
 
 def register_cli(app):
     """Attach custom CLI commands to the Flask app."""
+    from app.cli.backups import restore_db, validate_backup
+    from app.cli.cache import clear_cache
+    from app.cli.csc import (
+        backfill_csc_material_codes_command,
+        import_csc_legacy,
+        resequence_csc_draft_ids_command,
+        sync_csc_master_data_command,
+    )
+    from app.cli.normalize import normalize_roles
+    from app.cli.seed import (
+        fix_password_hashes,
+        list_users,
+        seed_admin,
+        seed_initial_data,
+        seed_module_permissions,
+        seed_notifications,
+        seed_v11_broadcast,
+    )
+    from app.cli.tasks import generate_recurring_tasks
+
     app.cli.add_command(restore_db)
     app.cli.add_command(validate_backup)
     app.cli.add_command(clear_cache)

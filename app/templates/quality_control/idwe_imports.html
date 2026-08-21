@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}IDWE Dehradun · QC Laboratory Monitoring{% endblock %}
+{% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}"><link rel="stylesheet" href="{{ url_for('static', filename='css/quality_control.css') }}">{% endblock %}
+{% block content %}
+<div class="page-wrapper"><div class="inv-page qc-idwe-import-page">
+    <div class="inv-module-header"><div><div class="qc-lab-eyebrow">QC Laboratory · {{ laboratory.location }}</div><h1 class="inv-module-title"><i class="bi bi-buildings"></i> {{ laboratory.name }}</h1><p class="inv-module-subtitle">Import each weekly workbook independently. Cementing and DF–CF results remain separately traceable in the QC sample database.</p></div><div class="inv-header-actions"><a class="btn btn-secondary" href="{{ url_for('quality_control.landing') }}"><i class="bi bi-grid"></i> Laboratories</a></div></div>
+
+    <section class="qc-idwe-guidance"><span><i class="bi bi-info-circle"></i></span><div><strong>Two independent weekly uploads</strong><p>Choose the appropriate laboratory below. Each file is checked before import and opens its own dashboard after confirmation.</p></div></section>
+
+    <section class="qc-idwe-import-grid">
+        {% for workstream in laboratory.workstreams %}
+        <article class="card qc-idwe-import-card"><div class="card-body"><div class="qc-idwe-import-card-header"><span class="qc-idwe-import-icon"><i class="bi bi-flask"></i></span><div><span class="qc-lab-eyebrow">IDWE workstream</span><h2>{{ workstream.name.replace('IDWE ', '') }}</h2><p>{{ workstream.description }}</p></div></div>{% if workstream.latest_batch %}<div class="qc-idwe-last-upload"><i class="bi bi-calendar3"></i> Latest reporting period ended <strong>{{ workstream.latest_batch.week_end.strftime('%d %b %Y') }}</strong></div>{% else %}<div class="qc-idwe-last-upload qc-idwe-first-upload"><i class="bi bi-file-earmark-plus"></i> No weekly workbook imported yet</div>{% endif %}<form class="qc-idwe-upload-form" method="POST" enctype="multipart/form-data" action="{{ url_for('quality_control.laboratory_dashboard', lab_code=workstream.code) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label for="{{ workstream.code }}-workbook">Weekly Excel workbook</label><input class="form-control" id="{{ workstream.code }}-workbook" name="qc_workbook" type="file" accept=".xlsx,.xls" required><button class="btn btn-primary" type="submit"><i class="bi bi-file-earmark-arrow-up"></i> Validate &amp; import</button></form><a class="qc-idwe-dashboard-link" href="{{ url_for('quality_control.laboratory_dashboard', lab_code=workstream.code) }}">Open {{ workstream.name.replace('IDWE ', '') }} dashboard <i class="bi bi-arrow-right"></i></a></div></article>
+        {% endfor %}
+    </section>
+</div></div>
+{% endblock %}

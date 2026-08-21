@@ -56,16 +56,22 @@ class Config:
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS = {
-    "pool_pre_ping": True,
-    "pool_recycle": 280,
-    "pool_timeout": int(os.environ.get("DB_POOL_TIMEOUT", "30")),
-    "pool_size": 5,
-    "max_overflow": 5
+        "pool_pre_ping": True,
+        "pool_recycle": 280,
+        "pool_timeout": int(os.environ.get("DB_POOL_TIMEOUT", "30")),
+        # A single low-traffic sync web worker needs at most one active
+        # connection; retain one spare without allocating a large pool per
+        # process.  Environment overrides remain available for future scale.
+        "pool_size": int(os.environ.get("DB_POOL_SIZE", "2")),
+        "max_overflow": int(os.environ.get("DB_MAX_OVERFLOW", "1")),
     }
 
     # ── Cache ────────────────────────────────────────────────────
     CACHE_TYPE = os.environ.get("CACHE_TYPE", "SimpleCache")
     CACHE_DEFAULT_TIMEOUT = int(os.environ.get("CACHE_DEFAULT_TIMEOUT", "300"))
+    # SimpleCache resides in each worker.  Keep a firm cap on cached objects
+    # so per-user memoized values cannot accumulate indefinitely.
+    CACHE_THRESHOLD = int(os.environ.get("CACHE_THRESHOLD", "100"))
 
     # ── Security headers / session hardening ─────────────────────
     SESSION_COOKIE_HTTPONLY = True
@@ -79,7 +85,9 @@ class Config:
     )
     REMEMBER_COOKIE_SECURE = SESSION_COOKIE_SECURE
     REMEMBER_COOKIE_SAMESITE = "Lax"
-    MAX_CONTENT_LENGTH = int(os.environ.get("MAX_CONTENT_LENGTH", str(256 * 1024 * 1024)))
+    # The CSC UI permits documents up to 100 MB, so 128 MB leaves operational
+    # headroom while avoiding accidental 256 MB request bodies in memory.
+    MAX_CONTENT_LENGTH = int(os.environ.get("MAX_CONTENT_LENGTH", str(128 * 1024 * 1024)))
     MSDS_STORAGE_DIR = os.environ.get("MSDS_STORAGE_DIR", "storage/msds")
     MSDS_MAX_UPLOAD_BYTES = int(os.environ.get("MSDS_MAX_UPLOAD_BYTES", str(20 * 1024 * 1024)))
     DB_COMMAND_TIMEOUT_SECONDS = int(os.environ.get("DB_COMMAND_TIMEOUT_SECONDS", "600"))

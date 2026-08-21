@@ -1,8 +1,49 @@
 {% extends "base.html" %}
 {% block title %}QC Laboratory Monitoring{% endblock %}
 {% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}"><link rel="stylesheet" href="{{ url_for('static', filename='css/quality_control.css') }}">{% endblock %}
-{% block content %}<div class="page-wrapper"><div class="inv-page">
-<div class="inv-module-header"><div><h1 class="inv-module-title"><i class="bi bi-flask"></i> QC Laboratory Monitoring</h1><p class="inv-module-subtitle">Select a laboratory to review weekly testing performance, historical samples, and management statistics.</p></div></div>
-<section class="qc-portfolio-nav" aria-label="Portfolio-level QC monitoring"><a class="qc-portfolio-nav-card" href="{{ url_for('quality_control.sample_history') }}"><span class="qc-portfolio-nav-icon"><i class="bi bi-database"></i></span><span><strong>Combined Sample History</strong><small>Search samples across all laboratories by lab, chemical, specification, or status.</small></span><i class="bi bi-arrow-right"></i></a><a class="qc-portfolio-nav-card" href="{{ url_for('quality_control.portfolio_management_review') }}"><span class="qc-portfolio-nav-icon"><i class="bi bi-easel2"></i></span><span><strong>Management Review</strong><small>Review the latest workload, quality outcomes, and aged samples across all reporting labs.</small></span><i class="bi bi-arrow-right"></i></a></section>
-<section class="qc-lab-section"><div class="qc-lab-section-heading"><div><h2>Laboratories</h2><p>Each laboratory maintains its own weekly import history and performance dashboard.</p></div><span class="qc-lab-count">{{ laboratories|length }} active</span></div><div class="qc-lab-grid">{% for lab in laboratories %}<a class="qc-lab-tile" href="{{ url_for('quality_control.laboratory_dashboard', lab_code=lab.code) }}"><div class="qc-lab-tile-icon"><i class="bi bi-flask"></i></div><div class="qc-lab-tile-content"><span class="qc-lab-eyebrow">{{ lab.location }}</span><h3>{{ lab.name }}</h3><p>{{ lab.description }}</p>{% if lab.latest_batch %}<span class="qc-lab-meta"><i class="bi bi-calendar3"></i> Latest data: {{ lab.latest_batch.week_end.strftime('%d %b %Y') }}</span>{% else %}<span class="qc-lab-meta"><i class="bi bi-file-earmark-arrow-up"></i> Ready for first weekly import</span>{% endif %}</div><i class="bi bi-arrow-right qc-lab-arrow"></i></a>{% endfor %}</div></section>
-</div></div>{% endblock %}
+{% block content %}
+<div class="page-wrapper"><div class="inv-page qc-landing-page">
+    <section class="qc-command-hero">
+        <div class="qc-command-orb qc-command-orb-one"></div><div class="qc-command-orb qc-command-orb-two"></div>
+        <div class="qc-command-hero-main">
+            <div class="qc-command-kicker"><span class="qc-live-dot"></span> Corporate Chemistry · Quality Control</div>
+            <h1>QC Laboratory<br><em>Control Centre</em></h1>
+            <p>One view of weekly testing, quality outcomes, aged samples, and management intelligence across ONGC laboratories.</p>
+            <div class="qc-command-actions">
+                <a class="btn qc-command-primary" href="{{ url_for('quality_control.portfolio_management_review') }}"><i class="bi bi-easel2"></i> Open management review</a>
+                <a class="qc-command-secondary" href="{{ url_for('quality_control.sample_history') }}"><i class="bi bi-search"></i> Search sample register</a>
+            </div>
+        </div>
+        <aside class="qc-command-status" aria-label="QC portfolio coverage">
+            <div class="qc-command-status-heading"><span>Portfolio scope</span><i class="bi bi-shield-check"></i></div>
+            <div class="qc-command-stat"><strong>{{ laboratories|length }}</strong><span>laboratory locations</span></div>
+            <div class="qc-command-divider"></div>
+            <div class="qc-command-status-copy"><i class="bi bi-diagram-3"></i><span>7 independent reporting workstreams, including IDWE Cementing and DF–CF.</span></div>
+            <div class="qc-command-status-copy"><i class="bi bi-file-earmark-spreadsheet"></i><span>Weekly workbook import with pre-import validation.</span></div>
+        </aside>
+    </section>
+
+    <section class="qc-workbench" aria-label="Portfolio actions">
+        <div class="qc-section-intro"><div><span class="qc-section-label">Executive workbench</span><h2>Portfolio intelligence</h2></div><p>Review the portfolio before moving into an individual laboratory’s operating dashboard.</p></div>
+        <div class="qc-workbench-grid">
+            <a class="qc-workbench-card qc-workbench-card-history" href="{{ url_for('quality_control.sample_history') }}"><span class="qc-workbench-icon"><i class="bi bi-database"></i></span><span class="qc-workbench-copy"><strong>Combined Sample History</strong><small>Find samples across labs by chemical, specification, status, or laboratory.</small></span><span class="qc-workbench-link">Explore <i class="bi bi-arrow-up-right"></i></span></a>
+            <a class="qc-workbench-card qc-workbench-card-review" href="{{ url_for('quality_control.portfolio_management_review') }}"><span class="qc-workbench-icon"><i class="bi bi-easel2"></i></span><span class="qc-workbench-copy"><strong>Management Review</strong><small>See current workload, quality outcomes, testing time, and aged samples.</small></span><span class="qc-workbench-link">Review <i class="bi bi-arrow-up-right"></i></span></a>
+            <a class="qc-workbench-card qc-workbench-card-analytics" href="{{ url_for('quality_control.management_analytics') }}"><span class="qc-workbench-icon"><i class="bi bi-bar-chart-line"></i></span><span class="qc-workbench-copy"><strong>Management Analytics</strong><small>Compare laboratory performance and chemical-wise pass/fail patterns.</small></span><span class="qc-workbench-link">Analyse <i class="bi bi-arrow-up-right"></i></span></a>
+            {% if current_user.is_super_user() %}<a class="qc-workbench-card qc-workbench-card-standards" href="{{ url_for('quality_control.testing_standards') }}"><span class="qc-workbench-icon"><i class="bi bi-stopwatch"></i></span><span class="qc-workbench-copy"><strong>SLA Management</strong><small>Review approved chemical testing times and upload revised standards when required.</small></span><span class="qc-workbench-link">Manage SLA values <i class="bi bi-arrow-up-right"></i></span></a>{% endif %}
+        </div>
+    </section>
+
+    <section class="qc-lab-section qc-lab-directory">
+        <div class="qc-directory-heading"><div><span class="qc-section-label">Laboratory directory</span><h2>Select a reporting laboratory</h2><p>Each workstream maintains a protected import history, operational dashboard, and management brief.</p></div><span class="qc-directory-count"><i class="bi bi-grid-3x3-gap"></i> {{ laboratories|length }} locations</span></div>
+        <div class="qc-lab-grid">
+            {% for lab in laboratories %}
+                <a class="qc-lab-tile" href="{{ url_for('quality_control.idwe_imports') if lab.is_group|default(false) else url_for('quality_control.laboratory_dashboard', lab_code=lab.code) }}">
+                    <div class="qc-lab-tile-header"><div class="qc-lab-tile-icon"><img src="{{ url_for('static', filename='images/qc-laboratory-tile.svg') }}" alt="Laboratory equipment"></div><span class="qc-lab-state {{ 'is-ready' if lab.latest_batch else '' }}"><i class="bi bi-circle-fill"></i> {{ 'Reporting' if lab.latest_batch else 'Awaiting import' }}</span></div>
+                    <div class="qc-lab-tile-content"><span class="qc-lab-eyebrow">{{ lab.location }}</span><h3>{{ lab.name }}</h3><p>{{ lab.description }}</p>{% if lab.latest_batch %}<span class="qc-lab-meta"><i class="bi bi-calendar3"></i> Reporting period ends {{ lab.latest_batch.week_end.strftime('%d %b %Y') }}</span>{% else %}<span class="qc-lab-meta"><i class="bi bi-file-earmark-arrow-up"></i> Upload the first weekly workbook</span>{% endif %}</div>
+                    <span class="qc-lab-open">{{ 'Open imports' if lab.is_group|default(false) else 'Open laboratory' }} <i class="bi bi-arrow-up-right"></i></span>
+                </a>
+            {% endfor %}
+        </div>
+    </section>
+</div></div>
+{% endblock %}

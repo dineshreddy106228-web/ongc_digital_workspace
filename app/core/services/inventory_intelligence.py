@@ -9,6 +9,7 @@ import os
 import pickle
 import re
 import tempfile
+from collections import OrderedDict
 from datetime import date
 from io import BytesIO
 
@@ -76,6 +77,32 @@ _CACHE_DIR = os.path.join(_BASE_DIR, ".cache", "inventory")
 _FORECAST_CACHE_FILE = os.path.join(_CACHE_DIR, "forecast_precomputed.pkl")
 _FORECAST_CACHE_SCHEMA_VERSION = 4
 _NORMALIZED_CACHE_SCHEMA_VERSION = 3
+_INVENTORY_CACHE_MAX_ENTRIES = max(
+    1, int(os.environ.get("INVENTORY_CACHE_MAX_ENTRIES", "32"))
+)
+
+
+class _BoundedCache(OrderedDict):
+    """Small LRU cache for payloads retained by the Inventory singleton."""
+
+    def __init__(self, max_entries: int = _INVENTORY_CACHE_MAX_ENTRIES):
+        super().__init__()
+        self.max_entries = max_entries
+
+    def __getitem__(self, key):
+        value = super().__getitem__(key)
+        self.move_to_end(key)
+        return value
+
+    def __setitem__(self, key, value):
+        if key in self:
+            self.move_to_end(key)
+        super().__setitem__(key, value)
+        while len(self) > self.max_entries:
+            # ``OrderedDict.popitem`` reaches a subclass's ``__getitem__`` on
+            # some Python versions, after removing the key. Delete directly
+            # so LRU eviction remains safe with the access-order override.
+            del self[next(iter(self))]
 
 _PERIOD_RE = re.compile(r"^\s*(\d{1,2})\.(\d{4})\s*$")
 _PRICE_SWING_THRESHOLD_PCT = 15.0
@@ -3572,14 +3599,14 @@ class _DataStore:
     def __init__(self):
         self._cons: pd.DataFrame | None = None
         self._proc: pd.DataFrame | None = None
-        self._overview_cache: dict[str, dict] = {}
-        self._materials_cache: dict[str, list[dict]] = {}
-        self._dashboard_cache: dict[str, dict] = {}
-        self._material_context_cache: dict[tuple[str, str], dict] = {}
-        self._analytics_overview_cache: dict[tuple[str, str], dict] = {}
-        self._analytics_section_cache: dict[tuple[str, str, str], dict] = {}
-        self._consumption_detail_cache: dict[tuple[str, str], list[dict]] = {}
-        self._procurement_history_cache: dict[tuple[str, str], list[dict]] = {}
+        self._overview_cache: _BoundedCache = _BoundedCache()
+        self._materials_cache: _BoundedCache = _BoundedCache()
+        self._dashboard_cache: _BoundedCache = _BoundedCache()
+        self._material_context_cache: _BoundedCache = _BoundedCache()
+        self._analytics_overview_cache: _BoundedCache = _BoundedCache()
+        self._analytics_section_cache: _BoundedCache = _BoundedCache()
+        self._consumption_detail_cache: _BoundedCache = _BoundedCache()
+        self._procurement_history_cache: _BoundedCache = _BoundedCache()
         self._persistent_forecast_cache: dict[str, dict] | None = None
 
     def _ensure_loaded(self):
@@ -3605,14 +3632,14 @@ class _DataStore:
     def reload(self):
         self._cons = None
         self._proc = None
-        self._overview_cache = {}
-        self._materials_cache = {}
-        self._dashboard_cache = {}
-        self._material_context_cache = {}
-        self._analytics_overview_cache = {}
-        self._analytics_section_cache = {}
-        self._consumption_detail_cache = {}
-        self._procurement_history_cache = {}
+        self._overview_cache = _BoundedCache()
+        self._materials_cache = _BoundedCache()
+        self._dashboard_cache = _BoundedCache()
+        self._material_context_cache = _BoundedCache()
+        self._analytics_overview_cache = _BoundedCache()
+        self._analytics_section_cache = _BoundedCache()
+        self._consumption_detail_cache = _BoundedCache()
+        self._procurement_history_cache = _BoundedCache()
         self._persistent_forecast_cache = None
 
     def _cache_key(self, plant: str | None) -> str:

@@ -65,6 +65,8 @@ def test_create_full_backup_bundle_includes_manifest_and_uploads() -> None:
                         manifest = json.load(manifest_member)
                         assert manifest["artifacts"]["committee_uploads"]["present"] is True
                         assert manifest["artifacts"]["committee_uploads"]["file_count"] == 1
+                        assert "office_management" in manifest["database_backup"]["included_modules"]
+                        assert "quality_control" in manifest["database_backup"]["included_modules"]
                 finally:
                     artifact.cleanup()
 

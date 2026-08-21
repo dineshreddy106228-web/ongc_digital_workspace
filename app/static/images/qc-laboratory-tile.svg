@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-label="Laboratory equipment">
+  <rect width="64" height="64" rx="16" fill="#E8F1FF"/>
+  <path d="M27 14v14.5L17.7 44.6A4 4 0 0 0 21.1 51h21.8a4 4 0 0 0 3.4-6.4L37 28.5V14" stroke="#2468C8" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M23 40h18l3 5.2a1 1 0 0 1-.9 1.5H20.9a1 1 0 0 1-.9-1.5L23 40Z" fill="#58A8EE"/>
+  <path d="M23 22h18" stroke="#2468C8" stroke-width="3.5" stroke-linecap="round"/>
+  <circle cx="29" cy="43" r="1.8" fill="white"/><circle cx="36" cy="45" r="1.4" fill="white"/>
+  <path d="M47 18v9M42.5 22.5h9" stroke="#15936B" stroke-width="3" stroke-linecap="round"/>
+</svg>

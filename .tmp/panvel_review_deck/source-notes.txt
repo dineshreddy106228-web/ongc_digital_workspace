@@ -1,0 +1,7 @@
+Internal source: RGL Panvel QC Laboratory Monitoring database, queried 20 August 2026.
+August 2026: 39 monthly intake; 29 closed reports; 14 within applicable SLA; 15 late; 48.3% SLA compliance; average TAT 7.4 days.
+Current week 13–19 August: 37 samples; 19 closed; 18 under testing; 1 aged open sample; weekly SLA 10/19 (52.6%); 9 SLA exceptions.
+August late-closure causes: results awaited from outside lab/agency (5); no delay reason recorded (5); awaiting chemicals from asset (2); other external/inter-laboratory dependencies (3).
+No external assets, images, or claims are used.
+Sample-level data used in slides 5–8 is from the same internal source and represents August 2026 completed samples or the latest reporting-week open sample, as labelled.
+User-supplied asset: ONGC Corporate Chemistry logo, embedded in the top-right header of every slide.

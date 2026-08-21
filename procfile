@@ -1,1 +1,1 @@
-web: FLASK_APP=run.py python -m flask db upgrade && gunicorn run:app --bind 0.0.0.0:$PORT --timeout 90 --graceful-timeout 30 --access-logfile - --error-logfile - --capture-output
+web: FLASK_APP=run.py python -m flask db upgrade && gunicorn run:app --bind 0.0.0.0:$PORT --workers 1 --threads 1 --timeout 600 --graceful-timeout 30 --max-requests 250 --max-requests-jitter 50 --access-logfile - --error-logfile - --capture-output

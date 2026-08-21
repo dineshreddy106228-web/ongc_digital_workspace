@@ -25,6 +25,10 @@ SQL_PREVIEW_LINE_LIMIT = 5
 BUNDLE_MANIFEST_FILENAME = "manifest.json"
 BUNDLE_DATABASE_MEMBER = "database.sql.gz"
 BUNDLE_COMMITTEE_UPLOADS_DIR = "committee_uploads"
+DATABASE_BACKED_MODULES = (
+    "office_management",
+    "quality_control",
+)
 BUNDLE_FORMAT_VERSION = 1
 logger = logging.getLogger(__name__)
 
@@ -469,6 +473,7 @@ def create_full_backup_bundle() -> BackupArtifact:
             "filename": BUNDLE_DATABASE_MEMBER,
             "source_filename": database_artifact.download_name,
             "size_bytes": database_artifact.size_bytes,
+            "included_modules": list(DATABASE_BACKED_MODULES),
         },
         "artifacts": {
             "committee_uploads": {

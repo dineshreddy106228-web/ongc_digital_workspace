@@ -78,21 +78,24 @@ def extract_spec_from_pdf(pdf_bytes: bytes) -> SpecDocument:
     all_blocks: list[dict] = []
     raw_lines: list[str] = []
 
-    for page in pdf:
-        page_dict = page.get_text("dict")
-        all_blocks.append({"page_dict": page_dict, "page_number": page.number + 1})
-        raw_lines.append(page.get_text("text"))
+    try:
+        for page in pdf:
+            page_dict = page.get_text("dict")
+            all_blocks.append({"page_dict": page_dict, "page_number": page.number + 1})
+            raw_lines.append(page.get_text("text"))
 
-    doc_result.raw_text = "\n".join(raw_lines)
+        doc_result.raw_text = "\n".join(raw_lines)
 
-    # ---- Extract metadata from header table ----------------------------------
-    _extract_metadata(doc_result, doc_result.raw_text)
+        # ---- Extract metadata from header table ----------------------------------
+        _extract_metadata(doc_result, doc_result.raw_text)
 
-    # ---- Extract parameters --------------------------------------------------
-    _extract_parameters(doc_result, all_blocks)
-    _append_parameter_review_warnings(doc_result)
-
-    pdf.close()
+        # ---- Extract parameters --------------------------------------------------
+        _extract_parameters(doc_result, all_blocks)
+        _append_parameter_review_warnings(doc_result)
+    finally:
+        # PyMuPDF owns native allocations; closing on parser errors matters
+        # because a web worker remains alive after the failed request.
+        pdf.close()
 
     if not doc_result.parameters:
         doc_result.parse_warnings.append(

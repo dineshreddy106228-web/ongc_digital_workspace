@@ -1,6 +1,7 @@
 """Application factory for ONGC Digital Workspace."""
 
 import logging
+import os
 import secrets
 from importlib import import_module
 from urllib.parse import urlparse
@@ -66,8 +67,13 @@ def create_app(config_class=Config):
     register_feature_blueprints(app)
 
     # ── Register CLI commands ────────────────────────────────────
-    from app.cli import register_cli
-    register_cli(app)
+    # Gunicorn never invokes application-specific Flask commands.  Deferring
+    # their registration keeps CLI-only dependencies (notably the Inventory
+    # pandas/numpy audit stack) out of every long-lived web worker.
+    if os.environ.get("FLASK_RUN_FROM_CLI") == "true":
+        from app.cli import register_cli
+
+        register_cli(app)
 
     app.jinja_env.filters["datetime_ist"] = format_datetime_ist
     app.jinja_env.filters["richtext"] = render_rich_text
