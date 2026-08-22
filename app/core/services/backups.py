@@ -40,9 +40,13 @@ EXCLUDED_TABLE_INVENTORY = {
 }
 BUNDLE_DATABASE_MEMBER = "database.sql.gz"
 BUNDLE_COMMITTEE_UPLOADS_DIR = "committee_uploads"
+# These labels make the bundle manifest easier to audit.  The SQL export itself
+# contains every application table except rows from BACKUP_EXCLUDE_TABLE_DATA.
 DATABASE_BACKED_MODULES = (
-    "office_management",
+    "task_management",
+    "inventory_monitoring",
     "quality_control",
+    "corporate_specifications_management",
 )
 BUNDLE_FORMAT_VERSION = 1
 logger = logging.getLogger(__name__)

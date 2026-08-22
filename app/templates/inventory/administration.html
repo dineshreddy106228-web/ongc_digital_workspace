@@ -2,7 +2,7 @@
 {% block title %}Inventory Health Settings{% endblock %}
 {% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory_monitoring.css') }}">{% endblock %}
 {% from "inventory/_monitoring_nav.html" import monitoring_nav %}
-{% block content %}<div class="page-wrapper im-page">
+{% block content %}<div class="page-wrapper mod-page is-inventory im-page">
 {{ monitoring_nav('health') }}
 <nav class="im-breadcrumb"><a href="{{ url_for('inventory.landing') }}"><i class="bi bi-arrow-left"></i> Inventory Monitoring</a><span>/</span><a href="{{ url_for('inventory.health') }}">Inventory Health</a><span>/</span><strong>Settings</strong></nav>
 <section class="im-settings-hero"><div><span class="im-kicker">Super-user controls</span><h1>Inventory Health settings</h1><p>Set the stock-month boundaries used across every Inventory Health dashboard and work-centre view.</p></div><div class="im-settings-hero-note"><i class="bi bi-shield-check"></i><span>Changes apply immediately<br>to health classifications.</span></div></section>
@@ -13,9 +13,5 @@
   <small>The Group 09 and 10 workbooks carry no unit column. This fills the missing units from retained consumption history; add a UoM column to the export to cover every material.</small>
   <button class="btn btn-secondary btn-sm" type="submit"><i class="bi bi-rulers"></i> Fill missing units</button>
 </form>
-<form method="post" action="{{ url_for('inventory.rebuild_mapping_review') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <strong>Mapping review</strong>
-  <small>Restate the unmapped-material queue against the current mapping workbook, keeping decisions already recorded.</small>
-  <button class="btn btn-secondary btn-sm" type="submit"><i class="bi bi-arrow-repeat"></i> Rebuild mapping review</button>
-</form></aside></section>
+</aside></section>
 </div>{% endblock %}

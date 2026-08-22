@@ -8,16 +8,21 @@ import re
 import tempfile
 import time
 import uuid
-from collections import Counter, defaultdict
-from datetime import date, datetime, timezone
+from collections import defaultdict
+from datetime import date, datetime
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from sqlalchemy import and_, func, or_, text
+from sqlalchemy import func, or_, text
 
+from app.core.services.csc_utils import (
+    SPEC_SUBSET_LABELS,
+    SPEC_SUBSET_ORDER,
+    is_api_grade_chemical,
+)
 from app.extensions import db
 from app.models.inventory.monitoring import (
     InventoryMonitoringException, InventoryMonitoringMaterial, InventoryMonitoringRecord,
@@ -104,11 +109,16 @@ def _read_inventory(source: bytes, source_group: str) -> tuple[str, list[dict[st
         if not code or not centre:
             warnings.append(f"Row {index + 3}: missing material code or work centre.")
             continue
+        value = _decimal(raw[canonical["inventoryvalueinr"]])
+        if value is None or value <= 0:
+            # Monitoring covers stock that carries value; a nil-value line is not held stock.
+            warnings.append(f"Row {index + 3}: inventory value is nil, so the line is not monitored.")
+            continue
         rows.append({
             "material_code": code, "material_description": str(raw[canonical["materialdescription"]] or "").strip() or None,
             "work_center_name": centre, "stock_qty": _decimal(raw[canonical["stockqty"]]),
             "uom": (str(raw[uom_column] or "").strip().upper() or None) if uom_column else None,
-            "inventory_value_inr": _decimal(raw[canonical["inventoryvalueinr"]]),
+            "inventory_value_inr": value,
             "open_po": _decimal(raw[canonical["openpo"]]) if canonical.get("openpo") else None,
             "open_pr": _decimal(raw[canonical["openpr"]]) if canonical.get("openpr") else None,
             "stock_months": _decimal(raw[canonical["stockmonths"]]), "source_row": int(index + 3), "source_sheet": sheet,
@@ -280,17 +290,15 @@ def backfill_missing_uom() -> int:
 
 
 def _create_exceptions(snapshot: InventoryMonitoringSnapshot) -> None:
+    """Raise the coverage exceptions for one snapshot.
+
+    Mapping is no longer something to police: every imported stock line maps its own
+    material to the work centre holding it, so only stock-coverage findings are raised.
+    """
     thresholds = _thresholds()
     records = InventoryMonitoringRecord.query.filter_by(snapshot_id=snapshot.id).all()
-    mappings = {(item.work_center_id, item.material_id) for item in InventoryMonitoringWorkCenterMaterial.query.filter_by(is_current=True).all()}
-    held = set()
     for record in records:
-        held.add((record.work_center_id, record.material_id))
         failures: list[tuple[str, str, str]] = []
-        if record.work_center_id is None or record.material_id is None:
-            failures.append(("unknown_mapping", "high", "The work centre or material could not be resolved."))
-        elif (record.work_center_id, record.material_id) not in mappings:
-            failures.append(("held_not_mapped", "high", "Stock is held at a work centre not mapped to use this material."))
         if record.stock_months is not None:
             if record.stock_months <= thresholds["critical_low_stock_months"]:
                 failures.append(("critical_low_stock", "critical", "Stock coverage is at or below the critical low-stock threshold."))
@@ -303,96 +311,20 @@ def _create_exceptions(snapshot: InventoryMonitoringSnapshot) -> None:
         if record.stock_months is not None and record.stock_months >= thresholds["slow_moving_months"] and ((record.open_po or 0) > 0 or (record.open_pr or 0) > 0):
             failures.append(("open_supply_with_high_stock", "high", "Open PO/PR exists while stock coverage is high."))
         for kind, severity, detail in failures:
-            db.session.add(InventoryMonitoringException(snapshot_id=snapshot.id, record_id=record.id, work_center_id=record.work_center_id, material_id=record.material_id, exception_type=kind, severity=severity, details=detail, inventory_value_inr=record.inventory_value_inr, stock_months=record.stock_months, review_status="pending" if kind in {"held_not_mapped", "unknown_mapping"} else "not_required"))
-    for work_center_id, material_id in mappings - held:
-        db.session.add(InventoryMonitoringException(snapshot_id=snapshot.id, work_center_id=work_center_id, material_id=material_id, exception_type="mapped_not_held", severity="medium", details="Mapped material has no reported stock at this work centre."))
-
-
-MAPPING_EXCEPTION_TYPES = ("held_not_mapped", "mapped_not_held")
-
-
-def rebuild_mapping_exceptions() -> dict[str, int]:
-    """Recompute the mapping review against the *current* mapping workbook.
-
-    Mapping exceptions are written when an inventory workbook is imported, using the
-    mapping in force at that moment. A mapping workbook imported later — or replaced —
-    leaves those rows describing a mapping that no longer exists, so the review queue
-    stops matching what the pages exclude. Rebuilding restates them, keeping every
-    decision a reviewer has already recorded.
-    """
-    mappings = _current_mapping_pairs()
-    material_groups = {
-        item.id: (item.material_group or item.material_code[:2])
-        for item in InventoryMonitoringMaterial.query.all()
-    }
-    snapshots = InventoryMonitoringSnapshot.query.join(
-        InventoryMonitoringUploadBatch, InventoryMonitoringSnapshot.batch_id == InventoryMonitoringUploadBatch.id
-    ).filter(_live_batch()).all()
-    summary = {"held_not_mapped": 0, "mapped_not_held": 0, "decisions_kept": 0}
-    for snapshot in snapshots:
-        existing = InventoryMonitoringException.query.filter(
-            InventoryMonitoringException.snapshot_id == snapshot.id,
-            InventoryMonitoringException.exception_type.in_(MAPPING_EXCEPTION_TYPES),
-        ).all()
-        decisions = {
-            (item.work_center_id, item.material_id): (item.review_status, item.reviewed_by, item.reviewed_at, item.review_note)
-            for item in existing if item.review_status not in ("pending", "not_required")
-        }
-        InventoryMonitoringException.query.filter(
-            InventoryMonitoringException.snapshot_id == snapshot.id,
-            InventoryMonitoringException.exception_type.in_(MAPPING_EXCEPTION_TYPES),
-        ).delete(synchronize_session=False)
-        held: set[tuple[int, int]] = set()
-        for record in InventoryMonitoringRecord.query.filter_by(snapshot_id=snapshot.id).all():
-            pair = (record.work_center_id, record.material_id)
-            if record.work_center_id is None or record.material_id is None:
-                continue  # already raised as unknown_mapping when the workbook was imported
-            held.add(pair)
-            if pair in mappings:
-                continue
-            status, reviewer, reviewed_at, note = decisions.get(pair, ("pending", None, None, None))
-            summary["decisions_kept"] += pair in decisions
-            summary["held_not_mapped"] += 1
-            db.session.add(InventoryMonitoringException(
-                snapshot_id=snapshot.id, record_id=record.id, work_center_id=record.work_center_id,
-                material_id=record.material_id, exception_type="held_not_mapped", severity="high",
-                details="Stock is held at a work centre not mapped to use this material.",
-                inventory_value_inr=record.inventory_value_inr, stock_months=record.stock_months,
-                review_status=status, reviewed_by=reviewer, reviewed_at=reviewed_at, review_note=note,
-            ))
-        for pair in mappings - held:
-            # A snapshot only covers its own material group, so judge it on that group alone.
-            if material_groups.get(pair[1]) != snapshot.material_group:
-                continue
-            summary["mapped_not_held"] += 1
-            db.session.add(InventoryMonitoringException(
-                snapshot_id=snapshot.id, work_center_id=pair[0], material_id=pair[1],
-                exception_type="mapped_not_held", severity="medium",
-                details="Mapped material has no reported stock at this work centre.",
-            ))
-    return summary
+            db.session.add(InventoryMonitoringException(snapshot_id=snapshot.id, record_id=record.id, work_center_id=record.work_center_id, material_id=record.material_id, exception_type=kind, severity=severity, details=detail, inventory_value_inr=record.inventory_value_inr, stock_months=record.stock_months, review_status="not_required"))
 
 
 def _current_mapping_pairs() -> set[tuple[int, int]]:
     return {(item.work_center_id, item.material_id) for item in InventoryMonitoringWorkCenterMaterial.query.filter_by(is_current=True).all()}
 
 
-# Corporate specification categories, read from the specification number (ONGC / DFC / 01 / 2026).
-# The list itself lives in QC Laboratory Monitoring's testing standards, so both modules
-# always describe the same chemical: change it there and this changes with it.
-SPECIFICATION_CATEGORIES = (
-    ("DFC", "Drilling Fluid Chemicals"),
-    ("PC", "Production Chemicals"),
-    ("WS", "Well Stimulation Chemicals"),
-    ("WIC", "Water Injection Chemicals"),
-    ("WM", "Water Maker Chemicals"),
-    ("UTL", "Utility Chemicals"),
-    ("LPG", "LPG Chemicals"),
-    ("CCA", "Cement and Cement Additives"),
-    ("WCF", "Well Completion Fluids"),
+# Corporate-specification categories are shared with CSC exports and coverage
+# reporting.  Keep the final no-specification group separate from this sequence.
+SPECIFICATION_CATEGORIES = tuple(
+    (key, SPEC_SUBSET_LABELS[key]) for key in SPEC_SUBSET_ORDER
 )
 UNSPECIFIED_CATEGORY_KEY = "unspecified"
-UNSPECIFIED_CATEGORY_LABEL = "Not in Corporate Specification List"
+UNSPECIFIED_CATEGORY_LABEL = "Not in Corporate Specifications"
 
 
 def _specification_category(specification_no: Any) -> str | None:
@@ -419,6 +351,10 @@ def _specification_entry(item: Any) -> tuple[str, dict[str, Any]]:
     """One master row as (matchable material code or "", specification detail)."""
     code = material_code(item.material_code)
     category = _specification_category(item.specification_no)
+    # The seven legacy API-grade entries do not have a structured specification
+    # number, but their register name identifies their corporate category.
+    if category is None and is_api_grade_chemical(item.chemical_name):
+        category = "API"
     return code if code.isdigit() else "", {
         "serial": _specification_serial(item.specification_no),
         "chemical_name": item.chemical_name,
@@ -583,20 +519,22 @@ def material_mapping_register_data(term: str = "", category: str = "") -> dict[s
             inventory_values.c.material_id.in_(material_ids)
         ).all():
             inventory_values_by_material[material_id] = value or Decimal("0")
-    mappings_by_material: dict[int, list[InventoryMonitoringWorkCenterMaterial]] = defaultdict(list)
-    if material_ids:
-        mappings = InventoryMonitoringWorkCenterMaterial.query.filter(
-            InventoryMonitoringWorkCenterMaterial.is_current.is_(True),
-            InventoryMonitoringWorkCenterMaterial.material_id.in_(material_ids),
-        ).join(InventoryMonitoringWorkCenter).order_by(
-            InventoryMonitoringWorkCenter.zone,
-            InventoryMonitoringWorkCenter.name,
-        ).all()
-        for item in mappings:
-            mappings_by_material[item.material_id].append(item)
-    work_centres = InventoryMonitoringWorkCenter.query.filter_by(is_active=True).order_by(
-        InventoryMonitoringWorkCenter.zone, InventoryMonitoringWorkCenter.name
-    ).all()
+    # The plant / work centre a material is mapped to is read straight from the uploaded
+    # inventory: wherever the latest published workbooks report stock, that is the mapping.
+    centres_by_material: dict[int, list[InventoryMonitoringWorkCenter]] = defaultdict(list)
+    if material_ids and latest_date is not None:
+        for material_id, centre in db.session.query(
+            InventoryMonitoringRecord.material_id, InventoryMonitoringWorkCenter
+        ).join(
+            InventoryMonitoringSnapshot, InventoryMonitoringRecord.snapshot_id == InventoryMonitoringSnapshot.id
+        ).join(
+            InventoryMonitoringWorkCenter, InventoryMonitoringRecord.work_center_id == InventoryMonitoringWorkCenter.id
+        ).filter(
+            InventoryMonitoringSnapshot.reporting_date == latest_date,
+            InventoryMonitoringSnapshot.is_published.is_(True),
+            InventoryMonitoringRecord.material_id.in_(material_ids),
+        ).distinct().order_by(InventoryMonitoringWorkCenter.zone, InventoryMonitoringWorkCenter.name).all():
+            centres_by_material[material_id].append(centre)
     material_groups = specification_groups(materials, index)
     if category == UNSPECIFIED_CATEGORY_KEY:
         for group in material_groups:
@@ -606,9 +544,8 @@ def material_mapping_register_data(term: str = "", category: str = "") -> dict[s
     return {
         "materials": materials,
         "material_groups": material_groups,
-        "mappings_by_material": mappings_by_material,
+        "centres_by_material": centres_by_material,
         "inventory_values_by_material": inventory_values_by_material,
-        "work_centres": work_centres,
         "term": term,
         "category": category,
         "category_label": category_label,
@@ -618,73 +555,6 @@ def material_mapping_register_data(term: str = "", category: str = "") -> dict[s
             {"key": key, "label": label} for key, label in SPECIFICATION_CATEGORIES
         ] + [{"key": UNSPECIFIED_CATEGORY_KEY, "label": UNSPECIFIED_CATEGORY_LABEL}],
     }
-
-
-def create_manual_work_center(name: str, zone: str | None, work_center_type: str | None) -> InventoryMonitoringWorkCenter:
-    name = (name or "").strip()
-    if not name:
-        raise ValueError("Enter a plant or work-centre name.")
-    return _get_work_center(name, (zone or "").strip() or None, (work_center_type or "").strip() or None)
-
-
-def _manual_mapping_batch(user_id: int | None) -> InventoryMonitoringUploadBatch:
-    """Create an auditable batch for a super-user mapping decision."""
-    token = uuid.uuid4().hex
-    batch = InventoryMonitoringUploadBatch(
-        source_group="mapping_manual",
-        source_filename="Manual mapping update",
-        source_checksum=hashlib.sha256(token.encode()).hexdigest(),
-        source_file_size=0,
-        source_data=b"",
-        status="imported",
-        row_count=1,
-        accepted_count=1,
-        uploaded_by=user_id,
-        validation_json=json.dumps({"source": "super-user material mapping register"}),
-    )
-    db.session.add(batch)
-    db.session.flush()
-    return batch
-
-
-def add_manual_material_mapping(
-    material_code_value: str,
-    description: str | None,
-    material_group: str | None,
-    work_center_id: int | None,
-    user_id: int | None,
-) -> InventoryMonitoringWorkCenterMaterial:
-    code = material_code(material_code_value)
-    if not code:
-        raise ValueError("Enter a material code.")
-    if work_center_id is None:
-        raise ValueError("Select a plant or work centre.")
-    centre = db.session.get(InventoryMonitoringWorkCenter, work_center_id)
-    if centre is None or not centre.is_active:
-        raise ValueError("The selected plant or work centre is not available.")
-    material = _get_material(code, (description or "").strip() or None, (material_group or "").strip() or None)
-    db.session.flush()
-    existing = InventoryMonitoringWorkCenterMaterial.query.filter_by(
-        material_id=material.id, work_center_id=centre.id, is_current=True
-    ).first()
-    if existing is not None:
-        raise ValueError(f"{code} is already mapped to {centre.name}.")
-    batch = _manual_mapping_batch(user_id)
-    mapping = InventoryMonitoringWorkCenterMaterial(
-        material_id=material.id,
-        work_center_id=centre.id,
-        mapping_batch_id=batch.id,
-        is_current=True,
-    )
-    db.session.add(mapping)
-    return mapping
-
-
-def remove_material_mapping(mapping_id: int) -> None:
-    mapping = db.session.get(InventoryMonitoringWorkCenterMaterial, mapping_id)
-    if mapping is None or not mapping.is_current:
-        raise ValueError("This active mapping was not found.")
-    mapping.is_current = False
 
 
 def _live_batch() -> Any:
@@ -715,43 +585,21 @@ def import_workbook(source: bytes, filename: str, source_group: str, reporting_d
     batch = InventoryMonitoringUploadBatch(source_group=source_group, reporting_date=reporting_date or review["reporting_date"], source_filename=filename, source_checksum=checksum, source_file_size=len(source), source_data=source, row_count=review["row_count"], accepted_count=review["accepted_count"], rejected_count=review["rejected_count"], duplicate_count=review["duplicate_count"], warnings_json=json.dumps(review["warnings"]), validation_json=json.dumps(review, default=str), uploaded_by=uploaded_by)
     db.session.add(batch); db.session.flush()
     if source_group == "mapping":
-        for row in _read_mapping_directory(source):
+        # The workbook is the work-centre directory and the DFS / ST unit split. It no longer
+        # declares which material may be held where: an inventory import maps what is held.
+        directory = _read_mapping_directory(source)
+        for row in directory:
             _get_work_center(row["work_center_name"], row["zone"], row["work_center_type"])
         db.session.flush()
-        mappings, _ = _read_mapping(source)
-        current = InventoryMonitoringWorkCenterMaterial.query.filter_by(is_current=True).all()
-        previous_pairs = {(item.work_center.normalized_name, item.material.material_code) for item in current}
-        incoming_pairs = {(normalize_name(row["work_center_name"]), row["material_code"]) for row in mappings}
-        mapping_changes = {
-            "added": len(incoming_pairs - previous_pairs),
-            "removed": len(previous_pairs - incoming_pairs),
-            "unchanged": len(incoming_pairs & previous_pairs),
-        }
-        validation = json.loads(batch.validation_json)
-        validation["mapping_changes"] = mapping_changes
-        batch.validation_json = json.dumps(validation)
-        # Workbook-sourced pairs are replaced wholesale; a pair a super-user approved in the
-        # review is a standing decision and stays mapped until it is removed by hand.
         workbook_batches = db.session.query(InventoryMonitoringUploadBatch.id).filter(
             InventoryMonitoringUploadBatch.source_group == "mapping"
         ).subquery()
         InventoryMonitoringWorkCenterMaterial.query.filter(
             InventoryMonitoringWorkCenterMaterial.mapping_batch_id.in_(db.session.query(workbook_batches.c.id))
         ).update({"is_current": False}, synchronize_session=False)
-        standing_pairs = _current_mapping_pairs()
-        seen = set()
-        for row in mappings:
-            key = (normalize_name(row["work_center_name"]), row["material_code"])
-            if key in seen: continue
-            seen.add(key)
-            centre = _get_work_center(row["work_center_name"], row["zone"], row["work_center_type"])
-            material = _get_material(row["material_code"], None, None)
-            db.session.flush()
-            if (centre.id, material.id) in standing_pairs:
-                continue  # already held by a standing manual mapping
-            db.session.add(InventoryMonitoringWorkCenterMaterial(work_center_id=centre.id, material_id=material.id, mapping_batch_id=batch.id, is_current=True))
-        db.session.flush()
-        rebuild_mapping_exceptions()
+        validation = json.loads(batch.validation_json)
+        validation["work_centres"] = len(directory)
+        batch.validation_json = json.dumps(validation)
         return batch
     if batch.reporting_date is None:
         raise ValueError("Select the as-on reporting date before confirming this inventory import.")
@@ -769,6 +617,7 @@ def import_workbook(source: bytes, filename: str, source_group: str, reporting_d
     snapshot = InventoryMonitoringSnapshot(reporting_date=batch.reporting_date, material_group=source_group, batch_id=batch.id)
     db.session.add(snapshot); db.session.flush()
     seen = set()
+    held_pairs: set[tuple[int, int]] = set()
     for row in rows:
         key = (row["material_code"], normalize_name(row["work_center_name"]))
         if key in seen: continue
@@ -776,7 +625,11 @@ def import_workbook(source: bytes, filename: str, source_group: str, reporting_d
         material = _get_material(row["material_code"], row["material_description"], source_group)
         centre = _get_work_center(row["work_center_name"])
         db.session.flush()
+        held_pairs.add((centre.id, material.id))
         db.session.add(InventoryMonitoringRecord(snapshot_id=snapshot.id, batch_id=batch.id, material_id=material.id, work_center_id=centre.id, material_group=source_group, **row))
+    # Every stock line the workbook reports maps its material to the work centre holding it.
+    for work_center_id, material_id in sorted(held_pairs - _current_mapping_pairs()):
+        db.session.add(InventoryMonitoringWorkCenterMaterial(work_center_id=work_center_id, material_id=material_id, mapping_batch_id=batch.id, is_current=True))
     db.session.flush(); backfill_missing_uom(); _create_exceptions(snapshot)
     for finding in _read_supporting_exceptions(source):
         centre = _get_work_center(finding["work_center_name"])
@@ -929,7 +782,6 @@ def portfolio_data(reporting_date: date | None = None, compare_date: date | None
     if not rows:
         return empty
     thresholds = _thresholds()
-    mapped_pairs = _current_mapping_pairs()
 
     total = Decimal("0")
     zone_value: dict[str, Decimal] = defaultdict(Decimal)
@@ -940,8 +792,7 @@ def portfolio_data(reporting_date: date | None = None, compare_date: date | None
     material_centres: dict[str, set] = defaultdict(set)
     mix_value: dict[str, Decimal] = defaultdict(Decimal)
     mix_count: dict[str, int] = defaultdict(int)
-    mapped_value = Decimal("0")
-    for wc_id, wc_name, wc_zone, grp, mat_id, code, desc, value, months in rows:
+    for wc_id, wc_name, wc_zone, grp, _mat_id, code, desc, value, months in rows:
         value = value or Decimal("0")
         total += value
         zone_value[wc_zone or "Unassigned"] += value
@@ -955,8 +806,6 @@ def portfolio_data(reporting_date: date | None = None, compare_date: date | None
         category = _health_category(months, thresholds)
         mix_value[category] += value
         mix_count[category] += 1
-        if (wc_id, mat_id) in mapped_pairs:
-            mapped_value += value
 
     prev_total = prev_centre = prev_zone = None
     prev_centre_meta: dict[int, tuple[str, str | None]] = {}
@@ -991,7 +840,6 @@ def portfolio_data(reporting_date: date | None = None, compare_date: date | None
     prev_exception_total = None
     if previous:
         prev_exception_total = db.session.query(func.count(InventoryMonitoringException.id)).join(InventoryMonitoringSnapshot).filter(InventoryMonitoringSnapshot.reporting_date == previous).scalar() or 0
-    pending_reviews = exception_query.filter(InventoryMonitoringException.review_status == "pending").count()
     centre_exceptions = dict(db.session.query(InventoryMonitoringException.work_center_id, func.count()).join(InventoryMonitoringSnapshot).filter(InventoryMonitoringSnapshot.reporting_date == selected).group_by(InventoryMonitoringException.work_center_id).all())
     top_exceptions = exception_query.order_by(InventoryMonitoringException.inventory_value_inr.desc()).limit(15).all()
 
@@ -1052,11 +900,10 @@ def portfolio_data(reporting_date: date | None = None, compare_date: date | None
             "total_value": total, "prev_total_value": prev_total,
             "value_at_risk": at_risk, "prev_value_at_risk": prev_at_risk, "at_risk_share": _share(at_risk, total),
             "stockout_value": stockout, "prev_stockout_value": prev_stockout, "stockout_share": _share(stockout, total),
-            "mapped_share": _share(mapped_value, total),
             "centre_count": len(centre_value), "material_count": len(material_value), "record_count": len(rows),
             "top5_share": _share(sum((v for _w, v in centres_ranked[:5]), Decimal("0")), total),
             "exception_total": exception_total, "prev_exception_total": prev_exception_total,
-            "critical_exceptions": severity_counts.get("critical", 0), "pending_reviews": pending_reviews,
+            "critical_exceptions": severity_counts.get("critical", 0),
         },
         "health_mix": [
             {"key": key, "label": label, "value": mix_value[key], "count": mix_count[key], "share": _share(mix_value[key], total)}
@@ -1217,7 +1064,6 @@ def inventory_health_data() -> dict[str, Any]:
     ).filter(_live_batch()).scalar()
     if latest_date is None:
         return {"reporting_date": None, "thresholds": thresholds, "groups": {}, "source_findings": {}}
-    mapped_pairs = _current_mapping_pairs()
     records = InventoryMonitoringRecord.query.join(InventoryMonitoringSnapshot).join(
         InventoryMonitoringUploadBatch, InventoryMonitoringSnapshot.batch_id == InventoryMonitoringUploadBatch.id
     ).filter(
@@ -1226,8 +1072,6 @@ def inventory_health_data() -> dict[str, Any]:
     ).order_by(InventoryMonitoringRecord.inventory_value_inr.desc()).all()
     groups = {key: [] for key in ("critical_low_stock", "low_stock", "healthy_stock", "slow_moving_stock", "excess_stock", "unclassified")}
     for record in records:
-        if (record.work_center_id, record.material_id) not in mapped_pairs:
-            continue
         months = record.stock_months
         if months is None:
             category = "unclassified"
@@ -1244,10 +1088,10 @@ def inventory_health_data() -> dict[str, Any]:
         groups[category].append(record)
     source_findings: dict[str, list[InventoryMonitoringException]] = {}
     for kind in ("slow_moving", "non_moving", "aged_stock_over_one_year", "surplus", "material_in_transit_aged"):
-        source_findings[kind] = [item for item in InventoryMonitoringException.query.join(InventoryMonitoringSnapshot).filter(
+        source_findings[kind] = InventoryMonitoringException.query.join(InventoryMonitoringSnapshot).filter(
             InventoryMonitoringSnapshot.reporting_date == latest_date,
             InventoryMonitoringException.exception_type == kind,
-        ).order_by(InventoryMonitoringException.inventory_value_inr.desc()).all() if (item.work_center_id, item.material_id) in mapped_pairs]
+        ).order_by(InventoryMonitoringException.inventory_value_inr.desc()).all()
     index = specification_index()
     return {
         "reporting_date": latest_date, "thresholds": thresholds, "groups": groups, "source_findings": source_findings,
@@ -1268,18 +1112,37 @@ def _centre_units(centre: InventoryMonitoringWorkCenter, unit: str | None) -> tu
         InventoryMonitoringUploadBatch.id.desc()
     ).first()
     if latest_mapping_batch is not None:
+        # The directory retains configured DFS/ST units even when no material
+        # codes are assigned yet.  Keep those units selectable so the page can
+        # explain the empty state instead of treating the unit as missing.
+        directory_rows = _read_mapping_directory(latest_mapping_batch.source_data)
+        directory_asset_rows = [
+            row for row in directory_rows
+            if normalize_name(row["work_center_name"]) == centre.normalized_name
+        ]
         mapping_rows, _ = _read_mapping(latest_mapping_batch.source_data)
-        asset_rows = [row for row in mapping_rows if normalize_name(row["work_center_name"]) == centre.normalized_name]
-        available_units = sorted({row["work_center_type"] for row in asset_rows if row["work_center_type"]})
+        mapped_asset_rows = [
+            row for row in mapping_rows
+            if normalize_name(row["work_center_name"]) == centre.normalized_name
+        ]
+        available_units = sorted(
+            {row["work_center_type"] for row in directory_asset_rows if row["work_center_type"]}
+            or {row["work_center_type"] for row in mapped_asset_rows if row["work_center_type"]},
+            key=lambda value: ({"DFS": 0, "ST": 1}.get(value, 2), value.casefold()),
+        )
         if selected_unit:
             if selected_unit not in available_units:
                 raise ValueError("That mapped unit is not available for this asset.")
-            selected_unit_codes = {row["material_code"] for row in asset_rows if row["work_center_type"] == selected_unit}
+            selected_unit_codes = {
+                row["material_code"]
+                for row in mapped_asset_rows
+                if row["work_center_type"] == selected_unit
+            }
     return selected_unit, available_units, selected_unit_codes
 
 
-def _centre_records(centre: InventoryMonitoringWorkCenter, mapped_pairs: set, unit_codes: set[str] | None, as_on: date | None = None, mapped_only: bool = True) -> list[InventoryMonitoringRecord]:
-    """Mapped stock lines for one work centre: one reporting date, or the latest snapshot per material group."""
+def _centre_records(centre: InventoryMonitoringWorkCenter, unit_codes: set[str] | None, as_on: date | None = None) -> list[InventoryMonitoringRecord]:
+    """Stock lines for one work centre: one reporting date, or the latest snapshot per material group."""
     query = InventoryMonitoringRecord.query.join(
         InventoryMonitoringSnapshot, InventoryMonitoringRecord.snapshot_id == InventoryMonitoringSnapshot.id
     ).join(
@@ -1297,11 +1160,7 @@ def _centre_records(centre: InventoryMonitoringWorkCenter, mapped_pairs: set, un
         for record in records:
             latest_snapshot_by_group.setdefault(record.material_group, record.snapshot_id)
         records = [record for record in records if latest_snapshot_by_group.get(record.material_group) == record.snapshot_id]
-    return [
-        record for record in records
-        if (not mapped_only or (record.work_center_id, record.material_id) in mapped_pairs)
-        and (unit_codes is None or record.material_code in unit_codes)
-    ]
+    return [record for record in records if unit_codes is None or record.material_code in unit_codes]
 
 
 def _band_records(records: list[InventoryMonitoringRecord], thresholds: dict[str, Decimal]) -> dict[str, list[InventoryMonitoringRecord]]:
@@ -1311,13 +1170,12 @@ def _band_records(records: list[InventoryMonitoringRecord], thresholds: dict[str
     return groups
 
 
-def _centre_source_findings(centre: InventoryMonitoringWorkCenter, mapped_pairs: set, unit_codes: set[str] | None) -> list[InventoryMonitoringException]:
+def _centre_source_findings(centre: InventoryMonitoringWorkCenter, unit_codes: set[str] | None) -> list[InventoryMonitoringException]:
     return [
         item for item in InventoryMonitoringException.query.filter_by(work_center_id=centre.id).filter(
             InventoryMonitoringException.exception_type.in_([key for key, _label, _description in SUPPORTING_REGISTERS])
         ).order_by(InventoryMonitoringException.id.desc()).all()
-        if (item.work_center_id, item.material_id) in mapped_pairs
-        and (unit_codes is None or (item.material and item.material.material_code in unit_codes))
+        if unit_codes is None or (item.material and item.material.material_code in unit_codes)
     ]
 
 
@@ -1331,12 +1189,11 @@ def work_center_health_data(work_center_id: int, unit: str | None = None) -> dic
     if centre is None:
         raise ValueError("Work centre was not found.")
     thresholds = _thresholds()
-    mapped_pairs = _current_mapping_pairs()
     selected_unit, available_units, unit_codes = _centre_units(centre, unit)
-    records = _centre_records(centre, mapped_pairs, unit_codes)
+    records = _centre_records(centre, unit_codes)
     return {
         "centre": centre, "thresholds": thresholds, "groups": _band_records(records, thresholds),
-        "source_findings": _centre_source_findings(centre, mapped_pairs, unit_codes),
+        "source_findings": _centre_source_findings(centre, unit_codes),
         "selected_unit": selected_unit, "available_units": available_units,
     }
 
@@ -1347,17 +1204,10 @@ def work_center_review_data(work_center_id: int, unit: str | None = None, compar
     if centre is None:
         raise ValueError("Work centre was not found.")
     thresholds = _thresholds()
-    mapped_pairs = _current_mapping_pairs()
     selected_unit, available_units, unit_codes = _centre_units(centre, unit)
-    records = _centre_records(centre, mapped_pairs, unit_codes)
+    records = _centre_records(centre, unit_codes)
     groups = _band_records(records, thresholds)
-    source_findings = _centre_source_findings(centre, mapped_pairs, unit_codes)
-    # Stock physically held here on material that the current mapping workbook does not
-    # link to this centre is excluded from every figure below; say so rather than hide it.
-    unmapped = [
-        record for record in _centre_records(centre, mapped_pairs, None, mapped_only=False)
-        if (record.work_center_id, record.material_id) not in mapped_pairs
-    ]
+    source_findings = _centre_source_findings(centre, unit_codes)
 
     snapshot_dates = dict(db.session.query(InventoryMonitoringSnapshot.id, InventoryMonitoringSnapshot.reporting_date).filter(
         InventoryMonitoringSnapshot.id.in_({record.snapshot_id for record in records} or {0})
@@ -1393,12 +1243,8 @@ def work_center_review_data(work_center_id: int, unit: str | None = None, compar
 
     portfolio_total = Decimal("0")
     if records:
-        portfolio_total = db.session.query(func.coalesce(func.sum(InventoryMonitoringRecord.inventory_value_inr), 0)).join(
-            InventoryMonitoringWorkCenterMaterial, and_(
-                InventoryMonitoringWorkCenterMaterial.work_center_id == InventoryMonitoringRecord.work_center_id,
-                InventoryMonitoringWorkCenterMaterial.material_id == InventoryMonitoringRecord.material_id,
-                InventoryMonitoringWorkCenterMaterial.is_current.is_(True),
-            )
+        portfolio_total = db.session.query(
+            func.coalesce(func.sum(InventoryMonitoringRecord.inventory_value_inr), 0)
         ).filter(InventoryMonitoringRecord.snapshot_id.in_({record.snapshot_id for record in records})).scalar() or Decimal("0")
 
     comparison = None
@@ -1408,7 +1254,7 @@ def work_center_review_data(work_center_id: int, unit: str | None = None, compar
     entrants: list[dict[str, Any]] = []
     exits: list[dict[str, Any]] = []
     if previous:
-        prior_records = _centre_records(centre, mapped_pairs, unit_codes, as_on=previous)
+        prior_records = _centre_records(centre, unit_codes, as_on=previous)
         prior_value, prior_meta = _by_material(prior_records)
         prior_total = _value_of(prior_records)
         prior_band = {key: _value_of(rows) for key, rows in _band_records(prior_records, thresholds).items()}
@@ -1457,7 +1303,6 @@ def work_center_review_data(work_center_id: int, unit: str | None = None, compar
         "source_spec_groups": specification_groups(source_findings, code_of=lambda item: item.material.material_code if item.material else ""),
         "selected_unit": selected_unit, "available_units": available_units,
         "reporting_date": reporting_date, "as_on_by_group": as_on_by_group,
-        "unmapped": {"count": len(unmapped), "value": _value_of(unmapped), "materials": len({record.material_code for record in unmapped})},
         "previous_date": previous, "comparison_dates": earlier_dates, "comparison": comparison,
         "movers": movers, "entrants": entrants, "exits": exits,
         "kpis": {
@@ -1487,118 +1332,3 @@ def work_center_review_data(work_center_id: int, unit: str | None = None, compar
         ],
         "source_summary": [entry for entry in source_summary.values() if entry["count"]],
     }
-
-
-MAPPING_REVIEW_TYPES = ("held_not_mapped", "unknown_mapping")
-
-
-def mapping_review_query(status: str = "pending", work_center_id: int | None = None, term: str = "", min_value: Decimal | None = None) -> Any:
-    """Shared query for the unmapped-material review, so the table, the export and the bulk action always agree."""
-    query = InventoryMonitoringException.query.filter(InventoryMonitoringException.exception_type.in_(MAPPING_REVIEW_TYPES))
-    if status and status != "all":
-        query = query.filter(InventoryMonitoringException.review_status == status)
-    if work_center_id:
-        query = query.filter(InventoryMonitoringException.work_center_id == work_center_id)
-    if min_value is not None:
-        query = query.filter(InventoryMonitoringException.inventory_value_inr >= min_value)
-    term = (term or "").strip()
-    if term:
-        like = f"%{term}%"
-        query = query.join(
-            InventoryMonitoringMaterial, InventoryMonitoringException.material_id == InventoryMonitoringMaterial.id
-        ).filter(or_(InventoryMonitoringMaterial.material_code.ilike(like), InventoryMonitoringMaterial.description.ilike(like)))
-    return query
-
-
-def mapping_review_work_centres() -> list[InventoryMonitoringWorkCenter]:
-    """Work centres that have something in the review queue, for the filter list."""
-    return InventoryMonitoringWorkCenter.query.join(
-        InventoryMonitoringException, InventoryMonitoringException.work_center_id == InventoryMonitoringWorkCenter.id
-    ).filter(InventoryMonitoringException.exception_type.in_(MAPPING_REVIEW_TYPES)).distinct().order_by(
-        InventoryMonitoringWorkCenter.zone, InventoryMonitoringWorkCenter.name
-    ).all()
-
-
-def _close_mapping_candidates(work_center_id: int, material_id: int, user_id: int | None) -> None:
-    """One accepted pair settles every open candidate row for it, on any snapshot."""
-    InventoryMonitoringException.query.filter(
-        InventoryMonitoringException.exception_type.in_(("held_not_mapped", "unknown_mapping")),
-        InventoryMonitoringException.work_center_id == work_center_id,
-        InventoryMonitoringException.material_id == material_id,
-        InventoryMonitoringException.review_status == "pending",
-    ).update(
-        {"review_status": "added_to_mapping", "reviewed_by": user_id, "reviewed_at": datetime.now(timezone.utc)},
-        synchronize_session=False,
-    )
-
-
-def _apply_mapping_decision(items: list[InventoryMonitoringException], action: str, user_id: int | None, note: str | None = None) -> int:
-    """Record one super-user decision across any set of mapping candidates.
-
-    Accepted pairs are written to a single ``mapping_manual`` batch, which is what makes
-    the decision outlive later mapping-workbook imports.
-    """
-    if action not in {"add_mapping", "dismiss"}:
-        raise ValueError("Choose Add to mapping or Dismiss.")
-    items = [item for item in items if item.exception_type in MAPPING_REVIEW_TYPES]
-    if not items:
-        return 0
-    now = datetime.now(timezone.utc)
-    note = (note or "").strip() or None
-    if action == "dismiss":
-        for item in items:
-            item.review_status, item.reviewed_by, item.reviewed_at = "dismissed", user_id, now
-            item.review_note = note or item.review_note
-        return len(items)
-    batch = None
-    pairs = _current_mapping_pairs()
-    accepted = 0
-    for item in items:
-        if item.work_center_id is None or item.material_id is None:
-            item.review_status = "dismissed"
-            item.review_note = "The material or work centre could not be resolved, so it cannot be mapped."
-        else:
-            pair = (item.work_center_id, item.material_id)
-            if pair not in pairs:
-                batch = batch or _manual_mapping_batch(user_id)
-                db.session.add(InventoryMonitoringWorkCenterMaterial(
-                    work_center_id=item.work_center_id, material_id=item.material_id,
-                    mapping_batch_id=batch.id, is_current=True,
-                ))
-                pairs.add(pair)
-            _close_mapping_candidates(item.work_center_id, item.material_id, user_id)
-            item.review_status, item.review_note = "added_to_mapping", note or item.review_note
-            accepted += 1
-        item.reviewed_by, item.reviewed_at = user_id, now
-    if batch is not None:
-        batch.row_count = batch.accepted_count = accepted
-    return len(items)
-
-
-def review_mapping_exception(exception_id: int, action: str, user_id: int | None, note: str | None = None) -> None:
-    item = db.session.get(InventoryMonitoringException, exception_id)
-    if item is None or item.exception_type not in MAPPING_REVIEW_TYPES:
-        raise ValueError("This item is not a mapping-review exception.")
-    if action == "add_mapping" and (item.work_center_id is None or item.material_id is None):
-        raise ValueError("The material or work centre cannot be added until its identity is resolved.")
-    _apply_mapping_decision([item], action, user_id, note)
-
-
-def review_selected_mapping_exceptions(exception_ids: list[int], action: str, user_id: int | None) -> int:
-    """Apply one decision to the rows a super-user ticked in the review table."""
-    if not exception_ids:
-        raise ValueError("Select at least one material to review.")
-    items = InventoryMonitoringException.query.filter(
-        InventoryMonitoringException.id.in_(exception_ids),
-        InventoryMonitoringException.exception_type.in_(MAPPING_REVIEW_TYPES),
-        InventoryMonitoringException.review_status == "pending",
-    ).all()
-    if not items:
-        raise ValueError("Those materials are no longer awaiting review.")
-    return _apply_mapping_decision(items, action, user_id)
-
-
-def review_all_pending_mapping_exceptions(action: str, user_id: int | None, **filters: Any) -> int:
-    """Apply one deliberate super-user decision to the pending candidates currently filtered."""
-    note = "Bulk dismissed by super-user" if action == "dismiss" else None
-    return _apply_mapping_decision(mapping_review_query(status="pending", **filters).all(), action, user_id, note)

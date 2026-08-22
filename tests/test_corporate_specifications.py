@@ -139,6 +139,20 @@ def test_category_tiles_split_specified_from_awaiting_and_follow_the_register_or
     assert tiles[-1]["is_unspecified"] is True
 
 
+def test_catalogue_places_legacy_api_grade_register_rows_in_api_category(monkeypatch):
+    _stub_catalogue(
+        monkeypatch,
+        register=[_register_row(1, "", "Baryte API Grade")],
+        records=[],
+        counts={},
+    )
+
+    entry = cs.catalogue()[0]
+    assert entry["category"] == "API"
+    assert entry["category_label"] == "API Grade Chemicals"
+    assert cs.category_tiles()[0]["key"] == "API"
+
+
 def test_parameter_payload_keeps_submitted_rows_and_drops_blank_ones():
     form = SimpleNamespace(
         getlist=lambda name: ["0", "1", "2"],

@@ -1,52 +1,43 @@
 {% extends "base.html" %}
-{% from "components/ui.html" import page_header %}
-{% block title %}Task Details{% endblock %}
+{% from "tasks/_office_nav.html" import office_nav %}
+{% block title %}{{ task.task_title }} – Task Management{% endblock %}
 
 {% block head_extra %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/office.css') }}">
 {% endblock %}
 
 {% block content %}
-<div class="page-wrapper">
+<div class="page-wrapper mod-page om-page">
 
-  {% call page_header(task.task_title, "Task ID: " ~ task.id, "Office Management") %}
+  {{ office_nav('', true) }}
+
+  <div class="om-breadcrumb">
+    <a href="{{ url_for('tasks.task_dashboard') }}">Task Management</a>
+    <span>›</span>
+    <a href="{{ url_for('tasks.list_tasks') }}">Task Register</a>
+    <span>›</span>
+    <span>Task #{{ task.id }}</span>
+  </div>
+
+  <div class="om-title">
+    <div>
+      <span>Task record</span>
+      <h1>{{ task.task_title }}</h1>
+      <p>Raised {{ task.created_at|datetime_ist('%d %b %Y') if task.created_at else '—' }}
+        by {{ task.creator.full_name if task.creator and task.creator.full_name else (task.creator.username if task.creator else '—') }}.</p>
+    </div>
+    <div class="om-title-actions">
       <a href="{{ url_for('tasks.list_tasks') }}" class="btn btn-secondary btn-sm">
-        <i class="bi bi-arrow-left"></i>
-        <span>Back to List</span>
+        <i class="bi bi-arrow-left"></i><span>Back to register</span>
       </a>
       {% if can_edit %}
       <a href="{{ url_for('tasks.edit_task', task_id=task.id) }}" class="btn btn-secondary btn-sm">
-        <i class="bi bi-pencil-square"></i>
-        <span>Edit Task</span>
+        <i class="bi bi-pencil-square"></i><span>Edit task</span>
       </a>
       {% endif %}
-      {% if task.recurring_template %}
-      <a href="{{ url_for('tasks.recurring_series_detail', template_id=task.recurring_template.id) }}" class="btn btn-secondary btn-sm">
-        <i class="bi bi-arrow-repeat"></i>
-        <span>View Series</span>
-      </a>
-      {% if can_edit_series %}
-      <a href="{{ url_for('tasks.edit_recurring_series', template_id=task.recurring_template.id) }}" class="btn btn-secondary btn-sm">
-        <i class="bi bi-calendar-range"></i>
-        <span>Edit Series</span>
-      </a>
-      {% endif %}
-      {% endif %}
-      {% if can_edit and task.is_active %}
-      <form
-        method="POST"
-        action="{{ url_for('tasks.delete_task', task_id=task.id) }}"
-        style="display:inline-block;"
-        onsubmit="return confirm('Remove this task from the active tracker? It will remain available in archived tasks.');"
-      >
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" class="btn btn-danger btn-sm">
-          <i class="bi bi-trash"></i>
-          <span>Delete Task</span>
-        </button>
-      </form>
-      {% endif %}
-  {% endcall %}
+    </div>
+  </div>
 
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% for category, message in messages %}
@@ -54,243 +45,235 @@
     {% endfor %}
   {% endwith %}
 
-  <!-- Task Info Card -->
-  <div class="card" style="margin-bottom: 1.25rem;">
-    <div class="card-body">
-      <div class="detail-overview-grid">
+  <div class="om-detail">
 
-        <div class="detail-field detail-field-wide">
-          <div class="form-label">Description</div>
-          <div class="detail-value rich-text-content">
-            {% if task.task_description %}
-            {{ task.task_description|richtext }}
-            {% else %}
-            —
-            {% endif %}
-          </div>
-        </div>
-
-        <div class="detail-field">
-          <div class="form-label">Task Origin</div>
-          <div class="detail-value">{{ task.task_origin or '—' }}</div>
-        </div>
-
-        <div class="detail-field">
-          <div class="form-label">Status</div>
-          <span class="task-badge status-{{ task.status|lower|replace(' ', '-') }}">{{ task.status }}</span>
-        </div>
-
-        <div class="detail-field">
-          <div class="form-label">Priority</div>
-          <span class="task-badge priority-{{ task.priority|lower }}">{{ task.priority }}</span>
-        </div>
-
-        <div class="detail-field">
-          <div class="form-label">Due Date</div>
-          <div class="detail-value">{{ task.due_date.strftime('%d %b %Y') if task.due_date else '—' }}</div>
-        </div>
-
-        <div class="detail-field">
-          <div class="form-label">Owner</div>
-          <div class="detail-value">
-            {{ task.owner.full_name if task.owner and task.owner.full_name else (task.owner.username if task.owner else '—') }}
-          </div>
-        </div>
-
-        <div class="detail-field">
-          <div class="form-label">Task Scope</div>
-          <div class="detail-value">{{ 'Global Task' if task.task_scope == 'GLOBAL' else 'Local Task' }}</div>
-        </div>
-
-        <div class="detail-field">
-          <div class="form-label">Task Schedule</div>
-          <div class="detail-value">{{ recurrence_summary(task.recurring_template) }}</div>
-        </div>
-
-        <div class="detail-field">
-          <div class="form-label">Occurrence Date</div>
-          <div class="detail-value">{{ task.occurrence_date.strftime('%d %b %Y') if task.occurrence_date else '—' }}</div>
-        </div>
-
-        {% if task.recurring_template %}
-        <div class="detail-field">
-          <div class="form-label">Series Start Date</div>
-          <div class="detail-value">{{ task.recurring_template.start_date.strftime('%d %b %Y') if task.recurring_template.start_date else '—' }}</div>
-        </div>
-
-        <div class="detail-field">
-          <div class="form-label">Series End Date</div>
-          <div class="detail-value">{{ task.recurring_template.end_date.strftime('%d %b %Y') if task.recurring_template.end_date else 'No end date' }}</div>
-        </div>
-        {% endif %}
-
-        <div class="detail-field">
-          <div class="form-label">Collaborators</div>
-          <div class="detail-value">
-            {% if task.collaborator_links %}
-              {% for link in task.collaborator_links %}
-                {{ link.user.full_name or link.user.username }}{% if not loop.last %}, {% endif %}
-              {% endfor %}
-            {% else %}
-              —
-            {% endif %}
-          </div>
-        </div>
-
-        {% if task.task_scope == 'GLOBAL' and task.tagged_offices %}
-        <div class="detail-field">
-          <div class="form-label">Tagged Offices</div>
-          <div class="detail-value">
-            {% for office in task.tagged_offices %}
-              {{ office.office_name }} ({{ office.office_code }}){% if not loop.last %}, {% endif %}
-            {% endfor %}
-          </div>
-        </div>
-        {% endif %}
-
-        {% if task.self_task_visible_to_controlling_officer and not task.collaborator_links %}
-        <div class="detail-field">
-          <div class="form-label">CO Visibility</div>
-          <div class="detail-value">Visible to Controlling Officer</div>
-        </div>
-        {% endif %}
-
-        <div class="detail-field">
-          <div class="form-label">Created By</div>
-          <div class="detail-value">
-            {{ task.creator.full_name if task.creator and task.creator.full_name else (task.creator.username if task.creator else '—') }}
-          </div>
-        </div>
-
-        <div class="detail-field">
-          <div class="form-label">Office</div>
-          <div class="detail-value">{{ task.office.office_name if task.office else '—' }}</div>
-        </div>
-
-        <div class="detail-field">
-          <div class="form-label">Created At</div>
-          <div class="detail-value">{{ task.created_at|datetime_ist('%d %b %Y') if task.created_at else '—' }}</div>
-        </div>
-
-        <div class="detail-field">
-          <div class="form-label">Last Updated</div>
-          <div class="detail-value">{{ task.updated_at|datetime_ist('%d %b %Y') if task.updated_at else '—' }}</div>
-        </div>
-
-      </div>
-    </div>
-  </div>
-
-  {% if can_add_update %}
-  <div class="card" style="margin-bottom: 1.25rem;">
-    <div class="card-body">
-      <div class="task-summary-composer">
-        <div class="task-summary-composer-header">
+    {# ── Main document ──────────────────────────────────────── #}
+    <div>
+      <article class="om-doc">
+        <div class="om-doc-head">
           <div>
-            <h2 class="task-summary-composer-title">Add Update</h2>
-            <p class="task-summary-composer-note">Use this highlighted area for the latest progress note, blocker, or completion update.</p>
+            <span>Task #{{ task.id }} · {{ 'Global task' if task.task_scope == 'GLOBAL' else 'Local task' }}</span>
+            <strong>{{ task.task_title }}</strong>
           </div>
-          <span class="task-summary-composer-pill">Type Here</span>
+          <div class="om-doc-pills">
+            <span class="om-pill om-pill-status-{{ task.status|lower|replace(' ', '-') }}">{{ task.status }}</span>
+            <span class="om-pill om-pill-priority-{{ task.priority|lower }}">{{ task.priority }}</span>
+          </div>
         </div>
-        <form id="task-update-form" class="task-summary-composer-form" method="POST" action="{{ url_for('tasks.add_task_update', task_id=task.id) }}">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-          <div class="form-group">
-            <label class="form-label" for="update_text">Update <span style="color:var(--color-danger)">*</span></label>
-            <textarea
-              id="update_text"
-              name="update_text"
-              class="form-control"
-              rows="5"
-              required
-              maxlength="5000"
-              placeholder="Example: Inputs consolidated from all offices and draft moved to review stage."
-            ></textarea>
-          </div>
+        <div class="om-description rich-text-content">
+          {% if task.task_description %}
+          {{ task.task_description|richtext }}
+          {% else %}
+          <span style="color: var(--muted);">No description recorded for this task.</span>
+          {% endif %}
+        </div>
 
-          <div class="task-summary-composer-actions">
-            <div class="form-group">
-              <label class="form-label" for="new_status">Optional Status Change</label>
-              <select id="new_status" name="new_status" class="form-control">
-                <option value="">No status change</option>
-                {% for status in ['Not Started', 'In Progress', 'On Hold', 'Completed', 'Cancelled'] %}
-                {% if status in ('Completed', 'Cancelled') and not can_close %}
-                {% else %}
-                <option value="{{ status }}">{{ status }}</option>
-                {% endif %}
-                {% endfor %}
-              </select>
-            </div>
-            <button type="submit" class="btn btn-primary">Post Update</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  </div>
-  {% endif %}
-
-  <!-- Update History Card -->
-  <div class="card">
-    <div class="card-body" style="padding-bottom: 0;">
-      <div class="section-heading">
-        <h2 class="section-heading-title">Update History</h2>
-      </div>
-    </div>
-    <div class="table-responsive">
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Updated By</th>
-            <th>Old Status</th>
-            <th>New Status</th>
-            <th>Remarks</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% if updates %}
-            {% for update in updates %}
+        <table class="om-doc-info">
+          <tbody>
+            <tr><th>Owner</th><td>{{ task.owner.full_name if task.owner and task.owner.full_name else (task.owner.username if task.owner else '—') }}</td></tr>
+            <tr><th>Office</th><td>{{ task.office.office_name if task.office else '—' }}</td></tr>
+            <tr><th>Due date</th><td>{{ task.due_date.strftime('%d %b %Y') if task.due_date else '—' }}</td></tr>
+            <tr><th>Task origin</th><td>{{ task.task_origin or '—' }}</td></tr>
+            <tr><th>Task schedule</th><td>{{ recurrence_summary(task.recurring_template) }}</td></tr>
+            {% if task.occurrence_date %}
+            <tr><th>Occurrence date</th><td>{{ task.occurrence_date.strftime('%d %b %Y') }}</td></tr>
+            {% endif %}
+            {% if task.recurring_template %}
+            <tr><th>Series start</th><td>{{ task.recurring_template.start_date.strftime('%d %b %Y') if task.recurring_template.start_date else '—' }}</td></tr>
+            <tr><th>Series end</th><td>{{ task.recurring_template.end_date.strftime('%d %b %Y') if task.recurring_template.end_date else 'No end date' }}</td></tr>
+            {% endif %}
             <tr>
+              <th>Collaborators</th>
               <td>
-                {{ update.created_at|datetime_ist('%d %b %Y %I:%M %p') if update.created_at else '—' }}
-                {% if update.was_edited and update.edited_at %}
-                <div class="form-hint">
-                  Edited {{ update.edited_at|datetime_ist('%d %b %Y %I:%M %p') }}
-                </div>
-                {% endif %}
-              </td>
-              <td>{{ update.updater.full_name if update.updater and update.updater.full_name else (update.updater.username if update.updater else '—') }}</td>
-              <td>{{ update.old_status or '—' }}</td>
-              <td>{{ update.new_status or '—' }}</td>
-              <td>
-                <div class="preserve-whitespace">{{ update.update_text }}</div>
-                {% if update.was_edited %}
-                <div class="form-hint">
-                  Edited by {{ update.editor.full_name if update.editor and update.editor.full_name else (update.editor.username if update.editor else '—') }}
-                </div>
-                {% endif %}
-              </td>
-              <td>
-                {% if update.is_editable_by(current_user, task_update_edit_window_hours) %}
-                <a href="{{ url_for('tasks.edit_task_update', task_id=task.id, update_id=update.id) }}" class="btn btn-sm btn-secondary">Edit</a>
-                {% elif update.updated_by == current_user.id %}
-                <span class="form-hint">Edit window closed</span>
-                {% else %}
-                —
-                {% endif %}
+                {%- if task.collaborator_links -%}
+                  {% for link in task.collaborator_links %}{{ link.user.full_name or link.user.username }}{% if not loop.last %}, {% endif %}{% endfor %}
+                {%- else -%}—{%- endif -%}
               </td>
             </tr>
-            {% endfor %}
-          {% else %}
-          <tr>
-            <td colspan="6" class="table-empty-row">No updates added yet.</td>
-          </tr>
-          {% endif %}
-        </tbody>
-      </table>
-    </div>
-  </div>
+            {% if task.task_scope == 'GLOBAL' and task.tagged_offices %}
+            <tr>
+              <th>Tagged offices</th>
+              <td>{% for office in task.tagged_offices %}{{ office.office_name }} ({{ office.office_code }}){% if not loop.last %}, {% endif %}{% endfor %}</td>
+            </tr>
+            {% endif %}
+            {% if task.self_task_visible_to_controlling_officer and not task.collaborator_links %}
+            <tr><th>CO visibility</th><td>Visible to Controlling Officer</td></tr>
+            {% endif %}
+            <tr><th>Created by</th><td>{{ task.creator.full_name if task.creator and task.creator.full_name else (task.creator.username if task.creator else '—') }}</td></tr>
+            <tr><th>Created at</th><td>{{ task.created_at|datetime_ist('%d %b %Y') if task.created_at else '—' }}</td></tr>
+            <tr><th>Last updated</th><td>{{ task.updated_at|datetime_ist('%d %b %Y') if task.updated_at else '—' }}</td></tr>
+          </tbody>
+        </table>
+      </article>
 
+      {# ── Add update ───────────────────────────────────────── #}
+      {% if can_add_update %}
+      <div class="om-section-heading">
+        <div>
+          <span>Progress</span>
+          <h2>Add an update</h2>
+          <p>Record the latest progress note, blocker, or completion remark against this task.</p>
+        </div>
+      </div>
+
+      <div class="om-composer">
+        <div class="om-composer-head">
+          <div>
+            <h2>New update</h2>
+            <p>Visible to everyone who can see this task.</p>
+          </div>
+          <span class="om-composer-pill">Type here</span>
+        </div>
+        <div class="om-composer-body">
+          <form id="task-update-form" method="POST" action="{{ url_for('tasks.add_task_update', task_id=task.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="om-field">
+              <label for="update_text">Update <span style="color:var(--danger)">*</span></label>
+              <textarea
+                id="update_text"
+                name="update_text"
+                rows="5"
+                required
+                maxlength="5000"
+                placeholder="Example: Inputs consolidated from all offices and draft moved to review stage."
+              ></textarea>
+            </div>
+            <div class="om-composer-actions">
+              <div class="om-field">
+                <label for="new_status">Optional status change</label>
+                <select id="new_status" name="new_status">
+                  <option value="">No status change</option>
+                  {% for status in ['Not Started', 'In Progress', 'On Hold', 'Completed', 'Cancelled'] %}
+                  {% if not (status in ('Completed', 'Cancelled') and not can_close) %}
+                  <option value="{{ status }}">{{ status }}</option>
+                  {% endif %}
+                  {% endfor %}
+                </select>
+              </div>
+              <button type="submit" class="btn btn-primary">Post update</button>
+            </div>
+          </form>
+        </div>
+      </div>
+      {% endif %}
+
+      {# ── Update history ───────────────────────────────────── #}
+      <div class="om-section-heading">
+        <div>
+          <span>Audit trail</span>
+          <h2>Update history</h2>
+          <p>Every progress note recorded against this task, newest first.</p>
+        </div>
+        <span class="om-count-chip">{{ updates|length }}</span>
+      </div>
+
+      {% if updates %}
+      <ul class="om-timeline">
+        {% for update in updates %}
+        <li>
+          <div class="om-timeline-head">
+            <span class="om-timeline-who">
+              <i class="bi bi-person-circle"></i>
+              {{ update.updater.full_name if update.updater and update.updater.full_name else (update.updater.username if update.updater else '—') }}
+              {% if update.old_status and update.new_status %}
+              <span class="om-timeline-transition">
+                <span class="om-pill om-pill-status-{{ update.old_status|lower|replace(' ','-') }}">{{ update.old_status }}</span>
+                <i class="bi bi-arrow-right"></i>
+                <span class="om-pill om-pill-status-{{ update.new_status|lower|replace(' ','-') }}">{{ update.new_status }}</span>
+              </span>
+              {% elif update.new_status %}
+              <span class="om-pill om-pill-status-{{ update.new_status|lower|replace(' ','-') }}">{{ update.new_status }}</span>
+              {% endif %}
+            </span>
+            <span class="om-timeline-when">{{ update.created_at|datetime_ist('%d %b %Y · %I:%M %p') if update.created_at else '—' }}</span>
+          </div>
+
+          <div class="om-timeline-text">{{ update.update_text }}</div>
+
+          <div class="om-timeline-foot">
+            <span>
+              {%- if update.was_edited -%}
+              Edited{% if update.edited_at %} {{ update.edited_at|datetime_ist('%d %b %Y · %I:%M %p') }}{% endif %}
+              by {{ update.editor.full_name if update.editor and update.editor.full_name else (update.editor.username if update.editor else '—') }}
+              {%- endif -%}
+            </span>
+            {% if update.is_editable_by(current_user, task_update_edit_window_hours) %}
+            <a href="{{ url_for('tasks.edit_task_update', task_id=task.id, update_id=update.id) }}" class="btn btn-sm btn-secondary">Edit</a>
+            {% elif update.updated_by == current_user.id %}
+            <span>Edit window closed</span>
+            {% endif %}
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div class="om-empty">
+        <i class="bi bi-chat-left-text"></i>
+        <strong>No updates yet</strong>
+        <p>Progress notes recorded against this task will appear here as a dated trail.</p>
+      </div>
+      {% endif %}
+    </div>
+
+    {# ── Side rail ──────────────────────────────────────────── #}
+    <aside class="om-side">
+      <section class="om-panel">
+        <h3>At a glance</h3>
+        <p>Current state of this task.</p>
+        <table class="om-doc-info" style="border:0;">
+          <tbody>
+            <tr><th style="width:110px;padding-left:0;">Status</th><td style="padding-right:0;"><span class="om-pill om-pill-status-{{ task.status|lower|replace(' ', '-') }}">{{ task.status }}</span></td></tr>
+            <tr><th style="padding-left:0;">Priority</th><td style="padding-right:0;"><span class="om-pill om-pill-priority-{{ task.priority|lower }}">{{ task.priority }}</span></td></tr>
+            <tr><th style="padding-left:0;">Scope</th><td style="padding-right:0;">{{ 'Global' if task.task_scope == 'GLOBAL' else 'Local' }}</td></tr>
+            <tr><th style="padding-left:0;">Due</th><td style="padding-right:0;">{{ task.due_date.strftime('%d %b %Y') if task.due_date else '—' }}</td></tr>
+            <tr><th style="padding-left:0;">Updates</th><td style="padding-right:0;">{{ updates|length }}</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      {% if task.recurring_template %}
+      <section class="om-panel">
+        <h3>Recurring series</h3>
+        <p>{{ recurrence_summary(task.recurring_template) }}</p>
+        <div class="om-panel-actions">
+          <a href="{{ url_for('tasks.recurring_series_detail', template_id=task.recurring_template.id) }}" class="btn btn-secondary btn-sm">
+            <i class="bi bi-arrow-repeat"></i><span>View series</span>
+          </a>
+          {% if can_edit_series %}
+          <a href="{{ url_for('tasks.edit_recurring_series', template_id=task.recurring_template.id) }}" class="btn btn-secondary btn-sm">
+            <i class="bi bi-calendar-range"></i><span>Edit series</span>
+          </a>
+          {% endif %}
+        </div>
+      </section>
+      {% endif %}
+
+      {% if can_edit %}
+      <section class="om-panel">
+        <h3>Manage</h3>
+        <p>Editing and archival actions for this task.</p>
+        <div class="om-panel-actions">
+          <a href="{{ url_for('tasks.edit_task', task_id=task.id) }}" class="btn btn-secondary btn-sm">
+            <i class="bi bi-pencil-square"></i><span>Edit task</span>
+          </a>
+          {% if task.is_active %}
+          <form
+            method="POST"
+            action="{{ url_for('tasks.delete_task', task_id=task.id) }}"
+            onsubmit="return confirm('Remove this task from the active tracker? It will remain available in archived tasks.');"
+          >
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-danger btn-sm" style="width:100%;justify-content:center;">
+              <i class="bi bi-archive"></i><span>Move to archive</span>
+            </button>
+          </form>
+          {% endif %}
+        </div>
+      </section>
+      {% endif %}
+    </aside>
+
+  </div>
 </div>
 {% endblock %}

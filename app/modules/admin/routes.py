@@ -53,7 +53,6 @@ from app.core.utils.request_meta import get_client_ip, get_user_agent
 from app.core.utils.activity import log_activity
 from app.core.permissions import can_manage_offices
 from app.core.module_registry import invalidate_user_module_access_cache
-from app.core.services.notifications import create_notification
 from app.core.services.backups import (
     BackupError,
     build_backup_filename,
@@ -1149,16 +1148,6 @@ def create_user():
 
         log_activity(current_user.username, "user_created", "user", username,
                      details=f"role={role.name}, office={office.office_name}")
-        create_notification(
-            user_id=new_user.id,
-            title="Your account is ready",
-            message=(
-                f"{current_user.full_name or current_user.username} created your account "
-                f"with the role '{role.name}' for {office.office_name}."
-            ),
-            severity="success",
-            link="/dashboard",
-        )
         invalidate_user_module_access_cache(new_user.id)
         db.session.commit()
 
@@ -1283,7 +1272,6 @@ def edit_user(user_id):
 
         # ── Apply changes ──────────────────────────────────────────
         changed_fields = []
-        previous_role_name = target.role.name if target.role else "No role"
         role_changed = str(target.role_id) != str(role_id)
         if target.full_name != full_name:
             changed_fields.append(f"full_name: '{target.full_name}' → '{full_name}'")
@@ -1389,17 +1377,6 @@ def edit_user(user_id):
             log_activity(current_user.username, "role_changed", "user",
                          target.username,
                          details=f"modules={','.join(selected_modules) or 'none'}")
-        if role_changed:
-            create_notification(
-                user_id=target.id,
-                title="Your role has been updated",
-                message=(
-                    f"{current_user.full_name or current_user.username} changed your role "
-                    f"from '{previous_role_name}' to '{role.name}'."
-                ),
-                severity="warning",
-                link="/dashboard",
-            )
         invalidate_user_module_access_cache(target.id)
         db.session.commit()
 
@@ -1913,24 +1890,36 @@ def import_backup():
         validation = validate_backup_file(temp_path)
 
         # ── Trigger restore ───────────────────────────────────────
+        # The login/authorization queries above leave this request's SQLAlchemy
+        # transaction open. A full MySQL dump contains DROP TABLE statements,
+        # which would then wait for metadata locks held by that same transaction.
+        # Preserve the audit identity before detaching the user, then release the
+        # request's database connection before invoking the mysql client process.
+        restore_actor_id = current_user.id
+        restore_actor_username = current_user.username
+        restore_client_ip = _client_ip()
+        restore_user_agent = get_user_agent()
+        db.session.remove()
+        db.engine.dispose()
+
         result = restore_database_backup(temp_path)
 
         # ── Audit log ──────────────────────────────────────────────
         AuditLog.log(
             action="DATABASE_BACKUP_IMPORTED",
-            user_id=current_user.id,
+            user_id=restore_actor_id,
             entity_type="BackupRestore",
             entity_id=file.filename,
             details=(
-                f"Admin '{current_user.username}' restored database from "
+                f"Admin '{restore_actor_username}' restored database from "
                 f"'{file.filename}' into {result['database']} at {result['host']} "
                 f"using {result.get('format', 'sql')} backup format."
             ),
-            ip_address=_client_ip(),
-            user_agent=get_user_agent(),
+            ip_address=restore_client_ip,
+            user_agent=restore_user_agent,
         )
         log_activity(
-            current_user.username,
+            restore_actor_username,
             "backup_restored",
             "backup",
             file.filename,

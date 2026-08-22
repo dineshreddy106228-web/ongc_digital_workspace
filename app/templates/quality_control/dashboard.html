@@ -1,7 +1,9 @@
 {% extends "base.html" %}
+{% from "quality_control/_qc_nav.html" import qc_nav with context %}
 {% block title %}{{ laboratory.name }} — QC Laboratory Monitoring{% endblock %}
 {% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}"><link rel="stylesheet" href="{{ url_for('static', filename='css/quality_control.css') }}">{% endblock %}
-{% block content %}<div class="page-wrapper"><div class="inv-page qc-lab-dashboard">
+{% block content %}<div class="page-wrapper"><div class="mod-page is-quality inv-page qc-lab-dashboard">
+{{ qc_nav('') }}
 <section class="qc-lab-hero"><div><span class="qc-command-kicker"><span class="qc-live-dot"></span> Current laboratory operating view</span><h1>{{ laboratory.name }}</h1><p>{{ laboratory.location }} · Weekly delivery, current-month performance, and SLA exceptions in one view.</p>{% if batch %}<div class="qc-lab-hero-actions"><span class="qc-lab-hero-period"><i class="bi bi-calendar3"></i> Current week: {{ batch.week_start.strftime('%d %b') }} – {{ batch.week_end.strftime('%d %b %Y') }}</span><a class="qc-presentation-download" href="{{ url_for('quality_control.download_lab_presentation', lab_code=laboratory.code) }}"><i class="bi bi-file-earmark-ppt"></i> Download presentation</a></div>{% endif %}</div><div class="qc-lab-hero-mark"><i class="bi bi-flask"></i></div></section>
 {% include "quality_control/_subnav.html" %}
 <section class="card qc-upload-card"><div class="card-body"><div><h2 class="inv-card-title">Import weekly QC workbook</h2><p class="inv-card-subtitle">Re-importing the same reporting week updates matching sample records.</p></div><form method="POST" enctype="multipart/form-data" class="qc-inline-upload"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input id="qcWorkbook" name="qc_workbook" type="file" class="form-control" accept=".xlsx,.xls" required><button type="submit" class="btn btn-primary"><i class="bi bi-file-earmark-arrow-up"></i> Import Excel</button></form></div></section>

@@ -1,36 +1,48 @@
 {% extends "base.html" %}
-{% from "components/ui.html" import page_header %}
-{% block title %}{{ dashboard_context.title }} – Office Management{% endblock %}
+{% from "tasks/_office_nav.html" import office_nav %}
+{% block title %}Task Management – {{ app_name }}{% endblock %}
 
 {% block head_extra %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/office.css') }}">
 {% if is_privileged %}
 <script nonce="{{ csp_nonce() }}" src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 {% endif %}
 {% endblock %}
 
 {% block content %}
-<div class="page-wrapper">
+<div class="page-wrapper mod-page om-page">
 
-  {# ── Page header ──────────────────────────────────────────── #}
-  {% call page_header(dashboard_context.title, dashboard_context.subtitle, dashboard_context.eyebrow, dashboard_context.badge, "info") %}
-    {% if show_task_actions %}
-    <a href="{{ url_for('tasks.list_tasks') }}" class="btn btn-secondary">
-      <i class="bi bi-table"></i>
-      <span>Task List</span>
-    </a>
-    {% if task_perms.can_create_global() %}
-    <a href="{{ url_for('tasks.create_task') }}?scope=GLOBAL" class="btn btn-secondary">
-      <i class="bi bi-globe2"></i>
-      <span>+ Global Task</span>
-    </a>
-    {% endif %}
-    <a href="{{ url_for('tasks.create_task') }}" class="btn btn-primary">
-      <i class="bi bi-plus-lg"></i>
-      <span>New Task</span>
-    </a>
-    {% endif %}
-  {% endcall %}
+  {{ office_nav('dashboard', show_task_actions) }}
+
+  <section class="mod-hero">
+    <div>
+      <span class="mod-kicker"><i class="bi bi-kanban-fill"></i> Corporate Chemistry · Task Management</span>
+      <h1>Task<br><em>Management</em></h1>
+      <p>{{ dashboard_context.subtitle }}</p>
+      {% if show_task_actions %}
+      <div class="mod-hero-actions">
+        <a class="mod-hero-primary" href="{{ url_for('tasks.list_tasks') }}"><i class="bi bi-list-task"></i> Open task register</a>
+        <a class="mod-hero-secondary" href="{{ url_for('tasks.create_task') }}"><i class="bi bi-plus-lg"></i> New task</a>
+        {% if task_perms.can_create_global() %}
+        <a class="mod-hero-secondary" href="{{ url_for('tasks.create_task') }}?scope=GLOBAL"><i class="bi bi-globe2"></i> New global task</a>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+    <aside aria-label="Task portfolio summary">
+      <span>Workspace view</span>
+      <strong>{{ dashboard_context.title }}</strong>
+      <hr>
+      <span>Tasks in view</span>
+      <strong>{{ global_tasks|length + my_tasks|length }}</strong>
+      {% if is_privileged and analytics %}
+      <hr>
+      <span>Completion rate</span>
+      <strong>{{ analytics.completion_pct }}%</strong>
+      {% endif %}
+    </aside>
+  </section>
 
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% for category, message in messages %}
@@ -38,227 +50,170 @@
     {% endfor %}
   {% endwith %}
 
-  {# ── Scope Summary Cards ─────────────────────────────────── #}
-  <div class="db-summary-row">
-
+  {# ── Portfolio counters ───────────────────────────────────── #}
+  <section class="mod-stats">
+    {% set global_hint = 'Visible across the workspace' if current_user.is_super_user() else 'Tagged to ' ~ (current_user.office.office_name if current_user.office else 'this office') %}
     {% if show_task_actions %}
-    <a href="{{ url_for('tasks.list_tasks', scope='GLOBAL') }}" class="db-summary-card db-card-global">
-      <div class="db-card-icon"><i class="bi bi-globe2"></i></div>
-      <div class="db-card-body">
-        <div class="db-card-count">{{ global_tasks|length }}</div>
-        <div class="db-card-label">Global Tasks</div>
-        <div class="db-card-hint">{% if current_user.is_super_user() %}Visible across the workspace{% else %}Tagged to {{ current_user.office.office_name if current_user.office else 'this office' }}{% endif %}</div>
-      </div>
-      <span class="db-scope-dot dot-global"></span>
+    <a class="mod-stat mod-stat-success" href="{{ url_for('tasks.list_tasks', scope='GLOBAL') }}">
+      <span>Global tasks</span>
+      <strong>{{ global_tasks|length }}</strong>
+      <small>{{ global_hint }}</small>
+    </a>
+    <a class="mod-stat" href="{{ url_for('tasks.list_tasks', scope='MY') }}">
+      <span>{{ dashboard_context.local_tasks_label }}</span>
+      <strong>{{ my_tasks|length }}</strong>
+      <small>{{ dashboard_context.local_tasks_hint }}</small>
     </a>
     {% else %}
-    <div class="db-summary-card db-card-global">
-      <div class="db-card-icon"><i class="bi bi-globe2"></i></div>
-      <div class="db-card-body">
-        <div class="db-card-count">{{ global_tasks|length }}</div>
-        <div class="db-card-label">Global Tasks</div>
-        <div class="db-card-hint">{% if current_user.is_super_user() %}Visible across the workspace{% else %}Tagged to {{ current_user.office.office_name if current_user.office else 'this office' }}{% endif %}</div>
-      </div>
-      <span class="db-scope-dot dot-global"></span>
+    <div class="mod-stat mod-stat-success">
+      <span>Global tasks</span>
+      <strong>{{ global_tasks|length }}</strong>
+      <small>{{ global_hint }}</small>
     </div>
-    {% endif %}
-
-    {% if show_task_actions %}
-    <a href="{{ url_for('tasks.list_tasks', scope='MY') }}" class="db-summary-card db-card-my">
-      <div class="db-card-icon"><i class="bi bi-person"></i></div>
-      <div class="db-card-body">
-        <div class="db-card-count">{{ my_tasks|length }}</div>
-        <div class="db-card-label">{{ dashboard_context.local_tasks_label }}</div>
-        <div class="db-card-hint">{{ dashboard_context.local_tasks_hint }}</div>
-      </div>
-      <span class="db-scope-dot dot-my"></span>
-    </a>
-    {% else %}
-    <div class="db-summary-card db-card-my">
-      <div class="db-card-icon"><i class="bi bi-person"></i></div>
-      <div class="db-card-body">
-        <div class="db-card-count">{{ my_tasks|length }}</div>
-        <div class="db-card-label">{{ dashboard_context.local_tasks_label }}</div>
-        <div class="db-card-hint">{{ dashboard_context.local_tasks_hint }}</div>
-      </div>
-      <span class="db-scope-dot dot-my"></span>
+    <div class="mod-stat">
+      <span>{{ dashboard_context.local_tasks_label }}</span>
+      <strong>{{ my_tasks|length }}</strong>
+      <small>{{ dashboard_context.local_tasks_hint }}</small>
     </div>
     {% endif %}
 
     {% if is_privileged and analytics %}
-    <div class="db-summary-card db-card-stat db-card-stat-danger">
-      <div class="db-card-icon"><i class="bi bi-exclamation-triangle"></i></div>
-      <div class="db-card-body">
-        <div class="db-card-count">{{ analytics.overdue }}</div>
-        <div class="db-card-label">Overdue Tasks</div>
-        <div class="db-card-hint">Past due, not completed</div>
-      </div>
-    </div>
-
-    <div class="db-summary-card db-card-stat db-card-stat-success">
-      <div class="db-card-icon"><i class="bi bi-check2-circle"></i></div>
-      <div class="db-card-body">
-        <div class="db-card-count">{{ analytics.completion_pct }}%</div>
-        <div class="db-card-label">Completion Rate</div>
-        <div class="db-card-hint">{{ analytics.completed }} / {{ analytics.total }} tasks</div>
-      </div>
+    {% if show_task_actions %}
+    <a class="mod-stat mod-stat-danger" href="{{ url_for('tasks.list_tasks', focus='overdue') }}">
+      <span>Overdue tasks</span>
+      <strong>{{ analytics.overdue }}</strong>
+      <small>Past due and not completed</small>
+    </a>
+    {% else %}
+    <div class="mod-stat mod-stat-danger">
+      <span>Overdue tasks</span>
+      <strong>{{ analytics.overdue }}</strong>
+      <small>Past due and not completed</small>
     </div>
     {% endif %}
+    <div class="mod-stat mod-stat-info">
+      <span>Completion rate</span>
+      <strong>{{ analytics.completion_pct }}%</strong>
+      <small>{{ analytics.completed }} of {{ analytics.total }} tasks closed</small>
+    </div>
+    {% endif %}
+  </section>
+
+  {# ── Calendar + side panels ───────────────────────────────── #}
+  <div class="mod-section-heading">
+    <div>
+      <span>Delivery calendar</span>
+      <h2>Due dates at a glance</h2>
+      <p>Select any day to see the tasks committed for that date. Global and local work are colour-coded.</p>
+    </div>
   </div>
 
-  {# ── Main layout: Calendar + Sidebar ─────────────────────── #}
-  <div class="db-main-layout">
-
-    {# Calendar #}
-    <div class="db-calendar-panel">
-      <div class="card db-panel-card">
-        <div class="card-body" style="padding: 0;">
-
-          {# Calendar navigation #}
-          <div class="cal-nav">
-            <button class="btn btn-secondary btn-sm" id="cal-prev" title="Previous month">‹</button>
-            <span class="cal-month-label" id="cal-month-label">Loading…</span>
-            <button class="btn btn-secondary btn-sm" id="cal-next" title="Next month">›</button>
-            <button class="btn btn-secondary btn-sm" id="cal-today" style="margin-left:auto;">Today</button>
-          </div>
-
-          {# Scope legend #}
-          <div class="cal-legend">
-            <span class="cal-legend-item"><span class="db-scope-dot dot-global"></span> Global</span>
-            <span class="cal-legend-item"><span class="db-scope-dot dot-my"></span> Local</span>
-          </div>
-
-          {# Calendar grid – rendered by JS #}
-          <div class="cal-grid" id="cal-grid"></div>
-        </div>
+  <div class="om-dash-split">
+    <div class="om-card">
+      <div class="cal-nav">
+        <button class="btn btn-secondary btn-sm" id="cal-prev" title="Previous month">‹</button>
+        <span class="cal-month-label" id="cal-month-label">Loading…</span>
+        <button class="btn btn-secondary btn-sm" id="cal-next" title="Next month">›</button>
+        <button class="btn btn-secondary btn-sm" id="cal-today" style="margin-left:auto;">Today</button>
       </div>
+
+      <div class="cal-legend">
+        <span class="cal-legend-item"><span class="db-scope-dot dot-global"></span> Global</span>
+        <span class="cal-legend-item"><span class="db-scope-dot dot-my"></span> Local</span>
+      </div>
+
+      <div class="cal-grid" id="cal-grid"></div>
     </div>
 
-    {# Sidebar: Recent Activity #}
-    <div class="db-sidebar-panel">
-      <div class="card db-panel-card">
-        <div class="card-body">
-          <h3 class="db-section-title">Recent Activity</h3>
-          {% if recent_activity %}
-          <ul class="db-activity-list">
-            {% for item in recent_activity %}
-            <li class="db-activity-item">
-              <div class="db-activity-meta">
-                <span class="db-activity-user">{{ item.actor_name }}</span>
-                <span class="db-activity-time">{{ item.created_at|datetime_ist('%d %b %Y') }}</span>
-              </div>
-              <div class="db-activity-text">
-                <a
-                  href="{{ url_for('tasks.task_detail', task_id=item.task_id) }}"
-                  class="db-activity-link"
-                  data-task-summary-url="{{ url_for('tasks.task_summary', task_id=item.task_id) }}"
-                  data-task-summary-title="{{ item.title }}"
-                >
-                  {{ item.title }}
-                </a>
-                <span class="db-status-change">
-                  <span class="task-badge" style="font-size:0.68rem;">{{ item.event_label }}</span>
-                </span>
-                {% if item.old_status and item.new_status %}
-                <span class="db-status-change">
-                  <span class="task-badge status-{{ item.old_status|lower|replace(' ','-') }}" style="font-size:0.68rem;">{{ item.old_status }}</span>
-                  → <span class="task-badge status-{{ item.new_status|lower|replace(' ','-') }}" style="font-size:0.68rem;">{{ item.new_status }}</span>
-                </span>
-                {% elif item.new_status %}
-                <span class="db-status-change">
-                  <span class="task-badge status-{{ item.new_status|lower|replace(' ','-') }}" style="font-size:0.68rem;">{{ item.new_status }}</span>
-                </span>
-                {% endif %}
-              </div>
-            </li>
-            {% endfor %}
-          </ul>
-          {% else %}
-          <p class="db-empty-hint">No recent activity.</p>
-          {% endif %}
+    <div class="om-side">
+      <section class="om-panel">
+        <h3>Recent activity</h3>
+        <p>Latest updates recorded against tasks in your view.</p>
+        {% if recent_activity %}
+        <div class="om-activity">
+          {% for item in recent_activity %}
+          <div class="om-activity-item">
+            <div class="om-activity-top">
+              <span class="om-activity-who">{{ item.actor_name }}</span>
+              <span class="om-activity-when">{{ item.created_at|datetime_ist('%d %b %Y') }}</span>
+            </div>
+            <a
+              href="{{ url_for('tasks.task_detail', task_id=item.task_id) }}"
+              class="om-activity-link"
+              data-task-summary-url="{{ url_for('tasks.task_summary', task_id=item.task_id) }}"
+              data-task-summary-title="{{ item.title }}"
+            >{{ item.title }}</a>
+            <span class="om-activity-kind">
+              {{ item.event_label }}
+              {%- if item.old_status and item.new_status %} · {{ item.old_status }} → {{ item.new_status }}
+              {%- elif item.new_status %} · {{ item.new_status }}{% endif %}
+            </span>
+          </div>
+          {% endfor %}
         </div>
-      </div>
+        {% else %}
+        <p class="om-activity-kind">No recent activity.</p>
+        {% endif %}
+      </section>
 
-      {# Upcoming due tasks #}
-      <div class="card db-panel-card" style="margin-top: 1rem;">
-        <div class="card-body">
-          <h3 class="db-section-title">Due Soon</h3>
-          <ul class="db-activity-list">
-            {% if due_soon_tasks %}
-              {% for t in due_soon_tasks %}
-              <li class="db-activity-item">
-                <div class="db-activity-meta">
-                  <span class="db-scope-dot dot-{{ 'my' if t.scope == 'MY' else t.scope|lower }}" title="{{ 'Local' if t.scope == 'MY' else 'Global' }} task"></span>
-                  <span class="db-activity-time">
-                    {{- t.due_date[8:10] }}&nbsp;{{ ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][t.due_date[5:7]|int - 1] -}}
-                  </span>
-                </div>
-                <div style="display:flex; align-items:center; gap:0.4rem; flex:1; min-width:0;">
-                  <a
-                    href="{{ url_for('tasks.task_detail', task_id=t.id) }}"
-                    class="db-activity-link"
-                    data-task-summary-url="{{ url_for('tasks.task_summary', task_id=t.id) }}"
-                    data-task-summary-title="{{ t.title }}"
-                  >
-                    {{ t.title }}
-                  </a>
-                  <span class="task-badge status-{{ t.status|lower|replace(' ','-') }}"
-                        style="font-size:0.65rem; flex-shrink:0;">{{ t.status }}</span>
-                </div>
-              </li>
-              {% endfor %}
-            {% else %}
-            <li style="color: var(--color-text-muted,#888); font-size:0.85rem; padding: 0.5rem 0;">No tasks with due dates found.</li>
-            {% endif %}
-          </ul>
+      <section class="om-panel">
+        <h3>Due soon</h3>
+        <p>Nearest committed dates in your visible scope.</p>
+        {% if due_soon_tasks %}
+        <div class="om-activity">
+          {% for t in due_soon_tasks %}
+          <div class="om-activity-item">
+            <div class="om-activity-top">
+              <span class="om-activity-who">
+                <span class="db-scope-dot dot-{{ 'my' if t.scope == 'MY' else t.scope|lower }}" title="{{ 'Local' if t.scope == 'MY' else 'Global' }} task"></span>
+                {{ 'Local' if t.scope == 'MY' else 'Global' }}
+              </span>
+              <span class="om-activity-when">
+                {{- t.due_date[8:10] }}&nbsp;{{ ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][t.due_date[5:7]|int - 1] -}}
+              </span>
+            </div>
+            <a
+              href="{{ url_for('tasks.task_detail', task_id=t.id) }}"
+              class="om-activity-link"
+              data-task-summary-url="{{ url_for('tasks.task_summary', task_id=t.id) }}"
+              data-task-summary-title="{{ t.title }}"
+            >{{ t.title }}</a>
+            <span class="om-pill om-pill-status-{{ t.status|lower|replace(' ','-') }}">{{ t.status }}</span>
+          </div>
+          {% endfor %}
         </div>
-      </div>
+        {% else %}
+        <p class="om-activity-kind">No tasks with due dates found.</p>
+        {% endif %}
+      </section>
     </div>
+  </div>
 
-  </div>{# end db-main-layout #}
-
-
-  {# ── Super-user Analytics ─────────────────────────────────── #}
+  {# ── Analytics ────────────────────────────────────────────── #}
   {% if is_privileged and analytics %}
-  <div class="db-analytics-section">
-    <h2 class="db-analytics-title">Visual Analytics</h2>
-
-    <div class="db-charts-grid">
-
-      {# Status Distribution #}
-      <div class="card db-chart-card">
-        <div class="card-body">
-          <h4 class="db-chart-title">Task Status Distribution</h4>
-          <div class="db-chart-wrap">
-            <canvas id="chartStatus"></canvas>
-          </div>
-        </div>
-      </div>
-
-      {# Priority Breakdown #}
-      <div class="card db-chart-card">
-        <div class="card-body">
-          <h4 class="db-chart-title">Priority Breakdown</h4>
-          <div class="db-chart-wrap">
-            <canvas id="chartPriority"></canvas>
-          </div>
-        </div>
-      </div>
-
-      {# Scope Overview #}
-      <div class="card db-chart-card">
-        <div class="card-body">
-          <h4 class="db-chart-title">Scope Overview</h4>
-          <div class="db-chart-wrap">
-            <canvas id="chartScope"></canvas>
-          </div>
-        </div>
-      </div>
-
+  <div class="mod-section-heading">
+    <div>
+      <span>Portfolio analytics</span>
+      <h2>Status, priority and scope</h2>
+      <p>Distribution across every task visible in this workspace view.</p>
     </div>
   </div>
 
-  {# Chart data injected for JS #}
+  <div class="mod-stats">
+    <div class="om-card">
+      <div class="om-card-head"><h2><i class="bi bi-pie-chart"></i> Task status</h2></div>
+      <div class="om-card-body"><div class="db-chart-wrap"><canvas id="chartStatus"></canvas></div></div>
+    </div>
+    <div class="om-card">
+      <div class="om-card-head"><h2><i class="bi bi-bar-chart"></i> Priority</h2></div>
+      <div class="om-card-body"><div class="db-chart-wrap"><canvas id="chartPriority"></canvas></div></div>
+    </div>
+    <div class="om-card">
+      <div class="om-card-head"><h2><i class="bi bi-diagram-2"></i> Scope</h2></div>
+      <div class="om-card-body"><div class="db-chart-wrap"><canvas id="chartScope"></canvas></div></div>
+    </div>
+  </div>
+
   <script nonce="{{ csp_nonce() }}">
     const ANALYTICS = {
       status: {{ analytics.status | tojson }},

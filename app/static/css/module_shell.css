@@ -1,0 +1,878 @@
+/* ============================================================
+   Module shell — the house language every workspace module uses.
+
+   pill subnav → gradient hero → stat row → section heading → cards
+
+   Office Management wrote this pattern first (om-*); it is lifted here so
+   Inventory Monitoring, Corporate Specifications, QC Laboratory Monitoring and
+   Office Management all render the same chrome instead of four look-alikes that
+   drift apart. A module supplies only its accent by adding one modifier class
+   to .mod-page; everything else is shared.
+
+   Built on the style.css semantic tokens, so both themes work.
+   Module-specific content components stay in each module's own stylesheet.
+   ============================================================ */
+
+.mod-page {
+    max-width: 1440px;
+    margin: auto;
+    padding: 28px 30px 48px;
+    --mod-accent: var(--module-accent, #1f4fa8);
+    --mod-accent-strong: var(--module-accent-strong, #1d4ed8);
+    --mod-tint: color-mix(in srgb, var(--mod-accent) 6%, var(--surface));
+    --mod-tint-strong: color-mix(in srgb, var(--mod-accent) 11%, var(--surface));
+    --mod-hero-1: var(--mod-tint-strong);
+    --mod-hero-2: var(--mod-tint);
+    --mod-hero-3: color-mix(in srgb, var(--mod-accent) 4%, var(--surface));
+    --mod-hero-shadow: color-mix(in srgb, var(--mod-accent) 12%, transparent);
+    --mod-on-accent: var(--module-on-accent, #fff);
+}
+
+/* ── Module subnav ───────────────────────────────────────────── */
+
+.mod-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 22px;
+}
+
+.mod-nav a {
+    display: inline-flex;
+    gap: 8px;
+    align-items: center;
+    padding: 9px 15px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--muted);
+    font-size: .86rem;
+    font-weight: 600;
+    text-decoration: none;
+    transition: border-color .16s, color .16s, background .16s;
+}
+
+.mod-nav a:hover {
+    border-color: var(--mod-accent);
+    color: var(--mod-accent);
+}
+
+.mod-nav a.is-active {
+    border-color: var(--mod-accent);
+    background: var(--mod-accent);
+    color: var(--mod-on-accent);
+}
+
+/* ── Hero ────────────────────────────────────────────────────── */
+
+.mod-hero {
+    display: flex;
+    justify-content: space-between;
+    gap: 32px;
+    padding: 46px 50px;
+    overflow: hidden;
+    border-radius: 24px;
+    border: 1px solid color-mix(in srgb, var(--mod-accent) 26%, var(--border));
+    background: linear-gradient(125deg, var(--mod-hero-1), var(--mod-hero-2) 56%, var(--mod-hero-3));
+    color: var(--text);
+    box-shadow: 0 14px 32px var(--mod-hero-shadow);
+}
+
+.mod-hero > div:first-child { min-width: 0; }
+
+.mod-hero h1 {
+    margin: 8px 0 12px;
+    font-size: clamp(2.1rem, 4vw, 3.9rem);
+    line-height: .98;
+    color: var(--text);
+}
+
+.mod-hero h1 em {
+    font-family: Georgia, serif;
+    font-weight: 400;
+}
+
+.mod-hero p {
+    max-width: 620px;
+    margin: 0 0 20px;
+    font-size: 1.04rem;
+    color: var(--muted);
+}
+
+.mod-kicker,
+.mod-hero aside span,
+.mod-section-heading > div > span {
+    display: block;
+    font-size: .76rem;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    opacity: .75;
+    font-weight: 700;
+}
+
+.mod-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--mod-accent-strong);
+}
+
+.mod-hero aside {
+    min-width: 262px;
+    padding: 22px;
+    border: 1px solid color-mix(in srgb, var(--mod-accent) 25%, var(--border));
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--surface) 84%, var(--mod-accent));
+}
+
+.mod-hero aside strong {
+    display: block;
+    margin: 5px 0 18px;
+    font-size: 1.3rem;
+}
+
+.mod-hero aside hr {
+    margin: 0 0 16px;
+    border: 0;
+    border-top: 1px solid color-mix(in srgb, var(--mod-accent) 20%, var(--border));
+}
+
+.mod-hero aside strong:last-of-type { margin-bottom: 0; }
+
+.mod-hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.mod-hero-primary,
+.mod-hero-secondary {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 20px;
+    border-radius: 11px;
+    font-size: .88rem;
+    font-weight: 600;
+    text-decoration: none;
+    transition: .16s;
+}
+
+.mod-hero-primary {
+    background: var(--mod-accent);
+    color: var(--mod-on-accent);
+}
+
+.mod-hero-primary:hover {
+    background: var(--mod-accent-strong);
+    color: var(--mod-on-accent);
+}
+
+.mod-hero-secondary {
+    border: 1px solid color-mix(in srgb, var(--mod-accent) 32%, var(--border));
+    background: color-mix(in srgb, var(--surface) 82%, var(--mod-accent));
+    color: var(--mod-accent-strong);
+}
+
+.mod-hero-secondary:hover {
+    background: var(--surface);
+    color: var(--mod-accent-strong);
+}
+
+/* ── Breadcrumb ──────────────────────────────────────────────── */
+
+.mod-breadcrumb {
+    display: flex;
+    gap: 9px;
+    align-items: center;
+    margin: 4px 0 24px;
+    font-size: .9rem;
+    color: var(--muted);
+}
+
+.mod-breadcrumb a {
+    color: var(--mod-accent);
+    text-decoration: none;
+    font-weight: 700;
+}
+
+/* ── Stat row ────────────────────────────────────────────────── */
+
+.mod-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 14px;
+    margin: 22px 0;
+}
+
+.mod-stat {
+    padding: 18px 20px;
+    border: 1px solid color-mix(in srgb, var(--mod-accent) 19%, var(--border));
+    border-left: 3px solid var(--mod-stat-accent, var(--mod-accent));
+    border-radius: 14px;
+    background: linear-gradient(135deg, color-mix(in srgb, var(--mod-accent) 5%, var(--surface)), var(--surface));
+    color: inherit;
+    text-decoration: none;
+}
+
+a.mod-stat:hover {
+    border-color: var(--mod-accent);
+    border-left-color: var(--mod-accent);
+}
+
+.mod-stat span {
+    display: block;
+    font-size: .74rem;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: var(--muted);
+}
+
+.mod-stat strong {
+    display: block;
+    margin-top: 6px;
+    font-size: 1.5rem;
+    line-height: 1.1;
+    color: var(--text);
+}
+
+.mod-stat small {
+    display: block;
+    margin-top: 5px;
+    color: var(--muted);
+}
+
+/* ── Section heading ─────────────────────────────────────────── */
+
+.mod-section-heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 18px;
+    margin: 30px 0 16px;
+}
+
+.mod-section-heading > div > span { color: var(--muted); }
+
+.mod-section-heading h2 {
+    margin: 4px 0 0;
+    font-size: 1.5rem;
+    color: var(--text);
+}
+
+.mod-section-heading p {
+    max-width: 760px;
+    margin: 7px 0 0;
+    color: var(--muted);
+}
+
+/* ── Workbench tiles ─────────────────────────────────────────── */
+
+.mod-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+    margin: 24px 0;
+}
+
+.mod-tile {
+    display: block;
+    padding: 22px;
+    border: 1px solid color-mix(in srgb, var(--mod-accent) 19%, var(--border));
+    border-radius: 16px;
+    background: linear-gradient(135deg, color-mix(in srgb, var(--mod-accent) 5%, var(--surface)), var(--surface));
+    color: inherit;
+    text-decoration: none;
+    transition: box-shadow .2s, transform .2s, border-color .2s;
+}
+
+.mod-tile:hover {
+    transform: translateY(-2px);
+    border-color: var(--mod-accent);
+    box-shadow: 0 10px 25px rgba(15, 33, 60, .12);
+}
+
+.mod-tile > i {
+    display: block;
+    margin-bottom: 14px;
+    color: var(--mod-accent);
+    font-size: 1.6rem;
+}
+
+.mod-tile strong {
+    display: block;
+    color: var(--text);
+}
+
+.mod-tile small {
+    display: block;
+    margin-top: 5px;
+    color: var(--muted);
+}
+
+/* ── Narrow screens ──────────────────────────────────────────── */
+
+@media (max-width: 900px) {
+    .mod-page { padding: 18px 16px 40px; }
+    .mod-hero {
+        flex-direction: column;
+        padding: 30px 26px;
+    }
+    .mod-hero aside { min-width: 0; }
+    .mod-section-heading {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 10px;
+    }
+    .mod-tiles { grid-template-columns: 1fr 1fr; }
+}
+
+@media (max-width: 560px) {
+    .mod-tiles { grid-template-columns: 1fr; }
+}
+
+/* ── Secondary context nav ───────────────────────────────────
+   A second row under the module nav, for context inside one module — a chosen
+   laboratory, for example. Quieter than the module nav so the hierarchy reads. */
+
+.mod-subnav {
+    /* Lab context navigation follows a hero or page header, not the primary
+       module nav, so it must never be pulled back over the preceding panel. */
+    margin-top: 18px;
+    margin-bottom: 22px;
+}
+
+.mod-subnav a {
+    padding: 7px 13px;
+    background: var(--surface-alt);
+    border-color: transparent;
+    font-size: .82rem;
+}
+
+.mod-subnav a:hover {
+    background: var(--surface);
+    border-color: var(--mod-accent);
+}
+
+/* Optional action chip at the foot of a tile. */
+.mod-tile-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 14px;
+    font-size: .8rem;
+    font-weight: 700;
+    color: var(--mod-accent);
+}
+
+/* Stat accents, for the few tiles that carry a status rather than the module hue. */
+.mod-stat-success { --mod-stat-accent: var(--success); }
+.mod-stat-danger { --mod-stat-accent: var(--danger); }
+.mod-stat-info { --mod-stat-accent: var(--accent); }
+.mod-stat-danger strong { color: var(--danger); }
+
+a.mod-stat {
+    display: block;
+    transition: transform .2s, box-shadow .2s, border-color .2s;
+}
+
+a.mod-stat:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+    color: inherit;
+}
+
+/* ── Status tones ────────────────────────────────────────────
+   Badge and pill pairs (a tinted ground and legible text on it), shared by every
+   module so a "healthy" chip reads the same everywhere and survives dark mode.
+   Defined on :root rather than .mod-page so pages off the shell can use them. */
+
+:root {
+    --tone-ok-bg: #dcfce7;
+    --tone-ok-fg: #166534;
+    --tone-info-bg: #e0f2fe;
+    --tone-info-fg: #075985;
+    --tone-warn-bg: #fef3c7;
+    --tone-warn-fg: #92400e;
+    --tone-hot-bg: #ffedd5;
+    --tone-hot-fg: #9a3412;
+    --tone-bad-bg: #fee2e2;
+    --tone-bad-fg: #9f1239;
+    --tone-alt-bg: #f3e8ff;
+    --tone-alt-fg: #6b21a8;
+    --tone-neutral-bg: #edf1f2;
+    --tone-neutral-fg: #5f6775;
+    --tone-warn-border: #f0d9b5;
+    --tone-bad-border: #eccdd2;
+    --tone-ok-border: #cbe5d7;
+    /* Dark ink reads better than white on the orange accent in either theme. */
+    --on-accent: #1a1d23;
+}
+
+[data-theme="dark"] {
+    --tone-ok-bg: rgba(52, 195, 124, .16);
+    --tone-ok-fg: #6fdca4;
+    --tone-info-bg: rgba(105, 181, 255, .16);
+    --tone-info-fg: #8ec9ff;
+    --tone-warn-bg: rgba(243, 188, 80, .16);
+    --tone-warn-fg: #f2ce7d;
+    --tone-hot-bg: rgba(242, 165, 65, .18);
+    --tone-hot-fg: #f7b877;
+    --tone-bad-bg: rgba(242, 109, 109, .18);
+    --tone-bad-fg: #ff9d9d;
+    --tone-alt-bg: rgba(176, 132, 226, .18);
+    --tone-alt-fg: #d0aef0;
+    --tone-neutral-bg: rgba(255, 255, 255, .06);
+    --tone-neutral-fg: #9aa8b9;
+    --tone-warn-border: rgba(243, 188, 80, .38);
+    --tone-bad-border: rgba(242, 109, 109, .38);
+    --tone-ok-border: rgba(52, 195, 124, .38);
+}
+
+/* ── Module colour system ───────────────────────────────────────
+   The Home tile palette is inherited on the workspace main element.  The
+   accent stays precise for controls and emphasis, while the working surface is
+   deliberately a 3–12% tint so dense operational screens remain calm. */
+
+.module-theme {
+    --module-accent: var(--module-default);
+    --module-accent-strong: color-mix(in srgb, var(--module-accent) 76%, var(--text));
+    --module-on-accent: #fff;
+    --module-tint: color-mix(in srgb, var(--module-accent) 5%, var(--surface));
+    --module-tint-strong: color-mix(in srgb, var(--module-accent) 11%, var(--surface));
+    --module-border: color-mix(in srgb, var(--module-accent) 23%, var(--border));
+    --primary: var(--module-accent);
+    --primary-strong: var(--module-accent-strong);
+    --primary-soft: color-mix(in srgb, var(--module-accent) 10%, var(--surface));
+    --primary-bg: color-mix(in srgb, var(--module-accent) 7%, var(--surface));
+    --focus-ring: color-mix(in srgb, var(--module-accent) 22%, transparent);
+    --selection-bg: color-mix(in srgb, var(--module-accent) 18%, transparent);
+    --panel-border-strong: var(--module-border);
+    --table-row-hover: color-mix(in srgb, var(--module-accent) 6%, var(--surface));
+    --table-row-alt: color-mix(in srgb, var(--module-accent) 2.5%, var(--surface));
+    --calendar-today-bg: color-mix(in srgb, var(--module-accent) 12%, var(--surface));
+}
+
+.module-theme:not(.module-theme-neutral) {
+    background:
+        radial-gradient(circle at 88% 0, color-mix(in srgb, var(--module-accent) 7%, transparent), transparent 25%),
+        linear-gradient(180deg, color-mix(in srgb, var(--module-accent) 3%, var(--bg)), var(--bg) 340px);
+}
+
+/* Accent and contrast values come exclusively from the canonical palette in
+   style.css, so a module recolour automatically reaches every shared surface. */
+.module-theme-neutral { --module-accent: var(--module-default); --module-on-accent: var(--module-default-on-accent); }
+.module-theme-office { --module-accent: var(--module-office); --module-on-accent: var(--module-office-on-accent); }
+.module-theme-csc { --module-accent: var(--module-csc); --module-on-accent: var(--module-csc-on-accent); }
+.module-theme-inventory { --module-accent: var(--module-inventory); --module-on-accent: var(--module-inventory-on-accent); }
+.module-theme-qc { --module-accent: var(--module-qc); --module-on-accent: var(--module-qc-on-accent); }
+.module-theme-manpower { --module-accent: var(--module-manpower); --module-on-accent: var(--module-manpower-on-accent); }
+.module-theme-admin { --module-accent: var(--module-admin); --module-on-accent: var(--module-admin-on-accent); }
+.module-theme-reports { --module-accent: var(--module-reports); --module-on-accent: var(--module-reports-on-accent); }
+.module-theme-forecasting { --module-accent: var(--module-forecasting); --module-on-accent: var(--module-forecasting-on-accent); }
+
+/* Existing module-local variables now resolve to the Home tile hue as well. */
+.module-theme-office .om-page { --om-accent: var(--module-accent); }
+.module-theme-office .om-page,
+.module-theme-csc .cs-page,
+.module-theme-inventory .im-page,
+.module-theme-qc .inv-page {
+    --mod-accent: var(--module-accent);
+    --mod-accent-strong: var(--module-accent-strong);
+    --mod-hero-1: var(--module-tint-strong);
+    --mod-hero-2: var(--module-tint);
+    --mod-hero-3: color-mix(in srgb, var(--module-accent) 4%, var(--surface));
+    --mod-on-accent: var(--module-on-accent);
+}
+
+.module-theme-manpower .mp-page {
+    --mp-accent: var(--module-accent);
+}
+
+.module-theme-manpower :is(
+    .mp-kpi-value, .mp-band-card-value, .mp-accordion-count,
+    .mp-location-count, .mp-location-total, .mp-inline-link
+) {
+    color: var(--module-accent-strong);
+}
+
+.module-theme-manpower :is(.mp-accordion-toggle, .mp-band-pill) {
+    border-color: var(--module-border);
+    background: var(--module-tint-strong);
+    color: var(--module-accent-strong);
+}
+
+/* Shared operational surfaces.  These selectors intentionally cover the
+   older module components without changing their content or page structure. */
+.module-theme:not(.module-theme-neutral) :is(
+    .card, .table-wrapper, .om-card, .cs-card, .cs-panel, .cs-doc, .cs-block,
+    .cs-value, .cs-param-row, .cs-reason, .cs-msds-file, .im-card,
+    .im-pf-kpi, .im-pf-groups article, .im-material-tile, .im-import-kpis article,
+    .im-import-source-grid article, .im-import-flow, .im-pf-scope > div,
+    .im-mover-list li, .im-settings-aside, .qc-portfolio-nav-card,
+    .qc-metric-card, .qc-lab-tile, .qc-month-panel, .qc-review-kpi,
+    .qc-review-signal, .mp-kpi-card, .mp-band-card, .mp-section-card,
+    .mp-empty-state, .mp-accordion
+) {
+    border-color: var(--module-border);
+    background: linear-gradient(135deg, var(--module-tint), var(--surface) 68%);
+}
+
+.module-theme:not(.module-theme-neutral) :is(
+    .card, .om-card, .cs-card, .cs-panel, .cs-doc, .cs-block, .im-card,
+    .qc-portfolio-nav-card, .qc-metric-card, .qc-lab-tile, .qc-review-kpi,
+    .mp-kpi-card, .mp-band-card, .mp-section-card, .mp-empty-state, .mp-accordion
+) {
+    box-shadow: var(--shadow-sm);
+}
+
+.module-theme .btn-primary {
+    background: var(--module-accent);
+    color: var(--module-on-accent);
+    box-shadow: 0 8px 18px color-mix(in srgb, var(--module-accent) 22%, transparent);
+}
+
+.module-theme .btn-primary:hover {
+    background: var(--module-accent-strong);
+    color: var(--module-on-accent);
+    box-shadow: 0 12px 24px color-mix(in srgb, var(--module-accent) 28%, transparent);
+}
+
+.module-theme :is(.btn-secondary, .btn-outline) {
+    border-color: var(--module-border);
+    background: var(--module-tint);
+}
+
+.module-theme :is(input, select, textarea).form-control,
+.module-theme .form-select,
+.module-theme .form-group :is(input, select, textarea) {
+    border-color: color-mix(in srgb, var(--module-accent) 22%, var(--border));
+}
+
+.module-theme :is(input, select, textarea):focus {
+    border-color: var(--module-accent);
+    box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.module-theme :is(.data-table thead th, .om-table thead th, .cs-table th,
+    .im-pf-table thead th, .im-health-table thead th, .im-source-table thead th,
+    .im-import-history-table thead th) {
+    background: var(--module-tint-strong);
+    color: var(--text);
+    box-shadow: inset 0 -1px 0 var(--module-border);
+}
+
+/* Legacy bespoke heroes receive the same restrained, light treatment as the
+   shared module hero.  Their information hierarchy remains intact. */
+.module-theme :is(
+    .im-pf-hero, .im-import-centre-hero, .im-health-hero, .im-settings-hero,
+    .qc-lab-hero, .qc-review-hero, .mp-hero, .mp-hero-detail
+) {
+    border: 1px solid var(--module-border);
+    background: linear-gradient(125deg, var(--module-tint-strong), var(--module-tint) 60%, color-mix(in srgb, var(--module-accent) 3%, var(--surface)));
+    color: var(--text);
+    box-shadow: 0 14px 32px color-mix(in srgb, var(--module-accent) 12%, transparent);
+}
+
+.module-theme :is(
+    .im-pf-hero, .im-import-centre-hero, .im-health-hero, .im-settings-hero,
+    .qc-lab-hero, .qc-review-hero, .mp-hero, .mp-hero-detail
+) :is(h1, h2, h3, strong) {
+    color: var(--text);
+}
+
+.module-theme :is(
+    .im-pf-hero, .im-import-centre-hero, .im-health-hero, .im-settings-hero,
+    .qc-lab-hero, .qc-review-hero, .mp-hero, .mp-hero-detail
+) :is(p, small, label) {
+    color: var(--muted);
+    opacity: 1;
+}
+
+.module-theme :is(.im-pf-hero, .im-import-centre-hero, .qc-lab-hero, .qc-review-hero)::before,
+.module-theme :is(.im-pf-hero, .im-import-centre-hero, .qc-lab-hero, .qc-review-hero)::after {
+    opacity: .16;
+}
+
+.module-theme :is(.im-pf-period, .qc-review-hero-panel, .qc-lab-hero-mark,
+    .im-settings-hero-note, .mp-meta-chip) {
+    border-color: var(--module-border);
+    background: color-mix(in srgb, var(--surface) 82%, var(--module-accent));
+    color: var(--text);
+}
+
+.module-theme :is(.cs-doc-head, .im-pf-table thead th, .im-import-history-table thead th) {
+    background: var(--module-tint-strong);
+    color: var(--text);
+}
+
+.module-theme :is(.cs-doc-head, .im-pf-table thead th, .im-import-history-table thead th) * {
+    color: inherit;
+}
+
+/* Inventory Monitoring originally assumed its centre pages used a dark hero.
+   Keep the orange tile hue, but give the hero, its controls and its tables the
+   same light, high-contrast treatment used throughout the refreshed shell. */
+.module-theme-inventory .im-centre-health-hero {
+    border: 1px solid var(--module-border);
+    background: linear-gradient(
+        125deg,
+        var(--module-tint-strong),
+        var(--module-tint) 60%,
+        color-mix(in srgb, var(--module-accent) 3%, var(--surface))
+    );
+    color: var(--text);
+    box-shadow: 0 14px 32px color-mix(in srgb, var(--module-accent) 12%, transparent);
+}
+
+.module-theme-inventory .im-centre-health-hero :is(h1, h2, h3, strong) {
+    color: var(--text);
+}
+
+.module-theme-inventory .im-centre-health-hero :is(p, small, label) {
+    color: var(--muted);
+    opacity: 1;
+}
+
+.module-theme-inventory .im-centre-health-hero .im-kicker {
+    color: var(--module-accent-strong);
+    opacity: 1;
+}
+
+.module-theme-inventory .im-wc-title-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 18px;
+}
+
+.module-theme-inventory .im-wc-title-row h1 {
+    margin: 6px 0;
+}
+
+.module-theme-inventory .im-wc-heading-unit {
+    color: var(--text);
+    font-size: .48em;
+    font-weight: 700;
+    letter-spacing: -.02em;
+    white-space: nowrap;
+}
+
+.module-theme-inventory .im-wc-heading-switcher {
+    align-items: center;
+    gap: 3px;
+    margin: 0;
+    padding: 3px;
+    border: 1px solid var(--module-border);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--surface) 84%, var(--module-accent));
+}
+
+.module-theme-inventory .im-wc-heading-switcher .im-view-label {
+    display: none;
+}
+
+.module-theme-inventory .im-wc-heading-switcher a {
+    padding: 5px 9px;
+    font-size: .76rem;
+}
+
+.module-theme-inventory .im-unit-switcher a {
+    border-color: var(--module-border);
+    background: color-mix(in srgb, var(--surface) 86%, var(--module-accent));
+    color: var(--module-accent-strong);
+}
+
+.module-theme-inventory .im-unit-switcher a:hover,
+.module-theme-inventory .im-unit-switcher a.is-active {
+    border-color: var(--module-accent);
+    background: var(--module-accent);
+    color: var(--module-on-accent);
+}
+
+@media (max-width: 700px) {
+    .module-theme-inventory .im-wc-title-row {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 8px;
+    }
+}
+
+.module-theme-inventory .im-wc-link {
+    border-color: var(--module-border);
+    background: var(--module-tint);
+    color: var(--module-accent-strong);
+}
+
+.module-theme-inventory .im-wc-link:hover {
+    border-color: var(--module-accent);
+    background: var(--surface);
+    color: var(--module-accent-strong);
+}
+
+.module-theme-inventory .im-centre-health-hero .im-pf-period {
+    border-color: var(--module-border);
+    background: color-mix(in srgb, var(--surface) 82%, var(--module-accent));
+    color: var(--text);
+}
+
+.module-theme-inventory .im-centre-health-hero .im-pf-period .btn {
+    background: var(--module-accent);
+    color: var(--module-on-accent);
+}
+
+.module-theme-inventory .im-centre-health-hero .im-pf-period .btn:hover {
+    background: var(--module-accent-strong);
+    color: var(--module-on-accent);
+}
+
+.module-theme-inventory :is(.im-health-table, .im-source-table) thead th {
+    background: var(--module-tint-strong);
+    color: var(--text);
+    box-shadow: inset 0 -1px 0 var(--module-border);
+}
+
+.module-theme-inventory :is(.im-health-table, .im-source-table) thead th * {
+    color: inherit;
+}
+
+/* The material register and India asset navigator also used the original cool
+   Inventory palette.  Bring them into the same restrained orange system and
+   ensure map labels remain legible against their light surfaces. */
+.module-theme-inventory :is(.im-register-hero, .im-material-hero) {
+    border-color: var(--module-border);
+    background: linear-gradient(
+        125deg,
+        var(--module-tint-strong),
+        var(--module-tint) 62%,
+        color-mix(in srgb, var(--module-accent) 3%, var(--surface))
+    );
+    box-shadow: 0 14px 32px color-mix(in srgb, var(--module-accent) 10%, transparent);
+}
+
+.module-theme-inventory :is(.im-register-hero, .im-material-hero) > :last-child {
+    border: 1px solid var(--module-border);
+    background: color-mix(in srgb, var(--surface) 88%, var(--module-accent));
+}
+
+.module-theme-inventory .im-map-pin {
+    border-color: var(--module-border);
+    background: color-mix(in srgb, var(--surface) 86%, var(--module-accent));
+    color: var(--module-accent-strong);
+    box-shadow: 0 4px 10px color-mix(in srgb, var(--module-accent) 18%, transparent);
+}
+
+.module-theme-inventory .im-map-pin:hover,
+.module-theme-inventory .im-map-pin:focus {
+    background: var(--module-accent);
+    color: var(--module-on-accent);
+}
+
+.module-theme-inventory .im-map-pin.is-offshore {
+    border-color: var(--module-border);
+    background: color-mix(in srgb, var(--surface) 78%, var(--module-accent));
+    color: var(--module-accent-strong);
+}
+
+.module-theme-inventory .im-map-pin.is-offshore:hover,
+.module-theme-inventory .im-map-pin.is-offshore:focus {
+    border-color: var(--module-accent);
+    background: var(--module-accent);
+    color: var(--module-on-accent);
+}
+
+/* Legacy light hero selections must not retain their old white text. */
+.module-theme-inventory .im-unit-choice.is-combined {
+    border-color: var(--module-border);
+    background: var(--module-tint-strong);
+    color: var(--text);
+}
+
+.module-theme-inventory .im-unit-choice.is-combined small {
+    color: var(--muted);
+}
+
+.module-theme-inventory .im-unit-choice.is-combined:hover {
+    border-color: var(--module-accent);
+    background: var(--module-tint);
+    color: var(--text);
+}
+
+.module-theme-inventory .im-import-centre-link {
+    border-color: var(--module-border);
+    background: var(--module-tint);
+    color: var(--module-accent-strong);
+}
+
+.module-theme-inventory .im-import-centre-link:hover {
+    border-color: var(--module-accent);
+    background: var(--surface);
+    color: var(--module-accent-strong);
+}
+
+/* QC retains a few custom controls inside its legacy heroes.  Use the shared
+   light tint and the same palette-derived contrast rules for them as well. */
+.module-theme-qc :is(.qc-lab-hero-period, .qc-presentation-download) {
+    border-color: var(--module-border);
+    background: var(--module-tint);
+    color: var(--module-accent-strong);
+}
+
+.module-theme-qc .qc-command-kicker {
+    color: var(--module-accent-strong);
+}
+
+.module-theme-qc .qc-presentation-download:hover {
+    border-color: var(--module-accent);
+    background: var(--surface);
+    color: var(--module-accent-strong);
+}
+
+.module-theme-qc :is(.qc-review-kicker, .qc-review-breadcrumb,
+    .qc-review-period, .qc-review-panel-heading, .qc-review-panel-note) {
+    color: var(--muted);
+}
+
+.module-theme-qc .qc-review-hero h1 em,
+.module-theme-qc :is(.qc-review-period > i, .qc-review-panel-heading i,
+    .qc-review-panel-note i, .qc-review-select-wrap > i) {
+    color: var(--module-accent-strong);
+}
+
+.module-theme-qc .qc-review-period strong {
+    color: var(--text);
+}
+
+.module-theme-qc .qc-review-period-divider {
+    background: var(--module-accent);
+}
+
+.module-theme-qc .qc-review-hero-panel {
+    border-color: var(--module-border);
+    background: color-mix(in srgb, var(--surface) 84%, var(--module-accent));
+    box-shadow: none;
+}
+
+.module-theme-qc .qc-review-week-form label {
+    color: var(--muted);
+}
+
+.module-theme-qc .qc-review-select-wrap select {
+    border-color: var(--module-border);
+    background: var(--surface);
+    color: var(--text);
+}
+
+.module-theme-qc .qc-review-panel-rule {
+    background: var(--module-border);
+}
+
+[data-theme="dark"] .module-theme {
+    --module-on-accent: #0f1723;
+    --module-tint: color-mix(in srgb, var(--module-accent) 9%, var(--surface));
+    --module-tint-strong: color-mix(in srgb, var(--module-accent) 16%, var(--surface));
+    --module-border: color-mix(in srgb, var(--module-accent) 30%, var(--border));
+}
+
+[data-theme="dark"] .module-theme-neutral { --module-accent: #5b8cff; }

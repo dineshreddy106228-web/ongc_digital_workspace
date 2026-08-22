@@ -1,8 +1,10 @@
 {% extends "base.html" %}
+{% from "quality_control/_qc_nav.html" import qc_nav with context %}
 {% block title %}QC Portfolio Management Review{% endblock %}
 {% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}"><link rel="stylesheet" href="{{ url_for('static', filename='css/quality_control.css') }}"><script defer src="{{ url_for('static', filename='js/quality_control.js') }}"></script><style>@media print {.workspace-sidebar,.workspace-flyout,.workspace-backdrop,.workspace-header-band,.qc-review-actions,.site-footer{display:none!important}.workspace-shell,.workspace-main,.page-wrapper{display:block!important;margin:0!important;padding:0!important}.qc-review-hero{color:#172b4d!important;background:#fff!important;border:1px solid #d8e0eb!important;box-shadow:none!important}.qc-review-hero *{color:inherit!important}.card{break-inside:avoid}.qc-overdue-card,.qc-review-table-card{break-inside:auto!important;page-break-inside:auto!important;overflow:visible!important;border:none!important;box-shadow:none!important}.qc-overdue-card .card-body,.qc-review-table-card .card-body,.qc-overdue-card .inv-audit-table-wrap,.qc-review-table-card .inv-audit-table-wrap{display:block!important;overflow:visible!important}.qc-overdue-card thead,.qc-review-table-card thead{display:table-header-group}.qc-overdue-card tr,.qc-review-table-card tr{break-inside:avoid;page-break-inside:avoid}}</style>{% endblock %}
 {% block content %}
-<div class="page-wrapper"><div class="inv-page qc-review-page">
+<div class="page-wrapper"><div class="mod-page is-quality inv-page qc-review-page">
+{{ qc_nav('review') }}
   <section class="qc-review-hero">
     <div class="qc-review-hero-copy">
       <div class="qc-review-kicker"><span class="qc-live-dot"></span> Corporate Chemistry · weekly operating review</div>

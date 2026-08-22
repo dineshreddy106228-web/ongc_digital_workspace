@@ -3,10 +3,8 @@ from __future__ import annotations
 
 import logging
 from datetime import date
-from decimal import Decimal
-from io import StringIO
 
-from flask import abort, current_app, flash, redirect, render_template, request, send_file, session, url_for, Response
+from flask import abort, current_app, flash, redirect, render_template, request, send_file, session, url_for
 from flask_login import current_user, login_required
 
 from app.core.utils.decorators import module_access_required
@@ -210,12 +208,6 @@ def materials():
     return render_template(
         "inventory/materials.html",
         **material_mapping_register_data(term, request.args.get("category", "")),
-        mapping_prefill={
-            "material_code": (request.args.get("map_material_code") or "").strip(),
-            "description": (request.args.get("map_description") or "").strip(),
-            "material_group": (request.args.get("map_material_group") or "").strip(),
-            "work_center_id": request.args.get("map_work_center_id", type=int),
-        },
     )
 
 
@@ -227,156 +219,6 @@ def material(material_id: int):
     item = db.session.get(InventoryMonitoringMaterial, material_id)
     if item is None: abort(404)
     return render_template("inventory/material.html", material=item, records=InventoryMonitoringRecord.query.filter_by(material_id=item.id).order_by(InventoryMonitoringRecord.id.desc()).limit(300).all(), exceptions=InventoryMonitoringException.query.filter_by(material_id=item.id).order_by(InventoryMonitoringException.id.desc()).limit(100).all(), mappings=InventoryMonitoringWorkCenterMaterial.query.filter_by(material_id=item.id, is_current=True).join(InventoryMonitoringWorkCenter).order_by(InventoryMonitoringWorkCenter.zone, InventoryMonitoringWorkCenter.name).all())
-
-
-@inventory_bp.route("/materials/mappings", methods=["POST"])
-@login_required
-@module_access_required("inventory")
-def update_material_mapping():
-    if not current_user.is_super_user(): abort(403)
-    from app.core.services.inventory_monitoring import add_manual_material_mapping, remove_material_mapping
-    material_id = request.form.get("material_id", type=int)
-    try:
-        action = request.form.get("action")
-        if action == "add":
-            mapping = add_manual_material_mapping(
-                request.form.get("material_code", ""),
-                request.form.get("description"),
-                request.form.get("material_group"),
-                request.form.get("work_center_id", type=int),
-                current_user.id,
-            )
-            material_id = mapping.material_id
-            flash("Material mapping added.", "success")
-        elif action == "remove":
-            remove_material_mapping(request.form.get("mapping_id", type=int))
-            flash("Material mapping removed from the active monitoring list.", "success")
-        else:
-            raise ValueError("Choose a mapping action.")
-        db.session.commit()
-    except ValueError as exc:
-        db.session.rollback(); flash(str(exc), "danger")
-    return redirect(url_for("inventory.material", material_id=material_id) if material_id else url_for("inventory.materials"))
-
-
-@inventory_bp.route("/materials/work-centres", methods=["POST"])
-@login_required
-@module_access_required("inventory")
-def create_mapping_work_centre():
-    if not current_user.is_super_user(): abort(403)
-    from app.core.services.inventory_monitoring import create_manual_work_center
-    try:
-        centre = create_manual_work_center(
-            request.form.get("name", ""), request.form.get("zone"), request.form.get("work_center_type")
-        )
-        db.session.commit(); flash(f"{centre.name} is now available for material mapping.", "success")
-    except ValueError as exc:
-        db.session.rollback(); flash(str(exc), "danger")
-    return redirect(url_for("inventory.materials"))
-
-
-def _mapping_review_filters() -> dict:
-    """Filter arguments shared by the review table, its export and the bulk decision."""
-    try:
-        min_crore = float(request.args.get("min_crore") or request.form.get("min_crore") or "")
-    except ValueError:
-        min_crore = None
-    return {
-        "work_center_id": request.args.get("work_center_id", type=int) or request.form.get("work_center_id", type=int),
-        "term": (request.args.get("q") or request.form.get("q") or "").strip(),
-        "min_value": Decimal(str(min_crore)) * 10000000 if min_crore else None,
-    }
-
-
-@inventory_bp.route("/exceptions")
-@login_required
-@module_access_required("inventory")
-def exceptions():
-    from sqlalchemy import func
-    from app.core.services.inventory_monitoring import mapping_review_query, mapping_review_work_centres
-    from app.models.inventory.monitoring import InventoryMonitoringException
-    filters = _mapping_review_filters()
-    status = (request.args.get("status") or "pending").strip()
-    query = mapping_review_query(status=status, **filters)
-    total_count = query.count()
-    total_value = query.with_entities(func.coalesce(func.sum(InventoryMonitoringException.inventory_value_inr), 0)).scalar()
-    # Highest value first: the review is a management decision, not a data-entry queue.
-    rows = query.order_by(InventoryMonitoringException.inventory_value_inr.desc()).limit(1000).all()
-    from app.core.services.inventory_monitoring import specification_groups
-    return render_template(
-        "inventory/exceptions.html", exceptions=rows, status=status, total_count=total_count, total_value=total_value,
-        spec_groups=specification_groups(rows, code_of=lambda item: item.material.material_code if item.material else ""),
-        work_centres=mapping_review_work_centres(), filters={
-            "q": request.args.get("q", "").strip(),
-            "work_center_id": filters["work_center_id"],
-            "min_crore": request.args.get("min_crore", "").strip(),
-        },
-    )
-
-
-@inventory_bp.route("/exceptions/<int:exception_id>/review", methods=["POST"])
-@login_required
-@module_access_required("inventory")
-def review_exception(exception_id: int):
-    if not current_user.is_super_user(): abort(403)
-    from app.core.services.inventory_monitoring import review_mapping_exception
-    try:
-        review_mapping_exception(exception_id, request.form.get("action", ""), current_user.id, request.form.get("note"))
-        db.session.commit(); flash("Mapping review decision saved.", "success")
-    except ValueError as exc:
-        db.session.rollback(); flash(str(exc), "danger")
-    return redirect(url_for("inventory.exceptions"))
-
-
-@inventory_bp.route("/exceptions/review-selected", methods=["POST"])
-@login_required
-@module_access_required("inventory")
-def review_selected_exceptions():
-    if not current_user.is_super_user(): abort(403)
-    from app.core.services.inventory_monitoring import review_selected_mapping_exceptions
-    try:
-        count = review_selected_mapping_exceptions(
-            request.form.getlist("exception_ids", type=int), request.form.get("action", ""), current_user.id
-        )
-        db.session.commit()
-        flash(f"{count:,} selected {'material' if count == 1 else 'materials'} reviewed.", "success")
-    except ValueError as exc:
-        db.session.rollback(); flash(str(exc), "warning")
-    return redirect(url_for(
-        "inventory.exceptions", status=request.form.get("status") or None,
-        work_center_id=request.form.get("work_center_id") or None,
-        q=(request.form.get("q") or "").strip() or None, min_crore=(request.form.get("min_crore") or "").strip() or None,
-    ))
-
-
-@inventory_bp.route("/exceptions/review-all", methods=["POST"])
-@login_required
-@module_access_required("inventory")
-def review_all_exceptions():
-    if not current_user.is_super_user(): abort(403)
-    from app.core.services.inventory_monitoring import review_all_pending_mapping_exceptions
-    filters = _mapping_review_filters()
-    try:
-        count = review_all_pending_mapping_exceptions(request.form.get("action", ""), current_user.id, **filters)
-        db.session.commit(); flash(f"Bulk mapping review completed for {count:,} pending items.", "success")
-    except ValueError as exc:
-        db.session.rollback(); flash(str(exc), "danger")
-    return redirect(url_for(
-        "inventory.exceptions", work_center_id=request.form.get("work_center_id") or None,
-        q=(request.form.get("q") or "").strip() or None, min_crore=(request.form.get("min_crore") or "").strip() or None,
-    ))
-
-
-@inventory_bp.route("/exceptions.csv")
-@login_required
-@module_access_required("inventory")
-def exceptions_csv():
-    from app.core.services.inventory_monitoring import mapping_review_query
-    from app.models.inventory.monitoring import InventoryMonitoringException
-    out = StringIO(); out.write("Review status,Work centre,Material code,Material description,Inventory INR,Stock months,Details\n")
-    for item in mapping_review_query(status=(request.args.get("status") or "all").strip(), **_mapping_review_filters()).order_by(InventoryMonitoringException.inventory_value_inr.desc()).limit(10000):
-        out.write(",".join('"' + str(value or "").replace('"', '""') + '"' for value in [item.review_status, item.work_center.name if item.work_center else "", item.material.material_code if item.material else "", item.material.description if item.material else "", item.inventory_value_inr, item.stock_months, item.details]) + "\n")
-    return Response(out.getvalue(), mimetype="text/csv", headers={"Content-Disposition": "attachment; filename=inventory-mapping-review.csv"})
 
 
 @inventory_bp.route("/administration", methods=["GET", "POST"])
@@ -417,23 +259,3 @@ def fill_missing_units():
         db.session.rollback(); logger.exception("Inventory unit-of-measure backfill failed")
         flash("Units of measure could not be filled. Please try again or contact an administrator with the server log reference.", "danger")
     return redirect(url_for("inventory.administration"))
-
-
-@inventory_bp.route("/administration/rebuild-mapping-review", methods=["POST"])
-@login_required
-@module_access_required("inventory")
-def rebuild_mapping_review():
-    if not current_user.is_super_user(): abort(403)
-    from app.core.services.inventory_monitoring import rebuild_mapping_exceptions
-    try:
-        summary = rebuild_mapping_exceptions()
-        db.session.commit()
-        flash(
-            f"Mapping review rebuilt against the current mapping workbook: {summary['held_not_mapped']:,} held-but-unmapped lines, "
-            f"{summary['mapped_not_held']:,} mapped-but-not-held pairs, {summary['decisions_kept']:,} earlier decisions kept.",
-            "success",
-        )
-    except Exception:
-        db.session.rollback(); logger.exception("Inventory mapping-review rebuild failed")
-        flash("The mapping review could not be rebuilt. Please try again or contact an administrator with the server log reference.", "danger")
-    return redirect(url_for("inventory.exceptions"))

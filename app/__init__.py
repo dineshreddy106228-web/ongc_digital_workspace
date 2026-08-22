@@ -5,7 +5,7 @@ import os
 import secrets
 from importlib import import_module
 from urllib.parse import urlparse
-from flask import Flask, flash, g, jsonify, redirect, render_template_string, request, session
+from flask import Flask, flash, g, jsonify, redirect, render_template_string, request
 from flask_login import current_user
 from flask_wtf.csrf import CSRFError
 from config import Config
@@ -56,14 +56,10 @@ def create_app(config_class=Config):
 
     # ── Register blueprints ──────────────────────────────────────
     from app.core.auth import auth_bp
-    from app.notifications import notifications_bp
     app.register_blueprint(auth_bp)
-    app.register_blueprint(notifications_bp, url_prefix="/notifications")
 
     # Registry-managed modules are registered dynamically so production can expose
     # only the approved surfaces for the current environment.
-    # NOTE: committee_bp is registered via the module registry (module_registry.py)
-    # — no separate registration needed here.
     register_feature_blueprints(app)
 
     # ── Register CLI commands ────────────────────────────────────
@@ -78,65 +74,9 @@ def create_app(config_class=Config):
     app.jinja_env.filters["datetime_ist"] = format_datetime_ist
     app.jinja_env.filters["richtext"] = render_rich_text
 
-    @cache.memoize(timeout=30)
-    def _get_committee_open_count(user_id: int, role_name: str, office_id) -> int:
-        """Return committee open-task count for nav badge (short-lived cache)."""
-        try:
-            from app.models.committee.committee_task import CommitteeTask
-            from app.models.committee.committee_task_member import CommitteeTaskMember
-            from sqlalchemy import or_
-            if role_name in ("superuser", "admin"):
-                return CommitteeTask.query.filter(
-                    CommitteeTask.status != "done"
-                ).count()
-            # role == "user": scope to office + directly assigned tasks
-            return CommitteeTask.query.filter(
-                CommitteeTask.status != "done",
-                or_(
-                    CommitteeTask.office_id == office_id,
-                    CommitteeTask.members.any(CommitteeTaskMember.user_id == user_id),
-                ),
-            ).count()
-        except Exception:
-            logger.exception("Failed to load committee open count for user_id=%s", user_id)
-            return 0
-
     # ── Inject common template context ───────────────────────────
     @app.context_processor
     def inject_globals():
-        from app.core.services.notifications import (
-            get_unread_notification_count,
-            get_unread_notifications,
-        )
-        from app.core.services.announcements import get_latest_login_announcement_for_user
-
-        def _get_broadcast_popup(user_id):
-            """Return the latest unread broadcast unless dismissed this session."""
-            try:
-                recipient = get_latest_login_announcement_for_user(user_id)
-            except Exception:
-                logger.exception("Failed to load login announcement for user_id=%s", user_id)
-                return None
-            if recipient is None:
-                return None
-            dismissed = session.get("dismissed_broadcast")
-            if dismissed is not None and dismissed == recipient.announcement_id:
-                return None
-            return recipient
-
-        # Committee open-task count for nav badge
-        committee_open = 0
-        if current_user.is_authenticated:
-            role_name = (
-                current_user.role.name if current_user.role else ""
-            ).lower()
-            if role_name in ("superuser", "admin") or (
-                role_name == "user" and current_user.has_module_access("committee")
-            ):
-                committee_open = _get_committee_open_count(
-                    current_user.id, role_name, current_user.office_id
-                )
-
         return dict(
             app_name=app.config["APP_NAME"],
             csp_nonce=lambda: getattr(g, "csp_nonce", ""),
@@ -144,18 +84,6 @@ def create_app(config_class=Config):
             nav_modules=get_nav_modules(current_user, app)
             if current_user.is_authenticated
             else [],
-            unread_notification_count=get_unread_notification_count(current_user.id)
-            if current_user.is_authenticated
-            else 0,
-            unread_notifications=get_unread_notifications(current_user.id, limit=5)
-            if current_user.is_authenticated
-            else [],
-            login_announcement=(
-                _get_broadcast_popup(current_user.id)
-                if current_user.is_authenticated
-                else None
-            ),
-            committee_open_count=committee_open,
         )
 
     # ── Per-request nonce for CSP-compatible inline scripts ──────

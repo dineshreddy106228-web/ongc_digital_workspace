@@ -15,7 +15,6 @@ from flask import current_app
 from flask.cli import with_appcontext
 from sqlalchemy.exc import SQLAlchemyError
 from app.extensions import db
-from app.models.core.notification import Notification
 from app.models.core.role import Role
 from app.models.office.office import Office
 from app.models.core.user import User
@@ -26,11 +25,6 @@ from app.core.roles import (
     ROLE_REGISTRY,
     ROLE_DESCRIPTIONS,
     ROLE_RENAME_MAP,
-)
-from app.core.services.notifications import (
-    ensure_welcome_notification,
-    get_welcome_notifications_for_user,
-    create_notification,
 )
 
 
@@ -410,41 +404,6 @@ def list_users():
         )
 
 
-@click.command("seed-notifications")
-@with_appcontext
-def seed_notifications():
-    """Create sample in-app notifications for active users."""
-    users = User.query.filter_by(is_active=True).order_by(User.created_at.asc()).limit(5).all()
-    if not users:
-        click.echo("No active users found. Skipping notification seed.")
-        return
-
-    created = 0
-    for user in users:
-        had_welcome = bool(get_welcome_notifications_for_user(user.id))
-        ensure_welcome_notification(user.id)
-        if had_welcome:
-            continue
-        create_notification(
-            user_id=user.id,
-            title="Pending action review",
-            message="Check your dashboard for recent alerts and outstanding work items.",
-            severity="info",
-            link="/dashboard",
-        )
-        create_notification(
-            user_id=user.id,
-            title="Platform readiness",
-            message="Notifications are now enabled for your account.",
-            severity="warning",
-            link="/notifications",
-        )
-        created += 3
-
-    db.session.commit()
-    click.echo(f"Seeded {created} notifications.")
-
-
 @click.command("fix-password-hashes")
 @click.option(
     "--password",
@@ -507,97 +466,3 @@ def fix_password_hashes(password, username):
         f"Share the temporary password with each user securely.\n"
         f"They will be prompted to set a new password on first login."
     )
-
-
-@click.command("seed-v11-broadcast")
-@with_appcontext
-def seed_v11_broadcast():
-    """Publish the v1.1 welcome broadcast and archive any existing active broadcasts.
-
-    Safe to run on a live deployment. Existing published broadcasts are closed
-    (status → CLOSED) so they remain visible in notification history but no
-    longer trigger the popup. A fresh v1.1 broadcast is then created and
-    published to every active user.
-
-    Usage:
-        flask seed-v11-broadcast
-    """
-    from app.models.core.announcement import Announcement
-    from app.core.services.announcements import publish_announcement, close_announcement
-    from app.core.roles import SUPERUSER_ROLE, canonicalize_role_name
-
-    # ── Step 1: close every currently published broadcast ────────────────────
-    active_broadcasts = (
-        Announcement.query
-        .filter_by(status="PUBLISHED")
-        .filter(Announcement.closed_at.is_(None))
-        .all()
-    )
-    closed_count = 0
-    for ann in active_broadcasts:
-        close_announcement(ann)
-        click.echo(f"  Archived broadcast: '{ann.title}'")
-        closed_count += 1
-
-    if closed_count:
-        click.echo(f"  {closed_count} broadcast(s) archived (still visible in history).")
-    else:
-        click.echo("  No active broadcasts found — nothing to archive.")
-
-    # ── Step 2: resolve creator (first superuser, fallback to any active user) ─
-    superuser = None
-    users_for_creator = User.query.filter_by(is_active=True).all()
-    for u in users_for_creator:
-        if canonicalize_role_name(u.role.name if u.role else None) == SUPERUSER_ROLE:
-            superuser = u
-            break
-    if superuser is None and users_for_creator:
-        superuser = users_for_creator[0]
-    if superuser is None:
-        raise click.ClickException("No active users found. Run seed-initial-data first.")
-
-    # ── Step 3: create and publish the v1.1 welcome broadcast ────────────────
-    body = (
-        "Version updated to 1.1\n\n"
-        "Broadcast / Polling has been introduced. Superusers can launch a poll or send out "
-        "an announcement to all users of the workspace.\n\n"
-        "CSC Workflow has been introduced for structured input collection from the "
-        "Specification Review Committees and the Material Handling Committee. "
-        "This is under the Material Master Management Module.\n\n"
-        "Following processes have been digitised:\n"
-        "- Review committee workflow\n\n"
-        "Following processes have been automated:\n"
-        "- Compilation of Specifications for the 12th Edition of Corporate Specifications "
-        "of Oil Field Chemicals"
-    )
-    summary = (
-        "Version 1.1 is live — Broadcasts/Polling and the CSC Workflow "
-        "(Material Master Management) are now available."
-    )
-
-    broadcast = Announcement(
-        title="ONGC Digital Workspace — Version 1.1",
-        summary=summary,
-        body=body,
-        announcement_type="ANNOUNCEMENT",
-        severity="info",
-        status="DRAFT",
-        created_by=superuser.id,
-    )
-
-    try:
-        db.session.add(broadcast)
-        db.session.flush()
-        recipients_created = publish_announcement(broadcast)
-        db.session.commit()
-        click.echo(
-            f"  Published v1.1 broadcast (ID {broadcast.id}) "
-            f"to {recipients_created} user(s)."
-        )
-    except SQLAlchemyError as exc:
-        db.session.rollback()
-        raise click.ClickException(
-            f"Database error while publishing broadcast: {exc.__class__.__name__}"
-        ) from exc
-
-    click.echo("Done.")

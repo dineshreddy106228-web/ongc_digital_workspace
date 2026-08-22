@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Super User Dashboard – {{ app_name }}{% endblock %}
+{% block title %}Portfolio Analytics – {{ app_name }}{% endblock %}
 
 {% block head_extra %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
@@ -37,9 +37,20 @@
 <section class="super-briefing">
   <div class="super-briefing-hero">
     <div class="super-briefing-hero-copy">
-      <div class="super-briefing-kicker">Executive Workspace</div>
-      <h1>Super User Dashboard</h1>
-      <p>Morning-meeting command view for the full ONGC digital workspace. Click any chart segment to open the live task drilldown.</p>
+      <div class="super-briefing-kicker">{{ scope_label }}</div>
+      <h1>Portfolio Analytics</h1>
+      <p>Click any chart segment or watchlist tile to open the live task drilldown.</p>
+      {% if scope_options %}
+      <div class="home-scope-switch home-scope-switch-compact" role="group">
+        {% for option in scope_options %}
+        <a
+          href="{{ option.href }}"
+          class="home-scope-option {{ 'is-active' if option.is_active }}"
+          {% if option.is_active %}aria-current="true"{% endif %}
+        >{{ option.label }}</a>
+        {% endfor %}
+      </div>
+      {% endif %}
     </div>
     <div class="super-briefing-hero-meta">
       <div class="super-briefing-refresh">
@@ -47,13 +58,13 @@
         <strong>{{ last_refreshed|datetime_ist('%d %b %Y · %I:%M %p') }}</strong>
       </div>
       <div class="super-briefing-actions">
-        <a href="{{ url_for('main.dashboard') }}" class="btn btn-secondary">Main Dashboard</a>
+        <a href="{{ url_for('main.dashboard') }}" class="btn btn-secondary">Home</a>
         <a href="{{ url_for('tasks.list_tasks') }}" class="btn btn-primary">Open Task Registry</a>
       </div>
     </div>
   </div>
 
-  <div class="super-tab-bar" role="tablist" aria-label="Super user dashboard sections">
+  <div class="super-tab-bar" role="tablist" aria-label="Analytics sections">
     <button
       type="button"
       class="super-tab-button is-active"
@@ -109,85 +120,6 @@
         <p>No fresh movement in the last week.</p>
       </article>
     </div>
-
-    {% if briefing.committee and briefing.committee.total > 0 %}
-    <section class="super-briefing-panel super-committee-panel">
-      <div class="super-panel-header">
-        <div>
-          <h2>Committee Management</h2>
-          <p>Overview of committee-scoped task assignments across all offices.</p>
-        </div>
-        <div class="super-briefing-actions">
-          <a href="{{ url_for('committee.list_tasks') }}" class="btn btn-primary btn-sm">Open Committee Management</a>
-        </div>
-      </div>
-      <div class="super-briefing-signal-grid">
-        <article class="super-signal-card signal-open">
-          <span>Total Tasks</span>
-          <strong>{{ briefing.committee.total }}</strong>
-          <p>All committee tasks in the system.</p>
-        </article>
-        <article class="super-signal-card signal-next">
-          <span>Open</span>
-          <strong>{{ briefing.committee.open }}</strong>
-          <p>Tasks still requiring action.</p>
-        </article>
-        <article class="super-signal-card signal-complete">
-          <span>Completion Rate</span>
-          <strong>{{ briefing.committee.completion_pct }}%</strong>
-          <p>Closed share of committee portfolio.</p>
-        </article>
-        <article class="super-signal-card signal-overdue">
-          <span>Overdue</span>
-          <strong>{{ briefing.committee.overdue }}</strong>
-          <p>Committee tasks past due date.</p>
-        </article>
-        <article class="super-signal-card signal-risk">
-          <span>High Priority</span>
-          <strong>{{ briefing.committee.high_priority }}</strong>
-          <p>High priority open committee tasks.</p>
-        </article>
-        <article class="super-signal-card signal-stale">
-          <span>In Progress</span>
-          <strong>{{ briefing.committee.in_progress }}</strong>
-          <p>Committee tasks currently being worked on.</p>
-        </article>
-      </div>
-
-      {% if briefing.committee.by_status %}
-      <div style="display:flex; flex-wrap:wrap; gap:1.5rem; margin-top:1rem; padding:0 1.25rem 1.25rem;">
-        <div style="flex:1; min-width:200px;">
-          <h3 style="font-size:0.875rem; font-weight:600; margin-bottom:0.5rem; color:var(--text-secondary, #64748b);">By Status</h3>
-          <div style="display:flex; flex-wrap:wrap; gap:0.5rem;">
-            {% for status, count in briefing.committee.by_status.items() %}
-            <span class="task-badge status-{{ status|lower|replace('_', '-') }}" style="font-size:0.8125rem;">{{ status|replace('_', ' ')|title }}: {{ count }}</span>
-            {% endfor %}
-          </div>
-        </div>
-        {% if briefing.committee.by_priority %}
-        <div style="flex:1; min-width:200px;">
-          <h3 style="font-size:0.875rem; font-weight:600; margin-bottom:0.5rem; color:var(--text-secondary, #64748b);">By Priority</h3>
-          <div style="display:flex; flex-wrap:wrap; gap:0.5rem;">
-            {% for priority, count in briefing.committee.by_priority.items() %}
-            <span class="task-badge priority-{{ priority|lower }}" style="font-size:0.8125rem;">{{ priority|title }}: {{ count }}</span>
-            {% endfor %}
-          </div>
-        </div>
-        {% endif %}
-        {% if briefing.committee.by_office %}
-        <div style="flex:1; min-width:200px;">
-          <h3 style="font-size:0.875rem; font-weight:600; margin-bottom:0.5rem; color:var(--text-secondary, #64748b);">By Office</h3>
-          <div style="display:flex; flex-wrap:wrap; gap:0.5rem;">
-            {% for office, count in briefing.committee.by_office.items() %}
-            <span class="task-badge" style="font-size:0.8125rem; background:var(--surface-alt, #f1f5f9); color:var(--text-primary, #1e293b);">{{ office }}: {{ count }}</span>
-            {% endfor %}
-          </div>
-        </div>
-        {% endif %}
-      </div>
-      {% endif %}
-    </section>
-    {% endif %}
 
     <div class="super-briefing-layout">
       <div class="super-briefing-main">

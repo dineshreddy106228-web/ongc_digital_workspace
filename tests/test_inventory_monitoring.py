@@ -50,7 +50,7 @@ def _management_review_stub():
         "kpis": {
             "total_value": 870 * crore, "prev_total_value": 810 * crore, "value_at_risk": 310 * crore,
             "prev_value_at_risk": 280 * crore, "at_risk_share": 35.6, "stockout_value": 42 * crore,
-            "prev_stockout_value": 51 * crore, "stockout_share": 4.8, "mapped_share": 92.4,
+            "prev_stockout_value": 51 * crore, "stockout_share": 4.8,
             "centre_count": 46, "material_count": 812, "record_count": 4210, "top5_share": 61.2,
         },
         "health_mix": [{"key": "excess_stock", "label": "Excess", "value": 210 * crore, "count": 700, "share": 24.1}],
@@ -151,7 +151,6 @@ def _work_centre_stub():
         },
         "source_spec_groups": [{"key": "DFC", "label": "Drilling Fluid Chemicals", "rows": findings, "total": len(findings), "omitted": 0}],
         "reporting_date": date(2026, 7, 31), "as_on_by_group": {"09": date(2026, 7, 31), "10": date(2026, 7, 31)},
-        "unmapped": {"count": 68, "materials": 68, "value": Decimal("192600000")},
         "previous_date": date(2026, 6, 30), "comparison_dates": [date(2026, 6, 30)],
         "comparison": {
             "previous_date": date(2026, 6, 30), "gap_days": 31, "common_materials": 4,
@@ -195,7 +194,6 @@ def test_work_centre_presentation_covers_the_page_registers(monkeypatch, tmp_pat
     assert "Non-moving, aged, surplus and transit cases" in titles
     assert "Decisions sought for Ankleshwar DFS" in titles
     assert not any("material group" in title.lower() for title in titles)
-    assert any("68 stock lines" in title for title in titles)
     assert any("4 materials were held at this centre on both" in title for title in titles)
 
 

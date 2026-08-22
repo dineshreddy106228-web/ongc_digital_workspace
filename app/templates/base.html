@@ -1,5 +1,24 @@
 <!DOCTYPE html>
 <html lang="en">
+{% set endpoint_name = request.endpoint or '' %}
+{% set module_theme = 'module-theme-neutral' %}
+{% if endpoint_name.startswith('tasks.') or endpoint_name == 'main.analytics' %}
+    {% set module_theme = 'module-theme-office' %}
+{% elif endpoint_name.startswith('inventory.') %}
+    {% set module_theme = 'module-theme-inventory' %}
+{% elif endpoint_name.startswith('csc.') %}
+    {% set module_theme = 'module-theme-csc' %}
+{% elif endpoint_name.startswith('quality_control.') %}
+    {% set module_theme = 'module-theme-qc' %}
+{% elif endpoint_name.startswith('manpower.') %}
+    {% set module_theme = 'module-theme-manpower' %}
+{% elif endpoint_name.startswith('admin.') %}
+    {% set module_theme = 'module-theme-admin' %}
+{% elif endpoint_name.startswith('reports.') %}
+    {% set module_theme = 'module-theme-reports' %}
+{% elif endpoint_name.startswith('forecasting.') %}
+    {% set module_theme = 'module-theme-forecasting' %}
+{% endif %}
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -19,8 +38,10 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     {% block head_extra %}{% endblock %}
+    {# Loaded last so the shared module language can gently normalize legacy pages too. #}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/module_shell.css') }}">
 </head>
-<body class="{{ 'app-authenticated' if current_user.is_authenticated else 'app-public' }}">
+<body class="{{ 'app-authenticated ' ~ module_theme if current_user.is_authenticated else 'app-public' }}">
     {% if current_user.is_authenticated %}
     <div class="workspace-shell">
         <aside class="workspace-sidebar">
@@ -44,83 +65,29 @@
                     <span class="workspace-hover-label" aria-hidden="true">Dashboard</span>
                 </a>
 
+                {% for module in nav_modules %}
+                {% set module_ns = module.endpoint.split('.')[0] if module.endpoint else '' %}
+                {% set module_icon = {
+                    'office_management': 'bi-kanban-fill',
+                    'inventory': 'bi-boxes',
+                    'manpower_planning': 'bi-people-fill',
+                    'csc_workflow': 'bi-journal-richtext',
+                    'reports': 'bi-bar-chart-line',
+                    'quality_control': 'bi-flask',
+                    'forecasting': 'bi-graph-up-arrow',
+                    'admin_users': 'bi-person-gear'
+                }.get(module.key, 'bi-grid') %}
                 <a
-                    href="{{ url_for('committee.list_tasks') }}"
-                    class="workspace-rail-item {{ 'is-active' if request.endpoint and request.endpoint.startswith('committee.') else '' }}"
-                    aria-label="Committee Management"
-                    title="Committee Management"
+                    href="{{ module.href }}"
+                    class="workspace-rail-item {{ 'is-active' if request.endpoint and module_ns and request.endpoint.startswith(module_ns ~ '.') else '' }}"
+                    aria-label="{{ module.label }}"
+                    title="{{ module.label }}"
                 >
-                    <span class="workspace-rail-icon" aria-hidden="true"><i class="bi bi-people"></i></span>
-                    <span class="workspace-rail-label sr-only">Committee Management</span>
-                    <span class="workspace-hover-label" aria-hidden="true">Committee Management</span>
-                    {% if committee_open_count %}
-                    <span class="notification-count-badge">
-                        {{ committee_open_count if committee_open_count < 100 else "99+" }}
-                    </span>
-                    {% endif %}
+                    <span class="workspace-rail-icon" aria-hidden="true"><i class="bi {{ module_icon }}"></i></span>
+                    <span class="workspace-rail-label sr-only">{{ module.label }}</span>
+                    <span class="workspace-hover-label" aria-hidden="true">{{ module.label }}</span>
                 </a>
-
-                <details class="notifications-menu workspace-alerts {{ 'is-active' if request.endpoint and request.endpoint.startswith('notifications.') else '' }}">
-                    <summary class="workspace-rail-item" aria-label="Open alerts" title="Alerts">
-                        <span class="workspace-rail-icon" aria-hidden="true"><i class="bi bi-bell"></i></span>
-                        <span class="workspace-rail-label sr-only">Alerts</span>
-                        <span class="workspace-hover-label" aria-hidden="true">Alerts</span>
-                        {% if unread_notification_count %}
-                        <span class="notification-count-badge">
-                            {{ unread_notification_count if unread_notification_count < 100 else "99+" }}
-                        </span>
-                        {% endif %}
-                    </summary>
-                    <div class="notifications-popover">
-                        <div class="notifications-popover-header">
-                            <div>
-                                <strong>Notifications</strong>
-                                <div class="notifications-popover-subtitle">
-                                    {{ unread_notification_count }} unread
-                                </div>
-                            </div>
-                            <a href="{{ url_for('notifications.index') }}">View all</a>
-                        </div>
-                        <div class="notifications-popover-list">
-                            {% for notification in unread_notifications %}
-                            <a
-                                href="{{ url_for('notifications.open_notification', notification_id=notification.id) }}"
-                                class="notification-preview notification-preview-{{ notification.severity }}"
-                            >
-                                <div class="notification-preview-header">
-                                    <span>{{ notification.title }}</span>
-                                    <span class="notification-preview-time">
-                                        {{ notification.created_at|datetime_ist('%d %b %Y') }}
-                                    </span>
-                                </div>
-                                <p>{{ notification.message|replace('\n', ' ')|truncate(140, True, '…') }}</p>
-                            </a>
-                            {% else %}
-                            <div class="notification-empty">
-                                No unread notifications.
-                            </div>
-                            {% endfor %}
-                        </div>
-                        <div class="notifications-popover-footer">
-                            {% if unread_notification_count %}
-                            <form method="POST" action="{{ url_for('notifications.read_all') }}">
-                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                <button type="submit" class="btn btn-sm btn-secondary">
-                                    Mark all as read
-                                </button>
-                            </form>
-                            {% endif %}
-                            <a href="{{ url_for('notifications.index') }}" class="btn btn-sm btn-secondary">
-                                Open notifications
-                            </a>
-                            {% if current_user.is_super_user() %}
-                            <a href="{{ url_for('notifications.manage_announcements') }}" class="btn btn-sm btn-primary">
-                                Broadcasts
-                            </a>
-                            {% endif %}
-                        </div>
-                    </div>
-                </details>
+                {% endfor %}
 
                 <button
                     type="button"
@@ -174,11 +141,14 @@
                     {% for module in nav_modules %}
                     {% set module_ns = module.endpoint.split('.')[0] if module.endpoint else '' %}
                     {% set module_icon = {
-                        'tasks': 'bi-list-task',
-                        'inventory': 'bi-box-seam',
+                        'office_management': 'bi-kanban-fill',
+                        'inventory': 'bi-boxes',
                         'manpower_planning': 'bi-people-fill',
+                        'csc_workflow': 'bi-journal-richtext',
+                        'reports': 'bi-bar-chart-line',
+                        'quality_control': 'bi-flask',
                         'forecasting': 'bi-graph-up-arrow',
-                        'admin_users': 'bi-people'
+                        'admin_users': 'bi-person-gear'
                     }.get(module.key, 'bi-grid') %}
                     <a
                         href="{{ module.href }}"
@@ -219,7 +189,7 @@
 
         <button type="button" class="workspace-backdrop js-sidebar-toggle" aria-label="Close workspace menu"></button>
 
-        <main class="workspace-main">
+        <main class="workspace-main module-theme {{ module_theme }}">
     {% else %}
     <header class="site-header">
         <div class="header-inner">
@@ -271,40 +241,6 @@
                     <button type="submit" class="btn btn-primary">OK, Proceed to Workspace</button>
                 </div>
             </form>
-        </div>
-    </div>
-    {% endif %}
-
-    {% if current_user.is_authenticated and login_announcement and request.endpoint != 'auth.change_password' %}
-    <div class="workspace-welcome-overlay hidden" id="loginAnnouncementModal" role="dialog" aria-modal="true" aria-labelledby="loginAnnouncementTitle">
-        <div class="workspace-welcome-modal workspace-welcome-modal-wide">
-            <div class="workspace-welcome-eyebrow">Workspace Announcement</div>
-            <h2 class="workspace-welcome-title" id="loginAnnouncementTitle">{{ login_announcement.announcement.title }}</h2>
-            <p class="workspace-welcome-copy">
-                {{ login_announcement.announcement.summary or login_announcement.announcement.body[:280] ~ ('...' if login_announcement.announcement.body|length > 280 else '') }}
-            </p>
-            <div class="workspace-welcome-grid">
-                <div class="workspace-welcome-card">
-                    <div class="workspace-welcome-card-title">Type</div>
-                    <p>{{ 'Poll' if login_announcement.announcement.announcement_type == 'POLL' else 'Announcement' }}</p>
-                </div>
-                <div class="workspace-welcome-card">
-                    <div class="workspace-welcome-card-title">Published</div>
-                    <p>{{ login_announcement.announcement.published_at|datetime_ist('%d %b %Y') if login_announcement.announcement.published_at else login_announcement.announcement.created_at|datetime_ist('%d %b %Y') }}</p>
-                </div>
-                <div class="workspace-welcome-card">
-                    <div class="workspace-welcome-card-title">Action</div>
-                    <p>{{ 'Response requested' if login_announcement.announcement.announcement_type == 'POLL' else 'Please review' }}</p>
-                </div>
-            </div>
-            <div class="workspace-welcome-actions">
-                <form id="loginAnnouncementDismissForm" method="POST" action="{{ url_for('notifications.dismiss_login_announcement') }}">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <input type="hidden" name="announcement_id" value="{{ login_announcement.announcement.id }}">
-                    <button type="submit" class="btn btn-secondary">Later</button>
-                </form>
-                <a href="{{ url_for('notifications.announcement_detail', announcement_id=login_announcement.announcement.id) }}" class="btn btn-primary">Open Announcement</a>
-            </div>
         </div>
     </div>
     {% endif %}
@@ -367,7 +303,6 @@
         (function () {
             var overlay = document.getElementById('loginWelcomeModal');
             var form = document.getElementById('loginWelcomeForm');
-            var announcementOverlay = document.getElementById('loginAnnouncementModal');
             if (!overlay || !form) return;
 
             document.body.classList.add('welcome-modal-open');
@@ -378,11 +313,6 @@
                 // ── Optimistic close: remove modal immediately ─────────────────
                 overlay.remove();
                 document.body.classList.remove('welcome-modal-open');
-                if (announcementOverlay) {
-                    announcementOverlay.classList.remove('hidden');
-                    document.body.classList.add('welcome-modal-open');
-                }
-
                 // ── Acknowledge to server in background ────────────────────────
                 var formData = new FormData(form);
                 fetch(form.action, {
@@ -393,99 +323,6 @@
                     /* Network hiccup — modal already gone, silently ignore */
                 });
             });
-        })();
-    </script>
-    {% endif %}
-    {% if current_user.is_authenticated and login_announcement and request.endpoint != 'auth.change_password' %}
-    <script nonce="{{ csp_nonce() }}">
-        (function () {
-            var overlay = document.getElementById('loginAnnouncementModal');
-            var dismissForm = document.getElementById('loginAnnouncementDismissForm');
-            var welcomeOverlay = document.getElementById('loginWelcomeModal');
-            if (!overlay || !dismissForm) return;
-
-            if (!welcomeOverlay) {
-                overlay.classList.remove('hidden');
-                document.body.classList.add('welcome-modal-open');
-            }
-
-            dismissForm.addEventListener('submit', function (event) {
-                event.preventDefault();
-
-                // ── Optimistic close: remove modal immediately so it never hangs ──
-                overlay.remove();
-                document.body.classList.remove('welcome-modal-open');
-
-                // ── Fire dismiss to server in background (best-effort) ──────────
-                var formData = new FormData(dismissForm);
-                fetch(dismissForm.action, {
-                    method: 'POST',
-                    body: new URLSearchParams(formData),
-                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
-                }).catch(function () {
-                    /* Network hiccup — modal already gone, silently ignore */
-                });
-            });
-        })();
-    </script>
-    {% endif %}
-    {% if current_user.is_authenticated and request.endpoint != 'auth.change_password' %}
-    <script nonce="{{ csp_nonce() }}">
-        /* Poll for new broadcasts every 60 s so users already on the page are notified. */
-        (function () {
-            var POLL_INTERVAL = 60000;
-            var _notifiedId = null;
-
-            function showBroadcastBanner(broadcast) {
-                if (document.getElementById('js-broadcast-banner')) return;
-                var bar = document.createElement('div');
-                bar.id = 'js-broadcast-banner';
-                bar.style.cssText = [
-                    'position:fixed', 'bottom:1.25rem', 'left:50%',
-                    'transform:translateX(-50%)', 'z-index:9999',
-                    'background:var(--color-primary,#1a56db)', 'color:#fff',
-                    'padding:0.75rem 1.25rem', 'border-radius:0.5rem',
-                    'box-shadow:0 4px 16px rgba(0,0,0,.18)',
-                    'display:flex', 'align-items:center', 'gap:1rem',
-                    'max-width:560px', 'width:calc(100% - 2rem)', 'font-size:0.9rem'
-                ].join(';');
-                var msg = document.createElement('span');
-                msg.textContent = '\uD83D\uDCE3 New broadcast: ' + broadcast.title;
-                var link = document.createElement('a');
-                link.href = broadcast.url;
-                link.textContent = 'Open';
-                link.style.cssText = 'color:#fff;font-weight:600;text-decoration:underline;white-space:nowrap;';
-                var close = document.createElement('button');
-                close.textContent = '\u00D7';
-                close.setAttribute('aria-label', 'Dismiss');
-                close.style.cssText = 'background:none;border:none;color:#fff;font-size:1.25rem;cursor:pointer;margin-left:auto;padding:0 0.25rem;line-height:1;';
-                close.addEventListener('click', function () { bar.remove(); });
-                bar.appendChild(msg);
-                bar.appendChild(link);
-                bar.appendChild(close);
-                document.body.appendChild(bar);
-            }
-
-            function poll() {
-                fetch('{{ url_for("notifications.latest_broadcast_api") }}', {
-                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
-                }).then(function (r) { return r.ok ? r.json() : null; })
-                  .then(function (data) {
-                    if (!data || !data.broadcast) return;
-                    var b = data.broadcast;
-                    if (_notifiedId === b.id) return;
-                    /* skip if the full-page modal is already showing this broadcast */
-                    var modal = document.getElementById('loginAnnouncementModal');
-                    if (modal && !modal.classList.contains('hidden')) return;
-                    _notifiedId = b.id;
-                    showBroadcastBanner(b);
-                }).catch(function () { /* network hiccup — silently skip */ });
-            }
-
-            setTimeout(function () {
-                poll();
-                setInterval(poll, POLL_INTERVAL);
-            }, POLL_INTERVAL);
         })();
     </script>
     {% endif %}

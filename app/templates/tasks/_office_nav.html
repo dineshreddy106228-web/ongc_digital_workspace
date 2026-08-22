@@ -1,0 +1,15 @@
+{% macro office_nav(active='', can_create=false) %}
+<nav class="mod-nav" aria-label="Task Management navigation">
+  <a class="{{ 'is-active' if active == 'dashboard' }}" href="{{ url_for('tasks.task_dashboard') }}">
+    <i class="bi bi-speedometer2"></i><span>Dashboard</span>
+  </a>
+  <a class="{{ 'is-active' if active == 'list' }}" href="{{ url_for('tasks.list_tasks') }}">
+    <i class="bi bi-list-task"></i><span>Task Register</span>
+  </a>
+  {% if can_create %}
+  <a class="{{ 'is-active' if active == 'create' }}" href="{{ url_for('tasks.create_task') }}">
+    <i class="bi bi-plus-lg"></i><span>New Task</span>
+  </a>
+  {% endif %}
+</nav>
+{% endmacro %}

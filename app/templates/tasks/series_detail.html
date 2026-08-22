@@ -8,7 +8,7 @@
 
 {% block content %}
 <div class="page-wrapper">
-  {% call page_header(template.task_title, "Recurring task series", "Office Management") %}
+  {% call page_header(template.task_title, "Recurring task series", "Task Management") %}
     <a href="{{ url_for('tasks.list_tasks') }}" class="btn btn-secondary btn-sm">Back to List</a>
     {% if can_edit_series %}
     <a href="{{ url_for('tasks.edit_recurring_series', template_id=template.id) }}" class="btn btn-primary btn-sm">Edit Series</a>

@@ -1,40 +1,44 @@
 {% extends "base.html" %}
+{% from "quality_control/_qc_nav.html" import qc_nav with context %}
 {% block title %}QC Laboratory Monitoring{% endblock %}
 {% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}"><link rel="stylesheet" href="{{ url_for('static', filename='css/quality_control.css') }}">{% endblock %}
 {% block content %}
-<div class="page-wrapper"><div class="inv-page qc-landing-page">
-    <section class="qc-command-hero">
-        <div class="qc-command-orb qc-command-orb-one"></div><div class="qc-command-orb qc-command-orb-two"></div>
-        <div class="qc-command-hero-main">
-            <div class="qc-command-kicker"><span class="qc-live-dot"></span> Corporate Chemistry · Quality Control</div>
-            <h1>QC Laboratory<br><em>Control Centre</em></h1>
+<div class="page-wrapper"><div class="mod-page is-quality inv-page qc-landing-page">
+{{ qc_nav('home') }}
+    <section class="mod-hero">
+        <div>
+            <span class="mod-kicker"><i class="bi bi-flask"></i> Corporate Chemistry · Quality Control</span>
+            <h1>QC Laboratory<br><em>Monitoring</em></h1>
             <p>One view of weekly testing, quality outcomes, aged samples, and management intelligence across ONGC laboratories.</p>
-            <div class="qc-command-actions">
-                <a class="btn qc-command-primary" href="{{ url_for('quality_control.portfolio_management_review') }}"><i class="bi bi-easel2"></i> Open management review</a>
-                <a class="qc-command-secondary" href="{{ url_for('quality_control.sample_history') }}"><i class="bi bi-search"></i> Search sample register</a>
+            <div class="mod-hero-actions">
+                <a class="mod-hero-primary" href="{{ url_for('quality_control.portfolio_management_review') }}"><i class="bi bi-easel2"></i> Open management review</a>
+                <a class="mod-hero-secondary" href="{{ url_for('quality_control.sample_history') }}"><i class="bi bi-search"></i> Search sample register</a>
             </div>
         </div>
-        <aside class="qc-command-status" aria-label="QC portfolio coverage">
-            <div class="qc-command-status-heading"><span>Portfolio scope</span><i class="bi bi-shield-check"></i></div>
-            <div class="qc-command-stat"><strong>{{ laboratories|length }}</strong><span>laboratory locations</span></div>
-            <div class="qc-command-divider"></div>
-            <div class="qc-command-status-copy"><i class="bi bi-diagram-3"></i><span>7 independent reporting workstreams, including IDWE Cementing and DF–CF.</span></div>
-            <div class="qc-command-status-copy"><i class="bi bi-file-earmark-spreadsheet"></i><span>Weekly workbook import with pre-import validation.</span></div>
+        <aside aria-label="QC portfolio coverage">
+            <span>Laboratory locations</span>
+            <strong>{{ laboratories|length }}</strong>
+            <hr>
+            <span>Reporting workstreams</span>
+            <strong>7 <em>including IDWE and DF–CF</em></strong>
+            <hr>
+            <span>Import route</span>
+            <strong>Weekly workbook, validated</strong>
         </aside>
     </section>
 
     <section class="qc-workbench" aria-label="Portfolio actions">
-        <div class="qc-section-intro"><div><span class="qc-section-label">Executive workbench</span><h2>Portfolio intelligence</h2></div><p>Review the portfolio before moving into an individual laboratory’s operating dashboard.</p></div>
-        <div class="qc-workbench-grid">
-            <a class="qc-workbench-card qc-workbench-card-history" href="{{ url_for('quality_control.sample_history') }}"><span class="qc-workbench-icon"><i class="bi bi-database"></i></span><span class="qc-workbench-copy"><strong>Combined Sample History</strong><small>Find samples across labs by chemical, specification, status, or laboratory.</small></span><span class="qc-workbench-link">Explore <i class="bi bi-arrow-up-right"></i></span></a>
-            <a class="qc-workbench-card qc-workbench-card-review" href="{{ url_for('quality_control.portfolio_management_review') }}"><span class="qc-workbench-icon"><i class="bi bi-easel2"></i></span><span class="qc-workbench-copy"><strong>Management Review</strong><small>See current workload, quality outcomes, testing time, and aged samples.</small></span><span class="qc-workbench-link">Review <i class="bi bi-arrow-up-right"></i></span></a>
-            <a class="qc-workbench-card qc-workbench-card-analytics" href="{{ url_for('quality_control.management_analytics') }}"><span class="qc-workbench-icon"><i class="bi bi-bar-chart-line"></i></span><span class="qc-workbench-copy"><strong>Management Analytics</strong><small>Compare laboratory performance and chemical-wise pass/fail patterns.</small></span><span class="qc-workbench-link">Analyse <i class="bi bi-arrow-up-right"></i></span></a>
-            {% if current_user.is_super_user() %}<a class="qc-workbench-card qc-workbench-card-standards" href="{{ url_for('quality_control.testing_standards') }}"><span class="qc-workbench-icon"><i class="bi bi-stopwatch"></i></span><span class="qc-workbench-copy"><strong>SLA Management</strong><small>Review approved chemical testing times and upload revised standards when required.</small></span><span class="qc-workbench-link">Manage SLA values <i class="bi bi-arrow-up-right"></i></span></a>{% endif %}
+        <div class="mod-section-heading"><div><span>Executive workbench</span><h2>Portfolio intelligence</h2><p>Review the portfolio before moving into an individual laboratory’s operating dashboard.</p></div></div>
+        <div class="mod-tiles">
+            <a class="mod-tile" href="{{ url_for('quality_control.sample_history') }}"><i class="bi bi-database"></i><strong>Combined Sample History</strong><small>Find samples across labs by chemical, specification, status, or laboratory.</small><span class="mod-tile-link">Explore <i class="bi bi-arrow-up-right"></i></span></a>
+            <a class="mod-tile" href="{{ url_for('quality_control.portfolio_management_review') }}"><i class="bi bi-easel2"></i><strong>Management Review</strong><small>See current workload, quality outcomes, testing time, and aged samples.</small><span class="mod-tile-link">Review <i class="bi bi-arrow-up-right"></i></span></a>
+            <a class="mod-tile" href="{{ url_for('quality_control.management_analytics') }}"><i class="bi bi-bar-chart-line"></i><strong>Management Analytics</strong><small>Compare laboratory performance and chemical-wise pass/fail patterns.</small><span class="mod-tile-link">Analyse <i class="bi bi-arrow-up-right"></i></span></a>
+            {% if current_user.is_super_user() %}<a class="mod-tile" href="{{ url_for('quality_control.testing_standards') }}"><i class="bi bi-stopwatch"></i><strong>SLA Management</strong><small>Review approved chemical testing times and upload revised standards when required.</small><span class="mod-tile-link">Manage SLA values <i class="bi bi-arrow-up-right"></i></span></a>{% endif %}
         </div>
     </section>
 
     <section class="qc-lab-section qc-lab-directory">
-        <div class="qc-directory-heading"><div><span class="qc-section-label">Laboratory directory</span><h2>Select a reporting laboratory</h2><p>Each workstream maintains a protected import history, operational dashboard, and management brief.</p></div><span class="qc-directory-count"><i class="bi bi-grid-3x3-gap"></i> {{ laboratories|length }} locations</span></div>
+        <div class="mod-section-heading"><div><span>Laboratory directory</span><h2>Select a reporting laboratory</h2><p>Each workstream maintains a protected import history, operational dashboard, and management brief.</p></div><span class="qc-directory-count"><i class="bi bi-grid-3x3-gap"></i> {{ laboratories|length }} locations</span></div>
         <div class="qc-lab-grid">
             {% for lab in laboratories %}
                 <a class="qc-lab-tile" href="{{ url_for('quality_control.idwe_imports') if lab.is_group|default(false) else url_for('quality_control.laboratory_dashboard', lab_code=lab.code) }}">

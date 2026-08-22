@@ -3,7 +3,7 @@
 {% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory_monitoring.css') }}">{% endblock %}
 {% from "inventory/_spec_sections.html" import spec_heading, spec_more %}
 {% from "inventory/_monitoring_nav.html" import monitoring_nav %}
-{% block content %}<div class="page-wrapper im-page">
+{% block content %}<div class="page-wrapper mod-page is-inventory im-page">
 {{ monitoring_nav('health') }}
 <nav class="im-breadcrumb"><a href="{{ url_for('inventory.landing') }}"><i class="bi bi-arrow-left"></i> Inventory Monitoring</a><span>/</span><strong>Inventory Health</strong></nav>
 <section class="im-health-hero"><div><span class="im-kicker">Action-focused inventory health</span><h1>What needs attention?</h1><p>{% if reporting_date %}Coverage and source-status for the latest inventory snapshot — {{ reporting_date.strftime('%d %b %Y') }}.{% else %}Import Group 09 and Group 10 workbooks to start monitoring inventory health.{% endif %}</p></div><a class="btn btn-light" href="{{ url_for('inventory.imports') }}"><i class="bi bi-upload"></i> Import data</a></section>

@@ -2,12 +2,12 @@
 {% block title %}Corporate Specifications Management — {{ app_name }}{% endblock %}
 {% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/corporate_specifications.css') }}">{% endblock %}
 {% from "csc/_specs_nav.html" import specs_nav %}
-{% block content %}<div class="page-wrapper cs-page">
+{% block content %}<div class="page-wrapper mod-page is-specs cs-page">
   {{ specs_nav('home') }}
 
-  <section class="cs-hero">
+  <section class="mod-hero">
     <div>
-      <span class="cs-kicker"><i class="bi bi-journal-bookmark"></i> Corporate Chemistry · Specifications</span>
+      <span class="mod-kicker"><i class="bi bi-journal-bookmark"></i> Corporate Chemistry · Specifications</span>
       <h1>Corporate<br><em>Specifications</em></h1>
       <p>Every ONGC oil-field chemical specification in force, grouped by chemical category. Open a category to read the specification sheet, its parameters and its revision history.</p>
     </div>
@@ -23,14 +23,14 @@
     </aside>
   </section>
 
-  <section class="cs-stats">
-    <div class="cs-stat"><span>Specification parameters</span><strong>{{ '{:,}'.format(parameter_total) }}</strong><small>Across all specifications in force</small></div>
-    <div class="cs-stat"><span>Chemical categories</span><strong>{{ tiles|length }}</strong><small>Register categories with mapped chemicals</small></div>
-    <div class="cs-stat"><span>Awaiting parameters</span><strong>{{ awaiting_total }}</strong><small>Register chemicals with no parameters entered yet</small></div>
-    <div class="cs-stat"><span>Off-register specifications</span><strong>{{ off_register_total }}</strong><small>Held in the system but not on the register</small></div>
+  <section class="mod-stats">
+    <div class="mod-stat"><span>Specification parameters</span><strong>{{ '{:,}'.format(parameter_total) }}</strong><small>Across all specifications in force</small></div>
+    <div class="mod-stat"><span>Chemical categories</span><strong>{{ tiles|length }}</strong><small>Register categories with mapped chemicals</small></div>
+    <div class="mod-stat"><span>Awaiting parameters</span><strong>{{ awaiting_total }}</strong><small>Register chemicals with no parameters entered yet</small></div>
+    <div class="mod-stat"><span>Off-register specifications</span><strong>{{ off_register_total }}</strong><small>Held in the system but not on the register</small></div>
   </section>
 
-  <div class="cs-section-heading">
+  <div class="mod-section-heading">
     <div>
       <span>Browse by category</span>
       <h2>Chemical categories</h2>
@@ -41,7 +41,7 @@
     {% for tile in tiles %}
     <a class="cs-tile {{ 'is-unspecified' if tile.is_unspecified }}" href="{{ url_for('csc.category', key=tile.key) }}">
       <i class="bi {{ tile.icon }}"></i>
-      <b>{{ tile.key if not tile.is_unspecified else 'Unmapped' }}</b>
+      <b>{{ tile.key if not tile.is_unspecified else 'Not in corporate specifications' }}</b>
       <strong>{{ tile.label }}</strong>
       <span class="cs-tile-count">{{ tile.chemicals }} <small>chemicals</small></span>
       <div class="cs-share"><i style="width:{{ tile.share }}%"></i></div>

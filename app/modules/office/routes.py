@@ -3,7 +3,7 @@ from __future__ import annotations
 """Task tracker routes – Office Management module with Governance V2 visibility model."""
 
 from collections import Counter
-from datetime import datetime, date as date_type, timezone
+from datetime import datetime, date as date_type, timedelta, timezone
 from functools import wraps
 from flask import render_template, redirect, url_for, flash, request, abort, current_app, jsonify
 from flask_login import login_required, current_user
@@ -24,10 +24,11 @@ from app.models.tasks.task_collaborator import TaskCollaborator
 from app.models.tasks.task_office import TaskOffice
 from app.models.tasks.task_update import TaskUpdate
 from app.core.services.dashboard import (
+    CLOSED_TASK_STATUSES,
+    PENDING_UPDATE_STATUSES,
     invalidate_dashboard_summary_metrics,
     task_visible_in_command_dashboard,
 )
-from app.core.services.notifications import create_notification
 from app.core.services.recurring_tasks import (
     create_initial_task_for_template,
     decode_weekday_codes,
@@ -39,6 +40,8 @@ from app.core.services.recurring_tasks import (
     recurrence_summary,
 )
 from app.core.services.rich_text import rich_text_visible_text, sanitize_rich_text
+from app.core.services.task_visibility import task_visibility_query
+from app.core.services.home import resolve_scope, scoped_task_query
 from app.core.utils.audit import log_action
 from app.core.utils.activity import log_activity
 from app.core.utils.decorators import module_access_required
@@ -459,76 +462,8 @@ def _recurrence_form_context(form_data, task: Task | None = None) -> dict[str, o
 
 
 def _task_visibility_query():
-    """
-    Build a Task query that respects the RBAC visibility model:
-
-    Privileged (super_user or admin):
-        → all tasks
-
-    Standard users:
-        → GLOBAL tasks (task_scope == 'GLOBAL')
-        → personal tasks where owner_id == current_user.id
-        → tasks where user is a collaborator
-        → MY-scope tasks of users whose controlling_officer_id == current_user.id
-    """
-    base = Task.query
-
-    # Privileged roles see everything
-    if _is_privileged():
-        return base
-
-    conds = []
-
-    # 1. All GLOBAL tasks
-    conds.append(Task.task_scope == "GLOBAL")
-
-    # 2. Tasks directly assigned to me (including any legacy scope values)
-    conds.append(Task.owner_id == current_user.id)
-
-    collaborator_task_ids_subq = (
-        db.session.query(TaskCollaborator.task_id)
-        .filter_by(user_id=current_user.id)
-        .subquery()
-    )
-    conds.append(Task.id.in_(select(collaborator_task_ids_subq.c.task_id)))
-
-    if current_user.office_id is not None:
-        conds.append(
-            and_(
-                Task.task_scope.in_(["MY", "TEAM"]),
-                Task.office_id == current_user.office_id,
-                Task.is_private_self_task.is_(False),
-            )
-        )
-
-    # 3. Personal-scope tasks for users I control (subquery avoids large Python lists)
-    controlled_ids_subq = (
-        db.session.query(User.id)
-        .filter_by(controlling_officer_id=current_user.id, is_active=True)
-        .subquery()
-    )
-    controlled_collaborator_task_ids_subq = (
-        db.session.query(TaskCollaborator.task_id)
-        .filter(TaskCollaborator.user_id.in_(select(controlled_ids_subq.c.id)))
-        .subquery()
-    )
-    conds.append(
-        and_(
-            Task.task_scope.in_(["MY", "TEAM"]),
-            or_(
-                and_(
-                    Task.owner_id.in_(select(controlled_ids_subq.c.id)),
-                    or_(
-                        Task.is_private_self_task.is_(False),
-                        Task.self_task_visible_to_controlling_officer.is_(True),
-                    ),
-                ),
-                Task.id.in_(select(controlled_collaborator_task_ids_subq.c.task_id)),
-            ),
-        )
-    )
-
-    return base.filter(or_(*conds))
+    """Task query for the signed-in user (shared with the home page counts)."""
+    return task_visibility_query(current_user)
 
 
 def _task_dashboard_query():
@@ -570,7 +505,7 @@ def _task_dashboard_context() -> dict[str, object]:
         return {
             "title": "Super User Dashboard",
             "subtitle": "Global workspace mission control across all offices and task streams.",
-            "eyebrow": "Office Management",
+            "eyebrow": "Task Management",
             "badge": "Global Workspace",
             "local_tasks_label": "Office Tasks",
             "local_tasks_hint": "All visible office-scoped work items across the workspace.",
@@ -580,7 +515,7 @@ def _task_dashboard_context() -> dict[str, object]:
     return {
         "title": f"Power User Dashboard · {office_name}",
         "subtitle": "Office-level mission control for the mapped workspace.",
-        "eyebrow": "Office Management",
+        "eyebrow": "Task Management",
         "badge": office_name,
         "local_tasks_label": "Office Tasks",
         "local_tasks_hint": "Local office tasks visible across this office command view.",
@@ -648,86 +583,6 @@ def _db_error(message: str):
     db.session.rollback()
     current_app.logger.exception("Task module database operation failed")
     flash(message, "danger")
-
-
-def _notify_task_owner(
-    task: Task,
-    title: str,
-    message: str,
-    severity: str = "info",
-    skip_user_id: int | None = None,
-):
-    if not task.owner_id or task.owner_id == skip_user_id:
-        return None
-
-    return create_notification(
-        user_id=task.owner_id,
-        title=title,
-        message=message,
-        severity=severity,
-        link=url_for("tasks.task_detail", task_id=task.id),
-    )
-
-
-def _notify_task_participants(
-    task: Task,
-    title: str,
-    message: str,
-    severity: str = "info",
-    skip_user_ids=None,
-):
-    skip_ids = {int(user_id) for user_id in (skip_user_ids or set()) if user_id is not None}
-    recipient_ids = {int(task.owner_id)} if task.owner_id else set()
-    recipient_ids.update(_task_collaborator_user_ids(task))
-    recipient_ids -= skip_ids
-
-    for user_id in recipient_ids:
-        create_notification(
-            user_id=user_id,
-            title=title,
-            message=message,
-            severity=severity,
-            link=url_for("tasks.task_detail", task_id=task.id),
-        )
-
-
-def _display_name(user) -> str:
-    if user is None:
-        return "A user"
-    return (user.full_name or user.username or "A user").strip()
-
-
-def _format_remark_message(author_name: str, task_title: str, remark_text: str) -> str:
-    remark = " ".join((remark_text or "").split())
-    if len(remark) > 240:
-        remark = f"{remark[:237].rstrip()}..."
-    return (
-        f"{author_name} added a remark on '{task_title}'. "
-        f"Remark: \"{remark}\""
-    )
-
-
-def _notify_task_remark_stakeholders(task: Task, remark_text: str):
-    if not task:
-        return
-
-    recipients = _participant_and_controller_ids(task)
-    recipients.discard(int(current_user.id))
-    if not recipients:
-        return
-
-    author_name = _display_name(current_user)
-    title = "New remark on task"
-    message = _format_remark_message(author_name, task.task_title, remark_text)
-
-    for user_id in recipients:
-        create_notification(
-            user_id=user_id,
-            title=title,
-            message=message,
-            severity="info",
-            link=url_for("tasks.task_detail", task_id=task.id),
-        )
 
 
 def _month_bounds(year: int, month: int):
@@ -883,14 +738,53 @@ def _next_task_display_order() -> int:
     return int(max_order or 0) + 1
 
 
+# Focus shortcuts used by the home page tiles. Each key must select exactly the
+# tasks its tile counted, so the two views never disagree.
+TASK_FOCUS_KEYS = ("overdue", "today", "week", "pending", "critical", "unassigned")
+
+
+def _focus_filter_condition(focus: str):
+    """Return the filter clause for a home-page focus shortcut."""
+    today = date_type.today()
+    week_end = today + timedelta(days=(6 - today.weekday()))
+
+    if focus == "overdue":
+        return and_(Task.due_date.isnot(None), Task.due_date < today)
+    if focus == "today":
+        return Task.due_date == today
+    if focus == "week":
+        return and_(
+            Task.due_date.isnot(None),
+            Task.due_date >= today,
+            Task.due_date <= week_end,
+        )
+    if focus == "pending":
+        return Task.status.in_(PENDING_UPDATE_STATUSES)
+    if focus == "critical":
+        return Task.priority == "Critical"
+    if focus == "unassigned":
+        return Task.owner_id.is_(None)
+    return None
+
+
 def _filtered_task_query_from_request():
     """Return the task-list query after applying the current request filters."""
     status_filter = request.args.get("status", "").strip()
     priority_filter = request.args.get("priority", "").strip()
     owner_filter = request.args.get("owner", "").strip()
     scope_filter = _normalize_task_scope(request.args.get("scope", "").strip())
+    focus_filter = request.args.get("focus", "").strip().lower()
+    view_raw = request.args.get("view", "").strip().lower()
 
-    query = _task_visibility_query()
+    if view_raw:
+        # Opened from a home page tile. Reuse the home scope query verbatim so
+        # the list can never disagree with the count that linked here.
+        # resolve_scope downgrades any scope this user is not entitled to.
+        view_filter = resolve_scope(current_user, view_raw)
+        query = scoped_task_query(current_user, view_filter)
+    else:
+        view_filter = ""
+        query = _task_visibility_query()
 
     if status_filter in TASK_STATUSES:
         query = query.filter(Task.status == status_filter)
@@ -900,12 +794,22 @@ def _filtered_task_query_from_request():
         query = query.filter(Task.owner_id == int(owner_filter))
     if scope_filter in TASK_SCOPES:
         query = query.filter(_scope_filter_condition(scope_filter))
+    if focus_filter in TASK_FOCUS_KEYS:
+        # Every focus shortcut describes live work, so archived and closed
+        # tasks drop out — matching how the home page counted them.
+        query = query.filter(Task.is_active.is_(True))
+        query = query.filter(Task.status.notin_(CLOSED_TASK_STATUSES))
+        query = query.filter(_focus_filter_condition(focus_filter))
+    else:
+        focus_filter = ""
 
     return query, {
         "status": status_filter,
         "priority": priority_filter,
         "owner": owner_filter,
         "scope": scope_filter,
+        "focus": focus_filter,
+        "view": view_filter,
     }
 
 
@@ -949,6 +853,7 @@ def list_tasks():
         is_privileged=is_privileged,
         can_reorder_tasks=_can_reorder_tasks(),
         recurrence_summary=recurrence_summary,
+        today=date_type.today(),
     )
 
 
@@ -1564,18 +1469,6 @@ def create_task():
                         f"{','.join(user.username for user in collaborator_users) or 'none'}"
                     ),
                 )
-                if created_task is not None:
-                    _notify_task_participants(
-                        created_task,
-                        title="New recurring task assigned",
-                        message=(
-                            f"{current_user.full_name or current_user.username} created "
-                            f"the recurring task '{created_task.task_title}' and added you "
-                            f"as an owner/collaborator."
-                        ),
-                        severity="info",
-                        skip_user_ids={current_user.id},
-                    )
             else:
                 task = Task(
                     task_title=task_title,
@@ -1632,16 +1525,6 @@ def create_task():
                         f"{owner.username if owner else '-'}, collaborators="
                         f"{','.join(user.username for user in collaborator_users) or 'none'}"
                     ),
-                )
-                _notify_task_participants(
-                    task,
-                    title="New task assigned",
-                    message=(
-                        f"{current_user.full_name or current_user.username} created "
-                        f"'{task.task_title}' and added you as an owner/collaborator."
-                    ),
-                    severity="info",
-                    skip_user_ids={current_user.id},
                 )
             invalidate_dashboard_summary_metrics()
             db.session.commit()
@@ -1916,16 +1799,6 @@ def delete_task(task_id):
             "task",
             task.task_title,
             details="marked inactive",
-        )
-        _notify_task_participants(
-            task,
-            title="Task archived",
-            message=(
-                f"{current_user.full_name or current_user.username} removed "
-                f"'{task.task_title}' from the active tracker."
-            ),
-            severity="warning",
-            skip_user_ids={current_user.id},
         )
         invalidate_dashboard_summary_metrics()
         db.session.commit()
@@ -2270,28 +2143,6 @@ def edit_task(task_id):
                 log_activity(current_user.username, "task_updated", "task",
                              task.task_title,
                              details="; ".join(changed_fields))
-            if changed_fields:
-                title = "Task assignment updated" if (
-                    new_owner_id and previous_owner_id != new_owner_id
-                ) or previous_collaborator_ids != new_collaborator_ids else "Task updated"
-                if restore_required:
-                    title = "Task restored"
-                _notify_task_participants(
-                    task,
-                    title=title,
-                    message=(
-                        (
-                            f"{current_user.full_name or current_user.username} restored "
-                            f"'{task.task_title}' to the active tracker."
-                        )
-                        if restore_required else (
-                            f"{current_user.full_name or current_user.username} updated "
-                            f"'{task.task_title}'."
-                        )
-                    ),
-                    severity="warning" if title == "Task updated" else "info",
-                    skip_user_ids={current_user.id},
-                )
             invalidate_dashboard_summary_metrics()
             db.session.commit()
         except SQLAlchemyError:
@@ -2381,7 +2232,6 @@ def add_task_update(task_id):
             )
             log_activity(current_user.username, "task_update_added", "task",
                          task.task_title, details=status_for_log)
-            _notify_task_remark_stakeholders(task, update_text)
             invalidate_dashboard_summary_metrics()
             db.session.commit()
         except SQLAlchemyError:

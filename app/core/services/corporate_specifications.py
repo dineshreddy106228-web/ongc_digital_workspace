@@ -30,6 +30,7 @@ from app.core.services.csc_utils import (
     format_required_value,
     format_spec_version,
     increment_spec_version,
+    is_api_grade_chemical,
     normalize_spec_version,
     sanitize_multiline_text,
     sanitize_text,
@@ -158,13 +159,14 @@ def _entry(
 ) -> dict[str, Any]:
     spec_number = specification_no or (record.spec_number if record else "")
     code = category_of(spec_number)
+    category = code or ("API" if on_register and is_api_grade_chemical(chemical_name) else UNCATEGORISED_KEY)
     return {
         "ref": ref,
         "chemical_name": chemical_name or (record.chemical_name if record else "") or "—",
         "spec_number": spec_number or "—",
         "material_code": material_code or (record.material_code or "" if record else ""),
-        "category": code or UNCATEGORISED_KEY,
-        "category_label": category_label(code),
+        "category": category,
+        "category_label": category_label(category),
         "sequence": _sequence_of(spec_number),
         "record": record,
         "record_id": record.id if record is not None else None,
@@ -996,6 +998,7 @@ def dossier_context(data: dict[str, Any]) -> dict[str, Any]:
     entry = data["entry"]
     baseline = previous_snapshot(record)
     impact = data["impact"]
+    covered_entries = [entry] + list(data.get("shared_with") or [])
 
     def baseline_map(key: str, labels: dict[str, str]) -> dict[str, str] | None:
         if baseline is None or key not in baseline:
@@ -1088,9 +1091,31 @@ def dossier_context(data: dict[str, Any]) -> dict[str, Any]:
                 ("Reviewed By", record.reviewed_by),
                 ("Last Revised", record.updated_at.strftime("%d %b %Y") if record.updated_at else ""),
                 ("On Corporate Register", "Yes" if entry["on_register"] else "No"),
-                ("Standard Testing Time", f"{entry['standard_days']} days" if entry["standard_days"] else ""),
+                (
+                    "Standard Testing Time",
+                    (
+                        f"{entry['standard_days']} day"
+                        if entry["standard_days"] == 1
+                        else f"{entry['standard_days']} days"
+                    )
+                    if entry["standard_days"]
+                    else "",
+                ),
             ]
         ),
+        "covered_chemicals": [
+            {
+                "ref": covered["ref"],
+                "chemical_name": covered["chemical_name"],
+                "material_code": covered["material_code"],
+                "standard_days": covered.get("standard_days"),
+            }
+            for covered in sorted(
+                covered_entries,
+                key=lambda covered: covered["chemical_name"].casefold(),
+            )
+        ],
+        "versions": list(data.get("versions") or []),
         "section_rows": section_rows,
         "parameter_rows": parameter_rows_out,
         "master_rows": _comparison_rows(data["identity"], baseline_map("identity", identity_labels)),

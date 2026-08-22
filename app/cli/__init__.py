@@ -23,8 +23,6 @@ def register_cli(app):
         seed_admin,
         seed_initial_data,
         seed_module_permissions,
-        seed_notifications,
-        seed_v11_broadcast,
     )
     from app.cli.tasks import generate_recurring_tasks
 
@@ -39,11 +37,9 @@ def register_cli(app):
     app.cli.add_command(seed_module_permissions)
     app.cli.add_command(seed_admin)
     app.cli.add_command(list_users)
-    app.cli.add_command(seed_notifications)
     app.cli.add_command(normalize_roles)
     app.cli.add_command(generate_recurring_tasks)
     app.cli.add_command(fix_password_hashes)
-    app.cli.add_command(seed_v11_broadcast)
 
     # Inventory CLI commands depend on pandas/numpy (heavy optional deps).
     # Import and register them only when ENABLE_INVENTORY is explicitly True

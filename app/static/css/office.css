@@ -1,0 +1,771 @@
+/* ============================================================
+   Office Management – Module Stylesheet (om-*)
+   Follows the module language established by Inventory Monitoring,Corporate Specifications and QC Laboratory Monitoring:
+   pill subnav → gradient hero → stat row → section headings → cards.
+   Built on the style.css semantic tokens,so both themes work.
+   ============================================================ */
+
+.om-page{
+    max-width: 1440px;
+    margin: auto;
+    padding: 28px 30px 48px;
+}/* ── Hero ────────────────────────────────────────────────────── */
+
+.om-page{
+    /* Office Management reads blue, matching its home page module accent. */
+    --om-accent: #1f4fa8;
+    --om-hero-1: #11254c;
+    --om-hero-2: #1a4189;
+    --om-hero-3: #2360c6;
+}[data-theme="dark"] .om-page{
+    --om-accent: #6f9dff;
+}.om-title > div > span,.om-section-heading span{
+    display: block;
+    font-size: .76rem;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    opacity: .75;
+    font-weight: 700;
+}/* ── Inner page title ────────────────────────────────────────── */
+
+.om-title{
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 18px;
+    margin-bottom: 20px;
+}.om-title > div > span{ color: var(--muted); }.om-title h1{
+    margin: 6px 0 4px;
+    font-size: 1.85rem;
+    line-height: 1.15;
+    color: var(--text);
+}.om-title p{
+    margin: 0;
+    max-width: 720px;
+    color: var(--muted);
+    font-size: .9rem;
+}.om-title-actions{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}.om-breadcrumb{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 14px;
+    color: var(--muted);
+    font-size: .84rem;
+}.om-breadcrumb a{
+    color: var(--om-accent);
+    font-weight: 600;
+    text-decoration: none;
+}.om-breadcrumb a:hover{ text-decoration: underline; }/* ── Section heading ─────────────────────────────────────────── */
+
+.om-section-heading{
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 16px;
+    margin: 34px 0 16px;
+}.om-section-heading span{ color: var(--muted); }.om-section-heading h2{
+    margin: 4px 0;
+    font-size: 1.25rem;
+    color: var(--text);
+}.om-section-heading p{
+    margin: 0;
+    max-width: 760px;
+    color: var(--muted);
+    font-size: .9rem;
+}/* ── Cards ───────────────────────────────────────────────────── */
+
+.om-card{
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    background: var(--surface);
+    overflow: hidden;
+    margin-bottom: 16px;
+}.om-card-head{
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-alt);
+}.om-card-head h2{
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin: 0;
+    font-size: 1.02rem;
+    color: var(--text);
+}.om-card-head h2 i{ color: var(--om-accent); }.om-card-head p{
+    margin: 3px 0 0;
+    color: var(--muted);
+    font-size: .84rem;
+    line-height: 1.4;
+}.om-card-body{ padding: 20px 24px 22px; }.om-count-chip{
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--om-accent);
+    color: #fff;
+    font-size: .74rem;
+    font-weight: 700;
+}/* ── Filter toolbar ──────────────────────────────────────────── */
+
+.om-toolbar{
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 14px;
+    align-items: end;
+}.om-field{
+    display: grid;
+    gap: 5px;
+    min-width: 0;
+}.om-field label{
+    color: var(--muted);
+    font-size: .74rem;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+}.om-field select,.om-field input{
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--field-bg);
+    color: var(--text);
+    font-family: inherit;
+    font-size: .88rem;
+}.om-field select:focus,.om-field input:focus{
+    outline: none;
+    border-color: var(--om-accent);
+    box-shadow: 0 0 0 3px var(--focus-ring);
+}.om-toolbar-actions{
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}/* ── Focus banner ────────────────────────────────────────────── */
+
+.om-focus-banner{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+    flex-wrap: wrap;
+    margin-top: 14px;
+    padding: 11px 15px;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--om-accent);
+    border-radius: 10px;
+    background: var(--primary-bg);
+}.om-focus-banner b{
+    color: var(--text);
+    font-size: .86rem;
+}.om-focus-banner a{
+    color: var(--om-accent);
+    font-size: .8rem;
+    font-weight: 600;
+}/* ── Tables ──────────────────────────────────────────────────── */
+
+.om-table-wrap{ overflow-x: auto; }.om-table{
+    width: 100%;
+    min-width: 900px;
+    border-collapse: collapse;
+    font-size: .89rem;
+}.om-table th{
+    padding: 11px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-alt);
+    color: var(--muted);
+    font-size: .73rem;
+    font-weight: 800;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    text-align: left;
+    white-space: nowrap;
+}.om-table td{
+    padding: 13px 24px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+    color: var(--text);
+}.om-table tr:last-child td{ border-bottom: 0; }.om-table tbody tr:hover td{ background: var(--table-row-hover); }.om-table .is-serial{
+    width: 58px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+}.om-task-title{
+    display: block;
+    max-width: 460px;
+    color: var(--text);
+    font-weight: 600;
+    line-height: 1.35;
+    text-decoration: none;
+}.om-task-title:hover{
+    color: var(--om-accent);
+    text-decoration: underline;
+}.om-task-sub{
+    display: block;
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: .8rem;
+}.om-cell-actions{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+}.om-reorder{
+    display: inline-flex;
+    gap: 4px;
+}.om-reorder button{
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--surface);
+    color: var(--muted);
+    cursor: pointer;
+    transition: .15s;
+}.om-reorder button:hover:not(:disabled){
+    border-color: var(--om-accent);
+    color: var(--om-accent);
+}.om-reorder button:disabled{
+    opacity: .4;
+    cursor: not-allowed;
+}/* ── Pills ───────────────────────────────────────────────────── */
+
+.om-pill{
+    display: inline-flex;
+    gap: 5px;
+    align-items: center;
+    padding: 4px 10px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    font-size: .74rem;
+    font-weight: 700;
+    white-space: nowrap;
+}.om-pill-status-not-started{
+    background: var(--status-not-started-bg);
+    border-color: var(--status-not-started-border);
+    color: var(--status-not-started-text);
+}.om-pill-status-in-progress{
+    background: var(--status-progress-bg);
+    border-color: var(--status-progress-border);
+    color: var(--status-progress-text);
+}.om-pill-status-on-hold{
+    background: var(--status-hold-bg);
+    border-color: var(--status-hold-border);
+    color: var(--status-hold-text);
+}.om-pill-status-completed{
+    background: var(--status-complete-bg);
+    border-color: var(--status-complete-border);
+    color: var(--status-complete-text);
+}.om-pill-status-cancelled{
+    background: var(--status-cancel-bg);
+    border-color: var(--status-cancel-border);
+    color: var(--status-cancel-text);
+}.om-pill-priority-low{
+    background: var(--priority-low-bg);
+    border-color: var(--priority-low-border);
+    color: var(--priority-low-text);
+}.om-pill-priority-medium{
+    background: var(--priority-medium-bg);
+    border-color: var(--priority-medium-border);
+    color: var(--priority-medium-text);
+}.om-pill-priority-high{
+    background: var(--priority-high-bg);
+    border-color: var(--priority-high-border);
+    color: var(--priority-high-text);
+}.om-pill-priority-critical{
+    background: var(--priority-critical-bg);
+    border-color: var(--priority-critical-border);
+    color: var(--priority-critical-text);
+}.om-overdue-flag{
+    display: block;
+    margin-top: 4px;
+    color: var(--danger);
+    font-size: .76rem;
+    font-weight: 600;
+}/* ── Detail layout ───────────────────────────────────────────── */
+
+.om-detail{
+    display: grid;
+    grid-template-columns: minmax(0, 1.65fr) minmax(280px, .95fr);
+    gap: 20px;
+    align-items: start;
+}.om-doc{
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    background: var(--surface);
+    overflow: hidden;
+}.om-doc-head{
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 14px;
+    align-items: center;
+    padding: 18px 24px;
+    background: linear-gradient(118deg, var(--om-hero-1), var(--om-hero-2));
+    color: #fff;
+}.om-doc-head span{
+    display: block;
+    font-size: .76rem;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    opacity: .8;
+    font-weight: 700;
+}.om-doc-head strong{
+    display: block;
+    margin-top: 3px;
+    font-size: 1.1rem;
+    line-height: 1.3;
+}.om-doc-pills{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}.om-doc-info{
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .88rem;
+}.om-doc-info th{
+    width: 190px;
+    padding: 11px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-alt);
+    color: var(--muted);
+    font-weight: 700;
+    text-align: left;
+    vertical-align: top;
+}.om-doc-info td{
+    padding: 11px 24px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+}.om-doc-info tr:last-child th,.om-doc-info tr:last-child td{ border-bottom: 0; }.om-description{
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    font-size: .92rem;
+    line-height: 1.6;
+}.om-side{ display: grid; gap: 16px; }.om-panel{
+    padding: 20px 22px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--surface);
+}.om-panel h3{
+    margin: 0 0 4px;
+    font-size: .98rem;
+    color: var(--text);
+}.om-panel > p{
+    margin: 0 0 12px;
+    color: var(--muted);
+    font-size: .84rem;
+    line-height: 1.45;
+}.om-panel-actions{
+    display: grid;
+    gap: 8px;
+}.om-panel-actions .btn{ justify-content: center; }/* ── Update composer ─────────────────────────────────────────── */
+
+.om-composer{
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 16px;
+    background: var(--surface);
+    overflow: hidden;
+}.om-composer-head{
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 22px;
+    border-bottom: 1px solid var(--border);
+    background: var(--flash-warning-bg);
+}.om-composer-head h2{
+    margin: 0;
+    font-size: 1rem;
+    color: var(--text);
+}.om-composer-head p{
+    margin: 3px 0 0;
+    color: var(--muted);
+    font-size: .84rem;
+}.om-composer-pill{
+    padding: 4px 11px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: var(--on-accent);
+    font-size: .72rem;
+    font-weight: 700;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+}.om-composer-body{ padding: 18px 22px 20px; }.om-composer-body textarea{
+    width: 100%;
+    min-height: 118px;
+    padding: 11px 13px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--field-bg);
+    color: var(--text);
+    font-family: inherit;
+    font-size: .9rem;
+    line-height: 1.55;
+    resize: vertical;
+}.om-composer-body textarea:focus{
+    outline: none;
+    border-color: var(--om-accent);
+    box-shadow: 0 0 0 3px var(--focus-ring);
+}.om-composer-actions{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: end;
+    justify-content: space-between;
+    margin-top: 14px;
+}.om-composer-actions .om-field{ min-width: 220px; }/* ── Update timeline ─────────────────────────────────────────── */
+
+.om-timeline{
+    display: grid;
+    gap: 12px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}.om-timeline li{
+    display: grid;
+    gap: 6px;
+    padding: 14px 16px;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--om-accent);
+    border-radius: 12px;
+    background: var(--surface-alt);
+}.om-timeline-head{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    justify-content: space-between;
+}.om-timeline-who{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    color: var(--text);
+    font-size: .88rem;
+    font-weight: 600;
+}.om-timeline-when{
+    color: var(--muted);
+    font-size: .78rem;
+    font-variant-numeric: tabular-nums;
+}.om-timeline-text{
+    color: var(--text);
+    font-size: .88rem;
+    line-height: 1.55;
+    white-space: pre-line;
+}.om-timeline-transition{
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+    font-size: .78rem;
+}.om-timeline-foot{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    justify-content: space-between;
+    color: var(--muted);
+    font-size: .78rem;
+}/* ── Empty state ─────────────────────────────────────────────── */
+
+.om-empty{
+    display: grid;
+    gap: 10px;
+    justify-items: center;
+    padding: 46px 24px;
+    border: 1px dashed var(--border);
+    border-radius: 16px;
+    background: var(--surface-alt);
+    text-align: center;
+}.om-empty i{
+    color: var(--muted);
+    font-size: 2rem;
+    opacity: .7;
+}.om-empty strong{
+    color: var(--text);
+    font-size: 1rem;
+}.om-empty p{
+    margin: 0;
+    max-width: 440px;
+    color: var(--muted);
+    font-size: .87rem;
+    line-height: 1.5;
+}/* ── Dashboard split ─────────────────────────────────────────── */
+
+.om-dash-split{
+    display: grid;
+    grid-template-columns: minmax(0, 1.7fr) minmax(280px, 1fr);
+    gap: 20px;
+    align-items: start;
+}.om-activity{
+    display: grid;
+    gap: 2px;
+}.om-activity-item{
+    display: grid;
+    gap: 3px;
+    padding: 11px 0;
+    border-bottom: 1px solid var(--border);
+}.om-activity-item:last-child{ border-bottom: 0; }.om-activity-top{
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    justify-content: space-between;
+}.om-activity-who{
+    color: var(--muted);
+    font-size: .78rem;
+    font-weight: 600;
+}.om-activity-when{
+    flex-shrink: 0;
+    color: var(--muted);
+    font-size: .74rem;
+    font-variant-numeric: tabular-nums;
+}.om-activity-link{
+    color: var(--om-accent);
+    font-size: .87rem;
+    font-weight: 600;
+    line-height: 1.35;
+    text-decoration: none;
+}.om-activity-link:hover{ text-decoration: underline; }.om-activity-kind{
+    color: var(--muted);
+    font-size: .76rem;
+}
+
+/* ── Responsive ──────────────────────────────────────────────── */
+
+@media (max-width: 1080px) {.om-detail,.om-dash-split{ grid-template-columns: 1fr; }
+}
+
+@media (max-width: 860px) {.om-page{ padding: 20px 16px 40px; }.om-doc-info th{
+        width: 140px;
+        padding-left: 16px;
+    }.om-doc-info td,.om-table th,.om-table td{
+        padding-left: 16px;
+        padding-right: 16px;
+    }.om-card-head{ padding: 14px 16px; }.om-card-body{ padding: 16px; }
+}/* ============================================================
+   Delivery calendar
+   Ported out of admin.css and re-expressed on the current
+   semantic tokens,so the calendar follows the active theme
+   instead of falling back to hardcoded light values.
+   ============================================================ */
+
+.db-scope-dot{
+    display: inline-block;
+    width: .7rem;
+    height: .7rem;
+    border-radius: 50%;
+    flex-shrink: 0;
+}.dot-global{ background: var(--scope-global); }.dot-team{ background: var(--scope-team); }.dot-my{ background: var(--scope-my); }.cal-nav{
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    padding: .8rem 1.1rem;
+    border-bottom: 1px solid var(--border);
+}.cal-month-label{
+    flex: 1;
+    text-align: center;
+    color: var(--text);
+    font-size: 1rem;
+    font-weight: 700;
+}.cal-legend{
+    display: flex;
+    gap: 1.2rem;
+    padding: .7rem 1.1rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-alt);
+}.cal-legend-item{
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    color: var(--muted);
+    font-size: .78rem;
+    font-weight: 600;
+}.cal-grid{ padding: 0 0 .4rem; }.cal-week-header{
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    border-bottom: 1px solid var(--border);
+}.cal-day-name{
+    padding: .6rem 0;
+    text-align: center;
+    color: var(--muted);
+    font-size: .7rem;
+    font-weight: 800;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+}.cal-cells{
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+}.cal-cell{
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: .3rem;
+    min-height: 74px;
+    padding: .5rem .3rem;
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    transition: background .14s;
+}.cal-cell:nth-child(7n){ border-right: none; }.cal-cell.cal-has-tasks{
+    cursor: pointer;
+    background: var(--primary-bg);
+}.cal-cell.cal-has-tasks:hover{ background: var(--primary-soft); }.cal-cell.cal-cell-empty{ background: var(--calendar-empty-bg); }.cal-today{ box-shadow: inset 0 0 0 2px var(--om-accent, var(--primary)); }.cal-today .cal-day-num{
+    background: var(--om-accent, var(--primary));
+    color: #fff;
+}.cal-day-num{
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    color: var(--text);
+    font-size: .82rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}.cal-dots{
+    display: flex;
+    gap: 3px;
+    justify-content: center;
+}.cal-dot{
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+}/* Day-detail modal */
+.cal-modal-overlay{
+    position: fixed;
+    inset: 0;
+    z-index: 1200;
+    display: grid;
+    place-items: center;
+    padding: 1rem;
+    background: var(--overlay);
+}.cal-modal-overlay.hidden{ display: none; }.cal-modal-box{
+    width: min(520px, 100%);
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--surface);
+    box-shadow: var(--modal-shadow);
+    overflow: hidden;
+}.cal-modal-header{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+}.cal-modal-title{
+    margin: 0;
+    color: var(--text);
+    font-size: 1rem;
+    font-weight: 700;
+}.cal-modal-close{
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--muted);
+    cursor: pointer;
+}.cal-modal-close:hover{
+    background: var(--surface-alt);
+    color: var(--text);
+}.cal-modal-list{
+    margin: 0;
+    padding: .5rem 1.25rem 1rem;
+    list-style: none;
+    overflow-y: auto;
+}.cal-modal-task-item{
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    padding: .7rem 0;
+    border-bottom: 1px solid var(--border);
+}.cal-modal-task-item:last-child{ border-bottom: none; }.cal-modal-scope-dot{
+    display: inline-block;
+    width: .6rem;
+    height: .6rem;
+    border-radius: 50%;
+    flex-shrink: 0;
+}.cal-modal-task-link{
+    flex: 1;
+    min-width: 0;
+    color: var(--om-accent, var(--primary));
+    font-size: .88rem;
+    font-weight: 600;
+    text-decoration: none;
+}.cal-modal-task-link:hover{ text-decoration: underline; }.cal-modal-status{
+    flex-shrink: 0;
+    color: var(--muted);
+    font-size: .72rem;
+    white-space: nowrap;
+}/* Chart panels */
+.db-chart-wrap{
+    position: relative;
+    height: 220px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}.db-chart-wrap canvas{ max-height: 220px !important; }/* ── Flash messages ──────────────────────────────────────────────
+   admin.css styles .alert against legacy --color-* variables that no
+   longer exist,so its text colours fall back to hardcoded light-theme
+   values. Re-stated here on live tokens; office.css loads afterwards.
+   ──────────────────────────────────────────────────────────────── */
+
+.om-page .alert{
+    padding: .8rem 1.05rem;
+    margin-bottom: 1rem;
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--muted);
+    border-radius: 10px;
+    font-size: .88rem;
+    line-height: 1.5;
+}.om-page .alert-success{
+    background: var(--flash-success-bg);
+    border-left-color: var(--success);
+    color: var(--status-complete-text);
+}.om-page .alert-danger{
+    background: var(--flash-danger-bg);
+    border-left-color: var(--danger);
+    color: var(--status-cancel-text);
+}.om-page .alert-warning{
+    background: var(--flash-warning-bg);
+    border-left-color: var(--warning);
+    color: var(--status-hold-text);
+}.om-page .alert-info{
+    background: var(--flash-info-bg);
+    border-left-color: var(--info);
+    color: var(--status-progress-text);
+}/* ── Contrast corrections on accent-filled chips ─────────────────
+   White text measures 2.05–3.09:1 on these fills,well under the
+   4.5:1 needed for small text. Dark ink lifts them to 5.8–8.8:1.
+   The accent stays the same colour; only the ink changes.
+   ──────────────────────────────────────────────────────────────── */
+
+/* --accent is orange in both themes,so white never passes here. */
+.om-composer-pill{ color: #1a1d23; }/* --om-accent is a deep blue in light (white is fine at 7.66:1) but a
+   light blue in dark,[data-theme="dark"] .om-count-chip,[data-theme="dark"] .cal-today .cal-day-num{
+    color: var(--bg);
+}

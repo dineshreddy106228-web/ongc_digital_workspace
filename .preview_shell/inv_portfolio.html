@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Inventory Portfolio Review</title>
+    <script nonce="">
+        (function () {
+            const storageKey = "ongc-theme";
+            const savedTheme = localStorage.getItem(storageKey);
+            const theme = savedTheme === "dark" ? "dark" : "light";
+            document.documentElement.setAttribute("data-theme", theme);
+        })();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="static/css/style.css?v=1787379816">
+    <link rel="stylesheet" href="static/css/module_shell.css?v=1787379816">
+    <link rel="stylesheet" href="static/css/inventory_monitoring.css?v=1787379816">
+</head>
+<body class="app-authenticated">
+    
+    <div class="workspace-shell">
+        <aside class="workspace-sidebar">
+            <a href="/" class="workspace-logo" aria-label="ONGC Digital Workspace">
+                <img
+                    class="org-logo workspace-emblem"
+                    src="static/images/ongc-corporate-chemistry-logo.png"
+                    alt="ONGC Corporate Chemistry emblem"
+                >
+            </a>
+
+            <nav class="workspace-rail" aria-label="Primary workspace">
+                <a
+                    href="/dashboard"
+                    class="workspace-rail-item is-active"
+                    aria-label="Dashboard"
+                    title="Dashboard"
+                >
+                    <span class="workspace-rail-icon" aria-hidden="true"><i class="bi bi-grid-1x2"></i></span>
+                    <span class="workspace-rail-label sr-only">Dashboard</span>
+                    <span class="workspace-hover-label" aria-hidden="true">Dashboard</span>
+                </a>
+
+                
+
+                <button
+                    type="button"
+                    class="workspace-rail-item theme-toggle js-theme-toggle"
+                    aria-label="Toggle color theme"
+                    title="Light or dark mode"
+                    aria-pressed="false"
+                >
+                    <span class="workspace-rail-icon theme-toggle-icon" aria-hidden="true">◐</span>
+                    <span class="workspace-rail-label theme-toggle-label sr-only">Theme</span>
+                    <span class="workspace-hover-label theme-toggle-label" aria-hidden="true">Theme</span>
+                </button>
+            </nav>
+
+            <button
+                type="button"
+                class="workspace-more-toggle js-sidebar-toggle"
+                aria-controls="workspace-flyout"
+                aria-expanded="false"
+                aria-label="Open workspace menu"
+                title="More"
+            >
+                <span class="workspace-rail-icon" aria-hidden="true"><i class="bi bi-layout-sidebar-inset"></i></span>
+                <span class="workspace-rail-label sr-only">More</span>
+                <span class="workspace-hover-label" aria-hidden="true">More</span>
+            </button>
+        </aside>
+
+        <aside class="workspace-flyout" id="workspace-flyout" aria-hidden="true">
+            <div class="workspace-flyout-header">
+                <div>
+                    <div class="workspace-flyout-title">Workspace</div>
+                    <div class="workspace-flyout-subtitle">Modules and account actions</div>
+                </div>
+                <button type="button" class="workspace-flyout-close js-sidebar-toggle" aria-label="Close workspace menu">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+
+            <div class="workspace-profile-card">
+                <div class="workspace-profile-name">Preview User</div>
+                <div class="workspace-profile-meta">preview</div>
+                
+            </div>
+
+            <div class="workspace-flyout-section">
+                <div class="workspace-flyout-heading">Modules</div>
+                <nav class="workspace-flyout-nav" aria-label="Secondary workspace">
+                    
+                    <div class="workspace-flyout-empty">No additional modules assigned.</div>
+                    
+                </nav>
+            </div>
+
+            <div class="workspace-flyout-section">
+                <div class="workspace-flyout-heading">Account</div>
+                <div class="workspace-flyout-nav">
+                    <a
+                        href="/change-password"
+                        class="nav-link-pill workspace-flyout-link "
+                    >
+                        <span class="nav-link-icon" aria-hidden="true"><i class="bi bi-key"></i></span>
+                        <span>Change Password</span>
+                    </a>
+                    <a href="/logout" class="nav-link-pill workspace-flyout-link">
+                        <span class="nav-link-icon" aria-hidden="true"><i class="bi bi-box-arrow-right"></i></span>
+                        <span>Logout</span>
+                    </a>
+                </div>
+            </div>
+
+            <div class="flyout-signature" aria-label="Current time in India">
+                <div class="flyout-sig-cities">Calcutta &middot; Madras</div>
+                <div class="flyout-sig-time js-ist-clock" aria-live="polite">--:--:--</div>
+                <div class="flyout-sig-tz">India Standard Time &nbsp;·&nbsp; UTC+5:30</div>
+            </div>
+        </aside>
+
+        <button type="button" class="workspace-backdrop js-sidebar-toggle" aria-label="Close workspace menu"></button>
+
+        <main class="workspace-main">
+    
+
+    
+    <div class="workspace-header-band">
+        <div class="workspace-header-band-copy">
+            <div class="workspace-header-title">ONGC Corporate Chemistry</div>
+        </div>
+        <div class="workspace-header-band-meta">
+            <span class="workspace-header-chip workspace-header-chip-version">V2.0</span>
+            
+        </div>
+    </div>
+    
+
+    
+
+    <div class="container">
+        
+        
+            
+        
+
+        <div class="page-wrapper mod-page is-inventory im-page">
+  
+<nav class="mod-nav" aria-label="Inventory Monitoring navigation">
+  <a class="" href="/inventory/"><i class="bi bi-house-door"></i><span>Monitoring home</span></a>
+  <a class="" href="/inventory/health"><i class="bi bi-heart-pulse"></i><span>Inventory Health</span></a>
+  <a class="" href="/inventory/materials"><i class="bi bi-boxes"></i><span>Material Monitoring</span></a>
+  <a class="is-active" href="/inventory/portfolio"><i class="bi bi-easel2"></i><span>Management Review</span></a>
+</nav>
+
+  <section class="im-pf-hero">
+    <div>
+      <span class="im-kicker">Executive workbench</span>
+      <h1>Portfolio management review</h1>
+      <p>Every monitored chemical across Groups 09 and 10 counted together: inventory position, movement against a chosen earlier period, working-capital risk and the exception register for the selected reporting date.</p>
+      <a class="btn btn-light btn-sm im-pf-download" href="/inventory/management-review/presentation.pptx?reporting_date=2026-07-31"><i class="bi bi-file-earmark-ppt"></i> Download presentation</a>
+    </div>
+    <form class="im-pf-period" method="get" action="/inventory/portfolio">
+      <div class="im-pf-period-grid">
+        <div>
+          <label for="pfPeriod">Position as on</label>
+          <select id="pfPeriod" name="reporting_date" class="form-select form-select-sm">
+            <option value="2026-07-31" selected>31 Jul 2026</option>
+          </select>
+        </div>
+        <div>
+          <label for="pfCompare">Compare with</label>
+          <select id="pfCompare" name="compare_date" class="form-select form-select-sm" disabled>
+            <option>No earlier period</option>
+          </select>
+        </div>
+        <button class="btn btn-light btn-sm" type="submit">Apply</button>
+      </div>
+      <small>First published period — no comparison available</small>
+    </form>
+  </section>
+
+  
+
+  
+
+  <section class="im-pf-kpis">
+    <article class="im-pf-kpi">
+      <span>Total monitored inventory</span>
+      <strong>₹ 5.60 Cr</strong>
+      <span class="im-delta is-flat">New this period</span>
+      <small>Groups 09 and 10 combined · 3 stock lines · 2 work centres · 3 materials</small>
+    </article>
+    <article class="im-pf-kpi is-risk">
+      <span>Working capital at risk</span>
+      <strong>₹ 1.80 Cr</strong>
+      <span class="im-delta is-flat">New this period</span>
+      <small>32.1% of value in slow-moving or excess bands</small>
+    </article>
+    <article class="im-pf-kpi is-risk">
+      <span>Stock-out exposure</span>
+      <strong>₹ 0.80 Cr</strong>
+      <span class="im-delta is-flat">New this period</span>
+      <small>14.3% of value at or below low-stock coverage</small>
+    </article>
+    <article class="im-pf-kpi">
+      <span>Open exceptions</span>
+      <strong>2</strong>
+      <span class="im-delta is-flat">No comparison</span>
+      <small>1 critical stock-coverage findings</small>
+    </article>
+    <article class="im-pf-kpi">
+      <span>Concentration</span>
+      <strong>100.0%</strong>
+      <span class="im-delta is-flat">held by top 5 centres</span>
+      <small>Share of total inventory value in the five largest work centres</small>
+    </article>
+  </section>
+
+  <section class="card im-pf-card"><div class="card-body">
+    <div class="im-section-heading"><div><span>Stock health</span><h2>Value by coverage band</h2><p>Every stock line banded by months of coverage against the configured thresholds.</p></div><a class="btn btn-outline-primary btn-sm" href="/inventory/health">Open health register</a></div>
+    <div class="im-mix-bar" role="img" aria-label="Inventory value split by coverage band">
+      <i class="im-mix-critical_low_stock" style="width:14.3%" title="Critical low: 14.3%"></i><i class="im-mix-healthy_stock" style="width:53.6%" title="Healthy: 53.6%"></i><i class="im-mix-excess_stock" style="width:32.1%" title="Excess: 32.1%"></i>
+    </div>
+    <div class="im-mix-legend">
+      
+      <div><b class="im-mix-critical_low_stock"></b><span>Critical low</span><strong>₹ 0.80 Cr</strong><small>1 lines · 14.3%</small></div>
+      
+      <div><b class="im-mix-healthy_stock"></b><span>Healthy</span><strong>₹ 3.00 Cr</strong><small>1 lines · 53.6%</small></div>
+      
+      <div><b class="im-mix-excess_stock"></b><span>Excess</span><strong>₹ 1.80 Cr</strong><small>1 lines · 32.1%</small></div>
+      
+    </div>
+  </div></section>
+
+  <div class="im-two-col im-pf-two-col">
+    <section class="card im-pf-card"><div class="card-body">
+      <div class="im-section-heading"><div><span>Geographic spread</span><h2>Value by zone</h2></div></div>
+      <div class="im-table-wrap"><table class="im-pf-table">
+        <thead><tr><th>Zone</th><th class="im-num">Value</th><th>Share of portfolio</th></tr></thead>
+        <tbody>
+          <tr><td>Unassigned</td><td class="im-num im-value">₹ 5.60 Cr</td><td><div class="im-share-cell"><div class="im-share-track"><i style="width:100.0%"></i></div><b>100.0%</b></div></td></tr>
+          
+        </tbody>
+      </table></div>
+    </div></section>
+    <section class="card im-pf-card"><div class="card-body">
+      <div class="im-section-heading"><div><span>Period movement</span><h2>Largest movers</h2></div></div>
+      <p class="im-pf-muted">Movement appears once a second reporting period is published.</p>
+    </div></section>
+  </div>
+
+  <section class="card im-pf-card"><div class="card-body">
+    <div class="im-section-heading"><div><span>Concentration</span><h2>Top work centres by inventory value</h2><p>Share of the total monitored portfolio, movement against the comparison period and open exceptions per centre.</p></div></div>
+    <div class="im-table-wrap"><table class="im-pf-table" data-work-centre-filter="false">
+      <thead><tr><th class="im-rank">#</th><th>Work centre</th><th>Zone</th><th class="im-num">Value</th><th>Share of portfolio</th><th class="im-num">Exceptions</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="im-rank">1</td>
+          <td><a class="im-pf-link" href="/inventory/work-centres/1">Ankleshwar DFS</a></td>
+          <td>—</td>
+          <td class="im-num im-value">₹ 4.80 Cr</td>
+          <td><div class="im-share-cell"><div class="im-share-track"><i style="width:85.7%"></i></div><b>85.7%</b></div></td>
+          
+          <td class="im-num"><span class="im-pf-count">1</span></td>
+        </tr><tr>
+          <td class="im-rank">2</td>
+          <td><a class="im-pf-link" href="/inventory/work-centres/2">Mehsana ST</a></td>
+          <td>—</td>
+          <td class="im-num im-value">₹ 0.80 Cr</td>
+          <td><div class="im-share-cell"><div class="im-share-track"><i style="width:14.3%"></i></div><b>14.3%</b></div></td>
+          
+          <td class="im-num"><span class="im-pf-count">1</span></td>
+        </tr>
+      </tbody>
+    </table></div>
+  </div></section>
+
+  <div class="im-two-col im-pf-two-col">
+    <section class="card im-pf-card"><div class="card-body">
+      <div class="im-section-heading"><div><span>Material concentration</span><h2>Top materials by value</h2></div></div>
+      <div class="im-table-wrap"><table class="im-pf-table">
+        <thead><tr><th>Material</th><th>Group</th><th class="im-num">Value</th><th class="im-num">Share</th><th class="im-num">Centres</th></tr></thead>
+        <tbody>
+          <tr><td><span class="im-material-code">090001043</span><small class="im-pf-desc">OIL WELL CEMENT CLASS G</small></td><td><span class="im-group-badge im-group-09">09</span></td><td class="im-num im-value">₹ 3.00 Cr</td><td class="im-num">53.6%</td><td class="im-num">1</td></tr>
+          <tr><td><span class="im-material-code">090002222</span><small class="im-pf-desc">MUD CHEMICAL BARYTES</small></td><td><span class="im-group-badge im-group-09">09</span></td><td class="im-num im-value">₹ 1.80 Cr</td><td class="im-num">32.1%</td><td class="im-num">1</td></tr>
+          <tr><td><span class="im-material-code">100203400</span><small class="im-pf-desc">CHROMIUM ACETATE</small></td><td><span class="im-group-badge im-group-10">10</span></td><td class="im-num im-value">₹ 0.80 Cr</td><td class="im-num">14.3%</td><td class="im-num">1</td></tr>
+          
+        </tbody>
+      </table></div>
+    </div></section>
+    <section class="card im-pf-card"><div class="card-body">
+      <div class="im-section-heading"><div><span>Exception register</span><h2>Exception profile</h2></div></div>
+      <div class="im-pf-sev">
+        <span class="im-severity im-critical">critical · 1</span><span class="im-severity im-high">high · 1</span>
+        
+      </div>
+      <div class="im-table-wrap"><table class="im-pf-table">
+        <thead><tr><th>Exception type</th><th class="im-num">Count</th><th class="im-num">Value</th></tr></thead>
+        <tbody>
+          <tr><td>Excess stock</td><td class="im-num">1</td><td class="im-num im-value">₹ 1.80 Cr</td></tr>
+          <tr><td>Critical low stock</td><td class="im-num">1</td><td class="im-num im-value">₹ 0.80 Cr</td></tr>
+          
+        </tbody>
+      </table></div>
+    </div></section>
+  </div>
+
+  <section class="card im-pf-card"><div class="card-body">
+    <div class="im-section-heading"><div><span>Highest value first</span><h2>Exceptions requiring attention</h2><p>The largest open stock-coverage and source-register exceptions for this reporting date.</p></div></div>
+    <div class="im-table-wrap"><table class="im-pf-table">
+      <thead><tr><th>Severity</th><th>Exception</th><th>Work centre</th><th>Material</th><th class="im-num">Value</th><th class="im-num">Months</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="im-severity im-high">high</span></td>
+          <td>Excess stock</td>
+          <td>Ankleshwar DFS</td>
+          <td><span class="im-material-code">090002222</span></td>
+          <td class="im-num im-value">₹ 1.80 Cr</td>
+          <td class="im-num">15.00</td>
+        </tr><tr>
+          <td><span class="im-severity im-critical">critical</span></td>
+          <td>Critical low stock</td>
+          <td>Mehsana ST</td>
+          <td><span class="im-material-code">100203400</span></td>
+          <td class="im-num im-value">₹ 0.80 Cr</td>
+          <td class="im-num">0.50</td>
+        </tr>
+      </tbody>
+    </table></div>
+  </div></section>
+
+  
+</div>
+    </div>
+
+    <div class="app-dialog-overlay" id="appDialogOverlay" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="appDialogTitle">
+        <div class="app-dialog">
+            <div class="app-dialog-header">
+                <div class="app-dialog-icon is-info" id="appDialogIcon" aria-hidden="true">
+                    <i class="bi bi-info-circle"></i>
+                </div>
+                <div class="app-dialog-copy">
+                    <span class="app-dialog-eyebrow" id="appDialogEyebrow">ONGC Digital Workspace</span>
+                    <h2 class="app-dialog-title" id="appDialogTitle">Notification</h2>
+                </div>
+            </div>
+            <div class="app-dialog-body" id="appDialogBody"></div>
+            <div class="app-dialog-footer">
+                <button type="button" class="btn btn-primary" id="appDialogConfirm">Continue</button>
+            </div>
+        </div>
+    </div>
+
+    <footer class="site-footer">
+        <span>&copy; ONGC Digital Workspace &mdash; Pilot: Corporate Chemistry</span>
+    </footer>
+
+    
+        </main>
+    </div>
+    
+
+    <script nonce="" src="static/js/main.js"></script>
+    
+    <script nonce="">
+        (function () {
+            var overlay = document.getElementById('appDialogOverlay');
+            var iconShell = document.getElementById('appDialogIcon');
+            var eyebrow = document.getElementById('appDialogEyebrow');
+            var title = document.getElementById('appDialogTitle');
+            var body = document.getElementById('appDialogBody');
+            var confirmButton = document.getElementById('appDialogConfirm');
+            if (!overlay || !iconShell || !eyebrow || !title || !body || !confirmButton) return;
+
+            var activeDialog = null;
+            var dialogQueue = [];
+            var toneConfig = {
+                success: { eyebrow: 'ONGC Digital Workspace', icon: 'check-circle', fallbackTitle: 'Action completed' },
+                warning: { eyebrow: 'Attention', icon: 'exclamation-triangle', fallbackTitle: 'Review required' },
+                danger: { eyebrow: 'Action Required', icon: 'x-circle', fallbackTitle: 'Action failed' },
+                info: { eyebrow: 'ONGC Digital Workspace', icon: 'info-circle', fallbackTitle: 'Notification' }
+            };
+
+            function getVisibleBlockingModal() {
+                return document.querySelector('.workspace-welcome-overlay:not(.hidden)');
+            }
+
+            function normalizeDialogOptions(options) {
+                var tone = (options && options.tone) || 'info';
+                if (!toneConfig[tone]) tone = 'info';
+                return {
+                    tone: tone,
+                    title: (options && options.title) || toneConfig[tone].fallbackTitle,
+                    message: (options && (options.message || options.body)) || '',
+                    confirmLabel: (options && options.confirmLabel) || 'Continue'
+                };
+            }
+
+            function renderDialog(dialogOptions) {
+                var config = toneConfig[dialogOptions.tone];
+                iconShell.className = 'app-dialog-icon is-' + dialogOptions.tone;
+                iconShell.innerHTML = '<i class="bi bi-' + config.icon + '"></i>';
+                eyebrow.textContent = config.eyebrow;
+                title.textContent = dialogOptions.title;
+                body.textContent = dialogOptions.message;
+                confirmButton.textContent = dialogOptions.confirmLabel;
+                overlay.classList.add('is-active');
+                overlay.setAttribute('aria-hidden', 'false');
+                document.body.classList.add('app-dialog-open');
+                confirmButton.focus();
+            }
+
+            function drainDialogQueue() {
+                if (activeDialog || !dialogQueue.length) return;
+                if (getVisibleBlockingModal()) {
+                    window.setTimeout(drainDialogQueue, 250);
+                    return;
+                }
+                activeDialog = dialogQueue.shift();
+                renderDialog(activeDialog.options);
+            }
+
+            function closeActiveDialog() {
+                if (!activeDialog) return;
+                overlay.classList.remove('is-active');
+                overlay.setAttribute('aria-hidden', 'true');
+                document.body.classList.remove('app-dialog-open');
+                var resolver = activeDialog.resolve;
+                activeDialog = null;
+                if (typeof resolver === 'function') resolver();
+                drainDialogQueue();
+            }
+
+            window.showAppDialog = function (options) {
+                return new Promise(function (resolve) {
+                    dialogQueue.push({
+                        options: normalizeDialogOptions(options || {}),
+                        resolve: resolve
+                    });
+                    drainDialogQueue();
+                });
+            };
+
+            confirmButton.addEventListener('click', closeActiveDialog);
+            overlay.addEventListener('click', function (event) {
+                if (event.target === overlay) {
+                    closeActiveDialog();
+                }
+            });
+            document.addEventListener('keydown', function (event) {
+                if (event.key === 'Escape' && activeDialog) {
+                    closeActiveDialog();
+                }
+            });
+
+            Array.prototype.slice.call(document.querySelectorAll('.flash-area')).forEach(function (area) {
+                area.querySelectorAll('.flash').forEach(function (flashNode) {
+                    var tone = 'info';
+                    ['success', 'warning', 'danger', 'info'].some(function (candidate) {
+                        if (flashNode.classList.contains('flash-' + candidate)) {
+                            tone = candidate;
+                            return true;
+                        }
+                        return false;
+                    });
+
+                    var clone = flashNode.cloneNode(true);
+                    clone.querySelectorAll('.flash-close').forEach(function (button) {
+                        button.remove();
+                    });
+                    var message = clone.textContent.trim();
+                    if (message) {
+                        window.showAppDialog({ tone: tone, message: message });
+                    }
+                });
+                area.hidden = true;
+            });
+        })();
+    </script>
+    
+    
+</body>
+</html>

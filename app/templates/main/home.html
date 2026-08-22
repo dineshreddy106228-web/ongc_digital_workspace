@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+{% block title %}Home – {{ app_name }}{% endblock %}
+
+{% block content %}
+<section class="home">
+
+    <header class="home-bar">
+        <div class="home-bar-identity">
+            <p class="home-bar-eyebrow">{{ home.identity.office }}</p>
+            <h1 class="home-bar-title">Corporate Chemistry Digital Workspace</h1>
+            <p class="home-bar-meta">
+                <span>{{ home.greeting }}, <strong>{{ home.identity.name }}</strong></span>
+                {% if home.identity.role %}<span class="home-bar-sep" aria-hidden="true"></span><span>{{ home.identity.role }}</span>{% endif %}
+                <span class="home-bar-sep" aria-hidden="true"></span>
+                <span>Updated {{ home.last_refreshed|datetime_ist('%d %b %Y · %I:%M %p') }}</span>
+            </p>
+        </div>
+
+        <div class="home-bar-controls">
+            {% if home.scope_options %}
+            <div class="home-scope" role="group" aria-label="Data scope">
+                {% for option in home.scope_options %}
+                <a
+                    href="{{ option.href }}"
+                    class="home-scope-option {{ 'is-active' if option.is_active }}"
+                    title="{{ option.detail }}"
+                    {% if option.is_active %}aria-current="true"{% endif %}
+                >{{ option.label }}</a>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% if home.analytics %}
+            <a href="{{ home.analytics.href }}" class="home-action">
+                <i class="bi bi-bar-chart-line" aria-hidden="true"></i>
+                <span>Analytics</span>
+            </a>
+            {% endif %}
+        </div>
+    </header>
+
+    {% if home.tasks_visible %}
+    <div class="home-metrics" role="group" aria-label="Operational indicators">
+        {% for tile in home.tiles %}
+        {% if tile.href %}
+        <a href="{{ tile.href }}" class="home-metric home-metric-{{ tile.tone }}">
+            <span class="home-metric-label">{{ tile.label }}</span>
+            <strong class="home-metric-value">{{ tile.value }}</strong>
+            <span class="home-metric-detail">{{ tile.detail }}</span>
+        </a>
+        {% else %}
+        <div class="home-metric home-metric-{{ tile.tone }}">
+            <span class="home-metric-label">{{ tile.label }}</span>
+            <strong class="home-metric-value">{{ tile.value }}</strong>
+            <span class="home-metric-detail">{{ tile.detail }}</span>
+        </div>
+        {% endif %}
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <section class="home-section" aria-labelledby="home-modules">
+        <div class="home-section-head">
+            <div>
+                <h2 class="home-section-title" id="home-modules">Modules</h2>
+                <p class="home-section-sub">Operational workspaces available to your account.</p>
+            </div>
+            <span class="home-section-count">
+                {%- if home.modules_accessible_count == home.modules_total_count -%}
+                {{ home.modules_total_count }} available
+                {%- else -%}
+                {{ home.modules_accessible_count }} of {{ home.modules_total_count }} available
+                {%- endif -%}
+            </span>
+        </div>
+
+        <div class="home-modules">
+            {% for module in home.modules %}
+            {% if module.clickable %}
+            <a href="{{ module.href }}" class="home-module home-module-accent-{{ module.accent }}">
+                <span class="home-module-top">
+                    <span class="home-module-icon" aria-hidden="true"><i class="bi {{ module.icon_class or 'bi-grid' }}"></i></span>
+                    <span class="home-module-state">{{ module.badge }}</span>
+                </span>
+                <span class="home-module-name">{{ module.label }}</span>
+                <span class="home-module-desc">{{ module.description }}</span>
+                <span class="home-module-cta">Open<i class="bi bi-arrow-right" aria-hidden="true"></i></span>
+            </a>
+            {% else %}
+            <div class="home-module home-module-accent-{{ module.accent }} is-locked">
+                <span class="home-module-top">
+                    <span class="home-module-icon" aria-hidden="true"><i class="bi {{ module.icon_class or 'bi-grid' }}"></i></span>
+                    <span class="home-module-state">{{ module.badge }}</span>
+                </span>
+                <span class="home-module-name">{{ module.label }}</span>
+                <span class="home-module-desc">{{ module.description }}</span>
+                <span class="home-module-cta is-muted">Unavailable</span>
+            </div>
+            {% endif %}
+            {% else %}
+            <div class="home-empty">
+                <i class="bi bi-grid" aria-hidden="true"></i>
+                <h3>No modules assigned</h3>
+                <p>Ask an administrator to grant module access to your account.</p>
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+
+    {% if home.tasks_visible %}
+    <details class="home-drawer">
+        {# Keep <summary> itself block-level: display:flex on a summary breaks
+           the native disclosure toggle in Safari. The flex row lives inside. #}
+        <summary class="home-drawer-summary">
+            <span class="home-drawer-row">
+                <span class="home-drawer-head">
+                    <span class="home-drawer-title">Needs you now</span>
+                    <span class="home-drawer-sub home-drawer-sub-{{ home.focus_summary_tone }}">{{ home.focus_summary }}</span>
+                </span>
+                <span class="home-drawer-toggle" aria-hidden="true">
+                    <span class="home-drawer-toggle-text">Show</span>
+                    <i class="bi bi-chevron-down"></i>
+                </span>
+            </span>
+        </summary>
+
+        <div class="home-drawer-body">
+            {% if home.focus_tasks %}
+            <ul class="home-queue">
+                {% for task in home.focus_tasks %}
+                <li class="home-queue-item">
+                    <a href="{{ task.href }}" class="home-queue-link">
+                        <span class="home-queue-rail home-queue-rail-{{ task.due_tone }}" aria-hidden="true"></span>
+                        <span class="home-queue-body">
+                            <span class="home-queue-title">{{ task.title }}</span>
+                            <span class="home-queue-meta">
+                                <span class="home-chip home-chip-priority-{{ task.priority|lower }}">{{ task.priority }}</span>
+                                <span class="home-chip home-chip-muted">{{ task.status }}</span>
+                                {% if task.show_owner %}<span>{{ task.owner }}</span>{% endif %}
+                                <span>{{ task.office }}</span>
+                            </span>
+                        </span>
+                        <span class="home-queue-due home-queue-due-{{ task.due_tone }}">{{ task.due_label }}</span>
+                    </a>
+                </li>
+                {% endfor %}
+            </ul>
+            {% if home.task_list_href %}
+            <a href="{{ home.task_list_href }}" class="home-drawer-link">Open full task list<i class="bi bi-arrow-right" aria-hidden="true"></i></a>
+            {% endif %}
+            {% else %}
+            <div class="home-empty">
+                <i class="bi bi-check2-circle" aria-hidden="true"></i>
+                <h3>Nothing pressing</h3>
+                <p>No open tasks in {{ home.scope_label|lower }} need attention right now.</p>
+            </div>
+            {% endif %}
+        </div>
+    </details>
+    {% endif %}
+
+    <div class="home-foot">
+        <section class="home-panel" aria-labelledby="home-line">
+            <h2 class="home-panel-title" id="home-line">Reporting line</h2>
+            <dl class="home-rows">
+                <div class="home-row">
+                    <dt>You</dt>
+                    <dd class="is-self">{{ home.identity.name }}</dd>
+                </div>
+                {% for officer in home.identity.officer_chain %}
+                <div class="home-row">
+                    <dt>{{ officer.label }}</dt>
+                    <dd>{{ officer.name }}</dd>
+                </div>
+                {% else %}
+                <div class="home-row-empty">No controlling, reviewing, or accepting officer mapped yet.</div>
+                {% endfor %}
+            </dl>
+        </section>
+
+        {% if is_admin %}
+        <section class="home-panel" aria-labelledby="home-status">
+            <h2 class="home-panel-title" id="home-status">System status</h2>
+            <dl class="home-rows">
+                {% for item in system_status %}
+                <div class="home-row">
+                    <dt>{{ item.label }}</dt>
+                    <dd><span class="home-chip home-chip-{{ item.tone }}">{{ item.value }}</span></dd>
+                </div>
+                {% endfor %}
+            </dl>
+        </section>
+
+        <section class="home-panel home-panel-wide" aria-labelledby="home-activity">
+            <div class="home-panel-head">
+                <h2 class="home-panel-title" id="home-activity">Recent activity</h2>
+                <a href="{{ url_for('admin.activity_history') }}" class="home-panel-link">View all</a>
+            </div>
+            <div class="home-activity">
+                {% for entry in recent_activity %}
+                <div class="home-activity-item">
+                    <i class="bi {{ entry.icon_class }}" style="color: {{ entry.accent_color }};" aria-hidden="true"></i>
+                    <span class="home-activity-text">
+                        <span class="home-activity-summary">{{ entry.summary }}</span>
+                        {% if entry.details %}<span class="home-activity-detail">{{ entry.details }}</span>{% endif %}
+                    </span>
+                    <span class="home-activity-time">{{ entry.created_at|datetime_ist('%d %b') }}</span>
+                </div>
+                {% else %}
+                <div class="home-row-empty">No recorded activity yet.</div>
+                {% endfor %}
+            </div>
+        </section>
+        {% endif %}
+    </div>
+
+</section>
+{% endblock %}

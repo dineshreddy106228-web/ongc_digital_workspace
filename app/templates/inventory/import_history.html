@@ -2,7 +2,7 @@
 {% block title %}Inventory Monitoring · Import history{% endblock %}
 {% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory_monitoring.css') }}">{% endblock %}
 {% from "inventory/_monitoring_nav.html" import monitoring_nav %}
-{% block content %}<div class="page-wrapper im-page">
+{% block content %}<div class="page-wrapper mod-page is-inventory im-page">
 {{ monitoring_nav() }}
 <nav class="im-breadcrumb"><a href="{{ url_for('inventory.landing') }}"><i class="bi bi-arrow-left"></i> Inventory Monitoring</a><span>/</span><strong>Import control centre</strong></nav>
 
@@ -45,7 +45,7 @@
       <tr class="{{ 'is-active' if not batch.is_superseded else 'is-superseded' }}">
         <td class="im-import-workbook-cell"><span class="im-import-workbook-icon im-import-source-{{ batch.source_group }}"><i class="bi bi-{{ source.icon }}"></i></span><div><span class="im-import-source-title">{{ source.label }}</span><strong class="im-import-workbook-name" title="{{ batch.source_filename }}">{{ batch.source_filename }}</strong><small>{{ '{:,.0f}'.format(batch.source_file_size / 1024) }} KB · SHA {{ batch.source_checksum[:10] }}…</small></div></td>
         <td class="im-import-period-cell">{% if batch.reporting_date %}<strong>{{ batch.reporting_date.strftime('%d %b %Y') }}</strong><small>Inventory snapshot</small>{% else %}<strong>Versioned mapping</strong><small>No reporting date</small>{% endif %}</td>
-        <td><div class="im-import-quality"><span class="is-accepted"><small>Accepted</small><strong>{{ '{:,}'.format(batch.accepted_count) }}</strong></span><span class="{{ 'is-attention' if batch.rejected_count else '' }}"><small>Rejected</small><strong>{{ '{:,}'.format(batch.rejected_count) }}</strong></span><span><small>Duplicates</small><strong>{{ '{:,}'.format(batch.duplicate_count) }}</strong></span></div></td>
+        <td><div class="im-import-quality"><span class="is-accepted"><small>Accepted</small><strong>{{ '{:,}'.format(batch.accepted_count) }}</strong></span><span class="{{ 'is-attention' if batch.rejected_count else '' }}"><small>Not monitored</small><strong>{{ '{:,}'.format(batch.rejected_count) }}</strong></span><span><small>Duplicates</small><strong>{{ '{:,}'.format(batch.duplicate_count) }}</strong></span></div></td>
         <td class="im-import-received-cell"><strong>{{ batch.uploaded_at|datetime_ist('%d %b %Y') }}</strong><small>{{ batch.uploaded_at|datetime_ist('%H:%M') }} IST · Batch #{{ batch.id }}</small></td>
         <td class="im-import-lifecycle-cell">{% if batch.is_superseded %}<span class="im-import-outcome is-superseded"><i class="bi bi-clock-history"></i> Superseded</span><small>{% if batch.superseded_by_id %}Replaced by batch #{{ batch.superseded_by_id }}{% else %}Retained in audit history{% endif %}</small>{% else %}<span class="im-import-outcome is-active"><i class="bi bi-check2-circle"></i> Active</span><small>Current source version</small>{% endif %}</td>
       </tr>{% else %}<tr><td colspan="5"><div class="im-empty"><i class="bi bi-cloud-arrow-up"></i><strong>No workbooks imported yet</strong><span>Start with the work-centre mapping, then import Group 09 and Group 10 for a common reporting date.</span><a class="btn btn-primary btn-sm" href="{{ url_for('inventory.imports') }}">Start an import</a></div></td></tr>{% endfor %}</tbody>

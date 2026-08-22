@@ -8,7 +8,6 @@ document.addEventListener("DOMContentLoaded", function () {
     const toggle = document.querySelector(".js-theme-toggle");
     const sidebarToggles = document.querySelectorAll(".js-sidebar-toggle");
     const flyout = document.getElementById("workspace-flyout");
-    const notificationsMenu = document.querySelector(".workspace-alerts");
 
     function setFlyoutState(isOpen) {
         if (!flyout || !body.classList.contains("app-authenticated")) return;
@@ -64,9 +63,6 @@ document.addEventListener("DOMContentLoaded", function () {
         document.addEventListener("keydown", function (event) {
             if (event.key === "Escape") {
                 setFlyoutState(false);
-                if (notificationsMenu && notificationsMenu.hasAttribute("open")) {
-                    notificationsMenu.removeAttribute("open");
-                }
             }
         });
 
@@ -194,6 +190,112 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
+    function hasExistingSerialColumn(table) {
+        const firstHeaderRow = table.tHead && table.tHead.rows.length
+            ? table.tHead.rows[0]
+            : null;
+
+        if (!firstHeaderRow) {
+            return false;
+        }
+
+        const firstHeaderCell = firstHeaderRow.cells[0];
+        if (!firstHeaderCell) {
+            return false;
+        }
+
+        const label = firstHeaderCell.textContent.trim().toLowerCase().replace(/[.\s]/g, "");
+        return label === "#" || label === "no" || label === "sno" || label === "slno";
+    }
+
+    function isSpanningTableRow(row) {
+        if (row.hasAttribute("data-no-serial")) {
+            return true;
+        }
+
+        const cells = row.cells;
+        return cells.length === 1 && cells[0].colSpan > 1;
+    }
+
+    function addSerialNumbersToTable(table) {
+        if (
+            table.hasAttribute("data-no-serial") ||
+            !table.tHead ||
+            !table.tHead.rows.length ||
+            !table.tBodies.length
+        ) {
+            return;
+        }
+
+        if (!table.hasAttribute("data-auto-serial")) {
+            if (hasExistingSerialColumn(table)) {
+                table.setAttribute("data-auto-serial", "existing");
+                return;
+            }
+
+            const headerRows = table.tHead.rows;
+            const serialHeader = document.createElement("th");
+            serialHeader.className = "table-serial-column";
+            serialHeader.scope = "col";
+            serialHeader.textContent = "S. No.";
+            if (headerRows.length > 1) {
+                serialHeader.rowSpan = headerRows.length;
+            }
+            headerRows[0].insertBefore(serialHeader, headerRows[0].firstElementChild);
+            table.setAttribute("data-auto-serial", "added");
+        }
+
+        if (table.getAttribute("data-auto-serial") !== "added") {
+            return;
+        }
+
+        let serialNumber = 0;
+        Array.prototype.forEach.call(table.tBodies, function (tbody) {
+            Array.prototype.forEach.call(tbody.rows, function (row) {
+                if (isSpanningTableRow(row)) {
+                    const spanningCell = row.cells[0];
+                    if (
+                        spanningCell &&
+                        spanningCell.colSpan > 1 &&
+                        !spanningCell.hasAttribute("data-serial-colspan-adjusted")
+                    ) {
+                        spanningCell.colSpan += 1;
+                        spanningCell.setAttribute("data-serial-colspan-adjusted", "true");
+                    }
+                    return;
+                }
+
+                serialNumber += 1;
+                let serialCell = row.querySelector(":scope > .table-serial-column");
+                if (!serialCell) {
+                    serialCell = document.createElement("td");
+                    serialCell.className = "table-serial-column";
+                    row.insertBefore(serialCell, row.firstElementChild);
+                }
+                const nextSerial = String(serialNumber);
+                if (serialCell.textContent !== nextSerial) {
+                    serialCell.textContent = nextSerial;
+                }
+            });
+        });
+    }
+
+    let serialNumberPassScheduled = false;
+    function addSerialNumbersToAllTables() {
+        document.querySelectorAll("table").forEach(addSerialNumbersToTable);
+    }
+
+    function scheduleSerialNumberPass() {
+        if (serialNumberPassScheduled) {
+            return;
+        }
+        serialNumberPassScheduled = true;
+        window.requestAnimationFrame(function () {
+            serialNumberPassScheduled = false;
+            addSerialNumbersToAllTables();
+        });
+    }
+
     // Manual dismiss for flash messages (replaces inline onclick handlers).
     document.querySelectorAll(".js-flash-close").forEach(function (btn) {
         btn.addEventListener("click", function () {
@@ -228,5 +330,11 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     initializeRichTextFields();
+    addSerialNumbersToAllTables();
+
+    // Inventory and reporting screens build some tables after the initial page
+    // render. Keep their serial columns in sync when rows are added or replaced.
+    const tableObserver = new MutationObserver(scheduleSerialNumberPass);
+    tableObserver.observe(document.body, { childList: true, subtree: true });
 
 });

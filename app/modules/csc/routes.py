@@ -80,16 +80,16 @@ def specification(ref: str):
 @login_required
 @module_access_required("csc")
 def specification_dossier(ref: str):
-    """The full CSC dossier for one specification, as the workflow used to produce it."""
+    """Download the controlled enterprise dossier for one specification."""
     from app.core.services.corporate_specifications import dossier_context
-    from app.core.services.csc_export import build_flask_review_document
+    from app.core.services.csc_dossier_export import build_enterprise_dossier
 
     data = _entry_or_404(ref)
     if data["record"] is None:
         flash("This chemical has no specification record to build a dossier from.", "info")
         return redirect(url_for("csc.specification", ref=ref))
     try:
-        document = build_flask_review_document(dossier_context(data))
+        document = build_enterprise_dossier(dossier_context(data))
     except Exception:
         logger.exception("Dossier export failed for ref=%s", ref)
         flash("The dossier could not be generated.", "danger")

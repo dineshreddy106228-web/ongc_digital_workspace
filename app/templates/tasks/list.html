@@ -1,208 +1,136 @@
 {% extends "base.html" %}
-{% from "components/ui.html" import page_header %}
-{% block title %}Task Tracker{% endblock %}
+{% from "tasks/_office_nav.html" import office_nav %}
+{% block title %}Task Register – Task Management{% endblock %}
 
 {% block head_extra %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
-<style>
-  .task-list-table-wrap {
-    overflow-x: hidden;
-  }
-  .task-list-table {
-    width: 100%;
-    table-layout: fixed;
-  }
-  .task-col-title {
-    width: 50%;
-  }
-  .task-col-status {
-    width: 10%;
-  }
-  .task-col-priority {
-    width: 10%;
-  }
-  .task-col-due {
-    width: 12%;
-  }
-  .task-col-office {
-    width: 12%;
-  }
-  .task-col-actions {
-    width: 16%;
-  }
-  .task-row-actions {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    flex-wrap: wrap;
-  }
-  .task-reorder-controls {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-  }
-  .task-reorder-controls form {
-    margin: 0;
-  }
-  .task-reorder-btn {
-    min-width: 2rem;
-    padding-inline: 0.45rem;
-  }
-  .task-cell-truncate {
-    display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .task-list-table .task-row-title {
-    display: inline-block;
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .task-list-table .actions-cell {
-    white-space: nowrap;
-  }
-  .task-list-table .task-row-origin {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  @media (max-width: 980px) {
-    .task-list-table-wrap {
-      overflow-x: auto;
-    }
-    .task-list-table {
-      table-layout: auto;
-      min-width: 820px;
-    }
-  }
-</style>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/office.css') }}">
 {% endblock %}
 
-{% macro task_row(task, task_permissions, filters, can_reorder_tasks) %}
+{% macro task_row(task, task_permissions, filters, can_reorder_tasks, index, today) %}
 {% set perms = task_permissions.get(task.id, {}) %}
 <tr>
-  <td class="task-col-title">
-    <div class="task-row-title-group">
-      {% if task.task_scope == 'GLOBAL' %}
-      <span class="scope-tag scope-global" title="Global Task">🌐</span>
-      {% else %}
-      <span class="scope-tag scope-my" title="Local Task">👤</span>
-      {% endif %}
-      <div class="task-row-title-body">
-        <a
-          href="{{ url_for('tasks.task_detail', task_id=task.id) }}"
-          class="task-row-title"
-          data-task-summary-url="{{ url_for('tasks.task_summary', task_id=task.id) }}"
-          data-task-summary-title="{{ task.task_title }}"
-          title="{{ task.task_title }}"
-        >
-          {{ task.task_title }}
-        </a>
-        {% if task.task_origin %}
-        <div class="task-row-origin">{{ task.task_origin }}</div>
-        {% endif %}
-        {% if task.recurring_template %}
-        <div class="task-row-origin">
-          {{ recurrence_summary(task.recurring_template) }}
-          {% if task.occurrence_date %}
-          • {{ task.occurrence_date.strftime('%d %b %Y') }}
-          {% endif %}
-        </div>
-        {% endif %}
-      </div>
-    </div>
-  </td>
-  <td class="task-col-status"><span class="task-badge status-{{ task.status|lower|replace(' ', '-') }}">{{ task.status }}</span></td>
-  <td class="task-col-priority"><span class="task-badge priority-{{ task.priority|lower }}">{{ task.priority }}</span></td>
-  <td class="task-col-due">{{ task.due_date.strftime('%d %b %Y') if task.due_date else '—' }}</td>
-  <td class="task-col-office">
-    <span class="task-cell-truncate" title="{{ task.office.office_name if task.office else '—' }}">
-      {{ task.office.office_name if task.office else '—' }}
+  <td class="is-serial">{{ index }}</td>
+  <td>
+    <a
+      href="{{ url_for('tasks.task_detail', task_id=task.id) }}"
+      class="om-task-title"
+      data-task-summary-url="{{ url_for('tasks.task_summary', task_id=task.id) }}"
+      data-task-summary-title="{{ task.task_title }}"
+      title="{{ task.task_title }}"
+    >{{ task.task_title }}</a>
+    {% if task.task_origin %}
+    <span class="om-task-sub">{{ task.task_origin }}</span>
+    {% endif %}
+    {% if task.recurring_template %}
+    <span class="om-task-sub">
+      <i class="bi bi-arrow-repeat"></i> {{ recurrence_summary(task.recurring_template) }}
+      {%- if task.occurrence_date %} · {{ task.occurrence_date.strftime('%d %b %Y') }}{% endif %}
     </span>
+    {% endif %}
   </td>
-  <td class="task-col-actions">
-    <div class="actions-cell task-row-actions">
+  <td><span class="om-pill om-pill-status-{{ task.status|lower|replace(' ', '-') }}">{{ task.status }}</span></td>
+  <td><span class="om-pill om-pill-priority-{{ task.priority|lower }}">{{ task.priority }}</span></td>
+  <td>
+    {{ task.due_date.strftime('%d %b %Y') if task.due_date else '—' }}
+    {% if today and task.due_date and task.due_date < today and task.status not in ['Completed', 'Cancelled'] %}
+    <span class="om-overdue-flag">Overdue</span>
+    {% endif %}
+  </td>
+  <td>{{ task.office.office_name if task.office else '—' }}</td>
+  <td>
+    <div class="om-cell-actions">
       {% if can_reorder_tasks and task.is_active and task.status not in ['Completed', 'Cancelled'] %}
-      <div class="task-reorder-controls">
+      <span class="om-reorder">
         <form method="POST" action="{{ url_for('tasks.reorder_task', task_id=task.id, **filters) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="direction" value="up">
-          <button type="submit" class="btn btn-sm btn-secondary task-reorder-btn" aria-label="Move task up" title="Move up">↑</button>
+          <button type="submit" aria-label="Move task up" title="Move up"><i class="bi bi-arrow-up"></i></button>
         </form>
         <form method="POST" action="{{ url_for('tasks.reorder_task', task_id=task.id, **filters) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="direction" value="down">
-          <button type="submit" class="btn btn-sm btn-secondary task-reorder-btn" aria-label="Move task down" title="Move down">↓</button>
+          <button type="submit" aria-label="Move task down" title="Move down"><i class="bi bi-arrow-down"></i></button>
         </form>
-      </div>
+      </span>
       {% endif %}
       <a
         href="{{ url_for('tasks.task_detail', task_id=task.id) }}"
         class="btn btn-sm btn-secondary"
         data-task-summary-url="{{ url_for('tasks.task_summary', task_id=task.id) }}"
         data-task-summary-title="{{ task.task_title }}"
-      >
-        View
-      </a>
+      >View</a>
       {% if perms.get('can_edit') %}
       <a href="{{ url_for('tasks.edit_task', task_id=task.id) }}" class="btn btn-sm btn-secondary">Edit</a>
       {% endif %}
       {% if perms.get('can_add_update') %}
-      <a href="{{ url_for('tasks.add_task_update', task_id=task.id) }}" class="btn btn-sm btn-primary">Add Update</a>
+      <a href="{{ url_for('tasks.add_task_update', task_id=task.id) }}" class="btn btn-sm btn-primary">Update</a>
       {% endif %}
     </div>
   </td>
 </tr>
 {% endmacro %}
 
-{% macro task_table(task_list, task_permissions, empty_msg, filters, can_reorder_tasks) %}
-<div class="table-responsive task-list-table-wrap">
-  <table class="data-table task-list-table">
+{% macro task_table(task_list, task_permissions, empty_title, empty_msg, filters, can_reorder_tasks, today) %}
+{% if task_list %}
+<div class="om-table-wrap">
+  <table class="om-table">
     <thead>
       <tr>
-        <th class="task-col-title">Title</th>
-        <th class="task-col-status">Status</th>
-        <th class="task-col-priority">Priority</th>
-        <th class="task-col-due">Due Date</th>
-        <th class="task-col-office">Office</th>
-        <th class="task-col-actions">Actions</th>
+        <th class="is-serial">S. No.</th>
+        <th>Task</th>
+        <th>Status</th>
+        <th>Priority</th>
+        <th>Due date</th>
+        <th>Office</th>
+        <th>Actions</th>
       </tr>
     </thead>
     <tbody>
-      {% if task_list %}
-        {% for task in task_list %}
-          {{ task_row(task, task_permissions, filters, can_reorder_tasks) }}
-        {% endfor %}
-      {% else %}
-      <tr>
-        <td colspan="6" class="table-empty-row">
-          {{ empty_msg }}
-        </td>
-      </tr>
-      {% endif %}
+      {% for task in task_list %}
+        {{ task_row(task, task_permissions, filters, can_reorder_tasks, loop.index, today) }}
+      {% endfor %}
     </tbody>
   </table>
 </div>
+{% else %}
+<div class="om-card-body">
+  <div class="om-empty">
+    <i class="bi bi-inbox"></i>
+    <strong>{{ empty_title }}</strong>
+    <p>{{ empty_msg }}</p>
+  </div>
+</div>
+{% endif %}
 {% endmacro %}
 
 {% block content %}
-<div class="page-wrapper">
+<div class="page-wrapper mod-page om-page">
 
-  {% call page_header("Task Tracker", "Track local and global tasks, owners, status, and updates.", "Office Management", "Pilot v1.1", "info") %}
-    {% if is_privileged %}
-    <a href="{{ url_for('tasks.task_dashboard') }}" class="btn btn-secondary">
-      <i class="bi bi-speedometer2"></i>
-      <span>Dashboard</span>
-    </a>
-    {% endif %}
-    <a href="{{ url_for('tasks.create_task') }}" class="btn btn-primary">
-      <i class="bi bi-plus-lg"></i>
-      <span>Create Task</span>
-    </a>
-  {% endcall %}
+  {{ office_nav('list', true) }}
+
+  <div class="om-title">
+    <div>
+      <span>Task Management</span>
+      <h1>Task Register</h1>
+      <p>Every task visible to you — local and global — with status, priority and committed date.</p>
+    </div>
+    <div class="om-title-actions">
+      {% if is_privileged %}
+      <a href="{{ url_for('tasks.task_dashboard') }}" class="btn btn-secondary">
+        <i class="bi bi-speedometer2"></i><span>Dashboard</span>
+      </a>
+      {% endif %}
+      {% if can_create_global %}
+      <a href="{{ url_for('tasks.create_task') }}?scope=GLOBAL" class="btn btn-secondary">
+        <i class="bi bi-globe2"></i><span>Global task</span>
+      </a>
+      {% endif %}
+      <a href="{{ url_for('tasks.create_task') }}" class="btn btn-primary">
+        <i class="bi bi-plus-lg"></i><span>Create task</span>
+      </a>
+    </div>
+  </div>
 
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% for category, message in messages %}
@@ -210,45 +138,52 @@
     {% endfor %}
   {% endwith %}
 
-  <!-- Filters -->
-  <div class="card" style="margin-bottom: 1rem;">
-    <div class="card-body">
-      <form method="GET" action="{{ url_for('tasks.list_tasks') }}"
-            class="task-filter-grid">
-        <div class="form-group" style="margin-bottom: 0;">
-          <label class="form-label" for="filter_scope">Scope</label>
-          <select id="filter_scope" name="scope" class="form-control">
-            <option value="">All Scopes</option>
+  {# ── Filters ──────────────────────────────────────────────── #}
+  <div class="om-card">
+    <div class="om-card-head">
+      <div>
+        <h2><i class="bi bi-funnel"></i> Filters</h2>
+        <p>Narrow the register by scope, status, priority or owner.</p>
+      </div>
+    </div>
+    <div class="om-card-body">
+      <form method="GET" action="{{ url_for('tasks.list_tasks') }}" class="om-toolbar">
+        {% if filters.focus %}<input type="hidden" name="focus" value="{{ filters.focus }}">{% endif %}
+        {% if filters.view %}<input type="hidden" name="view" value="{{ filters.view }}">{% endif %}
+        <div class="om-field">
+          <label for="filter_scope">Scope</label>
+          <select id="filter_scope" name="scope">
+            <option value="">All scopes</option>
             {% for scope in task_scopes %}
             <option value="{{ scope }}" {{ 'selected' if filters.scope == scope }}>
-              {{ 'Local Task' if scope == 'MY' else 'Global Task' }}
+              {{ 'Local task' if scope == 'MY' else 'Global task' }}
             </option>
             {% endfor %}
           </select>
         </div>
-        <div class="form-group" style="margin-bottom: 0;">
-          <label class="form-label" for="filter_status">Status</label>
-          <select id="filter_status" name="status" class="form-control">
-            <option value="">All Statuses</option>
+        <div class="om-field">
+          <label for="filter_status">Status</label>
+          <select id="filter_status" name="status">
+            <option value="">All statuses</option>
             {% for status in task_statuses %}
             <option value="{{ status }}" {{ 'selected' if filters.status == status }}>{{ status }}</option>
             {% endfor %}
           </select>
         </div>
-        <div class="form-group" style="margin-bottom: 0;">
-          <label class="form-label" for="filter_priority">Priority</label>
-          <select id="filter_priority" name="priority" class="form-control">
-            <option value="">All Priorities</option>
+        <div class="om-field">
+          <label for="filter_priority">Priority</label>
+          <select id="filter_priority" name="priority">
+            <option value="">All priorities</option>
             {% for priority in task_priorities %}
             <option value="{{ priority }}" {{ 'selected' if filters.priority == priority }}>{{ priority }}</option>
             {% endfor %}
           </select>
         </div>
         {% if is_privileged %}
-        <div class="form-group" style="margin-bottom: 0;">
-          <label class="form-label" for="filter_owner">Owner</label>
-          <select id="filter_owner" name="owner" class="form-control">
-            <option value="">All Owners</option>
+        <div class="om-field">
+          <label for="filter_owner">Owner</label>
+          <select id="filter_owner" name="owner">
+            <option value="">All owners</option>
             {% for owner in owners %}
             <option value="{{ owner.id }}" {{ 'selected' if filters.owner == owner.id|string }}>
               {{ owner.full_name or owner.username }}
@@ -257,88 +192,99 @@
           </select>
         </div>
         {% endif %}
-        <div class="form-group" style="margin-bottom: 0;">
-          <label class="form-label" style="visibility:hidden;">Apply</label>
-          <div class="task-filter-submit">
+        <div class="om-field">
+          <label>&nbsp;</label>
+          <div class="om-toolbar-actions">
             <button type="submit" class="btn btn-primary btn-sm">Apply</button>
             <a href="{{ url_for('tasks.list_tasks') }}" class="btn btn-secondary btn-sm">Reset</a>
           </div>
         </div>
       </form>
+
+      {% if filters.focus or filters.view %}
+      {% set focus_labels = {
+        'overdue': 'Overdue tasks',
+        'today': 'Tasks due today',
+        'week': 'Tasks due this week',
+        'pending': 'Tasks awaiting progress',
+        'critical': 'Critical open tasks',
+        'unassigned': 'Open tasks with no owner'
+      } %}
+      {% set view_labels = {
+        'my': 'tasks you own or collaborate on',
+        'office': 'your office',
+        'workspace': 'all mapped offices'
+      } %}
+      <div class="om-focus-banner">
+        <b>
+          {{ focus_labels.get(filters.focus, 'Focused view') }}
+          {%- if filters.view %} across {{ view_labels.get(filters.view, filters.view) }}{% endif -%}
+        </b>
+        <a href="{{ url_for('tasks.list_tasks', scope=filters.scope or None, status=filters.status or None, priority=filters.priority or None, owner=filters.owner or None) }}">Clear focus</a>
+      </div>
+      {% endif %}
     </div>
   </div>
 
   {% if filters.scope %}
-  {# ── Filtered view (single scope) ───────────────────── #}
-  <div class="card">
-    <div class="table-card-header">
+  {# ── Filtered view (single scope) ─────────────────────────── #}
+  <div class="om-card">
+    <div class="om-card-head">
       <div>
-        <div class="table-card-title">Filtered: {{ 'Local' if filters.scope == 'MY' else 'Global' }} Tasks</div>
-        <div class="table-card-subtitle">{{ tasks|length }} result{{ '' if tasks|length == 1 else 's' }}</div>
+        <h2>
+          <i class="bi bi-{{ 'person' if filters.scope == 'MY' else 'globe2' }}"></i>
+          {{ 'Local' if filters.scope == 'MY' else 'Global' }} tasks
+        </h2>
+        <p>{{ active_tasks|length }} active result{{ '' if active_tasks|length == 1 else 's' }} for the selected filters.</p>
       </div>
+      <span class="om-count-chip">{{ active_tasks|length }}</span>
     </div>
-    {{ task_table(active_tasks, task_permissions, 'No active tasks found for the selected filters.', filters, can_reorder_tasks) }}
+    {{ task_table(active_tasks, task_permissions, 'No matching tasks', 'No active tasks match the selected filters.', filters, can_reorder_tasks, today) }}
   </div>
-
-  {% if archived_tasks %}
-  <details class="task-archive-panel" style="margin-top: 1rem;">
-    <summary class="task-archive-summary">
-      Archived / Completed Tasks
-      <span class="task-count-badge">{{ archived_tasks|length }}</span>
-    </summary>
-    <div class="card" style="margin-top: 0.85rem;">
-      {{ task_table(archived_tasks, task_permissions, 'No archived tasks found for the selected filters.', filters, can_reorder_tasks) }}
-    </div>
-  </details>
-  {% endif %}
 
   {% else %}
-  {# ── Sectioned view (all scopes) ─────────────────────── #}
-
-  {# GLOBAL section #}
-  <div class="task-section" style="margin-bottom: 1.5rem;">
-    <div class="task-section-header">
-      <span class="scope-icon">🌐</span>
-      <h2 class="task-section-title">Global Tasks</h2>
-      <span class="task-count-badge">{{ global_tasks|length }}</span>
-      <span class="task-section-info">Visible to all users with Task Tracker access</span>
-      {% if can_create_global %}
-      <a href="{{ url_for('tasks.create_task') }}?scope=GLOBAL" class="btn btn-sm btn-secondary task-section-action">+ Global</a>
-      {% endif %}
+  {# ── Sectioned view (all scopes) ──────────────────────────── #}
+  <div class="om-card">
+    <div class="om-card-head">
+      <div>
+        <h2><i class="bi bi-globe2"></i> Global tasks</h2>
+        <p>Visible to every user with Task Management access.</p>
+      </div>
+      <span class="om-count-chip">{{ global_tasks|length }}</span>
     </div>
-    <div class="card">
-      {{ task_table(global_tasks, task_permissions, 'No global tasks at this time.', filters, can_reorder_tasks) }}
-    </div>
+    {{ task_table(global_tasks, task_permissions, 'No global tasks', 'No global tasks have been raised at this time.', filters, can_reorder_tasks, today) }}
   </div>
 
-  {# MY TASKS section #}
-  <div class="task-section" style="margin-bottom: 1.5rem;">
-    <div class="task-section-header">
-      <span class="scope-icon">👤</span>
-      <h2 class="task-section-title">Self and Local Tasks</h2>
-      <span class="task-count-badge">{{ my_tasks|length }}</span>
-      <span class="task-section-info">Includes your own tasks and local tasks shared across officer workflows</span>
+  <div class="om-card">
+    <div class="om-card-head">
+      <div>
+        <h2><i class="bi bi-person"></i> Self and local tasks</h2>
+        <p>Your own tasks, plus local tasks shared across officer workflows.</p>
+      </div>
+      <span class="om-count-chip">{{ my_tasks|length }}</span>
     </div>
-    <div class="card">
-      {{ task_table(my_tasks, task_permissions, 'No self or local tasks are visible to you at this time.', filters, can_reorder_tasks) }}
-    </div>
+    {{ task_table(my_tasks, task_permissions, 'No local tasks', 'No self or local tasks are visible to you at this time.', filters, can_reorder_tasks, today) }}
   </div>
-
-  {% if archived_tasks %}
-  <details class="task-archive-panel">
-    <summary class="task-archive-summary">
-      Archived / Completed Tasks
-      <span class="task-count-badge">{{ archived_tasks|length }}</span>
-    </summary>
-    <div class="task-archive-note">
-      Completed, cancelled, and removed-from-active tasks are kept here for reference.
-    </div>
-    <div class="card" style="margin-top: 0.85rem;">
-      {{ task_table(archived_tasks, task_permissions, 'No archived tasks are available.', filters, can_reorder_tasks) }}
-    </div>
-  </details>
   {% endif %}
 
+  {% if archived_tasks %}
+  <div class="om-section-heading">
+    <div>
+      <span>Archive</span>
+      <h2>Completed and closed tasks</h2>
+      <p>Completed, cancelled, and removed-from-active tasks are kept here for reference.</p>
+    </div>
+  </div>
+  <div class="om-card">
+    <div class="om-card-head">
+      <div>
+        <h2><i class="bi bi-archive"></i> Archived tasks</h2>
+        <p>Read-only history for the current filter selection.</p>
+      </div>
+      <span class="om-count-chip">{{ archived_tasks|length }}</span>
+    </div>
+    {{ task_table(archived_tasks, task_permissions, 'Nothing archived', 'No archived tasks are available for these filters.', filters, can_reorder_tasks, today) }}
+  </div>
   {% endif %}
 
 </div>

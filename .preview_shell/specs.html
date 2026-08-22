@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Corporate Specifications Management — ONGC Digital Workspace</title>
+    <script nonce="">
+        (function () {
+            const storageKey = "ongc-theme";
+            const savedTheme = localStorage.getItem(storageKey);
+            const theme = savedTheme === "dark" ? "dark" : "light";
+            document.documentElement.setAttribute("data-theme", theme);
+        })();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="static/css/style.css?v=1787379816">
+    <link rel="stylesheet" href="static/css/module_shell.css?v=1787379816">
+    <link rel="stylesheet" href="static/css/corporate_specifications.css?v=1787379816">
+</head>
+<body class="app-authenticated">
+    
+    <div class="workspace-shell">
+        <aside class="workspace-sidebar">
+            <a href="/" class="workspace-logo" aria-label="ONGC Digital Workspace">
+                <img
+                    class="org-logo workspace-emblem"
+                    src="static/images/ongc-corporate-chemistry-logo.png"
+                    alt="ONGC Corporate Chemistry emblem"
+                >
+            </a>
+
+            <nav class="workspace-rail" aria-label="Primary workspace">
+                <a
+                    href="/dashboard"
+                    class="workspace-rail-item is-active"
+                    aria-label="Dashboard"
+                    title="Dashboard"
+                >
+                    <span class="workspace-rail-icon" aria-hidden="true"><i class="bi bi-grid-1x2"></i></span>
+                    <span class="workspace-rail-label sr-only">Dashboard</span>
+                    <span class="workspace-hover-label" aria-hidden="true">Dashboard</span>
+                </a>
+
+                
+
+                <button
+                    type="button"
+                    class="workspace-rail-item theme-toggle js-theme-toggle"
+                    aria-label="Toggle color theme"
+                    title="Light or dark mode"
+                    aria-pressed="false"
+                >
+                    <span class="workspace-rail-icon theme-toggle-icon" aria-hidden="true">◐</span>
+                    <span class="workspace-rail-label theme-toggle-label sr-only">Theme</span>
+                    <span class="workspace-hover-label theme-toggle-label" aria-hidden="true">Theme</span>
+                </button>
+            </nav>
+
+            <button
+                type="button"
+                class="workspace-more-toggle js-sidebar-toggle"
+                aria-controls="workspace-flyout"
+                aria-expanded="false"
+                aria-label="Open workspace menu"
+                title="More"
+            >
+                <span class="workspace-rail-icon" aria-hidden="true"><i class="bi bi-layout-sidebar-inset"></i></span>
+                <span class="workspace-rail-label sr-only">More</span>
+                <span class="workspace-hover-label" aria-hidden="true">More</span>
+            </button>
+        </aside>
+
+        <aside class="workspace-flyout" id="workspace-flyout" aria-hidden="true">
+            <div class="workspace-flyout-header">
+                <div>
+                    <div class="workspace-flyout-title">Workspace</div>
+                    <div class="workspace-flyout-subtitle">Modules and account actions</div>
+                </div>
+                <button type="button" class="workspace-flyout-close js-sidebar-toggle" aria-label="Close workspace menu">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+
+            <div class="workspace-profile-card">
+                <div class="workspace-profile-name">Preview User</div>
+                <div class="workspace-profile-meta">preview</div>
+                
+            </div>
+
+            <div class="workspace-flyout-section">
+                <div class="workspace-flyout-heading">Modules</div>
+                <nav class="workspace-flyout-nav" aria-label="Secondary workspace">
+                    
+                    <div class="workspace-flyout-empty">No additional modules assigned.</div>
+                    
+                </nav>
+            </div>
+
+            <div class="workspace-flyout-section">
+                <div class="workspace-flyout-heading">Account</div>
+                <div class="workspace-flyout-nav">
+                    <a
+                        href="/change-password"
+                        class="nav-link-pill workspace-flyout-link "
+                    >
+                        <span class="nav-link-icon" aria-hidden="true"><i class="bi bi-key"></i></span>
+                        <span>Change Password</span>
+                    </a>
+                    <a href="/logout" class="nav-link-pill workspace-flyout-link">
+                        <span class="nav-link-icon" aria-hidden="true"><i class="bi bi-box-arrow-right"></i></span>
+                        <span>Logout</span>
+                    </a>
+                </div>
+            </div>
+
+            <div class="flyout-signature" aria-label="Current time in India">
+                <div class="flyout-sig-cities">Calcutta &middot; Madras</div>
+                <div class="flyout-sig-time js-ist-clock" aria-live="polite">--:--:--</div>
+                <div class="flyout-sig-tz">India Standard Time &nbsp;·&nbsp; UTC+5:30</div>
+            </div>
+        </aside>
+
+        <button type="button" class="workspace-backdrop js-sidebar-toggle" aria-label="Close workspace menu"></button>
+
+        <main class="workspace-main">
+    
+
+    
+    <div class="workspace-header-band">
+        <div class="workspace-header-band-copy">
+            <div class="workspace-header-title">ONGC Corporate Chemistry</div>
+        </div>
+        <div class="workspace-header-band-meta">
+            <span class="workspace-header-chip workspace-header-chip-version">V2.0</span>
+            
+        </div>
+    </div>
+    
+
+    
+
+    <div class="container">
+        
+        
+            
+        
+
+        <div class="page-wrapper mod-page is-specs cs-page">
+  
+<nav class="mod-nav" aria-label="Corporate Specifications navigation">
+  <a class="is-active" href="/csc/"><i class="bi bi-house-door"></i><span>Specification home</span></a>
+  <a class="" href="/csc/master-export"><i class="bi bi-file-earmark-arrow-down"></i><span>Master Export</span></a>
+  <a class="" href="/csc/msds"><i class="bi bi-file-earmark-pdf"></i><span>MSDS Center</span></a>
+</nav>
+
+
+  <section class="mod-hero">
+    <div>
+      <span class="mod-kicker"><i class="bi bi-journal-bookmark"></i> Corporate Chemistry · Specifications</span>
+      <h1>Corporate<br><em>Specifications</em></h1>
+      <p>Every ONGC oil-field chemical specification in force, grouped by chemical category. Open a category to read the specification sheet, its parameters and its revision history.</p>
+    </div>
+    <aside>
+      <span>Chemicals on the register</span>
+      <strong>412</strong>
+      <hr>
+      <span>Specifications in force</span>
+      <strong>388</strong>
+      <hr>
+      <span>Last revised</span>
+      <strong>—</strong>
+    </aside>
+  </section>
+
+  <section class="mod-stats">
+    <div class="mod-stat"><span>Specification parameters</span><strong>6,120</strong><small>Across all specifications in force</small></div>
+    <div class="mod-stat"><span>Chemical categories</span><strong>0</strong><small>Register categories with mapped chemicals</small></div>
+    <div class="mod-stat"><span>Awaiting parameters</span><strong>24</strong><small>Register chemicals with no parameters entered yet</small></div>
+    <div class="mod-stat"><span>Off-register specifications</span><strong>7</strong><small>Held in the system but not on the register</small></div>
+  </section>
+
+  <div class="mod-section-heading">
+    <div>
+      <span>Browse by category</span>
+      <h2>Chemical categories</h2>
+      <p>Categories come from the corporate specification register that QC Laboratory Monitoring maintains and Inventory Monitoring reads — one list, used everywhere.</p>
+    </div>
+  </div>
+  <section class="cs-tiles">
+    
+  </section>
+
+  <div class="cs-section-heading">
+    <div>
+      <span>Module tools</span>
+      <h2>Export and safety documents</h2>
+      <p>Download the consolidated register, or manage the material safety data sheets held against each material code.</p>
+    </div>
+  </div>
+  <section class="cs-utility">
+    <a href="/csc/master-export">
+      <i class="bi bi-file-earmark-arrow-down"></i>
+      <span><strong>Master Export</strong><small>The whole register as a workbook, or the consolidated specification document in ONGC Format A.</small></span>
+    </a>
+    <a href="/csc/msds">
+      <i class="bi bi-file-earmark-pdf"></i>
+      <span><strong>MSDS Center</strong><small>ONGC and vendor material safety data sheets, one standard slot and three vendor slots per material.</small></span>
+    </a>
+  </section>
+</div>
+    </div>
+
+    <div class="app-dialog-overlay" id="appDialogOverlay" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="appDialogTitle">
+        <div class="app-dialog">
+            <div class="app-dialog-header">
+                <div class="app-dialog-icon is-info" id="appDialogIcon" aria-hidden="true">
+                    <i class="bi bi-info-circle"></i>
+                </div>
+                <div class="app-dialog-copy">
+                    <span class="app-dialog-eyebrow" id="appDialogEyebrow">ONGC Digital Workspace</span>
+                    <h2 class="app-dialog-title" id="appDialogTitle">Notification</h2>
+                </div>
+            </div>
+            <div class="app-dialog-body" id="appDialogBody"></div>
+            <div class="app-dialog-footer">
+                <button type="button" class="btn btn-primary" id="appDialogConfirm">Continue</button>
+            </div>
+        </div>
+    </div>
+
+    <footer class="site-footer">
+        <span>&copy; ONGC Digital Workspace &mdash; Pilot: Corporate Chemistry</span>
+    </footer>
+
+    
+        </main>
+    </div>
+    
+
+    <script nonce="" src="static/js/main.js"></script>
+    
+    <script nonce="">
+        (function () {
+            var overlay = document.getElementById('appDialogOverlay');
+            var iconShell = document.getElementById('appDialogIcon');
+            var eyebrow = document.getElementById('appDialogEyebrow');
+            var title = document.getElementById('appDialogTitle');
+            var body = document.getElementById('appDialogBody');
+            var confirmButton = document.getElementById('appDialogConfirm');
+            if (!overlay || !iconShell || !eyebrow || !title || !body || !confirmButton) return;
+
+            var activeDialog = null;
+            var dialogQueue = [];
+            var toneConfig = {
+                success: { eyebrow: 'ONGC Digital Workspace', icon: 'check-circle', fallbackTitle: 'Action completed' },
+                warning: { eyebrow: 'Attention', icon: 'exclamation-triangle', fallbackTitle: 'Review required' },
+                danger: { eyebrow: 'Action Required', icon: 'x-circle', fallbackTitle: 'Action failed' },
+                info: { eyebrow: 'ONGC Digital Workspace', icon: 'info-circle', fallbackTitle: 'Notification' }
+            };
+
+            function getVisibleBlockingModal() {
+                return document.querySelector('.workspace-welcome-overlay:not(.hidden)');
+            }
+
+            function normalizeDialogOptions(options) {
+                var tone = (options && options.tone) || 'info';
+                if (!toneConfig[tone]) tone = 'info';
+                return {
+                    tone: tone,
+                    title: (options && options.title) || toneConfig[tone].fallbackTitle,
+                    message: (options && (options.message || options.body)) || '',
+                    confirmLabel: (options && options.confirmLabel) || 'Continue'
+                };
+            }
+
+            function renderDialog(dialogOptions) {
+                var config = toneConfig[dialogOptions.tone];
+                iconShell.className = 'app-dialog-icon is-' + dialogOptions.tone;
+                iconShell.innerHTML = '<i class="bi bi-' + config.icon + '"></i>';
+                eyebrow.textContent = config.eyebrow;
+                title.textContent = dialogOptions.title;
+                body.textContent = dialogOptions.message;
+                confirmButton.textContent = dialogOptions.confirmLabel;
+                overlay.classList.add('is-active');
+                overlay.setAttribute('aria-hidden', 'false');
+                document.body.classList.add('app-dialog-open');
+                confirmButton.focus();
+            }
+
+            function drainDialogQueue() {
+                if (activeDialog || !dialogQueue.length) return;
+                if (getVisibleBlockingModal()) {
+                    window.setTimeout(drainDialogQueue, 250);
+                    return;
+                }
+                activeDialog = dialogQueue.shift();
+                renderDialog(activeDialog.options);
+            }
+
+            function closeActiveDialog() {
+                if (!activeDialog) return;
+                overlay.classList.remove('is-active');
+                overlay.setAttribute('aria-hidden', 'true');
+                document.body.classList.remove('app-dialog-open');
+                var resolver = activeDialog.resolve;
+                activeDialog = null;
+                if (typeof resolver === 'function') resolver();
+                drainDialogQueue();
+            }
+
+            window.showAppDialog = function (options) {
+                return new Promise(function (resolve) {
+                    dialogQueue.push({
+                        options: normalizeDialogOptions(options || {}),
+                        resolve: resolve
+                    });
+                    drainDialogQueue();
+                });
+            };
+
+            confirmButton.addEventListener('click', closeActiveDialog);
+            overlay.addEventListener('click', function (event) {
+                if (event.target === overlay) {
+                    closeActiveDialog();
+                }
+            });
+            document.addEventListener('keydown', function (event) {
+                if (event.key === 'Escape' && activeDialog) {
+                    closeActiveDialog();
+                }
+            });
+
+            Array.prototype.slice.call(document.querySelectorAll('.flash-area')).forEach(function (area) {
+                area.querySelectorAll('.flash').forEach(function (flashNode) {
+                    var tone = 'info';
+                    ['success', 'warning', 'danger', 'info'].some(function (candidate) {
+                        if (flashNode.classList.contains('flash-' + candidate)) {
+                            tone = candidate;
+                            return true;
+                        }
+                        return false;
+                    });
+
+                    var clone = flashNode.cloneNode(true);
+                    clone.querySelectorAll('.flash-close').forEach(function (button) {
+                        button.remove();
+                    });
+                    var message = clone.textContent.trim();
+                    if (message) {
+                        window.showAppDialog({ tone: tone, message: message });
+                    }
+                });
+                area.hidden = true;
+            });
+        })();
+    </script>
+    
+    
+</body>
+</html>

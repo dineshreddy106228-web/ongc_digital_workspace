@@ -72,19 +72,26 @@ WORKFLOW_DRAFTING_STATE_OPTIONS = [
 ]
 DEFAULT_PREPARED_BY = "Dinesh Reddy_106228"
 
-# Spec subset ordering
-SPEC_SUBSET_ORDER = ["DFC", "CCA", "WCF", "WS", "PC", "WIC", "WM", "UTL", "LPG"]
+# Canonical corporate-specification category order.  All catalogue, inventory
+# and export views read this one sequence so the categories never drift.
+SPEC_SUBSET_ORDER = ["DFC", "CCA", "WCF", "WS", "PC", "WIC", "WM", "UTL", "LPG", "API"]
 SPEC_SUBSET_LABELS = {
     "DFC": "Drilling Fluid Chemicals",
-    "CCA": "Cement & Cement Additive",
-    "WCF": "Well Completion Fluid",
+    "CCA": "Cement and Cement Additives",
+    "WCF": "Well Completion Fluids",
     "WS": "Well Stimulation Chemicals",
     "PC": "Production Chemicals",
     "WIC": "Water Injection Chemicals",
     "WM": "Well Maker Chemicals",
     "UTL": "Utility Chemicals",
-    "LPG": "Plant Chemiclas (LPG)",
+    "LPG": "LPG Chemicals",
+    "API": "API Grade Chemicals",
 }
+
+
+def is_api_grade_chemical(name: object) -> bool:
+    """Identify the legacy register rows whose category is encoded in their name."""
+    return "api grade" in str(name or "").casefold()
 
 # Admin stage constants
 ADMIN_STAGE_DRAFTING = "drafting"

@@ -74,7 +74,7 @@ MODULES = [
     },
     {
         "key": "office_management",
-        "name": "Office Management",
+        "name": "Task Management",
         "permission_code": "tasks",
         "blueprint_import": "app.modules.office:office_bp",
         "url_prefix": "/tasks",
@@ -85,7 +85,7 @@ MODULES = [
         "roles_allowed": [ADMIN_ROLE, SUPERUSER_ROLE, USER_ROLE],
         "status": "active",
         "description": "Task tracking and office workflow management",
-        "nav_label": "Task Tracker",
+        "nav_label": "Task Management",
         "icon": "🏢",
     },
     {
@@ -133,24 +133,8 @@ MODULES = [
         "roles_allowed": [ADMIN_ROLE, SUPERUSER_ROLE, USER_ROLE],
         "status": "active",
         "description": "Corporate specification register by chemical category, parameter records with versioned revisions, master export, and the MSDS Center",
-        "nav_label": "Corporate Specs",
+        "nav_label": "Corporate Specifications Management",
         "icon": "🔬",
-    },
-    {
-        "key": "committee",
-        "name": "Committee Management",
-        "permission_code": "committee",
-        "blueprint_import": "app.modules.committee:committee_bp",
-        "url_prefix": "/committee",
-        "endpoint": "committee.list_tasks",
-        "feature_flag": None,
-        "nav_visible": True,
-        "dashboard_visible": True,
-        "roles_allowed": [ADMIN_ROLE, SUPERUSER_ROLE, USER_ROLE],
-        "status": "active",
-        "description": "Committee directory and task management with mapped heads, member assignment, comments, and attachments",
-        "nav_label": "Committee Management",
-        "icon": "🏛️",
     },
     {
         "key": "reports",
@@ -180,8 +164,8 @@ MODULES = [
         "roles_allowed": [ADMIN_ROLE, SUPERUSER_ROLE, USER_ROLE],
         "status": "active",
         "description": "Weekly quality-control sample monitoring, turnaround review, and management reporting",
-        "nav_label": "QC Laboratory",
-        "icon": "🧪",
+        "nav_label": "QC Laboratory Monitoring",
+        "icon": "⚗️",
     },
     {
         "key": "forecasting",
@@ -239,6 +223,17 @@ def _to_definition(module: dict) -> ModuleDefinition:
 MODULE_DEFINITIONS = tuple(_to_definition(module) for module in MODULES)
 MODULES_BY_KEY = {module.key: module for module in MODULE_DEFINITIONS}
 MODULES_BY_CODE = {module.code: module for module in MODULE_DEFINITIONS}
+NAV_MODULE_ORDER = (
+    "office_management",
+    "inventory",
+    "quality_control",
+    "csc_workflow",
+    "manpower_planning",
+    "reports",
+    "forecasting",
+    "admin_users",
+)
+NAV_MODULE_ORDER_INDEX = {key: index for index, key in enumerate(NAV_MODULE_ORDER)}
 FEATURE_CONTROLLED_MODULES = tuple(
     module.code for module in MODULE_DEFINITIONS if module.feature_flag
 )
@@ -406,7 +401,10 @@ def _user_cache_version(user: "User") -> str:
 
 def _build_nav_modules(user, app=None) -> list[dict]:
     modules = []
-    for definition in MODULE_DEFINITIONS:
+    for definition in sorted(
+        MODULE_DEFINITIONS,
+        key=lambda module: NAV_MODULE_ORDER_INDEX.get(module.key, len(NAV_MODULE_ORDER)),
+    ):
         if not definition.nav_visible:
             continue
         if not definition.endpoint:

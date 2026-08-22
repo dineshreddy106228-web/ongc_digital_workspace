@@ -22,8 +22,10 @@ kept in history and marks the prior batch as superseded rather than deleting it.
 
 - `stock_months_warning`: 6 months (default)
 - `stock_months_critical`: 12 months (default)
-- held-but-unmapped materials, mapped-but-not-held materials, high stock
-  coverage, and open PO/PR with high stock coverage create exceptions.
+- high stock coverage, low stock coverage, and open PO/PR against high stock
+  coverage create exceptions.
+- only stock lines carrying an inventory value above zero are monitored; a nil
+  or blank value is listed in the import notes and left out of every figure.
 
 Super-users may update the stock-month thresholds in Administration. Threshold
 changes apply to future imports; prior batches remain auditable snapshots.
@@ -40,7 +42,7 @@ but absent from the list is grouped as **Not in Corporate Specification List**.
 Each tile opens the material register filtered to that category.
 
 Every table that lists materials — the health register, each work-centre
-register, the material register, the mapping review queue, and the register
+register, the material register, and the register
 tables in both decks — is ordered by specification category and then by
 specification serial (DFC / 01, DFC / 02, then PC / 01), under a sub-heading per
 category, with **Not in Corporate Specification List** last. In the decks a
@@ -90,39 +92,32 @@ book from the health and work-centre views — so the readers treat it as live,
 `import_workbook` repairs any such row before each import, and migration
 `f8a9b0c1d2e` clears the ones already stored.
 
-## Mapping review reflects the current mapping
+## Mapping comes from the uploaded inventory
 
-Mapping exceptions are written when an inventory workbook is imported, judged
-against the mapping in force at that moment. Importing the mapping workbook
-*after* the group workbooks therefore left every held line queued as
-"held but not mapped" — the whole portfolio — while the pages excluded a quite
-different set.
+Work-centre mapping is not declared ahead of the inventory. Every imported stock
+line maps its material to the work centre reporting it, so nothing is held back
+as a "held but not mapped" technical exception for a super-user to clear, and no
+figure on any page is gated on a mapping decision. Materials with no current
+corporate specification are already shown separately, under **Not in Corporate
+Specification List**, which is where an unfamiliar code surfaces.
 
-Importing a mapping workbook now rebuilds those rows
-(`rebuild_mapping_exceptions`), keeping every decision already recorded, and
-super-users can rebuild on demand from **Rebuild now** on the review page. The
-queue is ranked by value, with the total count and value stated above it, so the
-largest exposure is reviewed first.
+The mapping workbook remains the **work-centre directory**: it supplies zones,
+work-centre names and the DFS / ST unit split used by the asset map and the unit
+filter. It no longer declares which material may be held where.
 
-Filter the queue by material code or description, by work centre, and by a
-minimum value in crore. The filters carry through the status tabs, the CSV
-export and the bulk decision — **the bulk buttons act on the filtered set only**,
-and say how many rows that is, so "accept everything pending" is a deliberate
-choice rather than the default blast radius.
+The material register's **mapped plant / work centre** column is read straight
+from the latest published Group 09 and Group 10 workbooks — wherever they report
+stock, the material is mapped there — and the register is numbered so a row can
+be cited by serial.
 
-Decisions can be taken three ways, all through the same code path
-(`_apply_mapping_decision`): a single row's buttons, ticking rows and using
-**Add selected to mapping** (the header tick box takes every pending row on the
-page), or the filtered bulk buttons. One selection produces one auditable
-`mapping_manual` batch, whatever its size.
+The super-user "Add to active mapping" form, the "Add a plant or work centre"
+control and the per-material **Remove** action are retired with the same
+reasoning: a mapping that can be declared by hand is a pre-mapping, and it would
+have no effect on a register read from the workbooks.
 
-### An accepted mapping is permanent
-
-Accepting a candidate writes the pair to a `mapping_manual` batch, and a mapping
-workbook import only replaces pairs that came from a workbook. A pair a
-super-user approved therefore stays mapped through every later mapping and
-inventory import and is never queued again; it is removed only by hand, from the
-material's page in the mapping register.
+Migration `a2b3c4d5e6f8` retires the declared pairs on an existing install:
+workbook-sourced mappings are stood down, the mapping is restated from the
+imported records, and the mapping exceptions they produced are deleted.
 
 ## Comparing an as-on date with an earlier one
 
@@ -174,16 +169,27 @@ source-reported cases that were already there. **Download presentation** exports
 the same content for that centre, honouring the DFS / ST unit filter and the
 chosen comparison date.
 
-Mappings are added only in **Material Monitoring**; an individual material's
-page shows its mappings and can remove one, but no longer offers an add form.
+Mapping is not edited by hand anywhere: there is no add form and no remove
+action. A material's page lists the work centres that have reported stock of it,
+and that list changes only by importing a workbook.
 
-Only mapped work-centre / material pairs count; stock held on unmapped material
-is stated on the page and in the deck with its value, never dropped silently, so
-a centre's total reconciles to the portfolio figure. A centre's view uses the
+Every stock line the workbooks report at a centre counts, so a centre's total
+reconciles to the portfolio figure without qualification. A centre's view uses the
 latest **reporting date** it holds per material group from a non-superseded
 batch — a back-dated import never displaces a later one. Its like-for-like
 movement is netted at material level, with materials held in only one of the two
 dates reported separately.
+
+## Shared module chrome
+
+Every page in the module renders the house shell from
+`app/static/css/module_shell.css` — the pill module nav, the gradient hero with
+its stat aside, the stat row, the section headings and the workbench tiles —
+which Corporate Specifications, QC Laboratory Monitoring and Office Management
+also use. The module supplies only its accent, through `mod-page is-inventory`
+on the page wrapper; everything else is one definition, so the four modules
+cannot drift apart. Inventory-specific components stay in
+`inventory_monitoring.css`.
 
 ## Migration and legacy retirement
 

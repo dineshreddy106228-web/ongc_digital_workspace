@@ -252,7 +252,7 @@ def build_management_review_presentation(static_folder: str, reporting_date: dat
         (_crore(kpis["stockout_value"]), "Stock-out exposure", RED, f"{kpis['stockout_share']}% at or below low-stock coverage"),
         (f"{len(data['high_value_materials']):,}", "Materials above ₹ 1 Cr", TEAL, f"{_crore(data['high_value_total'])} held in these materials"),
         (f"{kpis['top5_share']}%", "Held by top five work centres", INK, f"{kpis['centre_count']:,} work centres reporting stock"),
-        (f"{kpis['mapped_share']}%", "Value on approved mappings", TEAL, "Stock held on work-centre / material pairs in the current mapping workbook"),
+        (f"{kpis['material_count']:,}", "Materials reporting stock", TEAL, f"Across {kpis['record_count']:,} stock lines in this period"),
     ]
     for index, (value, label, tone, note) in enumerate(cards):
         deck.metric(slide, .6 + (index % 3) * 4.2, 1.62 + (index // 3) * 2.15, value, label, tone, note)
@@ -424,14 +424,11 @@ def build_work_centre_review_presentation(static_folder: str, work_center_id: in
     ]
     for index, (value, label, tone, note) in enumerate(cards):
         deck.metric(slide, .6 + (index % 3) * 4.2, 1.62 + (index // 3) * 2.15, value, label, tone, note)
-    unmapped = data.get("unmapped") or {"count": 0, "value": Decimal("0"), "materials": 0}
-    if unmapped["count"] and not data["selected_unit"]:
-        deck.add_text(slide, f"Excluded: {unmapped['count']:,} stock lines ({unmapped['materials']:,} materials, {_crore(unmapped['value'])}) are held here on material the current mapping workbook does not link to this centre.", .6, 5.88, 12.1, .3, 12, AMBER, wrap=True)
     dates = {value for value in data["as_on_by_group"].values() if value}
     mixed = "; ".join(f"Group {group} as on {value:%d %b %Y}" for group, value in sorted(data["as_on_by_group"].items()) if value)
     deck.add_text(
         slide,
-        f"Mixed source dates in this view — {mixed}." if len(dates) > 1 else "Groups 09 and 10 are counted together throughout this deck; only mapped material at this work centre is included.",
+        f"Mixed source dates in this view — {mixed}." if len(dates) > 1 else "Groups 09 and 10 are counted together throughout this deck; every stock line reported at this work centre is included.",
         .6, 6.2, 12.1, .3, 12, AMBER if len(dates) > 1 else GREY, wrap=True,
     )
 

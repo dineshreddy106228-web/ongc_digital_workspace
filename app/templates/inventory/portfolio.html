@@ -3,7 +3,7 @@
 {% macro delta(cur, prev) %}{% if prev is not none %}{% set d = (cur or 0) - (prev or 0) %}{% if d > 0 %}<span class="im-delta is-up"><i class="bi bi-arrow-up-short"></i>{{ cr(d) }}</span>{% elif d < 0 %}<span class="im-delta is-down"><i class="bi bi-arrow-down-short"></i>{{ cr(-d) }}</span>{% else %}<span class="im-delta is-flat">No change</span>{% endif %}{% else %}<span class="im-delta is-flat">New this period</span>{% endif %}{% endmacro %}
 {% macro share(value) %}<div class="im-share-cell"><div class="im-share-track"><i style="width:{{ value }}%"></i></div><b>{{ value }}%</b></div>{% endmacro %}
 {% from "inventory/_monitoring_nav.html" import monitoring_nav %}
-{% block content %}<div class="page-wrapper im-page">
+{% block content %}<div class="page-wrapper mod-page is-inventory im-page">
   {{ monitoring_nav('review') }}
   <section class="im-pf-hero">
     <div>
@@ -63,13 +63,7 @@
       <span>Open exceptions</span>
       <strong>{{ kpis.exception_total }}</strong>
       {% if kpis.prev_exception_total is not none %}{% set d = kpis.exception_total - kpis.prev_exception_total %}<span class="im-delta {{ 'is-up' if d > 0 else ('is-down' if d < 0 else 'is-flat') }}">{{ '▲' if d > 0 else ('▼' if d < 0 else '') }} {{ d|abs }} vs comparison</span>{% else %}<span class="im-delta is-flat">No comparison</span>{% endif %}
-      <small>{{ kpis.critical_exceptions }} critical · {{ kpis.pending_reviews }} awaiting mapping review</small>
-    </article>
-    <article class="im-pf-kpi">
-      <span>Mapping coverage</span>
-      <strong>{{ kpis.mapped_share }}%</strong>
-      <span class="im-delta is-flat">of value on approved pairs</span>
-      <small>Stock held on work-centre / material pairs in the current mapping workbook</small>
+      <small>{{ kpis.critical_exceptions }} critical stock-coverage findings</small>
     </article>
     <article class="im-pf-kpi">
       <span>Concentration</span>
@@ -148,7 +142,7 @@
       </table></div>
     </div></section>
     <section class="card im-pf-card"><div class="card-body">
-      <div class="im-section-heading"><div><span>Exception register</span><h2>Exception profile</h2></div><a class="btn btn-outline-primary btn-sm" href="{{ url_for('inventory.exceptions') }}">Open register</a></div>
+      <div class="im-section-heading"><div><span>Exception register</span><h2>Exception profile</h2></div></div>
       <div class="im-pf-sev">
         {% for sev in ('critical', 'high', 'medium', 'low') %}{% if exception_severities.get(sev) %}<span class="im-severity im-{{ sev }}">{{ sev }} · {{ exception_severities[sev] }}</span>{% endif %}{% endfor %}
         {% if not exception_severities %}<span class="im-pf-muted">No exceptions raised for this period.</span>{% endif %}
@@ -164,9 +158,9 @@
   </div>
 
   <section class="card im-pf-card"><div class="card-body">
-    <div class="im-section-heading"><div><span>Highest value first</span><h2>Exceptions requiring attention</h2><p>The largest open exceptions for this reporting date, with review status for mapping issues.</p></div></div>
+    <div class="im-section-heading"><div><span>Highest value first</span><h2>Exceptions requiring attention</h2><p>The largest open stock-coverage and source-register exceptions for this reporting date.</p></div></div>
     <div class="im-table-wrap"><table class="im-pf-table">
-      <thead><tr><th>Severity</th><th>Exception</th><th>Work centre</th><th>Material</th><th class="im-num">Value</th><th class="im-num">Months</th><th>Review</th></tr></thead>
+      <thead><tr><th>Severity</th><th>Exception</th><th>Work centre</th><th>Material</th><th class="im-num">Value</th><th class="im-num">Months</th></tr></thead>
       <tbody>
         {% for item in exceptions %}<tr>
           <td><span class="im-severity im-{{ item.severity }}">{{ item.severity }}</span></td>
@@ -175,8 +169,7 @@
           <td>{% if item.material %}<span class="im-material-code">{{ item.material.material_code }}</span>{% else %}—{% endif %}</td>
           <td class="im-num im-value">{{ cr(item.inventory_value_inr) }}</td>
           <td class="im-num">{{ item.stock_months if item.stock_months is not none else '—' }}</td>
-          <td>{% if item.review_status == 'pending' %}<span class="im-status im-status-muted">Pending review</span>{% elif item.review_status in ('accepted', 'rejected') %}<span class="im-status im-status-success">{{ item.review_status|capitalize }}</span>{% else %}—{% endif %}</td>
-        </tr>{% else %}<tr class="im-pf-empty-row"><td colspan="7">No exceptions for this period.</td></tr>{% endfor %}
+        </tr>{% else %}<tr class="im-pf-empty-row"><td colspan="6">No exceptions for this period.</td></tr>{% endfor %}
       </tbody>
     </table></div>
   </div></section>

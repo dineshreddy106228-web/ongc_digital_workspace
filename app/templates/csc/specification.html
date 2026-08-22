@@ -3,7 +3,7 @@
 {% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/corporate_specifications.css') }}">{% endblock %}
 {% from "csc/_specs_nav.html" import specs_nav %}
 {% from "csc/_spec_blocks.html" import value_groups %}
-{% block content %}<div class="page-wrapper cs-page">
+{% block content %}<div class="page-wrapper mod-page is-specs cs-page">
   {{ specs_nav() }}
 
   <nav class="cs-breadcrumb" aria-label="Breadcrumb">

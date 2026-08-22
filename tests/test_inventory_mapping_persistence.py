@@ -1,4 +1,4 @@
-"""An accepted mapping decision must outlive later mapping-workbook imports."""
+"""Work-centre mapping is derived from the imported inventory, not declared ahead of it."""
 from __future__ import annotations
 
 from datetime import date
@@ -59,10 +59,8 @@ def inventory_app(tmp_path):
         db.session.remove()
 
 
-def test_accepted_mapping_survives_later_workbooks(inventory_app):
-    from app.core.services.inventory_monitoring import (
-        _current_mapping_pairs, import_workbook, review_mapping_exception,
-    )
+def test_every_imported_stock_line_maps_its_work_centre(inventory_app):
+    from app.core.services.inventory_monitoring import _current_mapping_pairs, import_workbook
     from app.models.inventory.monitoring import (
         InventoryMonitoringException, InventoryMonitoringMaterial, InventoryMonitoringWorkCenter,
     )
@@ -77,54 +75,61 @@ def test_accepted_mapping_survives_later_workbooks(inventory_app):
     )
     db.session.commit()
 
-    queued = InventoryMonitoringException.query.filter_by(exception_type="held_not_mapped").all()
-    assert [item.material.material_code for item in queued] == ["090002222"]
-
-    review_mapping_exception(queued[0].id, "add_mapping", 1)
-    db.session.commit()
-
     centre = InventoryMonitoringWorkCenter.query.one()
-    accepted = InventoryMonitoringMaterial.query.filter_by(material_code="090002222").one()
-    assert (centre.id, accepted.id) in _current_mapping_pairs()
+    codes = {item.material_code: item.id for item in InventoryMonitoringMaterial.query.all()}
+    assert _current_mapping_pairs() == {(centre.id, codes["090001043"]), (centre.id, codes["090002222"])}
+    # Nothing is held back for a super-user to clear.
+    assert InventoryMonitoringException.query.filter(
+        InventoryMonitoringException.exception_type.in_(("held_not_mapped", "mapped_not_held", "unknown_mapping"))
+    ).count() == 0
 
-    # A later mapping workbook that still omits the material must not undo the decision.
+    # A later mapping workbook is the work-centre directory only; it cannot unmap held stock.
     import_workbook(_mapping_workbook("Ankleshwar DFS", ["090001043"]), "map_v2.xlsx", "mapping", None, 1)
     db.session.commit()
-    assert (centre.id, accepted.id) in _current_mapping_pairs()
-
-    # Nor may a later inventory import queue it again.
-    import_workbook(
-        _inventory_workbook([
-            ["090001043", "OIL WELL CEMENT CLASS G", "Ankleshwar DFS", 100, "MT", 26000000, 3],
-            ["090002222", "MUD CHEMICAL BARYTES", "Ankleshwar DFS", 380, "MT", 17000000, 8],
-        ]),
-        "09_All_Tables_20260831_110000.xlsx", "09", date(2026, 8, 31), 1,
-    )
-    db.session.commit()
-    assert InventoryMonitoringException.query.filter_by(exception_type="held_not_mapped").count() == 0
+    assert _current_mapping_pairs() == {(centre.id, codes["090001043"]), (centre.id, codes["090002222"])}
 
 
-def test_mapping_review_filters_narrow_the_queue(inventory_app):
-    from app.core.services.inventory_monitoring import import_workbook, mapping_review_query, mapping_review_work_centres
-    from decimal import Decimal
+def test_only_stock_carrying_value_is_monitored(inventory_app):
+    from app.core.services.inventory_monitoring import _current_mapping_pairs, import_workbook
+    from app.models.inventory.monitoring import InventoryMonitoringRecord
 
-    import_workbook(_mapping_workbook("Ankleshwar DFS", ["090001043"]), "map_v1.xlsx", "mapping", None, 1)
-    import_workbook(
+    batch = import_workbook(
         _inventory_workbook([
             ["090001043", "OIL WELL CEMENT CLASS G", "Ankleshwar DFS", 120, "MT", 30000000, 4],
-            ["090002222", "MUD CHEMICAL BARYTES", "Ankleshwar DFS", 400, "MT", 18000000, 9],
-            ["090003333", "CEMENT RETARDER", "Ankleshwar DFS", 40, "MT", 900000, 2],
+            ["090002222", "MUD CHEMICAL BARYTES", "Ankleshwar DFS", 0, "MT", 0, 9],
+            ["090003333", "CEMENT RETARDER", "Ankleshwar DFS", 40, "MT", None, 2],
         ]),
         "09_All_Tables_20260731_110000.xlsx", "09", date(2026, 7, 31), 1,
     )
     db.session.commit()
 
-    assert mapping_review_query().count() == 2
-    assert mapping_review_query(term="barytes").count() == 1
-    assert mapping_review_query(term="090003333").count() == 1
-    assert mapping_review_query(min_value=Decimal("10000000")).count() == 1
-    assert mapping_review_query(work_center_id=mapping_review_work_centres()[0].id).count() == 2
-    assert mapping_review_query(status="dismissed").count() == 0
+    assert batch.accepted_count == 1 and batch.rejected_count == 2
+    assert [item.material_code for item in InventoryMonitoringRecord.query.all()] == ["090001043"]
+    assert len(_current_mapping_pairs()) == 1
+
+
+def test_material_register_maps_from_the_uploaded_inventory(inventory_app):
+    from app.core.services.inventory_monitoring import import_workbook, material_mapping_register_data
+
+    import_workbook(_mapping_workbook("Ankleshwar DFS", ["090001043"]), "map.xlsx", "mapping", None, 1)
+    import_workbook(
+        _inventory_workbook([["090002222", "MUD CHEMICAL BARYTES", "Mehsana ST", 400, "MT", 18000000, 9]]),
+        "09_All_Tables_20260731_110000.xlsx", "09", date(2026, 7, 31), 1,
+    )
+    import_workbook(
+        _inventory_workbook([["100203400", "CHROMIUM ACETATE", "Mehsana ST", 20, "MT", 8000000, 5]],
+                           sheet="10 Chemi incl mud chemi - Inven"),
+        "10_All_Tables_20260731_110000.xlsx", "10", date(2026, 7, 31), 1,
+    )
+    db.session.commit()
+
+    data = material_mapping_register_data()
+    centres = {
+        item.material_code: [centre.name for centre in data["centres_by_material"].get(item.id, [])]
+        for item in data["materials"]
+    }
+    assert centres["090002222"] == ["Mehsana ST"]
+    assert centres["100203400"] == ["Mehsana ST"]
 
 
 def test_specification_category_reads_the_specification_number():
@@ -183,8 +188,8 @@ def test_monitored_materials_group_by_specification_category(inventory_app):
     db.session.commit()
 
     tiles = {tile["key"]: tile for tile in monitored_material_categories()["tiles"]}
-    assert [tile["key"] for tile in monitored_material_categories()["tiles"]][:7] == [
-        "DFC", "PC", "WS", "WIC", "WM", "UTL", "LPG",
+    assert [tile["key"] for tile in monitored_material_categories()["tiles"]][:10] == [
+        "DFC", "CCA", "WCF", "WS", "PC", "WIC", "WM", "UTL", "LPG", "API",
     ]
     assert tiles["DFC"]["materials"] == 1 and tiles["DFC"]["value"] == 30000000
     assert tiles["PC"]["materials"] == 1
@@ -221,49 +226,3 @@ def test_unspecified_material_register_orders_by_latest_inventory_value(inventor
     assert [item.material_code for item in rows] == ["100999999", "100888888", "090001043"]
     assert data["inventory_values_by_material"][rows[0].id] == 5000000
     assert data["inventory_values_by_material"][rows[1].id] == 2000000
-
-
-def test_selected_candidates_are_mapped_together(inventory_app):
-    from app.core.services.inventory_monitoring import (
-        _current_mapping_pairs, import_workbook, review_selected_mapping_exceptions,
-    )
-    from app.models.inventory.monitoring import InventoryMonitoringException
-
-    import_workbook(_mapping_workbook("Ankleshwar DFS", ["090001043"]), "map.xlsx", "mapping", None, 1)
-    import_workbook(
-        _inventory_workbook([
-            ["090001043", "OIL WELL CEMENT CLASS G", "Ankleshwar DFS", 120, "MT", 30000000, 4],
-            ["090002222", "MUD CHEMICAL BARYTES", "Ankleshwar DFS", 400, "MT", 18000000, 9],
-            ["090003333", "CEMENT RETARDER", "Ankleshwar DFS", 40, "MT", 900000, 2],
-            ["090004444", "DEFOAMER", "Ankleshwar DFS", 15, "MT", 400000, 5],
-        ]),
-        "09_All_Tables_20260731_110000.xlsx", "09", date(2026, 7, 31), 1,
-    )
-    db.session.commit()
-
-    queued = InventoryMonitoringException.query.filter_by(exception_type="held_not_mapped", review_status="pending").all()
-    assert len(queued) == 3
-    chosen = [item.id for item in queued[:2]]
-
-    assert review_selected_mapping_exceptions(chosen, "add_mapping", 1) == 2
-    db.session.commit()
-
-    pairs = _current_mapping_pairs()
-    assert len(pairs) == 3  # the workbook pair plus the two accepted together
-    statuses = {item.id: item.review_status for item in InventoryMonitoringException.query.filter_by(exception_type="held_not_mapped").all()}
-    assert all(statuses[item_id] == "added_to_mapping" for item_id in chosen)
-    assert statuses[queued[2].id] == "pending"
-
-    # Every accepted pair rides on one auditable manual batch.
-    from app.models.inventory.monitoring import InventoryMonitoringUploadBatch
-    manual = InventoryMonitoringUploadBatch.query.filter_by(source_group="mapping_manual").all()
-    assert len(manual) == 1 and manual[0].accepted_count == 2
-
-
-def test_selected_review_rejects_an_empty_or_settled_selection(inventory_app):
-    from app.core.services.inventory_monitoring import review_selected_mapping_exceptions
-
-    with pytest.raises(ValueError):
-        review_selected_mapping_exceptions([], "add_mapping", 1)
-    with pytest.raises(ValueError):
-        review_selected_mapping_exceptions([9999], "add_mapping", 1)
