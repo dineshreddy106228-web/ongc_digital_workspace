@@ -8,7 +8,7 @@
 
 {% block content %}
 <div class="page-wrapper">
-  {% call page_header("Edit User", "Editing account for <strong>" ~ target.username ~ "</strong>.", "Administration", "Admin", "neutral") %}
+  {% call page_header("Edit User", "Editing account for <strong>" ~ target.username|e ~ "</strong>.", "Administration", "Admin", "neutral") %}
     <a href="{{ url_for('admin.users') }}" class="btn btn-secondary">
       <i class="bi bi-arrow-left"></i>
       <span>Back to Users</span>
@@ -121,9 +121,6 @@
                   </option>
                 {% endfor %}
               </select>
-              {% if target.is_power_user %}
-              <small class="form-hint">This user is currently assigned as a power user for their office. Changing office or deactivating the account will clear that assignment.</small>
-              {% endif %}
             </div>
           </div>
         </div>
@@ -272,9 +269,6 @@
               <span class="module-access-label">
                 <strong>{{ module.label }}</strong>
                 <small class="module-code-tag">{{ module.code }}</small>
-                {% if not module.enabled %}
-                <small class="module-code-tag">feature off</small>
-                {% endif %}
               </span>
             </label>
             {% endfor %}

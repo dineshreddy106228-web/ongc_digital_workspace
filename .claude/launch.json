@@ -4,8 +4,26 @@
     {
       "name": "shell-preview",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "8931", "--directory", ".preview_shell"],
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8931",
+        "--directory",
+        ".preview_shell"
+      ],
       "port": 8931
+    },
+    {
+      "name": "ongc-app",
+      "runtimeExecutable": "/Users/dineshreddy/Desktop/ongc_digital_workspace/venv/bin/python",
+      "runtimeArgs": [
+        "/Users/dineshreddy/Desktop/ongc_digital_workspace/run.py"
+      ],
+      "port": 5055,
+      "env": {
+        "PORT": "5055",
+        "HOST": "127.0.0.1"
+      }
     }
   ]
 }

@@ -49,3 +49,59 @@ def test_raise_for_storage_capacity_ignores_non_mysql_backends(monkeypatch) -> N
     )
 
     msds_service._raise_for_storage_capacity(300 * 1024)
+
+
+@pytest.fixture()
+def msds_app(tmp_path):
+    from sqlalchemy import Integer
+
+    from app import create_app
+    from app.extensions import db
+    from config import Config
+
+    class _Config(Config):
+        SQLALCHEMY_DATABASE_URI = f"sqlite:///{tmp_path / 'msds.db'}"
+        SQLALCHEMY_ENGINE_OPTIONS: dict = {}
+        TESTING = True
+
+    app = create_app(_Config)
+    with app.app_context():
+        from app.models.inventory.msds_file import MSDSFile
+
+        # SQLite only autoincrements INTEGER primary keys; MySQL keeps BIGINT.
+        MSDSFile.__table__.c.id.type = Integer()
+        db.create_all()
+        yield app
+        db.session.remove()
+
+
+def test_store_msds_bytes_ignores_the_uploaded_content_type(msds_app) -> None:
+    """The viewer serves MSDS files inline, so an upload must not pick the media type."""
+    from app.extensions import db
+    from app.models.inventory.material_master import MaterialMaster
+    from app.models.inventory.msds_file import MSDSFile
+
+    db.session.add(MaterialMaster(material="090001043"))
+    db.session.flush()
+
+    stored = msds_service.store_msds_bytes(
+        material_code="090001043",
+        filename="datasheet.pdf",
+        file_bytes=b"%PDF-1.4\n<script>alert(1)</script>",
+        slot_code="standard",
+        content_type="text/html",
+    )
+
+    assert stored.content_type == "application/pdf"
+
+    replaced = msds_service.store_msds_bytes(
+        material_code="090001043",
+        filename="datasheet.pdf",
+        file_bytes=b"%PDF-1.4\nrevised",
+        slot_code="standard",
+        content_type="image/svg+xml",
+    )
+
+    assert replaced.storage_action == "replaced"
+    assert replaced.content_type == "application/pdf"
+    assert db.session.get(MSDSFile, stored.id).content_type == "application/pdf"

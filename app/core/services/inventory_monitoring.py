@@ -198,6 +198,12 @@ def _read_supporting_exceptions(source: bytes) -> list[dict[str, Any]]:
 
 
 def stage_workbook(source: bytes) -> str:
+    # An abandoned review never reaches discard_staged_workbook, so sweep anything
+    # past the one-hour window that load_staged_workbook already refuses to read.
+    cutoff = time.time() - 3600
+    for staged_file in STAGING_DIRECTORY.glob("*.xlsx"):
+        if staged_file.stat().st_mtime < cutoff:
+            staged_file.unlink(missing_ok=True)
     token = uuid.uuid4().hex
     (STAGING_DIRECTORY / f"{token}.xlsx").write_bytes(source)
     return token

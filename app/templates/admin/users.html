@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "admin/_admin_nav.html" import admin_nav with context %}
 {% from "components/ui.html" import page_header %}
 {% block title %}User Management{% endblock %}
 
@@ -37,19 +38,8 @@
 {% endmacro %}
 
 <div class="page-wrapper">
+  {{ admin_nav('users') }}
   {% call page_header("User Management", "Manage system users, roles, and account status.", "Administration", "Admin", "neutral") %}
-      <a href="{{ url_for('admin.offices') }}" class="btn btn-secondary">
-        <i class="bi bi-building"></i>
-        <span>Offices</span>
-      </a>
-      <a href="{{ url_for('admin.module_management') }}" class="btn btn-secondary">
-        <i class="bi bi-grid"></i>
-        <span>Module Management</span>
-      </a>
-      <a href="{{ url_for('admin.backup_center') }}" class="btn btn-secondary">
-        <i class="bi bi-database"></i>
-        <span>Backup Center</span>
-      </a>
       <a href="{{ url_for('admin.export_users_report') }}" class="btn btn-secondary">
         <i class="bi bi-download"></i>
         <span>Export Report</span>
@@ -98,13 +88,6 @@
         <p class="admin-metric-detail">Top-level users with no controlling officer anchoring each office flow.</p>
       </div>
     </article>
-    <article class="card admin-metric-card">
-      <div class="card-body">
-        <span class="admin-metric-label">Power Users</span>
-        <strong class="admin-metric-value">{{ hierarchy_summary.power_users }}</strong>
-        <p class="admin-metric-detail">{{ hierarchy_summary.power_user_slots }} configured office-level power-user slots across all offices.</p>
-      </div>
-    </article>
   </section>
 
   <div class="card admin-tab-shell">
@@ -143,34 +126,36 @@
         {% if users %}
       <div class="table-responsive">
         <table class="data-table user-management-table">
+          {# Shares of the table's min-width, not of the viewport: the last three
+             columns need room for a badge, a date and three buttons. #}
           <colgroup>
-            <col style="width: 4%;">
+            <col style="width: 3%;">
+            <col style="width: 9%;">
             <col style="width: 10%;">
-            <col style="width: 11%;">
-            <col style="width: 13%;">
-            <col style="width: 6%;">
             <col style="width: 12%;">
-            <col style="width: 10%;">
-            <col style="width: 9%;">
-            <col style="width: 9%;">
-            <col style="width: 5%;">
-            <col style="width: 5%;">
             <col style="width: 6%;">
+            <col style="width: 11%;">
+            <col style="width: 9%;">
+            <col style="width: 9%;">
+            <col style="width: 8%;">
+            <col style="width: 6%;">
+            <col style="width: 6%;">
+            <col style="width: 11%;">
           </colgroup>
           <thead>
             <tr>
-              <th>#</th>
-              <th>Username</th>
-              <th>Full Name</th>
-              <th>Email</th>
-              <th>Role</th>
-              <th>Office</th>
-              <th>Controlling Officer</th>
-              <th>Reviewing Officer</th>
-              <th>Accepting Officer</th>
-              <th>Status</th>
-              <th>Login Record</th>
-              <th>Actions</th>
+              <th scope="col">#</th>
+              <th scope="col">Username</th>
+              <th scope="col">Full Name</th>
+              <th scope="col">Email</th>
+              <th scope="col">Role</th>
+              <th scope="col">Office</th>
+              <th scope="col">Controlling Officer</th>
+              <th scope="col">Reviewing Officer</th>
+              <th scope="col">Accepting Officer</th>
+              <th scope="col">Status</th>
+              <th scope="col">Login Record</th>
+              <th scope="col">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -190,9 +175,6 @@
               <td>
                 {% if u.office %}
                   {{ u.office.office_name }}
-                  {% if u.is_power_user %}
-                  <div><span class="badge badge-active">Power User</span></div>
-                  {% endif %}
                 {% else %}
                   <span class="text-muted">—</span>
                 {% endif %}

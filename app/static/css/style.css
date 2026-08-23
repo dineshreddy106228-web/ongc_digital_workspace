@@ -62,6 +62,10 @@
     --field-disabled-text: #7b8491;
     --field-placeholder: #97a0ad;
     --focus-ring: rgba(26, 86, 219, 0.18);
+    /* Text sitting on --primary. Dark --primary is light, so this flips. */
+    --on-primary: #ffffff;
+    /* --accent at small sizes fails AA on --bg (2.83:1); this is the text-safe tone. */
+    --accent-text: #ad4e08;
     --selection-bg: rgba(26, 86, 219, 0.12);
     --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.08);
     --shadow-md: 0 14px 40px rgba(15, 23, 42, 0.12);
@@ -146,24 +150,6 @@
     --radius-sm: 4px;
     --radius: 6px;
     --transition: .18s ease;
-
-    /* Compatibility aliases for existing admin/task styles */
-    --color-bg: var(--bg);
-    --color-surface: var(--surface);
-    --color-surface-alt: var(--surface-alt);
-    --color-border: var(--border);
-    --color-text: var(--text);
-    --color-text-muted: var(--muted);
-    --color-primary: var(--primary);
-    --color-primary-dk: var(--primary-strong);
-    --color-primary-light: var(--primary-soft);
-    --color-primary-bg: var(--primary-bg);
-    --color-accent: var(--accent);
-    --color-success: var(--success);
-    --color-warning: var(--warning);
-    --color-danger: var(--danger);
-    --color-info: var(--info);
-    --text-error: var(--danger);
 }
 
 [data-theme="dark"] {
@@ -202,6 +188,8 @@
     --field-disabled-text: #8091a5;
     --field-placeholder: #7e8ea2;
     --focus-ring: rgba(91, 140, 255, 0.24);
+    --on-primary: #0f1723;
+    --accent-text: #f2a541;
     --selection-bg: rgba(91, 140, 255, 0.18);
     --shadow-sm: 0 1px 3px rgba(2, 8, 20, 0.35);
     --shadow-md: 0 18px 45px rgba(2, 8, 20, 0.35);
@@ -278,6 +266,22 @@
     --module-reports: #38bdf8;
     --module-forecasting: #34d399;
     --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%239aa8b9' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    /* Scope and chart hues. The light values are tuned for a white ground;
+       these are the same hues lifted for the dark ground. Without them the
+       fallbacks in admin.css never fire, because the light token is always set. */
+    --scope-global: #34d399;
+    --scope-team: #a78bfa;
+    --scope-my: #38bdf8;
+    --chart-status-not-started: #a8b6c8;
+    --chart-status-in-progress: #60a5fa;
+    --chart-status-on-hold: #fbbf24;
+    --chart-status-completed: #4ade80;
+    --chart-status-cancelled: #f87171;
+    --chart-priority-low: #6ee7b7;
+    --chart-priority-medium: #93c5fd;
+    --chart-priority-high: #fb923c;
+    --chart-priority-critical: #f87171;
+
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -786,93 +790,91 @@ body.workspace-flyout-open .workspace-main {
     backdrop-filter: blur(10px);
 }
 
+/* The version card follows the home page's language: a compact identity bar,
+   a section rule with its accent tick, and flat surfaces with hairline borders
+   rather than the rounded gradient panel this modal used to be. */
 .workspace-welcome-modal {
-    width: min(760px, 100%);
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.985), rgba(248, 250, 252, 0.985));
-    border: 1px solid color-mix(in srgb, var(--primary) 14%, var(--border));
-    border-radius: 22px;
+    width: min(600px, 100%);
+    padding: 1.6rem 1.6rem 1.2rem;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--surface);
     box-shadow: var(--modal-shadow);
-    padding: 2rem 2rem 1.6rem;
+}
+
+.workspace-welcome-bar {
+    padding-bottom: .9rem;
+    border-bottom: 1px solid var(--border);
 }
 
 .workspace-welcome-eyebrow {
-    display: inline-flex;
-    align-items: center;
-    padding: .36rem .78rem;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--primary) 10%, white);
-    color: var(--primary-strong);
-    font-size: .74rem;
+    margin: 0 0 .3rem;
+    font-size: .68rem;
     font-weight: 700;
-    letter-spacing: .08em;
+    letter-spacing: .18em;
     text-transform: uppercase;
+    color: var(--accent-text);
 }
 
 .workspace-welcome-title {
-    margin-top: .95rem;
-    font-size: clamp(1.5rem, 2vw, 2rem);
-    line-height: 1.15;
+    margin: 0;
+    font-size: 1.4rem;
+    font-weight: 700;
+    letter-spacing: -.015em;
+    line-height: 1.2;
     color: var(--text);
 }
 
-.workspace-welcome-copy,
-.workspace-welcome-note {
-    margin-top: .9rem;
+.workspace-welcome-meta {
+    display: flex;
+    align-items: center;
+    gap: .55rem;
+    flex-wrap: wrap;
+    margin: .45rem 0 0;
+    font-size: .8rem;
     color: var(--muted);
-    font-size: .98rem;
-    line-height: 1.65;
 }
 
-.workspace-welcome-copy {
-    text-align: left;
+.workspace-welcome-meta strong { font-weight: 600; color: var(--text); }
+
+.workspace-welcome-sep {
+    width: 1px;
+    height: 11px;
+    background: var(--border);
+}
+
+.workspace-welcome-section {
+    margin-top: 1.25rem;
+    padding-bottom: .55rem;
+    border-bottom: 1px solid var(--border);
 }
 
 .workspace-welcome-section-title {
-    margin-top: 1.1rem;
-    color: var(--text);
-    font-size: .92rem;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    margin: 0;
+    font-size: .78rem;
     font-weight: 700;
-}
-
-.workspace-welcome-list {
-    margin: .7rem 0 0;
-    padding-left: 1.25rem;
-}
-
-.workspace-welcome-list li {
-    margin-bottom: .45rem;
-}
-
-.workspace-welcome-modal-wide {
-    width: min(860px, 100%);
-}
-
-.workspace-welcome-grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: .9rem;
-    margin-top: 1.25rem;
-}
-
-.workspace-welcome-card {
-    padding: 1rem .95rem;
-    border-radius: 16px;
-    background: linear-gradient(180deg, var(--surface), var(--surface-alt));
-    border: 1px solid color-mix(in srgb, var(--primary) 8%, var(--border));
-    box-shadow: var(--shadow-sm);
-}
-
-.workspace-welcome-card-title {
-    margin-bottom: .45rem;
+    letter-spacing: .14em;
+    text-transform: uppercase;
     color: var(--text);
-    font-size: .9rem;
-    font-weight: 700;
 }
 
-.workspace-welcome-card p {
+.workspace-welcome-section-title::before {
+    content: "";
+    width: 4px;
+    height: 14px;
+    border-radius: 2px;
+    background: var(--accent);
+}
+
+.workspace-welcome-copy {
+    margin: .85rem 0 0;
     color: var(--muted);
-    font-size: .88rem;
-    line-height: 1.55;
+    font-size: .9rem;
+    line-height: 1.65;
+    text-align: left;
 }
 
 .workspace-welcome-actions {
@@ -1220,6 +1222,19 @@ body.workspace-flyout-open .workspace-backdrop {
 .btn:hover {
     text-decoration: none;
     transform: translateY(-1px);
+}
+
+/* A disabled button has to look disabled — the attribute alone reads as live. */
+.btn:disabled,
+.btn[disabled] {
+    opacity: .55;
+    cursor: not-allowed;
+    filter: grayscale(35%);
+}
+
+.btn:disabled:hover,
+.btn[disabled]:hover {
+    transform: none;
 }
 
 .btn:active {
@@ -3493,10 +3508,6 @@ table th.table-serial-column {
     }
     .workspace-welcome-modal {
         padding: 1.35rem 1.15rem 1.15rem;
-        border-radius: 18px;
-    }
-    .workspace-welcome-grid {
-        grid-template-columns: 1fr;
     }
     .workspace-welcome-actions .btn {
         width: 100%;
@@ -3869,7 +3880,7 @@ table th.table-serial-column {
     font-size: 0.82rem;
     letter-spacing: 0.18em;
     text-transform: uppercase;
-    font-weight: 800;
+    font-weight: 700;
     color: #0f766e;
 }
 
@@ -3942,7 +3953,7 @@ table th.table-serial-column {
     background: transparent;
     color: var(--briefing-muted);
     font-size: 0.92rem;
-    font-weight: 800;
+    font-weight: 700;
     letter-spacing: 0.02em;
     cursor: pointer;
     transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
@@ -4046,7 +4057,7 @@ table th.table-serial-column {
 
 .super-organogram-filter label {
     font-size: 0.76rem;
-    font-weight: 800;
+    font-weight: 700;
     letter-spacing: 0.12em;
     text-transform: uppercase;
     color: var(--briefing-muted);
@@ -4168,7 +4179,7 @@ table th.table-serial-column {
     background: #0f172a;
     color: #f8fafc;
     text-align: center;
-    font-weight: 800;
+    font-weight: 700;
 }
 
 .super-drilldown-list {
@@ -4222,7 +4233,7 @@ table th.table-serial-column {
     border-radius: 999px;
     padding: 0.26rem 0.6rem;
     font-size: 0.72rem;
-    font-weight: 800;
+    font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
 }
@@ -4538,7 +4549,7 @@ table th.table-serial-column {
 .flyout-sig-time {
     font-size: 1.45rem;
     font-variant-numeric: tabular-nums;
-    font-weight: 300;
+    font-weight: 400;
     letter-spacing: .05em;
     color: var(--text);
     font-family: 'SF Mono', 'Consolas', 'Roboto Mono', monospace;
@@ -4632,7 +4643,7 @@ table th.table-serial-column {
     font-weight: 700;
     letter-spacing: .18em;
     text-transform: uppercase;
-    color: var(--accent);
+    color: var(--accent-text);
 }
 
 .home-bar-title {
@@ -4696,7 +4707,7 @@ table th.table-serial-column {
 
 .home-scope-option.is-active {
     background: var(--primary);
-    color: #fff;
+    color: var(--on-primary);
     box-shadow: var(--shadow-sm);
 }
 

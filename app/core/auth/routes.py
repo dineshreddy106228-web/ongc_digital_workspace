@@ -10,7 +10,7 @@ from app.core.auth import auth_bp
 from app.extensions import db
 from app.models.core.user import User
 from app.models.core.audit_log import AuditLog
-from app.core.utils.request_meta import get_client_ip, get_user_agent
+from app.core.utils.request_meta import get_client_ip, get_user_agent, safe_referrer_target
 from app.core.utils.activity import log_activity
 
 
@@ -187,7 +187,7 @@ def welcome_acknowledge():
     session.pop("show_login_welcome", None)
     if request.headers.get("X-Requested-With") == "XMLHttpRequest":
         return jsonify({"ok": True})
-    return redirect(request.referrer or url_for("main.dashboard"))
+    return redirect(safe_referrer_target(url_for("main.dashboard")))
 
 
 # ── CHANGE PASSWORD ──────────────────────────────────────────────

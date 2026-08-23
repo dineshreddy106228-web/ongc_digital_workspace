@@ -198,6 +198,25 @@ MODULES = [
         "nav_label": "Users",
         "icon": "👥",
     },
+    {
+        # Rides on the admin blueprint that User Management already registers —
+        # see register_module_blueprints — but stands on its own in the nav and
+        # on the home page, because backup and restore is its own responsibility.
+        "key": "admin_backups",
+        "name": "Backup Center",
+        "permission_code": "admin_backups",
+        "blueprint_import": "app.modules.admin:admin_bp",
+        "url_prefix": "/admin",
+        "endpoint": "admin.backup_center",
+        "feature_flag": None,
+        "nav_visible": True,
+        "dashboard_visible": True,
+        "roles_allowed": [ADMIN_ROLE],
+        "status": "active",
+        "description": "Database backup bundles, restore, and the MSDS document archive",
+        "nav_label": "Backups",
+        "icon": "🗄️",
+    },
 ]
 
 
@@ -232,6 +251,7 @@ NAV_MODULE_ORDER = (
     "reports",
     "forecasting",
     "admin_users",
+    "admin_backups",
 )
 NAV_MODULE_ORDER_INDEX = {key: index for index, key in enumerate(NAV_MODULE_ORDER)}
 FEATURE_CONTROLLED_MODULES = tuple(
@@ -333,6 +353,12 @@ def register_module_blueprints(app) -> None:
                 definition.blueprint_import,
             )
             missing_keys.add(definition.key)
+            continue
+
+        if blueprint.name in app.blueprints:
+            # Two modules can share one blueprint (Backup Center rides on the
+            # admin blueprint). It is registered once; both are still routable.
+            registered_keys.add(definition.key)
             continue
 
         if definition.url_prefix:

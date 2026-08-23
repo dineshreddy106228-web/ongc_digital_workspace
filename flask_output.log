@@ -1,6 +1,6 @@
-[2026-08-22 10:43:31,429] INFO in module_registry: Skipping disabled module blueprint: manpower_planning
-[2026-08-22 10:43:31,432] INFO in module_registry: Skipping disabled module blueprint: reports
-[2026-08-22 10:43:31,435] INFO in module_registry: Skipping disabled module blueprint: forecasting
+[2026-08-22 19:15:34,533] INFO in module_registry: Skipping disabled module blueprint: manpower_planning
+[2026-08-22 19:15:34,536] INFO in module_registry: Skipping disabled module blueprint: reports
+[2026-08-22 19:15:34,539] INFO in module_registry: Skipping disabled module blueprint: forecasting
  * Serving Flask app 'app'
  * Debug mode: off
 [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
@@ -8,45 +8,3 @@
  * Running on http://127.0.0.1:5000
  * Running on http://192.168.29.116:5000
 [33mPress CTRL+C to quit[0m
-127.0.0.1 - - [22/Aug/2026 12:10:13] "GET /inventory/ HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:10:13] "GET /static/css/module_shell.css HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:10:13] "GET /static/css/inventory_monitoring.css HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:10:13] "GET /static/css/style.css HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:10:13] "GET /static/js/main.js HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:10:13] "GET /static/js/inventory_monitoring.js HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:10:13] "GET /static/images/ongc-corporate-chemistry-logo.png HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:10:24] "GET /tasks/dashboard HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:10:24] "GET /static/css/style.css HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:10:24] "GET /static/css/admin.css HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:10:24] "GET /static/css/office.css HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:10:24] "GET /static/css/module_shell.css HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:10:24] "GET /static/js/main.js HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:10:24] "GET /static/images/ongc-corporate-chemistry-logo.png HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:10:24] "GET /tasks/calendar-data?year=2026&month=8 HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:10:25] "GET /csc/ HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:10:25] "GET /static/css/style.css HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:10:25] "GET /static/css/corporate_specifications.css HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:10:25] "GET /static/css/module_shell.css HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:10:25] "GET /static/images/ongc-corporate-chemistry-logo.png HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:10:25] "GET /static/js/main.js HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:10:25] "GET /quality-control/ HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:10:25] "GET /static/css/style.css HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:10:25] "GET /static/css/inventory.css HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:10:25] "GET /static/css/module_shell.css HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:10:25] "GET /static/images/ongc-corporate-chemistry-logo.png HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:10:25] "GET /static/css/quality_control.css HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:10:25] "GET /static/images/qc-laboratory-tile.svg HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:10:25] "GET /static/js/main.js HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:11:18] "GET /quality-control/ HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:11:18] "GET /static/css/style.css HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:11:18] "GET /static/css/inventory.css HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:11:18] "GET /static/css/quality_control.css HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:11:18] "GET /static/css/module_shell.css HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:11:18] "GET /static/images/ongc-corporate-chemistry-logo.png HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:11:18] "GET /static/images/qc-laboratory-tile.svg HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:11:18] "GET /static/js/main.js HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:16:29] "GET /dashboard HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:16:29] "GET /static/images/ongc-corporate-chemistry-logo.png HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:16:29] "GET /static/css/style.css HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:16:29] "GET /static/css/module_shell.css HTTP/1.1" 200 -
-127.0.0.1 - - [22/Aug/2026 12:16:29] "GET /static/js/main.js HTTP/1.1" 200 -

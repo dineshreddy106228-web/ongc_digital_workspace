@@ -183,13 +183,20 @@ dates reported separately.
 ## Shared module chrome
 
 Every page in the module renders the house shell from
-`app/static/css/module_shell.css` — the pill module nav, the gradient hero with
-its stat aside, the stat row, the section headings and the workbench tiles —
-which Corporate Specifications, QC Laboratory Monitoring and Office Management
-also use. The module supplies only its accent, through `mod-page is-inventory`
-on the page wrapper; everything else is one definition, so the four modules
-cannot drift apart. Inventory-specific components stay in
-`inventory_monitoring.css`.
+`app/static/css/module_shell.css` — the pill module nav, the tinted hero with its
+stat aside, the stat row, the section headings and the workbench tiles — which
+Corporate Specifications, QC Laboratory Monitoring and Office Management also
+use. The accent comes from the `module-theme-*` class `base.html` sets from the
+request endpoint, so a page declares no colour of its own. Inventory-specific
+components stay in `inventory_monitoring.css`, and they are written against the
+semantic tokens (`--surface`, `--text`, `--muted`, `--border`, `--tone-*`,
+`--mod-accent`) rather than fixed colours, so both themes work. The inner-page
+heroes — health, work centre, management review, imports, settings — use the same
+tinted panel as the landing hero rather than a dark gradient of their own.
+
+Surfaces that are deliberately dark and carry white text in either theme — sticky
+table heads, map pins — use `--mod-ink` / `--mod-ink-strong`, which mix the module
+accent with near-black. Do not use the hero tokens for those: the hero is light.
 
 ## Migration and legacy retirement
 

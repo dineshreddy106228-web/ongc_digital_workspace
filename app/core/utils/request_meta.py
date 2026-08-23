@@ -3,10 +3,34 @@
 from __future__ import annotations
 
 import ipaddress
+from urllib.parse import urlparse, urlunparse
 from flask import request
 
 MAX_IP_LEN = 45
 MAX_USER_AGENT_LEN = 500
+
+
+def safe_referrer_target(default: str) -> str:
+    """
+    Return the referring page only when it points back at this host.
+
+    Handlers that bounce the user "back" run on requests an attacker can trigger —
+    a cross-site POST fails CSRF and lands in the error handler carrying the
+    attacker's Referer — so an unfiltered referrer turns those handlers into an
+    open redirect.  Same-host referrers are reduced to a path so the redirect can
+    never leave the application.
+    """
+    referrer = request.referrer or ""
+    if not referrer:
+        return default
+
+    parsed = urlparse(referrer)
+    if parsed.scheme and parsed.scheme not in ("http", "https"):
+        return default
+    if parsed.netloc and parsed.netloc != request.host:
+        return default
+
+    return urlunparse(("", "", parsed.path or "/", parsed.params, parsed.query, parsed.fragment))
 
 
 def get_client_ip() -> str:

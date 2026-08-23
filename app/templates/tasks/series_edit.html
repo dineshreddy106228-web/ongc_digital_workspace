@@ -1,19 +1,37 @@
 {% extends "base.html" %}
-{% block title %}Edit Recurring Series{% endblock %}
+{% from "tasks/_office_nav.html" import office_nav %}
+{% block title %}Edit Recurring Series – Task Management{% endblock %}
 
 {% block head_extra %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/office.css') }}">
 {% endblock %}
 
 {% block content %}
-<div class="page-wrapper">
-  <div class="page-header">
-    <div class="page-header-left">
-      <h1 class="page-title">Edit Recurring Series</h1>
-      <p class="page-subtitle">Update the recurring schedule settings for "{{ template.task_title }}".</p>
+<div class="page-wrapper mod-page om-page">
+
+  {{ office_nav('', true) }}
+
+  <div class="om-breadcrumb">
+    <a href="{{ url_for('tasks.task_dashboard') }}">Task Management</a>
+    <span>›</span>
+    <a href="{{ url_for('tasks.list_tasks') }}">Task Register</a>
+    <span>›</span>
+    <a href="{{ url_for('tasks.recurring_series_detail', template_id=template.id) }}">Series #{{ template.id }}</a>
+    <span>›</span>
+    <span>Edit</span>
+  </div>
+
+  <div class="om-title">
+    <div>
+      <span>Recurring series</span>
+      <h1>Edit series</h1>
+      <p>Update the recurring schedule for “{{ template.task_title }}”.</p>
     </div>
-    <div class="page-header-right">
-      <a href="{{ url_for('tasks.recurring_series_detail', template_id=template.id) }}" class="btn btn-secondary">Back to Series</a>
+    <div class="om-title-actions">
+      <a href="{{ url_for('tasks.recurring_series_detail', template_id=template.id) }}" class="btn btn-secondary btn-sm">
+        <i class="bi bi-arrow-left"></i><span>Back to series</span>
+      </a>
     </div>
   </div>
 
@@ -27,42 +45,49 @@
     This form updates the recurring series itself. Existing generated task occurrences remain unchanged.
   </div>
 
-  <div class="card form-card">
-    <div class="card-body">
+  <div class="om-card om-form-narrow">
+    <div class="om-card-head">
+      <div>
+        <h2><i class="bi bi-calendar-range"></i> Series schedule</h2>
+        <p>Only the end date can be changed. Cadence and start date are fixed once the series is running.</p>
+      </div>
+    </div>
+    <div class="om-card-body">
       <form method="POST" action="{{ url_for('tasks.edit_recurring_series', template_id=template.id) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-        <div class="form-section">
-          <div class="form-section-title">Series Schedule</div>
-
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">Schedule</label>
-              <input type="text" class="form-control" value="{{ recurrence_summary(template) }}" readonly>
+        <div class="om-form-section">
+          <div class="om-form-grid">
+            <div class="om-field">
+              <label>Schedule</label>
+              <div class="om-static">{{ recurrence_summary(template) }}</div>
+              <small class="om-hint">Cadence is locked after the series starts generating.</small>
             </div>
 
-            <div class="form-group">
-              <label class="form-label">Series Start Date</label>
-              <input type="text" class="form-control" value="{{ template.start_date.strftime('%d %b %Y') if template.start_date else '—' }}" readonly>
+            <div class="om-field">
+              <label>Series start date</label>
+              <div class="om-static">{{ template.start_date.strftime('%d %b %Y') if template.start_date else '—' }}</div>
+              <small class="om-hint">Set when the series was created.</small>
             </div>
 
-            <div class="form-group">
-              <label class="form-label" for="recurrence_end_date">Series End Date</label>
-              <input type="date" id="recurrence_end_date" name="recurrence_end_date" class="form-control"
+            <div class="om-field">
+              <label for="recurrence_end_date">Series end date</label>
+              <input type="date" id="recurrence_end_date" name="recurrence_end_date"
                      value="{{ form_data.get('recurrence_end_date', template.end_date.strftime('%Y-%m-%d') if template.end_date else '') }}">
-              <small class="form-hint">Optional. Leave blank to keep the series open-ended.</small>
+              <small class="om-hint">Optional. Leave blank to keep the series open-ended.</small>
             </div>
 
-            <div class="form-group">
-              <label class="form-label">Next Scheduled Date</label>
-              <input type="text" class="form-control" value="{{ template.next_generation_date.strftime('%d %b %Y') if template.next_generation_date else 'No further occurrences scheduled' }}" readonly>
+            <div class="om-field">
+              <label>Next scheduled date</label>
+              <div class="om-static">{{ template.next_generation_date.strftime('%d %b %Y') if template.next_generation_date else 'No further occurrences scheduled' }}</div>
+              <small class="om-hint">The next occurrence this series will generate.</small>
             </div>
           </div>
         </div>
 
-        <div class="form-actions">
-          <button type="submit" class="btn btn-primary">Save Series</button>
+        <div class="om-form-actions">
           <a href="{{ url_for('tasks.recurring_series_detail', template_id=template.id) }}" class="btn btn-secondary">Cancel</a>
+          <button type="submit" class="btn btn-primary">Save series</button>
         </div>
       </form>
     </div>

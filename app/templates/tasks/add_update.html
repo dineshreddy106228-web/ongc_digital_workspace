@@ -1,20 +1,37 @@
 {% extends "base.html" %}
-{% block title %}Add Task Update{% endblock %}
+{% from "tasks/_office_nav.html" import office_nav %}
+{% block title %}Add Update – Task Management{% endblock %}
 
 {% block head_extra %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/office.css') }}">
 {% endblock %}
 
 {% block content %}
-<div class="page-wrapper">
+<div class="page-wrapper mod-page om-page">
 
-  <div class="page-header">
-    <div class="page-header-left">
-      <h1 class="page-title">Add Task Update</h1>
-      <p class="page-subtitle">{{ task.task_title }}</p>
+  {{ office_nav('', true) }}
+
+  <div class="om-breadcrumb">
+    <a href="{{ url_for('tasks.task_dashboard') }}">Task Management</a>
+    <span>›</span>
+    <a href="{{ url_for('tasks.list_tasks') }}">Task Register</a>
+    <span>›</span>
+    <a href="{{ url_for('tasks.task_detail', task_id=task.id) }}">Task #{{ task.id }}</a>
+    <span>›</span>
+    <span>Add update</span>
+  </div>
+
+  <div class="om-title">
+    <div>
+      <span>Progress</span>
+      <h1>Add update</h1>
+      <p>{{ task.task_title }}</p>
     </div>
-    <div class="page-header-right">
-      <a href="{{ url_for('tasks.task_detail', task_id=task.id) }}" class="btn btn-secondary">← Back to Task</a>
+    <div class="om-title-actions">
+      <a href="{{ url_for('tasks.task_detail', task_id=task.id) }}" class="btn btn-secondary btn-sm">
+        <i class="bi bi-arrow-left"></i><span>Back to task</span>
+      </a>
     </div>
   </div>
 
@@ -24,46 +41,48 @@
     {% endfor %}
   {% endwith %}
 
-  <div class="card form-card-narrow">
-    <div class="card-body">
+  <div class="om-card om-form-narrow">
+    <div class="om-card-head">
+      <div>
+        <h2><i class="bi bi-chat-left-text"></i> Update details</h2>
+        <p>Recorded against this task and visible to everyone who can see it.</p>
+      </div>
+    </div>
+    <div class="om-card-body">
       <form method="POST" action="{{ url_for('tasks.add_task_update', task_id=task.id) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-        <div class="form-section">
-          <div class="form-section-title">Update Details</div>
+        <div class="om-form-section">
+          <div class="om-form-grid">
+            <div class="om-field om-field-wide">
+              <label for="update_text">Update text <span class="om-required">*</span></label>
+              <textarea id="update_text" name="update_text" rows="6" required maxlength="5000"
+                        placeholder="Example: Inputs consolidated from all offices and draft moved to review stage.">{{ form_data.get('update_text', '') }}</textarea>
+              <small class="om-hint">Provide a progress note or any relevant information about this task.</small>
+            </div>
 
-          <div class="form-group">
-            <label class="form-label" for="update_text">Update Text <span class="required">*</span></label>
-            <textarea id="update_text" name="update_text" class="form-control"
-                      rows="5" required maxlength="5000">{{ form_data.get('update_text', '') }}</textarea>
-            <div class="form-hint">Provide a progress note or any relevant information about this task.</div>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label" for="new_status">Optional: Change Status</label>
-            <select id="new_status" name="new_status" class="form-control">
-              <option value="">— No Status Change —</option>
-              {% set selected_status = form_data.get('new_status', '') %}
-              {% for status in task_statuses %}
-              {% if status in ('Completed', 'Cancelled') and not can_close %}
-              {# Terminal statuses hidden — user lacks close permission #}
-              {% else %}
-              <option value="{{ status }}" {{ 'selected' if selected_status == status }}>{{ status }}</option>
-              {% endif %}
-              {% endfor %}
-            </select>
-            <div class="form-hint">
-              Leave blank to keep the current status unchanged.
-              {% if not can_close %}
-              Terminal statuses (Completed, Cancelled) require owner or admin access.
-              {% endif %}
+            <div class="om-field">
+              <label for="new_status">Optional status change</label>
+              <select id="new_status" name="new_status">
+                <option value="">— No status change —</option>
+                {% set selected_status = form_data.get('new_status', '') %}
+                {% for status in task_statuses %}
+                {% if not (status in ('Completed', 'Cancelled') and not can_close) %}
+                <option value="{{ status }}" {{ 'selected' if selected_status == status }}>{{ status }}</option>
+                {% endif %}
+                {% endfor %}
+              </select>
+              <small class="om-hint">
+                Leave blank to keep the current status unchanged.
+                {%- if not can_close %} Completed and Cancelled require owner or admin access.{% endif %}
+              </small>
             </div>
           </div>
         </div>
 
-        <div class="form-actions">
-          <button type="submit" class="btn btn-primary">Add Update</button>
+        <div class="om-form-actions">
           <a href="{{ url_for('tasks.task_detail', task_id=task.id) }}" class="btn btn-secondary">Cancel</a>
+          <button type="submit" class="btn btn-primary">Add update</button>
         </div>
       </form>
     </div>

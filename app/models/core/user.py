@@ -53,7 +53,6 @@ class User(UserMixin, db.Model):
 
     designation = db.Column(db.String(150), default="")
     employee_code = db.Column(db.String(50), default="")
-    is_power_user = db.Column(db.Boolean, default=False, nullable=False, server_default="0")
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     must_change_password = db.Column(db.Boolean, default=True, nullable=False)
     last_login_at = db.Column(db.DateTime, nullable=True)
@@ -242,14 +241,6 @@ class User(UserMixin, db.Model):
     def is_admin_user(self) -> bool:
         return self.has_role(ADMIN_ROLE)
 
-    def is_office_power_user(self) -> bool:
-        """True when this user is an active office-level power user."""
-        return bool(
-            getattr(self, "is_active", False)
-            and getattr(self, "is_power_user", False)
-            and getattr(self, "office_id", None) is not None
-        )
-
     # ── Module access helper ──────────────────────────────────────
     def has_module_access(self, module_code: str) -> bool:
         """
@@ -265,7 +256,8 @@ class User(UserMixin, db.Model):
             return False
 
         if self.has_role(ADMIN_ROLE):
-            return module_code == "admin_users"
+            from app.models.core.user_module_permission import ADMIN_DEFAULT_MODULES
+            return module_code in ADMIN_DEFAULT_MODULES
 
         if self.is_super_user():
             from app.models.core.user_module_permission import SUPER_USER_MODULES
@@ -285,7 +277,8 @@ class User(UserMixin, db.Model):
         from app.models.core.user_module_permission import SUPPORTED_MODULES
 
         if self.has_role(ADMIN_ROLE):
-            return ["admin_users"]
+            from app.models.core.user_module_permission import ADMIN_DEFAULT_MODULES
+            return [code for code in sorted(ADMIN_DEFAULT_MODULES) if is_module_enabled(code)]
 
         if self.is_super_user():
             return [code for code, _ in SUPPORTED_MODULES if is_module_enabled(code)]

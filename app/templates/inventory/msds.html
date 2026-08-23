@@ -3,7 +3,7 @@
 
 {% block head_extra %}
 <meta name="csrf-token" content="{{ csrf_token() }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}">
+
 <style nonce="{{ csp_nonce() }}">
 .msds-center-grid {
   display: grid;
@@ -185,36 +185,36 @@
 {% endblock %}
 
 {% block content %}
-<div class="inv-page">
-  <div class="inv-module-header">
+<div class="page-wrapper mod-page">
+  <div class="mod-page-head">
     <div>
-      <h1 class="inv-module-title"><i class="bi bi-file-earmark-pdf"></i> MSDS Center</h1>
-      <p class="inv-module-subtitle">Direct upload and management for material-specific MSDS PDFs.</p>
+      <h1 class="mod-page-title"><i class="bi bi-file-earmark-pdf"></i> MSDS Center</h1>
+      <p class="mod-page-sub">Direct upload and management for material-specific MSDS PDFs.</p>
     </div>
-    <div class="inv-header-actions">
-      <span class="inv-badge inv-badge-info">{{ total }} materials</span>
-      <span class="inv-badge inv-badge-success">{{ msds_count }} MSDS files stored</span>
-      <span class="inv-badge inv-badge-muted">{{ msds_material_total }} materials covered</span>
+    <div class="mod-page-actions">
+      <span class="mod-badge mod-badge-info">{{ total }} materials</span>
+      <span class="mod-badge mod-badge-success">{{ msds_count }} MSDS files stored</span>
+      <span class="mod-badge mod-badge-muted">{{ msds_material_total }} materials covered</span>
       <a href="{{ url_for('inventory.master_data_page') }}" class="btn btn-sm btn-secondary">
         <i class="bi bi-table"></i> Master Data
       </a>
     </div>
   </div>
 
-  <nav class="inv-subnav" aria-label="Inventory sub-navigation">
-    <a href="{{ url_for('inventory.materials_page') }}" class="inv-subnav-link">
+  <nav class="mod-subnav-bar" aria-label="Inventory sub-navigation">
+    <a href="{{ url_for('inventory.materials_page') }}" class="mod-subnav-bar-link">
       <i class="bi bi-bar-chart-line"></i> Materials Intelligence
     </a>
-    <a href="{{ url_for('inventory.forecast_page') }}" class="inv-subnav-link">
+    <a href="{{ url_for('inventory.forecast_page') }}" class="mod-subnav-bar-link">
       <i class="bi bi-graph-up-arrow"></i> Demand Forecast
     </a>
-    <a href="{{ url_for('inventory.seed_files') }}" class="inv-subnav-link">
+    <a href="{{ url_for('inventory.seed_files') }}" class="mod-subnav-bar-link">
       <i class="bi bi-database-gear"></i> Data Management
     </a>
-    <a href="{{ url_for('inventory.master_data_page') }}" class="inv-subnav-link">
+    <a href="{{ url_for('inventory.master_data_page') }}" class="mod-subnav-bar-link">
       <i class="bi bi-table"></i> Master Data
     </a>
-    <a href="{{ url_for('inventory.msds_page') }}" class="inv-subnav-link active">
+    <a href="{{ url_for('inventory.msds_page') }}" class="mod-subnav-bar-link active">
       <i class="bi bi-file-earmark-pdf"></i> MSDS Center
     </a>
   </nav>
@@ -275,16 +275,16 @@
     </div>
   </div>
 
-  <div class="inv-card">
-    <div class="inv-card-header">
+  <div class="card">
+    <div class="mod-card-head">
       <div>
-        <h2 class="inv-card-title">Material MSDS Status</h2>
-        <p class="inv-card-subtitle">View, download, replace, or delete stored PDFs.</p>
+        <h2 class="mod-card-title">Material MSDS Status</h2>
+        <p class="mod-card-sub">View, download, replace, or delete stored PDFs.</p>
       </div>
     </div>
-    <div class="inv-card-body">
-      <div class="inv-table-wrap">
-        <table class="inv-data-table msds-status-table">
+    <div class="card-body">
+      <div class="mod-table-wrap">
+        <table class="mod-table msds-status-table">
           <colgroup>
             <col style="width: 160px;">
             <col>
@@ -294,17 +294,17 @@
           </colgroup>
           <thead>
             <tr>
-              <th>Material Code</th>
-              <th>Short Text</th>
-              <th>MSDS Status</th>
-              <th>Stored File</th>
-              <th>Actions</th>
+              <th scope="col">Material Code</th>
+              <th scope="col">Short Text</th>
+              <th scope="col">MSDS Status</th>
+              <th scope="col">Stored File</th>
+              <th scope="col">Actions</th>
             </tr>
           </thead>
           <tbody>
             {% for row in rows %}
             {% set msds_files = msds_by_material.get(row.material, []) %}
-            <tr class="inv-row-main">
+            <tr class="mod-row-main">
               <td class="msds-code-cell">{{ row.material }}</td>
               <td class="msds-text-cell">{{ row.short_text }}</td>
               <td class="msds-status-cell">
@@ -319,7 +319,7 @@
                 <div class="msds-file-stack">
                   {% for msds_file in msds_files %}
                   <div class="msds-file-item">
-                    <div class="inv-badge inv-badge-info" style="margin-bottom:0.45rem;">{{ msds_file.slot_label }}</div>
+                    <div class="mod-badge mod-badge-info" style="margin-bottom:0.45rem;">{{ msds_file.slot_label }}</div>
                     <div class="msds-file-name"><strong>{{ msds_file.filename }}</strong></div>
                     <div class="msds-file-meta">
                       {{ "{:,.0f}".format(msds_file.file_size / 1024) }} KB ·

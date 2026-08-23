@@ -1,0 +1,22 @@
+{# Administration section nav — every admin destination is a peer here, the same
+   way each module's mod-nav lists its own pages. Backup Center sits beside User
+   Management rather than hanging off it. #}
+{% macro admin_nav(active='') %}
+<nav class="mod-nav" aria-label="Administration navigation">
+  <a class="{{ 'is-active' if active == 'users' }}" href="{{ url_for('admin.users') }}">
+    <i class="bi bi-people"></i><span>User Management</span>
+  </a>
+  <a class="{{ 'is-active' if active == 'offices' }}" href="{{ url_for('admin.offices') }}">
+    <i class="bi bi-building"></i><span>Offices</span>
+  </a>
+  <a class="{{ 'is-active' if active == 'modules' }}" href="{{ url_for('admin.module_management') }}">
+    <i class="bi bi-grid"></i><span>Module Management</span>
+  </a>
+  <a class="{{ 'is-active' if active == 'backups' }}" href="{{ url_for('admin.backup_center') }}">
+    <i class="bi bi-database"></i><span>Backup Center</span>
+  </a>
+  <a class="{{ 'is-active' if active == 'activity' }}" href="{{ url_for('admin.activity_history') }}">
+    <i class="bi bi-clock-history"></i><span>Activity History</span>
+  </a>
+</nav>
+{% endmacro %}

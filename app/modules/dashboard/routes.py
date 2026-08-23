@@ -69,20 +69,13 @@ def dashboard():
 
 
 # ── Legacy dashboard URLs ─────────────────────────────────────────
-# The superuser and power-user dashboards are now scopes of the home page.
+# The superuser dashboard is now a scope of the home page.
 
 
 @dashboard_bp.route("/dashboard/superuser")
 @login_required
 def superuser_dashboard():
     return redirect(url_for("main.dashboard", scope=SCOPE_WORKSPACE))
-
-
-@dashboard_bp.route("/dashboard/power-user")
-@dashboard_bp.route("/dashboard/power-user/")
-@login_required
-def power_user_dashboard():
-    return redirect(url_for("main.dashboard", scope=SCOPE_OFFICE))
 
 
 @dashboard_bp.route("/dashboard/control-center")
@@ -95,7 +88,7 @@ def control_center():
 @login_required
 def analytics():
     """Portfolio charts, task drilldowns, and the reporting organogram."""
-    if not (current_user.is_super_user() or current_user.is_office_power_user()):
+    if not current_user.is_super_user():
         flash("Portfolio Analytics is not available for this account.", "danger")
         return redirect(url_for("main.dashboard"))
 

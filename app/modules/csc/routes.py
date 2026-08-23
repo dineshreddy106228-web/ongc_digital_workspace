@@ -392,7 +392,9 @@ def upload_msds():
 @login_required
 @module_access_required("csc")
 def open_msds(file_id: int):
-    from app.core.services.msds_service import MSDSError, MSDSNotFoundError, get_msds_file
+    from app.core.services.msds_service import (
+        MSDS_CONTENT_TYPE, MSDSError, MSDSNotFoundError, get_msds_file,
+    )
 
     download = (request.args.get("download") or "").strip().lower() in {"1", "true", "yes"}
     try:
@@ -402,9 +404,12 @@ def open_msds(file_id: int):
     except MSDSError as exc:
         abort(500, description=str(exc))
 
+    # This response renders inline, so the media type is fixed rather than read from
+    # the row: documents stored before uploads were pinned to PDF may still carry a
+    # media type the uploader chose.
     return send_file(
         io.BytesIO(document.data),
-        mimetype=document.content_type or "application/pdf",
+        mimetype=MSDS_CONTENT_TYPE,
         as_attachment=download,
         download_name=document.filename,
         max_age=0,

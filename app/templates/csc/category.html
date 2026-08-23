@@ -2,7 +2,7 @@
 {% block title %}{{ category_label }} — Corporate Specifications — {{ app_name }}{% endblock %}
 {% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/corporate_specifications.css') }}">{% endblock %}
 {% from "csc/_specs_nav.html" import specs_nav %}
-{% block content %}<div class="page-wrapper mod-page is-specs cs-page">
+{% block content %}<div class="page-wrapper mod-page cs-page">
   {{ specs_nav() }}
 
   <nav class="cs-breadcrumb" aria-label="Breadcrumb">
@@ -31,13 +31,13 @@
     <div class="cs-table-wrap">
       <table class="cs-table">
         <thead><tr>
-          <th>Specification No.</th>
-          <th>Chemical</th>
-          <th>Material Code</th>
-          <th>Parameters</th>
-          <th>Version</th>
-          <th>Last revised</th>
-          <th></th>
+          <th scope="col">Specification No.</th>
+          <th scope="col">Chemical</th>
+          <th scope="col">Material Code</th>
+          <th scope="col">Parameters</th>
+          <th scope="col">Version</th>
+          <th scope="col">Last revised</th>
+          <th scope="col"></th>
         </tr></thead>
         <tbody>
           {% for entry in entries %}

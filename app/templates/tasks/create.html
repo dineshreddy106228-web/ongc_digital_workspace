@@ -1,21 +1,38 @@
 {% extends "base.html" %}
-{% from "components/ui.html" import page_header %}
 {% from "components/rich_text.html" import rich_text_field %}
-{% block title %}Create Task{% endblock %}
+{% from "tasks/_office_nav.html" import office_nav %}
+{% block title %}Create Task – Task Management{% endblock %}
 
 {% block head_extra %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/office.css') }}">
 {% endblock %}
 
 {% block content %}
-<div class="page-wrapper">
+<div class="page-wrapper mod-page om-page">
 
-  {% call page_header("Create Task", "Create a Local Task for multiple users or a Global Task for office-wide tracking.", "Task Management", "Pilot v1.1", "info") %}
-    <a href="{{ url_for('tasks.list_tasks') }}" class="btn btn-secondary">
-      <i class="bi bi-arrow-left"></i>
-      <span>Back to List</span>
-    </a>
-  {% endcall %}
+  {{ office_nav('create', true) }}
+
+  <div class="om-breadcrumb">
+    <a href="{{ url_for('tasks.task_dashboard') }}">Task Management</a>
+    <span>›</span>
+    <a href="{{ url_for('tasks.list_tasks') }}">Task Register</a>
+    <span>›</span>
+    <span>New task</span>
+  </div>
+
+  <div class="om-title">
+    <div>
+      <span>Task Management</span>
+      <h1>Create task</h1>
+      <p>Raise a local task for specific users, or a global task tracked across offices.</p>
+    </div>
+    <div class="om-title-actions">
+      <a href="{{ url_for('tasks.list_tasks') }}" class="btn btn-secondary btn-sm">
+        <i class="bi bi-arrow-left"></i><span>Back to register</span>
+      </a>
+    </div>
+  </div>
 
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% for category, message in messages %}

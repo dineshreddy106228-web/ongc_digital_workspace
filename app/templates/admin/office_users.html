@@ -8,7 +8,7 @@
 
 {% block content %}
 <div class="page-wrapper">
-  {% call page_header("Users in " ~ office.office_name, office.office_code ~ " — " ~ (office.location or "No location"), "Administration", "Admin", "neutral") %}
+  {% call page_header("Users in " ~ office.office_name, office.office_code|e ~ " — " ~ (office.location or "No location")|e, "Administration", "Admin", "neutral") %}
     <a href="{{ url_for('admin.offices') }}" class="btn btn-secondary">
       <i class="bi bi-arrow-left"></i>
       <span>Back to Offices</span>
@@ -35,16 +35,15 @@
         <table class="data-table">
           <thead>
             <tr>
-              <th>#</th>
-              <th>Username</th>
-              <th>Full Name</th>
-              <th>Role</th>
-              <th>Power User</th>
-              <th>Controlling Officer</th>
-              <th>Reviewing Officer</th>
-              <th>Accepting Officer</th>
-              <th>Status</th>
-              <th>Actions</th>
+              <th scope="col">#</th>
+              <th scope="col">Username</th>
+              <th scope="col">Full Name</th>
+              <th scope="col">Role</th>
+              <th scope="col">Controlling Officer</th>
+              <th scope="col">Reviewing Officer</th>
+              <th scope="col">Accepting Officer</th>
+              <th scope="col">Status</th>
+              <th scope="col">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -56,13 +55,6 @@
               <td>
                 {% if u.role %}
                   <span class="badge badge-role">{{ u.role.name }}</span>
-                {% else %}
-                  <span class="text-muted">—</span>
-                {% endif %}
-              </td>
-              <td>
-                {% if u.is_power_user %}
-                  <span class="badge badge-active">Power User</span>
                 {% else %}
                   <span class="text-muted">—</span>
                 {% endif %}

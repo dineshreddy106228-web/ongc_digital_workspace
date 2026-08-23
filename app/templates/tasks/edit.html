@@ -1,21 +1,38 @@
 {% extends "base.html" %}
 {% from "components/rich_text.html" import rich_text_field %}
-{% block title %}Edit Task{% endblock %}
+{% from "tasks/_office_nav.html" import office_nav %}
+{% block title %}Edit Task – Task Management{% endblock %}
 
 {% block head_extra %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/office.css') }}">
 {% endblock %}
 
 {% block content %}
-<div class="page-wrapper">
+<div class="page-wrapper mod-page om-page">
 
-  <div class="page-header">
-    <div class="page-header-left">
-      <h1 class="page-title">Edit Task</h1>
-      <p class="page-subtitle">Update task details for "{{ task.task_title }}".</p>
+  {{ office_nav('', true) }}
+
+  <div class="om-breadcrumb">
+    <a href="{{ url_for('tasks.task_dashboard') }}">Task Management</a>
+    <span>›</span>
+    <a href="{{ url_for('tasks.list_tasks') }}">Task Register</a>
+    <span>›</span>
+    <a href="{{ url_for('tasks.task_detail', task_id=task.id) }}">Task #{{ task.id }}</a>
+    <span>›</span>
+    <span>Edit</span>
+  </div>
+
+  <div class="om-title">
+    <div>
+      <span>Task record</span>
+      <h1>Edit task</h1>
+      <p>{{ task.task_title }}</p>
     </div>
-    <div class="page-header-right">
-      <a href="{{ url_for('tasks.task_detail', task_id=task.id) }}" class="btn btn-secondary">← Back to Task</a>
+    <div class="om-title-actions">
+      <a href="{{ url_for('tasks.task_detail', task_id=task.id) }}" class="btn btn-secondary btn-sm">
+        <i class="bi bi-arrow-left"></i><span>Back to task</span>
+      </a>
     </div>
   </div>
 

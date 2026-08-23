@@ -342,10 +342,22 @@ def _validate_sql_preview_lines(preview_lines: list[str]) -> None:
 def _safe_extract_tar(archive: tarfile.TarFile, destination: Path) -> None:
     destination = destination.resolve()
     for member in archive.getmembers():
+        # A bundle only ever holds the SQL payload, the manifests, and the committee
+        # upload tree.  Anything else — symlinks, hard links, devices, FIFOs — is
+        # rejected outright: the path check below cannot see through a link that the
+        # archive itself creates during extraction, so a `link -> /` member followed
+        # by `link/anything` would otherwise write outside the destination.
+        if not (member.isfile() or member.isdir()):
+            raise BackupError("Backup bundle contained an unsupported archive entry.")
         member_path = (destination / member.name).resolve()
         if destination not in member_path.parents and member_path != destination:
             raise BackupError("Backup bundle contained an unsafe archive path.")
-    archive.extractall(destination)
+    try:
+        archive.extractall(destination, filter="data")
+    except TypeError:
+        # Python releases without the extraction filter (pre-3.11.4) fall back to the
+        # member checks above, which already cover the cases `data` would reject.
+        archive.extractall(destination)
 
 
 def _replace_directory_contents(source: Path | None, destination: Path) -> None:

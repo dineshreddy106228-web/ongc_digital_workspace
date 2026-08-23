@@ -2,7 +2,7 @@
 {% block title %}MSDS Center — Corporate Specifications — {{ app_name }}{% endblock %}
 {% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/corporate_specifications.css') }}">{% endblock %}
 {% from "csc/_specs_nav.html" import specs_nav %}
-{% block content %}<div class="page-wrapper mod-page is-specs cs-page">
+{% block content %}<div class="page-wrapper mod-page cs-page">
   {{ specs_nav('msds') }}
 
   <nav class="cs-breadcrumb" aria-label="Breadcrumb">
@@ -76,7 +76,7 @@
   <section class="cs-card"><div class="cs-card-body">
     <div class="cs-table-wrap">
       <table class="cs-table">
-        <thead><tr><th>Material code</th><th>Short text</th><th>Status</th><th>Stored files</th><th></th></tr></thead>
+        <thead><tr><th scope="col">Material code</th><th scope="col">Short text</th><th scope="col">Status</th><th scope="col">Stored files</th><th scope="col"></th></tr></thead>
         <tbody>
           {% for row in rows %}
           {% set msds_files = msds_by_material.get(row.material, []) %}

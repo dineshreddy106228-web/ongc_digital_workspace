@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "admin/_admin_nav.html" import admin_nav with context %}
 {% block title %}Activity History{% endblock %}
 
 {% block head_extra %}
@@ -7,6 +8,7 @@
 
 {% block content %}
 <div class="page-wrapper">
+  {% if current_user.has_role('admin') %}{{ admin_nav('activity') }}{% endif %}
   <div class="page-header">
     <div class="page-header-left">
       <h1 class="page-title">Activity History</h1>
@@ -19,13 +21,13 @@
 
   {# ── Filters ──────────────────────────────────────────────── #}
   <form method="get" class="activity-filter-bar">
-    <select name="action" class="form-select form-select-sm">
+    <select name="action" class="form-select form-select-sm" aria-label="Filter by action">
       <option value="">All Actions</option>
       {% for at in action_types %}
       <option value="{{ at }}" {{ 'selected' if filters.action == at }}>{{ at }}</option>
       {% endfor %}
     </select>
-    <select name="actor" class="form-select form-select-sm">
+    <select name="actor" class="form-select form-select-sm" aria-label="Filter by actor">
       <option value="">All Users</option>
       {% for a in actors %}
       <option value="{{ a }}" {{ 'selected' if filters.actor == a }}>{{ a }}</option>
@@ -44,10 +46,10 @@
       <table class="activity-table">
         <thead>
           <tr>
-            <th style="width: 170px;">Time</th>
-            <th style="width: 140px;">User</th>
-            <th style="width: 160px;">Action</th>
-            <th>Description</th>
+            <th scope="col" style="width: 170px;">Time</th>
+            <th scope="col" style="width: 140px;">User</th>
+            <th scope="col" style="width: 160px;">Action</th>
+            <th scope="col">Description</th>
           </tr>
         </thead>
         <tbody>

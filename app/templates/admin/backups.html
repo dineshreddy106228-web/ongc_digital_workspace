@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "admin/_admin_nav.html" import admin_nav with context %}
 {% block title %}Backup Center{% endblock %}
 
 {% block head_extra %}
@@ -66,13 +67,11 @@
 
 {% block content %}
 <div class="page-wrapper">
+  {{ admin_nav('backups') }}
   <div class="page-header">
     <div class="page-header-left">
       <h1 class="page-title">Backup Center</h1>
       <p class="page-subtitle">Create full backup bundles with database state and critical attachment files, then restore them into the current environment.</p>
-    </div>
-    <div class="page-header-right" style="display:flex; gap:0.75rem; flex-wrap:wrap;">
-      <a href="{{ url_for('admin.users') }}" class="btn btn-secondary">Back to Users</a>
     </div>
   </div>
 
@@ -110,13 +109,51 @@
           <strong>MSDS PDFs are not included.</strong> The stored safety-data-sheet files are left out to keep the
           bundle small, so a restore recreates the MSDS Center empty and the PDFs must be re-uploaded. The bundle
           carries <code>excluded_files.json</code> listing every skipped file by material code, slot and filename,
-          so you know exactly what to restore.
+          so you know exactly what to restore. Download them separately from the MSDS Document Archive alongside.
         </div>
         <div class="backup-note backup-note-warning">
           <strong>Runtime requirement:</strong> the deployment environment must include
           <code>mysqldump</code>. On Railway this usually means adding a MySQL client package
           to the service image.
         </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-body">
+        <h2 class="backup-section-title">MSDS Document Archive</h2>
+        <p class="backup-copy">
+          Download every safety data sheet held in the system as a single <code>.zip</code> of PDFs. Each file is
+          named by the chemical's corporate specification reference — <code>ONGC / DFC / 01 / 2026</code> is saved as
+          <code>ONGC-DFC-01-2026.pdf</code> — so the archive reads as the specification register. This is the
+          companion to the database bundle, which deliberately leaves the PDFs out.
+        </p>
+        <div class="backup-meta">
+          <div class="backup-meta-card">
+            <span class="backup-meta-label">Documents Stored</span>
+            <p class="backup-meta-value">
+              <strong>{{ msds_document_count if msds_document_count is not none else '—' }}</strong>
+              {%- if msds_document_count is not none %} MSDS file{{ '' if msds_document_count == 1 else 's' }}{% endif %}
+            </p>
+          </div>
+        </div>
+        <ol class="backup-flow">
+          <li>A chemical with no current corporate specification is named by its SAP material code instead.</li>
+          <li>A chemical holding several sheets gets the slot appended — standard, vendor 1, vendor 2, vendor 3.</li>
+          <li>Where one specification covers several materials, each file keeps its SAP code so nothing is overwritten.</li>
+        </ol>
+        <form method="POST" action="{{ url_for('admin.export_msds_archive') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-primary" {{ 'disabled' if not msds_document_count }}>
+            Download All MSDS PDFs
+          </button>
+        </form>
+        {% if not msds_document_count %}
+        <div class="backup-note backup-note-warning">
+          <strong>Nothing to download yet.</strong> Safety data sheets are uploaded from the MSDS Center inside
+          Corporate Specifications Management; this archive covers whatever is stored there.
+        </div>
+        {% endif %}
       </div>
     </section>
 
@@ -315,11 +352,11 @@
             <table class="data-table">
               <thead>
                 <tr>
-                  <th>Filename</th>
-                  <th>Created By</th>
-                  <th>Created At</th>
-                  <th>Environment</th>
-                  <th>Notes</th>
+                  <th scope="col">Filename</th>
+                  <th scope="col">Created By</th>
+                  <th scope="col">Created At</th>
+                  <th scope="col">Environment</th>
+                  <th scope="col">Notes</th>
                 </tr>
               </thead>
               <tbody>
@@ -357,10 +394,10 @@
             <table class="data-table">
               <thead>
                 <tr>
-                  <th>Action</th>
-                  <th>Item</th>
-                  <th>When</th>
-                  <th>Details</th>
+                  <th scope="col">Action</th>
+                  <th scope="col">Item</th>
+                  <th scope="col">When</th>
+                  <th scope="col">Details</th>
                 </tr>
               </thead>
               <tbody>

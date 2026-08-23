@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+import logging
+import re
+import tempfile
+import zipfile
+from collections import Counter
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -22,6 +28,9 @@ from app.models.inventory.msds_file import (
 )
 
 
+logger = logging.getLogger(__name__)
+
+
 class MSDSError(RuntimeError):
     """Raised when MSDS storage or validation fails."""
 
@@ -29,6 +38,8 @@ class MSDSError(RuntimeError):
 class MSDSNotFoundError(MSDSError):
     """Raised when the requested MSDS file does not exist."""
 
+
+MSDS_CONTENT_TYPE = "application/pdf"
 
 MYSQL_BLOB_TYPE_LIMITS = {
     "tinyblob": 255,
@@ -67,6 +78,17 @@ def _normalize_material_code(material_code: str | None) -> str:
 def _normalize_filename(filename: str | None) -> str:
     clean_name = (filename or "").strip().replace("\\", "/").split("/")[-1]
     return clean_name or "msds.pdf"
+
+
+def _normalize_content_type(content_type: str | None) -> str:
+    """Pin the stored media type to PDF.
+
+    The uploader supplies this header, and ``_validate_pdf_bytes`` has already proven
+    the payload is a PDF, so any other declared type is untrue.  Storing it verbatim
+    would let an upload dictate the ``Content-Type`` the MSDS viewer serves it back
+    with, and that response renders inline.
+    """
+    return MSDS_CONTENT_TYPE
 
 
 def _normalize_slot_code(slot_code: str | None) -> str:
@@ -351,7 +373,7 @@ def store_msds_bytes(
             material_code=clean_material,
             slot_code=clean_slot,
             filename=safe_filename,
-            content_type=(content_type or "application/pdf").strip() or "application/pdf",
+            content_type=_normalize_content_type(content_type),
             file_size=len(file_bytes),
             uploaded_at=timestamp,
             data=file_bytes,
@@ -361,7 +383,7 @@ def store_msds_bytes(
     else:
         msds_file.slot_code = clean_slot
         msds_file.filename = safe_filename
-        msds_file.content_type = (content_type or "application/pdf").strip() or "application/pdf"
+        msds_file.content_type = _normalize_content_type(content_type)
         msds_file.file_size = len(file_bytes)
         msds_file.uploaded_at = timestamp
         msds_file.data = file_bytes
@@ -423,6 +445,137 @@ def msds_file_exists(
         if uploaded_at is not None:
             query = query.filter(MSDSFile.uploaded_at == uploaded_at)
         return query.first() is not None
+    except SQLAlchemyError as exc:
+        raise _msds_query_error(exc) from exc
+
+
+# ── Bulk archive ─────────────────────────────────────────────────
+# Every stored MSDS, downloaded as one zip of PDFs named by the chemical's
+# corporate specification reference, so the archive reads as the specification
+# register rather than as a list of SAP codes.
+
+ARCHIVE_FALLBACK_NOTE = "no current corporate specification — named by SAP material code"
+
+
+@dataclass(frozen=True)
+class MSDSArchive:
+    """Temporary zip of every stored MSDS, returned to the admin download response."""
+
+    temp_path: Path
+    download_name: str
+    file_count: int
+    material_count: int
+    unspecified_count: int
+
+    @property
+    def size_bytes(self) -> int:
+        return self.temp_path.stat().st_size
+
+    def cleanup(self) -> None:
+        try:
+            self.temp_path.unlink(missing_ok=True)
+        except OSError:
+            logger.warning(
+                "Failed to delete temporary MSDS archive: %s", self.temp_path, exc_info=True
+            )
+
+
+def _archive_slug(value: str | None) -> str:
+    """A filesystem-safe stem: 'ONGC / DFC / 01 / 2026' becomes 'ONGC-DFC-01-2026'."""
+    cleaned = re.sub(r"[^A-Za-z0-9]+", "-", str(value or "").strip()).strip("-")
+    return cleaned.upper()
+
+
+def _specification_reference_index() -> dict[str, str]:
+    """Material code → its corporate specification number, from the QC standards master."""
+    from app.core.services.inventory_monitoring import specification_index
+
+    return {
+        code: (detail.get("specification_no") or "")
+        for code, detail in specification_index().items()
+    }
+
+
+def msds_archive_filenames(
+    grouped: dict[str, list[MSDSFile]],
+    references: dict[str, str],
+) -> dict[int, str]:
+    """One archive filename per stored MSDS, keyed by file id.
+
+    The corporate specification reference is the name. A chemical with no current
+    specification falls back to its SAP material code; a chemical holding more
+    than one MSDS has the slot appended; and where one specification covers
+    several materials each keeps its SAP code, so no document overwrites another.
+    """
+    stems = {
+        code: _archive_slug(references.get(code)) or _archive_slug(code)
+        for code in grouped
+    }
+    shared = Counter(stems.values())
+
+    names: dict[int, str] = {}
+    used: set[str] = set()
+    for code, files in sorted(grouped.items()):
+        stem = stems[code]
+        if shared[stem] > 1 and stem != _archive_slug(code):
+            stem = f"{stem}_{_archive_slug(code)}"
+        for msds_file in files:
+            candidate = stem if len(files) == 1 else f"{stem}_{_archive_slug(msds_file.slot_code)}"
+            name = f"{candidate}.pdf"
+            suffix = 2
+            while name.casefold() in used:
+                name = f"{candidate}-{suffix}.pdf"
+                suffix += 1
+            used.add(name.casefold())
+            names[msds_file.id] = name
+    return names
+
+
+def build_msds_archive() -> MSDSArchive:
+    """Zip every stored MSDS PDF under its corporate specification reference.
+
+    Documents are streamed one at a time and expired straight after writing, so a
+    register of large PDFs never has to sit in memory all at once.
+    """
+    grouped = get_msds_material_index()
+    references = _specification_reference_index()
+    names = msds_archive_filenames(grouped, references)
+    unspecified = sum(1 for code in grouped if not references.get(code))
+
+    handle = tempfile.NamedTemporaryFile(prefix="msds_archive_", suffix=".zip", delete=False)
+    temp_path = Path(handle.name)
+    handle.close()
+
+    written = 0
+    try:
+        with zipfile.ZipFile(temp_path, "w", zipfile.ZIP_DEFLATED) as archive:
+            for files in grouped.values():
+                for msds_file in files:
+                    record = get_msds_file(msds_file.id, include_data=True)
+                    archive.writestr(names[msds_file.id], record.data or b"")
+                    db.session.expire(record, ["data"])
+                    written += 1
+    except (SQLAlchemyError, OSError, MSDSError):
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Failed to clean up partial MSDS archive: %s", temp_path)
+        raise
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    return MSDSArchive(
+        temp_path=temp_path,
+        download_name=f"msds_documents_{stamp}.zip",
+        file_count=written,
+        material_count=len(grouped),
+        unspecified_count=unspecified,
+    )
+
+
+def count_msds_files() -> int:
+    """How many MSDS documents are stored, for the Backup Center summary."""
+    try:
+        return MSDSFile.query.count()
     except SQLAlchemyError as exc:
         raise _msds_query_error(exc) from exc
 

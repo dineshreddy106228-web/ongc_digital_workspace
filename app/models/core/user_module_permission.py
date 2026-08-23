@@ -45,10 +45,14 @@ SUPPORTED_MODULES = [
     *[(module.code, module.name) for module in MODULE_DEFINITIONS],
 ]
 
+# Administration surfaces belong to the admin role alone: a super user runs the
+# business modules, an admin runs the accounts and the backups.
+ADMIN_ONLY_MODULES = {"admin_users", "admin_backups"}
+
 # Modules that super_user gets by default (all business modules)
 SUPER_USER_MODULES = {"dashboard"} | {
-    module.code for module in MODULE_DEFINITIONS if module.code != "admin_users"
+    module.code for module in MODULE_DEFINITIONS if module.code not in ADMIN_ONLY_MODULES
 }
 
 # Modules admin gets by default
-ADMIN_DEFAULT_MODULES = {"admin_users"}
+ADMIN_DEFAULT_MODULES = set(ADMIN_ONLY_MODULES)

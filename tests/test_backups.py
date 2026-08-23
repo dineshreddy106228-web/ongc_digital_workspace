@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gzip
+import io
 import json
 import sys
 import tarfile
@@ -152,11 +153,99 @@ def test_restore_database_backup_restores_committee_uploads_from_bundle() -> Non
         assert not (upload_dir / "old.txt").exists()
 
 
+def _write_bundle_with_member(directory: Path, build_member) -> Path:
+    bundle_path = directory / "bundle.tar.gz"
+    with tarfile.open(bundle_path, "w:gz") as archive:
+        build_member(archive)
+    return bundle_path
+
+
+def test_safe_extract_tar_rejects_symlink_members() -> None:
+    """A symlink member can redirect a later member outside the destination."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        outside = root / "outside"
+        outside.mkdir()
+        (outside / "victim.txt").write_text("original", encoding="utf-8")
+        destination = root / "extract"
+        destination.mkdir()
+
+        def build(archive: tarfile.TarFile) -> None:
+            link = tarfile.TarInfo("escape")
+            link.type = tarfile.SYMTYPE
+            link.linkname = str(outside)
+            archive.addfile(link)
+            payload = b"overwritten"
+            member = tarfile.TarInfo("escape/victim.txt")
+            member.size = len(payload)
+            archive.addfile(member, io.BytesIO(payload))
+
+        bundle_path = _write_bundle_with_member(root, build)
+        with tarfile.open(bundle_path, "r:gz") as archive:
+            try:
+                backups._safe_extract_tar(archive, destination)
+            except backups.BackupError:
+                pass
+            else:
+                raise AssertionError("symlink member was not rejected")
+
+        assert (outside / "victim.txt").read_text(encoding="utf-8") == "original"
+
+
+def test_safe_extract_tar_rejects_traversal_members() -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        outside = root / "outside"
+        outside.mkdir()
+        (outside / "victim.txt").write_text("original", encoding="utf-8")
+        destination = root / "extract"
+        destination.mkdir()
+
+        def build(archive: tarfile.TarFile) -> None:
+            payload = b"overwritten"
+            member = tarfile.TarInfo("../outside/victim.txt")
+            member.size = len(payload)
+            archive.addfile(member, io.BytesIO(payload))
+
+        bundle_path = _write_bundle_with_member(root, build)
+        with tarfile.open(bundle_path, "r:gz") as archive:
+            try:
+                backups._safe_extract_tar(archive, destination)
+            except backups.BackupError:
+                pass
+            else:
+                raise AssertionError("traversal member was not rejected")
+
+        assert (outside / "victim.txt").read_text(encoding="utf-8") == "original"
+
+
+def test_safe_extract_tar_extracts_regular_members() -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        destination = root / "extract"
+        destination.mkdir()
+
+        def build(archive: tarfile.TarFile) -> None:
+            payload = b"payload"
+            member = tarfile.TarInfo(backups.BUNDLE_DATABASE_MEMBER)
+            member.size = len(payload)
+            archive.addfile(member, io.BytesIO(payload))
+
+        bundle_path = _write_bundle_with_member(root, build)
+        with tarfile.open(bundle_path, "r:gz") as archive:
+            backups._safe_extract_tar(archive, destination)
+
+        assert (destination / backups.BUNDLE_DATABASE_MEMBER).read_bytes() == b"payload"
+
+
 def _run_direct() -> None:
     tests = [
         test_create_full_backup_bundle_includes_manifest_and_uploads,
         test_validate_backup_file_detects_full_bundle,
         test_restore_database_backup_restores_committee_uploads_from_bundle,
+        test_safe_extract_tar_rejects_symlink_members,
+        test_safe_extract_tar_rejects_traversal_members,
+        test_safe_extract_tar_extracts_regular_members,
     ]
     for test in tests:
         test()

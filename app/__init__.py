@@ -4,8 +4,7 @@ import logging
 import os
 import secrets
 from importlib import import_module
-from urllib.parse import urlparse
-from flask import Flask, flash, g, jsonify, redirect, render_template_string, request
+from flask import Flask, flash, g, jsonify, redirect, render_template_string
 from flask_login import current_user
 from flask_wtf.csrf import CSRFError
 from config import Config
@@ -13,6 +12,7 @@ from config import Config
 logger = logging.getLogger(__name__)
 from app.core.services.rich_text import render_rich_text
 from app.core.utils.datetime import format_datetime_ist
+from app.core.utils.request_meta import safe_referrer_target
 from app.extensions import cache, csrf, db, login_manager, migrate
 from app.features import (
     get_nav_modules,
@@ -171,9 +171,7 @@ def create_app(config_class=Config):
     def request_entity_too_large(e):
         limit_bytes = int(app.config.get("MAX_CONTENT_LENGTH") or 0)
         limit_mb = max(limit_bytes / (1024 * 1024), 0)
-        referrer = request.referrer or "/"
-        parsed = urlparse(referrer)
-        back_url = referrer if parsed.scheme in ("http", "https", "") else "/"
+        back_url = safe_referrer_target("/")
         return render_template_string("""
         {% extends "base.html" %}
         {% block title %}Upload Too Large{% endblock %}
@@ -191,9 +189,7 @@ def create_app(config_class=Config):
 
     @app.errorhandler(CSRFError)
     def handle_csrf_error(e):
-        referrer = request.referrer or "/"
-        parsed = urlparse(referrer)
-        back_url = referrer if parsed.scheme in ("http", "https", "") else "/"
+        back_url = safe_referrer_target("/")
         flash("Your form session expired. Reload the page and submit the upload again.", "warning")
         return redirect(back_url)
 

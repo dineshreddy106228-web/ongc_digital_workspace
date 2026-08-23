@@ -1,20 +1,37 @@
 {% extends "base.html" %}
-{% block title %}Edit Task Update{% endblock %}
+{% from "tasks/_office_nav.html" import office_nav %}
+{% block title %}Edit Update – Task Management{% endblock %}
 
 {% block head_extra %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/office.css') }}">
 {% endblock %}
 
 {% block content %}
-<div class="page-wrapper">
+<div class="page-wrapper mod-page om-page">
 
-  <div class="page-header">
-    <div class="page-header-left">
-      <h1 class="page-title">Edit Task Update</h1>
-      <p class="page-subtitle">{{ task.task_title }}</p>
+  {{ office_nav('', true) }}
+
+  <div class="om-breadcrumb">
+    <a href="{{ url_for('tasks.task_dashboard') }}">Task Management</a>
+    <span>›</span>
+    <a href="{{ url_for('tasks.list_tasks') }}">Task Register</a>
+    <span>›</span>
+    <a href="{{ url_for('tasks.task_detail', task_id=task.id) }}">Task #{{ task.id }}</a>
+    <span>›</span>
+    <span>Edit update</span>
+  </div>
+
+  <div class="om-title">
+    <div>
+      <span>Progress</span>
+      <h1>Edit update</h1>
+      <p>{{ task.task_title }}</p>
     </div>
-    <div class="page-header-right">
-      <a href="{{ url_for('tasks.task_detail', task_id=task.id) }}" class="btn btn-secondary">← Back to Task</a>
+    <div class="om-title-actions">
+      <a href="{{ url_for('tasks.task_detail', task_id=task.id) }}" class="btn btn-secondary btn-sm">
+        <i class="bi bi-arrow-left"></i><span>Back to task</span>
+      </a>
     </div>
   </div>
 
@@ -24,48 +41,52 @@
     {% endfor %}
   {% endwith %}
 
-  <div class="card form-card-narrow">
-    <div class="card-body">
+  <div class="om-card om-form-narrow">
+    <div class="om-card-head">
+      <div>
+        <h2><i class="bi bi-pencil-square"></i> Edit details</h2>
+        <p>Only the original author may edit, and only inside the {{ task_update_edit_window_hours }}-hour window.</p>
+      </div>
+    </div>
+    <div class="om-card-body">
       <form method="POST" action="{{ url_for('tasks.edit_task_update', task_id=task.id, update_id=update.id) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-        <div class="form-section">
-          <div class="form-section-title">Edit Details</div>
-
-          <div class="form-group">
-            <label class="form-label" for="update_text">Update Text <span class="required">*</span></label>
-            <textarea id="update_text" name="update_text" class="form-control"
-                      rows="5" required maxlength="5000">{{ form_data.get('update_text', update.update_text) }}</textarea>
-            <div class="form-hint">
-              Only the original updater can edit this entry, and only within {{ task_update_edit_window_hours }} hours of posting.
+        <div class="om-form-section">
+          <div class="om-form-grid">
+            <div class="om-field om-field-wide">
+              <label for="update_text">Update text <span class="om-required">*</span></label>
+              <textarea id="update_text" name="update_text" rows="6" required maxlength="5000">{{ form_data.get('update_text', update.update_text) }}</textarea>
+              <small class="om-hint">Only the original updater can edit this entry, and only within {{ task_update_edit_window_hours }} hours of posting.</small>
             </div>
-          </div>
 
-          <div class="form-group">
-            <label class="form-label">Original Status Change</label>
-            <div class="detail-value">
-              {% if update.old_status and update.new_status %}
-              {{ update.old_status }} → {{ update.new_status }}
-              {% elif update.new_status %}
-              {{ update.new_status }}
-              {% else %}
-              No status change
-              {% endif %}
+            <div class="om-field">
+              <label>Original status change</label>
+              <div class="om-static">
+                {%- if update.old_status and update.new_status -%}
+                {{ update.old_status }} → {{ update.new_status }}
+                {%- elif update.new_status -%}
+                {{ update.new_status }}
+                {%- else -%}
+                No status change
+                {%- endif -%}
+              </div>
+              <small class="om-hint">Status history is locked after posting to preserve audit integrity.</small>
             </div>
-            <div class="form-hint">Status history is locked after posting to preserve audit integrity.</div>
-          </div>
 
-          <div class="form-group">
-            <label class="form-label">Edit Deadline</label>
-            <div class="detail-value">
-              {{ update.edit_deadline(task_update_edit_window_hours)|datetime_ist('%d %b %Y %I:%M %p') if update.edit_deadline(task_update_edit_window_hours) else '—' }}
+            <div class="om-field">
+              <label>Edit deadline</label>
+              <div class="om-static">
+                {{ update.edit_deadline(task_update_edit_window_hours)|datetime_ist('%d %b %Y · %I:%M %p') if update.edit_deadline(task_update_edit_window_hours) else '—' }}
+              </div>
+              <small class="om-hint">After this time the entry becomes read-only.</small>
             </div>
           </div>
         </div>
 
-        <div class="form-actions">
-          <button type="submit" class="btn btn-primary">Save Changes</button>
+        <div class="om-form-actions">
           <a href="{{ url_for('tasks.task_detail', task_id=task.id) }}" class="btn btn-secondary">Cancel</a>
+          <button type="submit" class="btn btn-primary">Save changes</button>
         </div>
       </form>
     </div>
