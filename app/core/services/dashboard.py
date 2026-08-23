@@ -33,14 +33,15 @@ SHOWCASE_MODULE_KEYS = (
     "csc_workflow",
     "manpower_planning",
 )
-ADMIN_SHOWCASE_MODULE_KEYS = ("admin_users",)
+ADMIN_SHOWCASE_MODULE_KEYS = ("admin_users", "admin_backups")
 MODULE_ICON_MAP = {
     "office_management": "bi-kanban-fill",
-    "csc_workflow": "bi-journal-richtext",
+    "csc_workflow": "bi-file-earmark-ruled",
     "inventory": "bi-boxes",
     "quality_control": "bi-flask",
     "manpower_planning": "bi-people-fill",
     "admin_users": "bi-person-gear",
+    "admin_backups": "bi-database",
     "reports": "bi-bar-chart-line",
     "forecasting": "bi-graph-up-arrow",
 }
@@ -53,6 +54,7 @@ MODULE_ACCENT_MAP = {
     "quality_control": "qc",
     "manpower_planning": "manpower",
     "admin_users": "admin",
+    "admin_backups": "admin",
     "reports": "reports",
     "forecasting": "forecasting",
 }
@@ -423,40 +425,16 @@ def _task_visibility_query_for_user(user):
 
 
 def _control_center_task_query_for_user(user):
-    """Return the task query for dedicated power/superuser dashboard mode."""
+    """Return the task query behind the command dashboard."""
     if user.is_super_user():
         return Task.query
-
-    if user.is_office_power_user() and user.office_id is not None:
-        tagged_task_ids_subq = (
-            TaskOffice.query
-            .with_entities(TaskOffice.task_id)
-            .filter(TaskOffice.office_id == user.office_id)
-            .subquery()
-        )
-        return Task.query.filter(
-            or_(
-                and_(
-                    Task.task_scope.in_(["MY", "TEAM"]),
-                    Task.office_id == user.office_id,
-                    Task.is_private_self_task.is_(False),
-                ),
-                and_(
-                    Task.task_scope == "GLOBAL",
-                    or_(
-                        Task.office_id == user.office_id,
-                        Task.id.in_(select(tagged_task_ids_subq.c.task_id)),
-                    ),
-                ),
-            )
-        )
 
     return _task_visibility_query_for_user(user)
 
 
 def task_visible_in_command_dashboard(user, task_id: int) -> bool:
     """Return True when the task is visible in the user's command-dashboard scope."""
-    if not (user.is_super_user() or user.is_office_power_user()):
+    if not user.is_super_user():
         return False
 
     return (

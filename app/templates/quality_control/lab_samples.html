@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% from "quality_control/_qc_nav.html" import qc_nav with context %}
+{% block title %}{{ laboratory.name }} Sample History{% endblock %}
+{% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/quality_control.css') }}">{% endblock %}
+{% block content %}<div class="page-wrapper mod-page">
+{{ qc_nav('') }}
+
+<div class="mod-page-head">
+  <div>
+    <div class="qc-lab-eyebrow">{{ laboratory.location }} · Laboratory register</div>
+    <h1 class="mod-page-title"><i class="bi bi-database"></i> {{ laboratory.name }} Sample History</h1>
+    <p class="mod-page-sub">
+      Every sample this laboratory has reported across all imported weeks.
+      {% if batch %}Latest reporting week ended {{ batch.week_end.strftime('%d %b %Y') }}.{% endif %}
+    </p>
+  </div>
+  <div class="mod-page-actions">
+    <a class="btn btn-primary" href="{{ url_for('quality_control.laboratory_dashboard', lab_code=laboratory.code) }}"><i class="bi bi-arrow-left"></i> Back to dashboard</a>
+  </div>
+</div>
+
+{% include "quality_control/_subnav.html" %}
+
+<section class="card qc-history-filter-card">
+  <div class="card-body">
+    <form method="GET" class="qc-history-filters is-lab-scoped">
+      <div>
+        <label for="historyChemical" class="mod-field-label">Chemical</label>
+        <select id="historyChemical" class="form-control" name="chemical">
+          <option value="">All chemicals</option>
+          {% for chemical in chemicals %}
+          <option value="{{ chemical }}" {{ 'selected' if filters.chemical == chemical }}>{{ chemical }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="historySpec" class="mod-field-label">Specification number</label>
+        <input id="historySpec" class="form-control" name="specification" value="{{ filters.specification }}" placeholder="e.g. ONGC / DFC / 75">
+      </div>
+      <div>
+        <label for="historyStatus" class="mod-field-label">Result status</label>
+        <select id="historyStatus" class="form-control" name="status">
+          <option value="">All statuses</option>
+          <option value="under_testing" {{ 'selected' if filters.status == 'under_testing' }}>Under testing</option>
+          <option value="report_issued" {{ 'selected' if filters.status == 'report_issued' }}>Report issued; outcome not recorded</option>
+          <option value="pass" {{ 'selected' if filters.status == 'pass' }}>Pass</option>
+          <option value="fail" {{ 'selected' if filters.status == 'fail' }}>Fail</option>
+        </select>
+      </div>
+      <div class="qc-filter-action">
+        <button class="btn btn-primary" type="submit"><i class="bi bi-funnel"></i> Apply Filters</button>
+        <a href="{{ url_for('quality_control.samples', lab_code=laboratory.code) }}">Reset</a>
+      </div>
+    </form>
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-body">
+    <div class="qc-history-result-heading">
+      <div>
+        <h2 class="mod-card-title">Sample register</h2>
+        <p class="mod-card-sub">{{ samples|length }} matching record{{ '' if samples|length == 1 else 's' }} for this laboratory.</p>
+      </div>
+      <a class="qc-lab-count" href="{{ url_for('quality_control.sample_history', lab=laboratory.code) }}">Compare across laboratories <i class="bi bi-arrow-right"></i></a>
+    </div>
+    <div class="mod-table-wrap">
+      <table class="mod-table">
+        <thead>
+          <tr>
+            <th scope="col">Chemical / Specification</th>
+            <th scope="col">PO / Lot / LABIMS</th>
+            <th scope="col">Receipt</th>
+            <th scope="col">Report</th>
+            <th scope="col">Outcome</th>
+            <th scope="col">TAT</th>
+            <th scope="col">Remarks</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for sample in samples %}
+          <tr>
+            <td><strong>{{ sample.chemical_name }}</strong><div class="mod-cell-meta">{{ sample.specification_no or '—' }}</div></td>
+            <td>{{ sample.po_number or '—' }}<div class="mod-cell-meta">{{ sample.lot_stack or '—' }} · {{ sample.notification_no or '—' }}</div></td>
+            <td>{{ sample.sample_receipt_date.strftime('%d %b %Y') if sample.sample_receipt_date else '—' }}</td>
+            <td>{{ sample.report_issue_date.strftime('%d %b %Y') if sample.report_issue_date else '—' }}</td>
+            <td><span class="status-badge {{ 'status-success' if sample.result_status == 'pass' else 'status-danger' if sample.result_status == 'fail' else 'status-pending' }}">{{ 'Report issued; outcome not recorded' if sample.result_status == 'report_issued' else sample.result_status.replace('_', ' ').title() }}</span></td>
+            <td>{{ sample.turnaround_days ~ ' days' if sample.turnaround_days is not none else '—' }}</td>
+            <td>{{ sample.delay_reason or '—' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7">No samples match the selected filters for this laboratory.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+</div>{% endblock %}

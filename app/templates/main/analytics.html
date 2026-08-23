@@ -525,8 +525,21 @@
   superTabButtons.forEach((button) => {
     button.addEventListener('click', function () {
       activateSuperTab(this.dataset.superTab);
+      // Keep the address bar on the tab being read, so the view is linkable.
+      history.replaceState(null, '', '#' + this.dataset.superTab);
     });
   });
+
+  /* Arriving on #organogram — the workspace home links straight here — opens
+     that tab instead of the portfolio default. */
+  function activateTabFromHash() {
+    const key = (window.location.hash || '').replace('#', '');
+    if (key && superTabButtons.some((button) => button.dataset.superTab === key)) {
+      activateSuperTab(key);
+    }
+  }
+  activateTabFromHash();
+  window.addEventListener('hashchange', activateTabFromHash);
 
   if (organogramFilter) {
     organogramFilter.addEventListener('change', function () {

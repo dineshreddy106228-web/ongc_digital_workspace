@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from flask import url_for
 from sqlalchemy import func, or_
 from sqlalchemy.orm import undefer
 
@@ -27,7 +28,7 @@ from app.models.quality_control.qc_upload_batch import QCUploadBatch
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 _WEEK_PATTERN = re.compile(r"(\d{2}[./-]\d{2}[./-]\d{4}).*?(\d{2}[./-]\d{2}[./-]\d{4})")
 IMPORT_STAGING_DIRECTORY = Path(tempfile.gettempdir()) / "ongc_qc_import_staging"
-CLOSED_SAMPLE_REVIEW_SLA_DAYS = 9
+CLOSED_SAMPLE_REVIEW_STT_DAYS = 9
 LABORATORIES = {
     "rgl_panvel": {"code": "rgl_panvel", "name": "RGL Panvel", "location": "Panvel", "description": "Regional Geoscience Laboratory"},
     "rgl_vadodara": {"code": "rgl_vadodara", "name": "RGL Vadodara", "location": "Vadodara", "description": "Regional Geoscience Laboratory"},
@@ -403,6 +404,99 @@ def laboratory_landing_data() -> list[dict[str, Any]]:
     return laboratories
 
 
+def current_monitoring_week() -> dict[str, Any] | None:
+    """The reporting week the workspace is currently monitoring.
+
+    Taken from the most recent weekly workbook any laboratory has imported —
+    never from today's date, so the navigator states what the system actually
+    holds rather than what the calendar suggests it should.
+    """
+    batch = QCUploadBatch.query.order_by(QCUploadBatch.week_end.desc()).first()
+    if batch is None:
+        return None
+    return {
+        "week_start": batch.week_start,
+        "week_end": batch.week_end,
+        "lab_code": batch.lab_code,
+        "label": _format_week_range(batch.week_start, batch.week_end),
+    }
+
+
+def _format_week_range(start: date, end: date) -> str:
+    """Render a week as one readable range, dropping what the two dates share."""
+    if start is None or end is None:
+        return ""
+    if start == end:
+        return start.strftime("%d %b %Y")
+    if (start.year, start.month) == (end.year, end.month):
+        return f"{start.strftime('%d')}\u2013{end.strftime('%d %b %Y')}"
+    if start.year == end.year:
+        return f"{start.strftime('%d %b')}\u2013{end.strftime('%d %b %Y')}"
+    return f"{start.strftime('%d %b %Y')}\u2013{end.strftime('%d %b %Y')}"
+
+
+def laboratory_import_targets() -> list[dict[str, Any]]:
+    """Every laboratory that can receive a weekly workbook, flattened.
+
+    The landing data nests the two IDWE workstreams under one grouped entry
+    because they share a location; imports are per workstream, so the group is
+    unfolded here into the units that actually accept a file.
+    """
+    targets = []
+    for lab in laboratory_landing_data():
+        if lab.get("is_group"):
+            targets.extend(lab["workstreams"])
+        else:
+            targets.append(lab)
+    return targets
+
+
+def laboratory_navigator_data(laboratories: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Lab navigator markers: one entry per laboratory.
+
+    A laboratory opens its own dashboard on click. IDWE Dehradun is the one
+    grouped entry — a single location running two workstreams with separate
+    dashboards — so it alone keeps a chooser of destinations.
+    """
+    entries = []
+    for lab in laboratories:
+        batch = lab["latest_batch"]
+        if lab.get("is_group"):
+            choices = [{
+                "label": "Data Import",
+                "hint": "Import a weekly workbook for either IDWE workstream",
+                "href": url_for("quality_control.data_import"),
+                "combined": True,
+            }] + [{
+                "label": workstream["name"],
+                "hint": "Weekly testing dashboard"
+                        + ("" if workstream["latest_batch"] else " · awaiting first import"),
+                "href": url_for("quality_control.laboratory_dashboard", lab_code=workstream["code"]),
+            } for workstream in lab["workstreams"]]
+        else:
+            # A single laboratory opens its dashboard on click, so it needs no
+            # chooser; the brief and sample register are reached from there.
+            choices = []
+        entries.append({
+            "code": lab["code"],
+            "name": lab["name"],
+            "location": lab["location"],
+            "description": lab["description"],
+            "is_group": bool(lab.get("is_group")),
+            "workstream_count": len(lab.get("workstreams", [])),
+            "is_reporting": batch is not None,
+            "reporting_period": batch.week_end.strftime("%d %b %Y") if batch else None,
+            # Where a click lands. A grouped entry has no single dashboard of its
+            # own, so it keeps the chooser its workstreams need.
+            "dashboard_href": (
+                None if lab.get("is_group")
+                else url_for("quality_control.laboratory_dashboard", lab_code=lab["code"])
+            ),
+            "choices": choices,
+        })
+    return entries
+
+
 def latest_dashboard_data(lab_code: str) -> dict[str, Any]:
     laboratory = get_laboratory(lab_code)
     batch = QCUploadBatch.query.filter_by(lab_code=lab_code).order_by(QCUploadBatch.week_end.desc()).first()
@@ -412,14 +506,14 @@ def latest_dashboard_data(lab_code: str) -> dict[str, Any]:
     summary = build_summary(samples, date.today())
     standards = {item.normalized_name: item for item in QCTestingStandard.query.all()}
 
-    def sla_performance(rows: list[QCSample]) -> dict[str, Any]:
+    def stt_performance(rows: list[QCSample]) -> dict[str, Any]:
         closed = [sample for sample in rows if sample.result_status in {"pass", "fail", "report_issued"}]
         assessed = []
         for sample in closed:
             if sample.turnaround_days is None:
                 continue
             standard = standards.get(_normalized_chemical(sample.chemical_name))
-            standard_days = standard.standard_days if standard and standard.standard_days is not None else CLOSED_SAMPLE_REVIEW_SLA_DAYS
+            standard_days = standard.standard_days if standard and standard.standard_days is not None else CLOSED_SAMPLE_REVIEW_STT_DAYS
             assessed.append((sample, standard_days, standard is not None and standard.standard_days is not None))
         within = [item for item in assessed if item[0].turnaround_days <= item[1]]
         late = [item for item in assessed if item[0].turnaround_days > item[1]]
@@ -431,25 +525,25 @@ def latest_dashboard_data(lab_code: str) -> dict[str, Any]:
             "within_standard": len(within),
             "late": len(late),
             "material_standard_count": sum(1 for _, _, has_material_standard in assessed if has_material_standard),
-            "fallback_sla_count": sum(1 for _, _, has_material_standard in assessed if not has_material_standard),
+            "fallback_stt_count": sum(1 for _, _, has_material_standard in assessed if not has_material_standard),
             "compliance_rate": round(len(within) / len(assessed) * 100, 1) if assessed else None,
             "average_turnaround": round(sum(times) / len(times), 1) if times else None,
         }
 
-    closed_sla_exceptions = []
+    closed_stt_exceptions = []
     for sample in samples:
         if sample.result_status not in {"pass", "fail", "report_issued"} or sample.turnaround_days is None:
             continue
         standard = standards.get(_normalized_chemical(sample.chemical_name))
-        sla_days = standard.standard_days if standard and standard.standard_days is not None else CLOSED_SAMPLE_REVIEW_SLA_DAYS
-        if sample.turnaround_days > sla_days:
-            closed_sla_exceptions.append({
+        stt_days = standard.standard_days if standard and standard.standard_days is not None else CLOSED_SAMPLE_REVIEW_STT_DAYS
+        if sample.turnaround_days > stt_days:
+            closed_stt_exceptions.append({
                 "sample": sample,
-                "standard_days": sla_days,
-                "sla_source": "Approved testing standard" if standard and standard.standard_days is not None else "9-day review SLA (standard not defined)",
-                "variance_days": sample.turnaround_days - sla_days,
+                "standard_days": stt_days,
+                "stt_source": "Approved testing standard" if standard and standard.standard_days is not None else "9-day review STT (standard not defined)",
+                "variance_days": sample.turnaround_days - stt_days,
             })
-    closed_sla_exceptions.sort(key=lambda item: (-item["variance_days"], item["sample"].chemical_name.casefold()))
+    closed_stt_exceptions.sort(key=lambda item: (-item["variance_days"], item["sample"].chemical_name.casefold()))
 
     month_start = batch.week_end.replace(day=1)
     next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
@@ -463,7 +557,7 @@ def latest_dashboard_data(lab_code: str) -> dict[str, Any]:
         QCSample.report_issue_date >= month_start,
         QCSample.report_issue_date < next_month,
     ).all()
-    month_sla = sla_performance(month_closed_samples)
+    month_stt = stt_performance(month_closed_samples)
     overdue_samples = sorted(
         [sample for sample in samples if sample.result_status == "under_testing" and sample.days_open is not None and sample.days_open > 9],
         key=lambda sample: sample.sample_receipt_date or date.max,
@@ -478,9 +572,9 @@ def latest_dashboard_data(lab_code: str) -> dict[str, Any]:
         "summary": summary,
         "samples": samples,
         "overdue_samples": overdue_samples,
-        "closed_sla_exceptions": closed_sla_exceptions,
-        "week_sla": sla_performance(samples),
-        "month_sla": month_sla,
+        "closed_stt_exceptions": closed_stt_exceptions,
+        "week_stt": stt_performance(samples),
+        "month_stt": month_stt,
         "month_intake": month_intake,
         "month_label": batch.week_end.strftime("%B %Y"),
         "materials": sorted(materials.items(), key=lambda item: (-item[1], item[0]))[:8],

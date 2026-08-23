@@ -159,18 +159,22 @@
       {% endif %}
 
       {# ── Update history ───────────────────────────────────── #}
+      {# The newest note leads; the rest sit in a drawer, so where the task
+         stands reads at a glance instead of at the end of a long scroll. #}
+      {% set latest_update = updates[0] if updates else none %}
+      {% set earlier_updates = updates[1:] if updates|length > 1 else [] %}
       <div class="om-section-heading">
         <div>
           <span>Audit trail</span>
-          <h2>Update history</h2>
-          <p>Every progress note recorded against this task, newest first.</p>
+          <h2>Latest update</h2>
+          <p>The most recent progress note recorded against this task.</p>
         </div>
         <span class="om-count-chip">{{ updates|length }}</span>
       </div>
 
       {% if updates %}
-      <ul class="om-timeline">
-        {% for update in updates %}
+      <ul class="om-timeline om-timeline-latest">
+        {% for update in [latest_update] %}
         <li>
           <div class="om-timeline-head">
             <span class="om-timeline-who">
@@ -207,6 +211,53 @@
         </li>
         {% endfor %}
       </ul>
+
+      {% if earlier_updates %}
+      <details class="om-updates-drawer">
+        <summary>
+          <span><i class="bi bi-clock-history"></i> Earlier updates <b>({{ earlier_updates|length }})</b></span>
+          <span class="om-updates-drawer-chevron" aria-hidden="true"><i class="bi bi-chevron-down"></i></span>
+        </summary>
+        <ul class="om-timeline om-timeline-compact">
+          {% for update in earlier_updates %}
+          <li>
+            <div class="om-timeline-head">
+              <span class="om-timeline-who">
+                <i class="bi bi-person-circle"></i>
+                {{ update.updater.full_name if update.updater and update.updater.full_name else (update.updater.username if update.updater else '—') }}
+                {% if update.old_status and update.new_status %}
+                <span class="om-timeline-transition">
+                  <span class="om-pill om-pill-status-{{ update.old_status|lower|replace(' ','-') }}">{{ update.old_status }}</span>
+                  <i class="bi bi-arrow-right"></i>
+                  <span class="om-pill om-pill-status-{{ update.new_status|lower|replace(' ','-') }}">{{ update.new_status }}</span>
+                </span>
+                {% elif update.new_status %}
+                <span class="om-pill om-pill-status-{{ update.new_status|lower|replace(' ','-') }}">{{ update.new_status }}</span>
+                {% endif %}
+              </span>
+              <span class="om-timeline-when">{{ update.created_at|datetime_ist('%d %b %Y · %I:%M %p') if update.created_at else '—' }}</span>
+            </div>
+
+            <div class="om-timeline-text">{{ update.update_text }}</div>
+
+            <div class="om-timeline-foot">
+              <span>
+                {%- if update.was_edited -%}
+                Edited{% if update.edited_at %} {{ update.edited_at|datetime_ist('%d %b %Y · %I:%M %p') }}{% endif %}
+                by {{ update.editor.full_name if update.editor and update.editor.full_name else (update.editor.username if update.editor else '—') }}
+                {%- endif -%}
+              </span>
+              {% if update.is_editable_by(current_user, task_update_edit_window_hours) %}
+              <a href="{{ url_for('tasks.edit_task_update', task_id=task.id, update_id=update.id) }}" class="btn btn-sm btn-secondary">Edit</a>
+              {% elif update.updated_by == current_user.id %}
+              <span>Edit window closed</span>
+              {% endif %}
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+      </details>
+      {% endif %}
       {% else %}
       <div class="om-empty">
         <i class="bi bi-chat-left-text"></i>

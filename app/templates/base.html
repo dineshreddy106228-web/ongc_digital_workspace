@@ -35,7 +35,7 @@
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     {% block head_extra %}{% endblock %}
     {# Loaded last so the shared module language can gently normalize legacy pages too. #}
@@ -71,7 +71,7 @@
                     'office_management': 'bi-kanban-fill',
                     'inventory': 'bi-boxes',
                     'manpower_planning': 'bi-people-fill',
-                    'csc_workflow': 'bi-journal-richtext',
+                    'csc_workflow': 'bi-file-earmark-ruled',
                     'reports': 'bi-bar-chart-line',
                     'quality_control': 'bi-flask',
                     'forecasting': 'bi-graph-up-arrow',
@@ -144,7 +144,7 @@
                         'office_management': 'bi-kanban-fill',
                         'inventory': 'bi-boxes',
                         'manpower_planning': 'bi-people-fill',
-                        'csc_workflow': 'bi-journal-richtext',
+                        'csc_workflow': 'bi-file-earmark-ruled',
                         'reports': 'bi-bar-chart-line',
                         'quality_control': 'bi-flask',
                         'forecasting': 'bi-graph-up-arrow',
@@ -233,12 +233,23 @@
     {% if current_user.is_authenticated and session.get('show_login_welcome') and request.endpoint != 'auth.change_password' %}
     <div class="workspace-welcome-overlay" id="loginWelcomeModal" role="dialog" aria-modal="true" aria-labelledby="loginWelcomeTitle">
         <div class="workspace-welcome-modal">
-            <div class="workspace-welcome-eyebrow">ONGC Corporate Chemistry · V2.0</div>
-            <h2 class="workspace-welcome-title" id="loginWelcomeTitle">Version 2 with QC Lab Monitoring</h2>
+            <header class="workspace-welcome-bar">
+                <p class="workspace-welcome-eyebrow">ONGC Corporate Chemistry</p>
+                <h2 class="workspace-welcome-title" id="loginWelcomeTitle">Version 2</h2>
+                <p class="workspace-welcome-meta">
+                    <span>Corporate Chemistry Digital Workspace</span>
+                    <span class="workspace-welcome-sep" aria-hidden="true"></span>
+                    <strong>V2.0</strong>
+                </p>
+            </header>
+            <div class="workspace-welcome-section">
+                <h3 class="workspace-welcome-section-title">What&rsquo;s new</h3>
+            </div>
+            <p class="workspace-welcome-copy">Version 2 rebuilds the workspace on one design system. Three new modules join Task Management &mdash; Inventory Monitoring, QC Laboratory Monitoring and Corporate Specifications Management &mdash; and task management now reaches the laboratories and offices at every location, with a map of India showing where open and overdue work sits.</p>
             <form id="loginWelcomeForm" method="POST" action="{{ url_for('auth.welcome_acknowledge') }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="workspace-welcome-actions">
-                    <button type="submit" class="btn btn-primary">OK, Proceed to Workspace</button>
+                    <button type="submit" class="btn btn-primary">Continue to workspace</button>
                 </div>
             </form>
         </div>

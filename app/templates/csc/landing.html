@@ -2,7 +2,7 @@
 {% block title %}Corporate Specifications Management — {{ app_name }}{% endblock %}
 {% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/corporate_specifications.css') }}">{% endblock %}
 {% from "csc/_specs_nav.html" import specs_nav %}
-{% block content %}<div class="page-wrapper mod-page is-specs cs-page">
+{% block content %}<div class="page-wrapper mod-page cs-page">
   {{ specs_nav('home') }}
 
   <section class="mod-hero">
@@ -30,13 +30,6 @@
     <div class="mod-stat"><span>Off-register specifications</span><strong>{{ off_register_total }}</strong><small>Held in the system but not on the register</small></div>
   </section>
 
-  <div class="mod-section-heading">
-    <div>
-      <span>Browse by category</span>
-      <h2>Chemical categories</h2>
-      <p>Categories come from the corporate specification register that QC Laboratory Monitoring maintains and Inventory Monitoring reads — one list, used everywhere.</p>
-    </div>
-  </div>
   <section class="cs-tiles">
     {% for tile in tiles %}
     <a class="cs-tile {{ 'is-unspecified' if tile.is_unspecified }}" href="{{ url_for('csc.category', key=tile.key) }}">

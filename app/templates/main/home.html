@@ -30,9 +30,9 @@
             </div>
             {% endif %}
             {% if home.analytics %}
-            <a href="{{ home.analytics.href }}" class="home-action">
-                <i class="bi bi-bar-chart-line" aria-hidden="true"></i>
-                <span>Analytics</span>
+            <a href="{{ home.analytics.href }}" class="home-action" title="{{ home.analytics.detail }}">
+                <i class="bi bi-diagram-3" aria-hidden="true"></i>
+                <span>{{ home.analytics.label }}</span>
             </a>
             {% endif %}
         </div>

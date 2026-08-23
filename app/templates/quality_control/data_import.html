@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% from "quality_control/_qc_nav.html" import qc_nav with context %}
+{% block title %}Data Import · QC Laboratory Monitoring{% endblock %}
+{% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/quality_control.css') }}">{% endblock %}
+{% block content %}
+<div class="page-wrapper mod-page qc-idwe-import-page">
+{{ qc_nav('') }}
+
+  <div class="mod-page-head">
+    <div>
+      <div class="qc-lab-eyebrow">Data operations · Import centre</div>
+      <h1 class="mod-page-title"><i class="bi bi-database-add"></i> Data Import</h1>
+      <p class="mod-page-sub">The single route for QC weekly workbooks. Every laboratory imports here; each file is validated before it reaches the sample database, and confirmation opens that laboratory's dashboard.</p>
+    </div>
+    <div class="mod-page-actions">
+      <a class="btn btn-secondary" href="{{ url_for('quality_control.landing') }}"><i class="bi bi-grid"></i> Monitoring home</a>
+    </div>
+  </div>
+
+  <section class="qc-idwe-guidance">
+    <span><i class="bi bi-info-circle"></i></span>
+    <div>
+      <strong>{% if monitoring_week %}Current monitoring week · {{ monitoring_week.label }}{% else %}No workbook imported yet{% endif %}</strong>
+      <p>
+        {% if monitoring_week %}
+        Taken from the most recent workbook in the system. A laboratory still showing an earlier period has not reported for this week.
+        {% else %}
+        Import a laboratory's weekly workbook below to establish the first monitoring week.
+        {% endif %}
+      </p>
+    </div>
+  </section>
+
+  <section class="qc-idwe-import-grid">
+    {% for laboratory in laboratories %}
+    <article class="card qc-idwe-import-card">
+      <div class="card-body">
+        <div class="qc-idwe-import-card-header">
+          <span class="qc-idwe-import-icon"><i class="bi bi-flask"></i></span>
+          <div>
+            <span class="qc-lab-eyebrow">{{ laboratory.location }}</span>
+            <h2>{{ laboratory.name }}</h2>
+            <p>{{ laboratory.description }}</p>
+          </div>
+        </div>
+        {% if laboratory.latest_batch %}
+        <div class="qc-idwe-last-upload">
+          <i class="bi bi-calendar3"></i> Latest reporting period ended
+          <strong>{{ laboratory.latest_batch.week_end.strftime('%d %b %Y') }}</strong>
+        </div>
+        {% else %}
+        <div class="qc-idwe-last-upload qc-idwe-first-upload">
+          <i class="bi bi-file-earmark-plus"></i> No weekly workbook imported yet
+        </div>
+        {% endif %}
+        <form
+          class="qc-idwe-upload-form"
+          method="POST"
+          enctype="multipart/form-data"
+          action="{{ url_for('quality_control.laboratory_dashboard', lab_code=laboratory.code) }}"
+        >
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <label for="{{ laboratory.code }}-workbook">Weekly Excel workbook</label>
+          <input class="form-control" id="{{ laboratory.code }}-workbook" name="qc_workbook" type="file" accept=".xlsx,.xls" required>
+          <button class="btn btn-primary" type="submit"><i class="bi bi-file-earmark-arrow-up"></i> Validate &amp; import</button>
+        </form>
+        <a class="qc-idwe-dashboard-link" href="{{ url_for('quality_control.laboratory_dashboard', lab_code=laboratory.code) }}">
+          Open {{ laboratory.name }} dashboard <i class="bi bi-arrow-right"></i>
+        </a>
+      </div>
+    </article>
+    {% endfor %}
+  </section>
+</div>
+{% endblock %}

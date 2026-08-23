@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "admin/_admin_nav.html" import admin_nav with context %}
 {% from "components/ui.html" import page_header %}
 {% block title %}Office Management{% endblock %}
 
@@ -8,11 +9,8 @@
 
 {% block content %}
 <div class="page-wrapper">
+  {{ admin_nav('offices') }}
   {% call page_header("Office Management", "Create, edit, and manage organisational offices.", "Administration", "Admin", "neutral") %}
-    <a href="{{ url_for('admin.users') }}" class="btn btn-secondary">
-      <i class="bi bi-people"></i>
-      <span>User Management</span>
-    </a>
     <a href="{{ url_for('admin.add_office') }}" class="btn btn-primary">
       <i class="bi bi-building-add"></i>
       <span>Add Office</span>
@@ -35,14 +33,13 @@
         <table class="data-table">
           <thead>
             <tr>
-              <th>#</th>
-              <th>Office Code</th>
-              <th>Office Name</th>
-              <th>Location</th>
-              <th>Power Users</th>
-              <th>Users</th>
-              <th>Status</th>
-              <th>Actions</th>
+              <th scope="col">#</th>
+              <th scope="col">Office Code</th>
+              <th scope="col">Office Name</th>
+              <th scope="col">Location</th>
+              <th scope="col">Users</th>
+              <th scope="col">Status</th>
+              <th scope="col">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -51,10 +48,7 @@
               <td>{{ loop.index }}</td>
               <td><strong>{{ o.office_code }}</strong></td>
               <td>{{ o.office_name }}</td>
-              <td>{{ o.location or '—' }}</td>
-              <td>
-                {{ o.users.filter_by(is_active=True, is_power_user=True).count() }} / {{ o.power_user_limit }}
-              </td>
+              <td>{{ o.location_label or '—' }}</td>
               <td>
                 <a href="{{ url_for('admin.office_users', office_id=o.id) }}"
                    class="btn btn-sm btn-secondary"
@@ -77,7 +71,7 @@
                 <form method="POST"
                       action="{{ url_for('admin.toggle_office', office_id=o.id) }}"
                       class="inline-form"
-                      onsubmit="return confirm('{{ 'Deactivate' if o.is_active else 'Activate' }} office {{ o.office_name }}?');">
+                      onsubmit="return confirm('{% if o.is_active %}Deactivate office {{ o.office_name }}? Its {{ o.users.filter_by(is_active=True).count() }} active user account(s) will be deactivated with it.{% else %}Activate office {{ o.office_name }}? User accounts stay deactivated until you reactivate them individually.{% endif %}');">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button type="submit"
                           class="btn btn-sm {{ 'btn-danger' if o.is_active else 'btn-success' }}"

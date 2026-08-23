@@ -1,9 +1,10 @@
 {% extends "base.html" %}
 {% from "quality_control/_qc_nav.html" import qc_nav with context %}
+{% from "components/_geo_map.html" import geo_map, geo_modal, geo_map_script with context %}
 {% block title %}QC Laboratory Monitoring{% endblock %}
-{% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}"><link rel="stylesheet" href="{{ url_for('static', filename='css/quality_control.css') }}">{% endblock %}
+{% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/quality_control.css') }}">{% endblock %}
 {% block content %}
-<div class="page-wrapper"><div class="mod-page is-quality inv-page qc-landing-page">
+<div class="page-wrapper mod-page qc-landing-page">
 {{ qc_nav('home') }}
     <section class="mod-hero">
         <div>
@@ -28,26 +29,67 @@
     </section>
 
     <section class="qc-workbench" aria-label="Portfolio actions">
-        <div class="mod-section-heading"><div><span>Executive workbench</span><h2>Portfolio intelligence</h2><p>Review the portfolio before moving into an individual laboratory’s operating dashboard.</p></div></div>
         <div class="mod-tiles">
-            <a class="mod-tile" href="{{ url_for('quality_control.sample_history') }}"><i class="bi bi-database"></i><strong>Combined Sample History</strong><small>Find samples across labs by chemical, specification, status, or laboratory.</small><span class="mod-tile-link">Explore <i class="bi bi-arrow-up-right"></i></span></a>
-            <a class="mod-tile" href="{{ url_for('quality_control.portfolio_management_review') }}"><i class="bi bi-easel2"></i><strong>Management Review</strong><small>See current workload, quality outcomes, testing time, and aged samples.</small><span class="mod-tile-link">Review <i class="bi bi-arrow-up-right"></i></span></a>
-            <a class="mod-tile" href="{{ url_for('quality_control.management_analytics') }}"><i class="bi bi-bar-chart-line"></i><strong>Management Analytics</strong><small>Compare laboratory performance and chemical-wise pass/fail patterns.</small><span class="mod-tile-link">Analyse <i class="bi bi-arrow-up-right"></i></span></a>
-            {% if current_user.is_super_user() %}<a class="mod-tile" href="{{ url_for('quality_control.testing_standards') }}"><i class="bi bi-stopwatch"></i><strong>SLA Management</strong><small>Review approved chemical testing times and upload revised standards when required.</small><span class="mod-tile-link">Manage SLA values <i class="bi bi-arrow-up-right"></i></span></a>{% endif %}
+            <a class="mod-tile" href="{{ url_for('quality_control.sample_history') }}"><i class="bi bi-database"></i><strong>Combined Sample History</strong><small>Search samples across every laboratory.</small></a>
+            <a class="mod-tile" href="{{ url_for('quality_control.portfolio_management_review') }}"><i class="bi bi-easel2"></i><strong>Management Review</strong><small>Current workload, quality outcomes and aged samples.</small></a>
+            <a class="mod-tile" href="{{ url_for('quality_control.management_analytics') }}"><i class="bi bi-bar-chart-line"></i><strong>Management Analytics</strong><small>Laboratory performance and pass/fail patterns.</small></a>
+            <a class="mod-tile" href="{{ url_for('quality_control.data_import') }}"><i class="bi bi-database-add"></i><strong>Data Import</strong><small>Import every laboratory's weekly workbook.</small></a>
+            {% if current_user.is_super_user() %}<a class="mod-tile" href="{{ url_for('quality_control.testing_standards') }}"><i class="bi bi-stopwatch"></i><strong>STT Management</strong><small>Standard Testing Time — approved chemical testing times and revisions.</small></a>{% endif %}
         </div>
     </section>
 
-    <section class="qc-lab-section qc-lab-directory">
-        <div class="mod-section-heading"><div><span>Laboratory directory</span><h2>Select a reporting laboratory</h2><p>Each workstream maintains a protected import history, operational dashboard, and management brief.</p></div><span class="qc-directory-count"><i class="bi bi-grid-3x3-gap"></i> {{ laboratories|length }} locations</span></div>
-        <div class="qc-lab-grid">
-            {% for lab in laboratories %}
-                <a class="qc-lab-tile" href="{{ url_for('quality_control.idwe_imports') if lab.is_group|default(false) else url_for('quality_control.laboratory_dashboard', lab_code=lab.code) }}">
-                    <div class="qc-lab-tile-header"><div class="qc-lab-tile-icon"><img src="{{ url_for('static', filename='images/qc-laboratory-tile.svg') }}" alt="Laboratory equipment"></div><span class="qc-lab-state {{ 'is-ready' if lab.latest_batch else '' }}"><i class="bi bi-circle-fill"></i> {{ 'Reporting' if lab.latest_batch else 'Awaiting import' }}</span></div>
-                    <div class="qc-lab-tile-content"><span class="qc-lab-eyebrow">{{ lab.location }}</span><h3>{{ lab.name }}</h3><p>{{ lab.description }}</p>{% if lab.latest_batch %}<span class="qc-lab-meta"><i class="bi bi-calendar3"></i> Reporting period ends {{ lab.latest_batch.week_end.strftime('%d %b %Y') }}</span>{% else %}<span class="qc-lab-meta"><i class="bi bi-file-earmark-arrow-up"></i> Upload the first weekly workbook</span>{% endif %}</div>
-                    <span class="qc-lab-open">{{ 'Open imports' if lab.is_group|default(false) else 'Open laboratory' }} <i class="bi bi-arrow-up-right"></i></span>
-                </a>
-            {% endfor %}
+    <section class="qc-lab-section mod-geo-card" aria-label="Lab navigator">
+        <div class="mod-geo-heading">
+            <div>
+                <span>Lab navigator</span>
+                <h2>QC laboratories across India</h2>
+                <p class="qc-monitoring-week">
+                    {% if monitoring_week %}
+                    <i class="bi bi-calendar-week"></i> Current monitoring week <b>{{ monitoring_week.label }}</b>
+                    {% else %}
+                    <i class="bi bi-calendar-week"></i> <b>Awaiting first import</b>
+                    {% endif %}
+                </p>
+                <p>Select a laboratory on the map or in the list to open its dashboard for the latest reporting week. IDWE Dehradun chooses between its Cementing and DF–CF workstreams.</p>
+            </div>
+            <span><i class="bi bi-geo-alt-fill"></i> {{ laboratories|length }} locations</span>
         </div>
+        <div class="mod-geo-layout">
+            {{ geo_map('qcLabMap', 'Map of India with QC laboratories') }}
+            <aside id="qcLabList" class="mod-geo-list" aria-label="Laboratory list"></aside>
+        </div>
+        <p class="mod-geo-legend"><span class="is-ready"><i></i> Reporting</span><span class="is-pending"><i></i> Awaiting import</span></p>
     </section>
-</div></div>
+</div>
 {% endblock %}
+{% block scripts_extra %}{{ geo_modal('qcLabModal', 'Which laboratory view would you like to open?') }}
+{{ geo_map_script() }}
+<script nonce="{{ csp_nonce() }}">(() => {const labs={{ map_laboratories|tojson }};
+/* Real WGS84 coordinates per laboratory, projected by ModGeoMap with the
+   equirectangular constants documented in components/_geo_map.html. To place a new
+   laboratory, add one entry keyed by its lab code: "rgl_x":{ll:[lat,lng]}. Optional
+   per entry: dx/dy (viewBox units) shift the label pill away from its dot so
+   clustered labels stay apart (a leader line then appears automatically);
+   the reporting state comes from the server, not from this table. */
+const GEO={
+"rgl_panvel":{ll:[18.99,73.11],dx:-52,dy:26},
+"rgl_vadodara":{ll:[22.31,73.18],dx:-58,dy:-8},
+"rgl_jorhat":{ll:[26.75,94.22],dx:38,dy:-24},
+"rgl_rajahmundry":{ll:[17.00,81.78],dx:68,dy:-14},
+"rgl_chennai":{ll:[13.08,80.27],dx:62,dy:16},
+"idwe_dehradun":{ll:[30.32,78.03],dx:60,dy:-14}/* one institute, two workstreams — the modal splits them */
+};
+const list=document.getElementById('qcLabList'),modal=ModGeoMap.modal(document.getElementById('qcLabModal'));
+/* A laboratory opens its dashboard directly. Only IDWE Dehradun still asks,
+   because its one location runs two workstreams with separate dashboards. */
+function open(lab){
+  if(lab.is_group){modal.open({kicker:lab.location,title:lab.name,choices:lab.choices});return}
+  window.location.href=lab.dashboard_href;
+}
+/* Every laboratory reaches the list; only those with coordinates reach the map. */
+const entries=labs.map(lab=>({...(GEO[lab.code]||{}),...lab,label:lab.name,
+  state:lab.is_reporting?'ready':'pending',
+  meta:(lab.workstream_count?lab.workstream_count+' workstreams \u00b7 ':'')+(lab.is_reporting?'Reporting to '+lab.reporting_period:'Awaiting first import'),
+  title:lab.location+' \u00b7 '+(lab.is_reporting?'reporting to '+lab.reporting_period:'awaiting first import')}));
+ModGeoMap.renderList(list,entries,open);
+ModGeoMap.render(document.getElementById('qcLabMap'),entries,open);})();</script>{% endblock %}

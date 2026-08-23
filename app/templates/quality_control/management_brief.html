@@ -1,11 +1,123 @@
 {% extends "base.html" %}
 {% from "quality_control/_qc_nav.html" import qc_nav with context %}
 {% block title %}{{ laboratory.name }} Management Brief{% endblock %}
-{% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}"><script defer src="{{ url_for('static', filename='js/quality_control.js') }}"></script><style>@media print {.workspace-sidebar,.workspace-flyout,.workspace-backdrop,.workspace-header-band,.inv-header-actions,.inv-subnav,.site-footer{display:none!important}.workspace-shell,.workspace-main,.page-wrapper{display:block!important;margin:0!important;padding:0!important}.card{break-inside:avoid}}</style>{% endblock %}
-{% block content %}<div class="page-wrapper"><div class="mod-page is-quality inv-page">
+{% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/quality_control.css') }}">{% endblock %}
+{% block content %}<div class="page-wrapper mod-page">
 {{ qc_nav('') }}
-<div class="inv-module-header"><div><p class="inv-module-subtitle">ONGC Laboratories · {{ laboratory.name }}</p><h1 class="inv-module-title">Quality Control Laboratory<br>Weekly Management Brief</h1><p class="inv-module-subtitle">{{ batch.report_label if batch else 'No reporting week has been imported' }}</p></div>{% if batch %}<div class="inv-header-actions"><button type="button" class="btn btn-secondary" data-qc-print><i class="bi bi-printer"></i> Print / Save PDF</button></div>{% endif %}</div>
-{% if batch %}<div class="inv-kpi-grid"><div class="inv-kpi-card"><span class="inv-kpi-label">Weekly sample load</span><strong class="inv-kpi-value">{{ summary.total }}</strong><span>samples in review</span></div><div class="inv-kpi-card"><span class="inv-kpi-label">Open workload</span><strong class="inv-kpi-value">{{ summary.under_testing }}</strong><span>{{ summary.delayed_open }} aged beyond target</span></div><div class="inv-kpi-card"><span class="inv-kpi-label">Quality outcome</span><strong class="inv-kpi-value">{{ summary.passed }}/{{ summary.failed }}</strong><span>pass / fail reports issued</span></div><div class="inv-kpi-card"><span class="inv-kpi-label">Turnaround time</span><strong class="inv-kpi-value">{{ summary.average_turnaround if summary.average_turnaround is not none else '—' }}</strong><span>days average, issued reports</span></div></div>
-<section class="card"><div class="card-body"><h2 class="inv-card-title">Management attention required</h2><ul>{% for sample in samples if sample.result_status == 'under_testing' and sample.delay_reason %}<li><strong>{{ sample.chemical_name }}</strong> — received {{ sample.sample_receipt_date.strftime('%d %b %Y') if sample.sample_receipt_date else 'date not recorded' }}. {{ sample.delay_reason }}</li>{% else %}<li>No open sample has a recorded delay remark for this week.</li>{% endfor %}</ul></div></section>
-<section class="card" style="margin-top:1rem"><div class="card-body"><h2 class="inv-card-title">Issued reports</h2><div class="inv-audit-table-wrap"><table class="inv-expand-table"><thead><tr><th>Material</th><th>Outcome</th><th>Report date</th><th>Turnaround</th></tr></thead><tbody>{% for sample in samples if sample.result_status != 'under_testing' %}<tr><td>{{ sample.chemical_name }}</td><td>{{ sample.result_status.title() }}</td><td>{{ sample.report_issue_date.strftime('%d %b %Y') if sample.report_issue_date else '—' }}</td><td>{{ sample.turnaround_days or '—' }} days</td></tr>{% else %}<tr><td colspan="4">No reports were issued in this weekly review.</td></tr>{% endfor %}</tbody></table></div></div></section>{% else %}<p>Import a weekly workbook to generate the management brief.</p>{% endif %}
-</div></div>{% endblock %}
+
+<div class="mod-page-head">
+  <div>
+    <div class="qc-lab-eyebrow">ONGC Laboratories · {{ laboratory.name }}{% if laboratory.location %} · {{ laboratory.location }}{% endif %}</div>
+    <h1 class="mod-page-title"><i class="bi bi-easel2"></i> Weekly Management Brief</h1>
+    <p class="mod-page-sub">{{ batch.report_label if batch else 'No reporting week has been imported' }}</p>
+  </div>
+  <div class="mod-page-actions">
+    <a class="btn btn-secondary" href="{{ url_for('quality_control.laboratory_dashboard', lab_code=laboratory.code) }}"><i class="bi bi-arrow-left"></i> Back to dashboard</a>
+    {% if batch %}<a class="btn btn-primary" href="{{ url_for('quality_control.download_brief_presentation', lab_code=laboratory.code) }}"><i class="bi bi-file-earmark-ppt"></i> Download presentation</a>{% endif %}
+  </div>
+</div>
+
+{% include "quality_control/_subnav.html" %}
+
+{% if batch %}
+<div class="mod-kpi-grid">
+  <div class="mod-kpi">
+    <span class="mod-kpi-label">Weekly sample load</span>
+    <strong class="mod-kpi-value">{{ summary.total }}</strong>
+    <span>samples in review</span>
+  </div>
+  <div class="mod-kpi {{ 'qc-kpi-risk' if summary.delayed_open else '' }}">
+    <span class="mod-kpi-label">Open workload</span>
+    <strong class="mod-kpi-value">{{ summary.under_testing }}</strong>
+    <span>{{ summary.delayed_open }} aged beyond target</span>
+  </div>
+  <div class="mod-kpi">
+    <span class="mod-kpi-label">Quality outcome</span>
+    <strong class="mod-kpi-value">{{ summary.passed }}/{{ summary.failed }}</strong>
+    <span>pass / fail reports issued</span>
+  </div>
+  <div class="mod-kpi">
+    <span class="mod-kpi-label">Turnaround time</span>
+    <strong class="mod-kpi-value">{{ summary.average_turnaround if summary.average_turnaround is not none else '—' }}</strong>
+    <span>days average, issued reports</span>
+  </div>
+</div>
+
+{% set attention = samples | selectattr('result_status', 'equalto', 'under_testing') | selectattr('delay_reason') | list %}
+<section class="card qc-overdue-card">
+  <div class="card-body">
+    <div class="qc-section-title">
+      <div>
+        <span class="qc-section-eyebrow"><i class="bi bi-exclamation-triangle"></i> Management attention required</span>
+        <h2 class="mod-card-title">Open samples carrying a recorded remark</h2>
+        <p class="mod-card-sub">Each entry is a sample still under testing with a reason recorded against it in the weekly workbook.</p>
+      </div>
+      <span class="qc-overdue-count">{{ attention|length }} open</span>
+    </div>
+    <div class="mod-table-wrap">
+      <table class="mod-table">
+        <thead>
+          <tr>
+            <th scope="col">Material</th>
+            <th scope="col">Received</th>
+            <th scope="col">Remark</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for sample in attention %}
+          <tr>
+            <td><strong>{{ sample.chemical_name }}</strong><div class="mod-cell-meta">{{ sample.notification_no or sample.po_number or 'Reference not recorded' }}</div></td>
+            <td>{{ sample.sample_receipt_date.strftime('%d %b %Y') if sample.sample_receipt_date else '—' }}</td>
+            <td>{{ sample.delay_reason }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3" class="qc-clear-state"><i class="bi bi-check-circle-fill"></i> No open sample has a recorded delay remark for this week.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+{% set issued = samples | rejectattr('result_status', 'equalto', 'under_testing') | list %}
+<section class="card">
+  <div class="card-body">
+    <div class="qc-history-result-heading">
+      <div>
+        <h2 class="mod-card-title">Issued reports</h2>
+        <p class="mod-card-sub">Reports released in this reporting week.</p>
+      </div>
+      <span class="qc-lab-count">{{ issued|length }} issued</span>
+    </div>
+    <div class="mod-table-wrap">
+      <table class="mod-table">
+        <thead>
+          <tr>
+            <th scope="col">Material</th>
+            <th scope="col">Outcome</th>
+            <th scope="col">Report date</th>
+            <th scope="col">Turnaround</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for sample in issued %}
+          <tr>
+            <td><strong>{{ sample.chemical_name }}</strong><div class="mod-cell-meta">{{ sample.specification_no or '—' }}</div></td>
+            <td><span class="status-badge {{ 'status-success' if sample.result_status == 'pass' else 'status-danger' if sample.result_status == 'fail' else 'status-pending' }}">{{ 'Report issued; outcome not recorded' if sample.result_status == 'report_issued' else sample.result_status.title() }}</span></td>
+            <td>{{ sample.report_issue_date.strftime('%d %b %Y') if sample.report_issue_date else '—' }}</td>
+            <td>{{ sample.turnaround_days ~ ' days' if sample.turnaround_days is not none else '—' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4">No reports were issued in this weekly review.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+{% else %}
+<section class="card"><div class="card-body">
+  <div class="qc-clear-state"><i class="bi bi-cloud-arrow-up"></i> Import a weekly workbook to generate the management brief.</div>
+</div></section>
+{% endif %}
+</div>{% endblock %}

@@ -4,6 +4,13 @@
 {% set office_label = task.office.office_name if task.office else '—' %}
 {% set can_open_full_page = allow_full_page if allow_full_page is defined else true %}
 {% set allow_manage_actions = show_manage_actions if show_manage_actions is defined else true %}
+{# Updates arrive newest first. The newest one leads the page; the rest go in a
+   drawer, so where the task stands is readable without scrolling past its history. #}
+{% set latest_update = updates[0] if updates else none %}
+{% set earlier_updates = updates[1:] if updates|length > 1 else [] %}
+{% macro update_meta(update) -%}
+{{ update.updater.full_name if update.updater and update.updater.full_name else (update.updater.username if update.updater else '—') }}
+{%- endmacro %}
 <div class="task-summary-panel">
   <div class="task-summary-hero">
     <div class="task-summary-hero-copy">
@@ -38,10 +45,136 @@
     </div>
   </div>
 
-  <div class="task-summary-section-grid">
+  <div class="task-summary-flow">
+
+    <section class="task-summary-section task-summary-latest">
+      <div class="task-summary-section-header">
+        <h3><i class="bi bi-chat-square-text"></i> Latest update</h3>
+        <span class="task-summary-section-note">{{ updates|length }} update{{ '' if updates|length == 1 else 's' }} in total</span>
+      </div>
+      {% if latest_update %}
+      <article class="task-summary-latest-card">
+        <div class="task-summary-latest-top">
+          <div class="task-summary-latest-user">{{ update_meta(latest_update) }}</div>
+          <div class="task-summary-latest-date">
+            {{ latest_update.created_at|datetime_ist('%d %b %Y %I:%M %p') if latest_update.created_at else '—' }}
+          </div>
+        </div>
+        {% if latest_update.old_status and latest_update.new_status %}
+        <div class="task-summary-timeline-status">
+          <span class="task-badge status-{{ latest_update.old_status|lower|replace(' ', '-') }}">{{ latest_update.old_status }}</span>
+          <i class="bi bi-arrow-right"></i>
+          <span class="task-badge status-{{ latest_update.new_status|lower|replace(' ', '-') }}">{{ latest_update.new_status }}</span>
+        </div>
+        {% endif %}
+        <p class="task-summary-latest-text">{{ latest_update.update_text }}</p>
+        {% if latest_update.was_edited %}
+        <p class="task-summary-composer-note">
+          Edited {{ latest_update.edited_at|datetime_ist('%d %b %Y %I:%M %p') if latest_update.edited_at else '—' }}
+          by {{ latest_update.editor.full_name if latest_update.editor and latest_update.editor.full_name else (latest_update.editor.username if latest_update.editor else '—') }}
+        </p>
+        {% endif %}
+        {% if allow_manage_actions and can_open_full_page and latest_update.is_editable_by(current_user, task_update_edit_window_hours) %}
+        <div>
+          <a href="{{ url_for('tasks.edit_task_update', task_id=task.id, update_id=latest_update.id) }}" class="btn btn-sm btn-secondary">Edit Update</a>
+        </div>
+        {% endif %}
+      </article>
+      {% else %}
+      <div class="task-summary-empty">No updates have been recorded yet.</div>
+      {% endif %}
+
+      {% if allow_manage_actions and can_add_update %}
+      <div class="task-summary-composer">
+        <div class="task-summary-composer-header">
+          <div>
+            <h4 class="task-summary-composer-title">Add Update</h4>
+            <p class="task-summary-composer-note">Post the latest progress here so the next user immediately sees where to type and what changed.</p>
+          </div>
+          <span class="task-summary-composer-pill">Type Here</span>
+        </div>
+        <form
+          id="task-update-form"
+          class="task-summary-composer-form"
+          method="POST"
+          action="{{ url_for('tasks.add_task_update', task_id=task.id) }}"
+        >
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="form-group">
+            <label class="form-label" for="summaryUpdateText">Update <span style="color:var(--danger)">*</span></label>
+            <textarea
+              id="summaryUpdateText"
+              name="update_text"
+              class="form-control"
+              rows="5"
+              required
+              maxlength="5000"
+              placeholder="Example: Reviewed inputs from office and forwarded the draft for approval."
+            ></textarea>
+          </div>
+          <div class="task-summary-composer-actions">
+            <div class="form-group">
+              <label class="form-label" for="summaryNewStatus">Optional Status Change</label>
+              <select id="summaryNewStatus" name="new_status" class="form-control">
+                <option value="">No status change</option>
+                {% for status in ['Not Started', 'In Progress', 'On Hold', 'Completed', 'Cancelled'] %}
+                {% if status in ('Completed', 'Cancelled') and not can_close %}
+                {% else %}
+                <option value="{{ status }}">{{ status }}</option>
+                {% endif %}
+                {% endfor %}
+              </select>
+            </div>
+            <button type="submit" class="btn btn-primary">Post Update</button>
+          </div>
+        </form>
+      </div>
+      {% endif %}
+
+      {% if earlier_updates %}
+      <details class="task-summary-drawer">
+        <summary>
+          <span><i class="bi bi-clock-history"></i> Earlier updates <b>({{ earlier_updates|length }})</b></span>
+          <span class="task-summary-drawer-chevron" aria-hidden="true"><i class="bi bi-chevron-down"></i></span>
+        </summary>
+        <div class="task-summary-history">
+          {% for update in earlier_updates %}
+          <article class="task-summary-history-item">
+            <div class="task-summary-history-top">
+              <span class="task-summary-history-user">{{ update_meta(update) }}</span>
+              <span class="task-summary-history-date">
+                {{ update.created_at|datetime_ist('%d %b %Y %I:%M %p') if update.created_at else '—' }}
+              </span>
+            </div>
+            {% if update.old_status and update.new_status %}
+            <div class="task-summary-timeline-status">
+              <span class="task-badge status-{{ update.old_status|lower|replace(' ', '-') }}">{{ update.old_status }}</span>
+              <i class="bi bi-arrow-right"></i>
+              <span class="task-badge status-{{ update.new_status|lower|replace(' ', '-') }}">{{ update.new_status }}</span>
+            </div>
+            {% endif %}
+            <p class="task-summary-history-text">{{ update.update_text }}</p>
+            {% if update.was_edited %}
+            <p class="task-summary-composer-note">
+              Edited {{ update.edited_at|datetime_ist('%d %b %Y %I:%M %p') if update.edited_at else '—' }}
+              by {{ update.editor.full_name if update.editor and update.editor.full_name else (update.editor.username if update.editor else '—') }}
+            </p>
+            {% endif %}
+            {% if allow_manage_actions and can_open_full_page and update.is_editable_by(current_user, task_update_edit_window_hours) %}
+            <div>
+              <a href="{{ url_for('tasks.edit_task_update', task_id=task.id, update_id=update.id) }}" class="btn btn-sm btn-secondary">Edit Update</a>
+            </div>
+            {% endif %}
+          </article>
+          {% endfor %}
+        </div>
+      </details>
+      {% endif %}
+    </section>
+
     <section class="task-summary-section">
       <div class="task-summary-section-header">
-        <h3>Task Snapshot</h3>
+        <h3><i class="bi bi-clipboard-data"></i> Task Snapshot</h3>
       </div>
       <dl class="task-summary-fact-grid">
         <div class="task-summary-fact">
@@ -116,98 +249,6 @@
       {% endif %}
     </section>
 
-    <section class="task-summary-section">
-      <div class="task-summary-section-header">
-        <h3>Updates</h3>
-        <span class="task-summary-section-note">{{ updates|length }} entries</span>
-      </div>
-      {% if allow_manage_actions and can_add_update %}
-      <div class="task-summary-composer">
-        <div class="task-summary-composer-header">
-          <div>
-            <h4 class="task-summary-composer-title">Add Update</h4>
-            <p class="task-summary-composer-note">Post the latest progress here so the next user immediately sees where to type and what changed.</p>
-          </div>
-          <span class="task-summary-composer-pill">Type Here</span>
-        </div>
-        <form
-          id="task-update-form"
-          class="task-summary-composer-form"
-          method="POST"
-          action="{{ url_for('tasks.add_task_update', task_id=task.id) }}"
-        >
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <div class="form-group">
-            <label class="form-label" for="summaryUpdateText">Update <span style="color:var(--color-danger)">*</span></label>
-            <textarea
-              id="summaryUpdateText"
-              name="update_text"
-              class="form-control"
-              rows="5"
-              required
-              maxlength="5000"
-              placeholder="Example: Reviewed inputs from office and forwarded the draft for approval."
-            ></textarea>
-          </div>
-          <div class="task-summary-composer-actions">
-            <div class="form-group">
-              <label class="form-label" for="summaryNewStatus">Optional Status Change</label>
-              <select id="summaryNewStatus" name="new_status" class="form-control">
-                <option value="">No status change</option>
-                {% for status in ['Not Started', 'In Progress', 'On Hold', 'Completed', 'Cancelled'] %}
-                {% if status in ('Completed', 'Cancelled') and not can_close %}
-                {% else %}
-                <option value="{{ status }}">{{ status }}</option>
-                {% endif %}
-                {% endfor %}
-              </select>
-            </div>
-            <button type="submit" class="btn btn-primary">Post Update</button>
-          </div>
-        </form>
-      </div>
-      {% endif %}
-      {% if updates %}
-      <div class="task-summary-timeline">
-        {% for update in updates %}
-        <article class="task-summary-timeline-item">
-          <div class="task-summary-timeline-rail"></div>
-          <div class="task-summary-timeline-content">
-            <div class="task-summary-timeline-top">
-              <div class="task-summary-timeline-user">
-                {{ update.updater.full_name if update.updater and update.updater.full_name else (update.updater.username if update.updater else '—') }}
-              </div>
-              <div class="task-summary-timeline-date">
-                {{ update.created_at|datetime_ist('%d %b %Y %I:%M %p') if update.created_at else '—' }}
-              </div>
-            </div>
-            {% if update.old_status and update.new_status %}
-            <div class="task-summary-timeline-status">
-              <span class="task-badge status-{{ update.old_status|lower|replace(' ', '-') }}">{{ update.old_status }}</span>
-              <i class="bi bi-arrow-right"></i>
-              <span class="task-badge status-{{ update.new_status|lower|replace(' ', '-') }}">{{ update.new_status }}</span>
-            </div>
-            {% endif %}
-            <p class="task-summary-timeline-text">{{ update.update_text }}</p>
-            {% if update.was_edited %}
-            <p class="task-summary-composer-note">
-              Edited {{ update.edited_at|datetime_ist('%d %b %Y %I:%M %p') if update.edited_at else '—' }}
-              by {{ update.editor.full_name if update.editor and update.editor.full_name else (update.editor.username if update.editor else '—') }}
-            </p>
-            {% endif %}
-            {% if allow_manage_actions and can_open_full_page and update.is_editable_by(current_user, task_update_edit_window_hours) %}
-            <div>
-              <a href="{{ url_for('tasks.edit_task_update', task_id=task.id, update_id=update.id) }}" class="btn btn-sm btn-secondary">Edit Update</a>
-            </div>
-            {% endif %}
-          </div>
-        </article>
-        {% endfor %}
-      </div>
-      {% else %}
-      <div class="task-summary-empty">No updates have been recorded yet.</div>
-      {% endif %}
-    </section>
   </div>
 
   <div class="task-summary-footer">

@@ -77,13 +77,13 @@
   <table class="om-table">
     <thead>
       <tr>
-        <th class="is-serial">S. No.</th>
-        <th>Task</th>
-        <th>Status</th>
-        <th>Priority</th>
-        <th>Due date</th>
-        <th>Office</th>
-        <th>Actions</th>
+        <th scope="col" class="is-serial">S. No.</th>
+        <th scope="col">Task</th>
+        <th scope="col">Status</th>
+        <th scope="col">Priority</th>
+        <th scope="col">Due date</th>
+        <th scope="col">Office</th>
+        <th scope="col">Actions</th>
       </tr>
     </thead>
     <tbody>
@@ -113,7 +113,20 @@
     <div>
       <span>Task Management</span>
       <h1>Task Register</h1>
-      <p>Every task visible to you — local and global — with status, priority and committed date.</p>
+      {% if register_office %}
+      <p class="om-register-office">
+        <i class="bi bi-building"></i>
+        <b>{{ register_office.office_name }}</b>
+        {% if register_office.location_label %}<span>{{ register_office.location_label }}</span>{% endif %}
+      </p>
+      {% endif %}
+      <p>
+        {% if register_office %}
+        Tasks for this office — local and global — with status, priority and committed date.
+        {% else %}
+        Every task visible to you — local and global — with status, priority and committed date.
+        {% endif %}
+      </p>
     </div>
     <div class="om-title-actions">
       {% if is_privileged %}
@@ -192,6 +205,20 @@
           </select>
         </div>
         {% endif %}
+        {% if can_switch_office and register_offices %}
+        {# The register shows one office at a time, so this selects which — it is
+           not a filter that can be cleared to show every office at once. #}
+        <div class="om-field">
+          <label for="filter_office">Office</label>
+          <select id="filter_office" name="office">
+            {% for office in register_offices %}
+            <option value="{{ office.id }}" {{ 'selected' if filters.office == office.id|string }}>
+              {{ office.office_name }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endif %}
         <div class="om-field">
           <label>&nbsp;</label>
           <div class="om-toolbar-actions">
@@ -203,6 +230,7 @@
 
       {% if filters.focus or filters.view %}
       {% set focus_labels = {
+        'open': 'Open tasks',
         'overdue': 'Overdue tasks',
         'today': 'Tasks due today',
         'week': 'Tasks due this week',
@@ -220,7 +248,7 @@
           {{ focus_labels.get(filters.focus, 'Focused view') }}
           {%- if filters.view %} across {{ view_labels.get(filters.view, filters.view) }}{% endif -%}
         </b>
-        <a href="{{ url_for('tasks.list_tasks', scope=filters.scope or None, status=filters.status or None, priority=filters.priority or None, owner=filters.owner or None) }}">Clear focus</a>
+        <a href="{{ url_for('tasks.list_tasks', scope=filters.scope or None, status=filters.status or None, priority=filters.priority or None, owner=filters.owner or None, office=filters.office or None) }}">Clear focus</a>
       </div>
       {% endif %}
     </div>
@@ -267,27 +295,59 @@
   </div>
   {% endif %}
 
-  {% if archived_tasks %}
+  {% if completed_tasks or archived_tasks %}
   <div class="om-section-heading">
     <div>
       <span>Archive</span>
       <h2>Completed and closed tasks</h2>
-      <p>Completed, cancelled, and removed-from-active tasks are kept here for reference.</p>
+      <p>Kept for reference and collapsed by default, so the register opens on live work.</p>
     </div>
   </div>
-  <div class="om-card">
-    <div class="om-card-head">
+
+  {% if completed_tasks %}
+  <details class="om-card om-collapse" data-collapse-key="register-completed">
+    <summary class="om-card-head">
       <div>
-        <h2><i class="bi bi-archive"></i> Archived tasks</h2>
-        <p>Read-only history for the current filter selection.</p>
+        <h2><i class="bi bi-check2-circle"></i> Completed <span class="om-collapse-count">({{ completed_tasks|length }})</span></h2>
+        <p>Completed and cancelled tasks still on the active tracker.</p>
       </div>
-      <span class="om-count-chip">{{ archived_tasks|length }}</span>
-    </div>
+      <span class="om-collapse-chevron" aria-hidden="true"><i class="bi bi-chevron-down"></i></span>
+    </summary>
+    {{ task_table(completed_tasks, task_permissions, 'Nothing completed', 'No completed tasks are available for these filters.', filters, can_reorder_tasks, today) }}
+  </details>
+  {% endif %}
+
+  {% if archived_tasks %}
+  <details class="om-card om-collapse" data-collapse-key="register-archived">
+    <summary class="om-card-head">
+      <div>
+        <h2><i class="bi bi-archive"></i> Archived <span class="om-collapse-count">({{ archived_tasks|length }})</span></h2>
+        <p>Read-only history for tasks removed from the active tracker.</p>
+      </div>
+      <span class="om-collapse-chevron" aria-hidden="true"><i class="bi bi-chevron-down"></i></span>
+    </summary>
     {{ task_table(archived_tasks, task_permissions, 'Nothing archived', 'No archived tasks are available for these filters.', filters, can_reorder_tasks, today) }}
-  </div>
+  </details>
+  {% endif %}
   {% endif %}
 
 </div>
 
 {% include "tasks/_task_summary_modal.html" %}
+
+<script nonce="{{ csp_nonce() }}">
+/* Collapsed archive sections remember whether the reader opened them, so a user
+   working through completed tasks does not re-open the same drawer every visit. */
+(() => {
+  const store = window.localStorage;
+  if (!store) return;
+  document.querySelectorAll('details.om-collapse[data-collapse-key]').forEach((el) => {
+    const key = 'om-collapse:' + el.dataset.collapseKey;
+    try { if (store.getItem(key) === 'open') el.open = true; } catch (err) { /* private mode */ }
+    el.addEventListener('toggle', () => {
+      try { store.setItem(key, el.open ? 'open' : 'closed'); } catch (err) { /* private mode */ }
+    });
+  });
+})();
+</script>
 {% endblock %}

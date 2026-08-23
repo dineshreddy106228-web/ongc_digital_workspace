@@ -21,17 +21,37 @@ logger = logging.getLogger(__name__)
 @login_required
 @module_access_required("quality_control")
 def landing():
-    from app.core.services.quality_control import laboratory_landing_data
-    return render_template("quality_control/landing.html", laboratories=laboratory_landing_data())
+    from app.core.services.quality_control import (
+        current_monitoring_week, laboratory_landing_data, laboratory_navigator_data,
+    )
+    laboratories = laboratory_landing_data()
+    return render_template(
+        "quality_control/landing.html",
+        laboratories=laboratories,
+        map_laboratories=laboratory_navigator_data(laboratories),
+        monitoring_week=current_monitoring_week(),
+    )
+
+
+@quality_control_bp.route("/data-import")
+@login_required
+@module_access_required("quality_control")
+def data_import():
+    """The single route into QC: every laboratory's weekly workbook starts here."""
+    from app.core.services.quality_control import current_monitoring_week, laboratory_import_targets
+    return render_template(
+        "quality_control/data_import.html",
+        laboratories=laboratory_import_targets(),
+        monitoring_week=current_monitoring_week(),
+    )
 
 
 @quality_control_bp.route("/idwe-imports")
 @login_required
 @module_access_required("quality_control")
 def idwe_imports():
-    from app.core.services.quality_control import laboratory_landing_data
-    idwe = next(item for item in laboratory_landing_data() if item["code"] == "idwe_dehradun")
-    return render_template("quality_control/idwe_imports.html", laboratory=idwe)
+    """Superseded by the module-wide import centre; kept so old links still land."""
+    return redirect(url_for("quality_control.data_import"))
 
 
 @quality_control_bp.route("/labs/<lab_code>", methods=["GET", "POST"])
@@ -159,7 +179,9 @@ def download_management_report():
     try:
         environment = {**__import__("os").environ, "PYTHONPATH": str(root)}
         subprocess.run([sys.executable, str(generator)], cwd=root, env=environment, check=True, timeout=120, capture_output=True)
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+        # OSError covers a missing generator script or interpreter, which would
+        # otherwise surface as an unhandled 500 rather than a flash.
         logger.exception("QC management PDF generation failed")
         flash("The management PDF could not be generated. Please try again.", "danger")
         return redirect(url_for("quality_control.portfolio_management_review"))
@@ -193,7 +215,30 @@ def testing_standards():
 @login_required
 @module_access_required("quality_control")
 def samples(lab_code: str):
-    return redirect(url_for("quality_control.sample_history", lab=lab_code))
+    """One laboratory's own sample register, inside that laboratory's navigation.
+
+    The cross-laboratory page answers a different question; sending a reader
+    there filtered dropped them out of the lab they were working in.
+    """
+    from app.core.services.quality_control import (
+        get_laboratory, history_filter_options, latest_dashboard_data, search_samples,
+    )
+    chemical_name = (request.args.get("chemical") or "").strip()
+    specification_no = (request.args.get("specification") or "").strip()
+    status = (request.args.get("status") or "").strip()
+    try:
+        laboratory = get_laboratory(lab_code)
+        options = history_filter_options(lab_code)
+        return render_template(
+            "quality_control/lab_samples.html",
+            laboratory=laboratory,
+            batch=latest_dashboard_data(lab_code)["batch"],
+            samples=search_samples(lab_code, chemical_name, specification_no, status),
+            filters={"chemical": chemical_name, "specification": specification_no, "status": status},
+            chemicals=options["chemicals"],
+        )
+    except ValueError:
+        return redirect(url_for("quality_control.landing"))
 
 
 @quality_control_bp.route("/labs/<lab_code>/management-brief")
@@ -205,6 +250,23 @@ def management_brief(lab_code: str):
         return render_template("quality_control/management_brief.html", **latest_dashboard_data(lab_code))
     except ValueError:
         return redirect(url_for("quality_control.landing"))
+
+
+@quality_control_bp.route("/labs/<lab_code>/management-brief.pptx")
+@login_required
+@module_access_required("quality_control")
+def download_brief_presentation(lab_code: str):
+    from app.core.services.qc_presentation import build_lab_brief_presentation
+    try:
+        output, filename = build_lab_brief_presentation(lab_code, current_app.static_folder)
+    except ValueError as exc:
+        flash(str(exc), "warning")
+        return redirect(url_for("quality_control.management_brief", lab_code=lab_code))
+    except Exception:
+        logger.exception("QC management brief export failed for lab=%s", lab_code)
+        flash("The presentation could not be generated. Please try again.", "danger")
+        return redirect(url_for("quality_control.management_brief", lab_code=lab_code))
+    return send_file(output, mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation", as_attachment=True, download_name=filename, max_age=0)
 
 
 @quality_control_bp.route("/labs/<lab_code>/performance-presentation.pptx")

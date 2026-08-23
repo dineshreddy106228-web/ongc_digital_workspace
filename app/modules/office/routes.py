@@ -5,9 +5,9 @@ from __future__ import annotations
 from collections import Counter
 from datetime import datetime, date as date_type, timedelta, timezone
 from functools import wraps
-from flask import render_template, redirect, url_for, flash, request, abort, current_app, jsonify
+from flask import render_template, redirect, url_for, flash, request, abort, current_app, jsonify, session
 from flask_login import login_required, current_user
-from sqlalchemy import or_, and_, select
+from sqlalchemy import or_, and_, case, func, select
 from sqlalchemy.exc import SQLAlchemyError
 from app.modules.office import office_bp
 from app.extensions import db
@@ -85,23 +85,18 @@ def _is_privileged():
     return current_user.is_super_user() or current_user.has_role(ADMIN_ROLE)
 
 
-def _is_office_power_user():
-    """True when the current user is an office-level power user."""
-    return current_user.is_office_power_user()
-
-
-def _can_access_power_dashboard():
-    """Read-only command dashboard access for superusers and office power users."""
-    return current_user.is_super_user() or _is_office_power_user()
+def _can_access_command_dashboard():
+    """Read-only command dashboard access — superusers only."""
+    return current_user.is_super_user()
 
 
 def _can_reorder_tasks():
-    """Shared task ordering is restricted to superusers and office power users."""
-    return current_user.is_super_user() or _is_office_power_user()
+    """Shared task ordering is restricted to superusers."""
+    return current_user.is_super_user()
 
 
 def _task_read_access_required(fn):
-    """Allow read access through the task module grant or power-dashboard grant."""
+    """Allow read access through the task module grant or the command-dashboard grant."""
     @wraps(fn)
     def wrapper(*args, **kwargs):
         if not current_user.is_authenticated:
@@ -110,7 +105,7 @@ def _task_read_access_required(fn):
         if not current_user.is_active:
             flash("Your account has been deactivated.", "danger")
             return redirect(url_for("auth.login"))
-        if current_user.has_module_access("tasks") or _can_access_power_dashboard():
+        if current_user.has_module_access("tasks") or _can_access_command_dashboard():
             return fn(*args, **kwargs)
         flash(
             "You do not have access to this task workspace.",
@@ -467,37 +462,12 @@ def _task_visibility_query():
 
 
 def _task_dashboard_query():
-    """Return the task query backing the command dashboard for the current user."""
-    if current_user.is_super_user():
-        return _task_visibility_query()
+    """Return the task query backing the command dashboard for the current user.
 
-    base_query = _task_visibility_query()
-    if not _is_office_power_user() or current_user.office_id is None:
-        return base_query
-
-    visible_task_ids_subq = base_query.with_entities(Task.id).subquery()
-    tagged_task_ids_subq = (
-        db.session.query(TaskOffice.task_id)
-        .filter(TaskOffice.office_id == current_user.office_id)
-        .subquery()
-    )
-
-    office_scope_condition = or_(
-        Task.id.in_(select(visible_task_ids_subq.c.id)),
-        and_(
-            Task.task_scope.in_(["MY", "TEAM"]),
-            Task.office_id == current_user.office_id,
-            Task.is_private_self_task.is_(False),
-        ),
-        and_(
-            Task.task_scope == "GLOBAL",
-            or_(
-                Task.id.in_(select(tagged_task_ids_subq.c.task_id)),
-                Task.office_id == current_user.office_id,
-            ),
-        ),
-    )
-    return Task.query.filter(office_scope_condition)
+    A super user sees every task their visibility query allows; everybody else
+    sees exactly what they can see anywhere else in the module.
+    """
+    return _task_visibility_query()
 
 
 def _task_dashboard_context() -> dict[str, object]:
@@ -513,13 +483,224 @@ def _task_dashboard_context() -> dict[str, object]:
 
     office_name = getattr(getattr(current_user, "office", None), "office_name", "") or "Office"
     return {
-        "title": f"Power User Dashboard · {office_name}",
-        "subtitle": "Office-level mission control for the mapped workspace.",
+        "title": f"Task Dashboard · {office_name}",
+        "subtitle": "Your task position across the mapped workspace.",
         "eyebrow": "Task Management",
         "badge": office_name,
         "local_tasks_label": "Office Tasks",
         "local_tasks_hint": "Local office tasks visible across this office command view.",
     }
+
+
+def _office_task_condition(office_id: int):
+    """Tasks that belong to one office — those it owns plus the GLOBAL tasks tagged to it.
+
+    Shared by the office navigator counts and the register's office filter, so a
+    marker's number and the rows its link produces can never describe different
+    sets of tasks.
+    """
+    tagged_task_ids_subq = (
+        db.session.query(TaskOffice.task_id)
+        .filter(TaskOffice.office_id == office_id)
+        .subquery()
+    )
+    return or_(
+        Task.office_id == office_id,
+        and_(
+            Task.task_scope == "GLOBAL",
+            Task.id.in_(select(tagged_task_ids_subq.c.task_id)),
+        ),
+    )
+
+
+def _open_task_condition():
+    """Active work in a status the workspace has not closed."""
+    return and_(
+        Task.is_active.is_(True),
+        Task.status.notin_(CLOSED_TASK_STATUSES),
+    )
+
+
+def _overdue_case():
+    """1 when the task is past its committed date, 0 otherwise."""
+    today = date_type.today()
+    return case((and_(Task.due_date.isnot(None), Task.due_date < today), 1), else_=0)
+
+
+def _visible_task_ids_condition():
+    """Restrict a count to the tasks this user is already allowed to see.
+
+    A super user sees the whole workspace, so their counts need no extra clause;
+    everybody else counts only their own visible tasks, which keeps the map from
+    reporting work the visibility model hides from them.
+    """
+    if current_user.is_super_user():
+        return None
+    visible_task_ids_subq = _task_visibility_query().with_entities(Task.id).subquery()
+    return Task.id.in_(select(visible_task_ids_subq.c.id))
+
+
+def _offices_with_open_tasks(office_ids: list[int] | None = None) -> list[dict[str, object]]:
+    """Offices carrying open tasks, heaviest first, for the office navigator.
+
+    Only active offices appear: a deactivated office is not a location work runs
+    from. An office's open tasks are the ones it owns unioned with the open
+    GLOBAL tasks tagged to it; a task that is both owned and tagged counts once.
+    Aggregated in one grouped query over that union, never one query per office.
+    Pass office_ids to narrow the map to the offices a user may look at.
+    """
+    conditions = [_open_task_condition()]
+    visibility = _visible_task_ids_condition()
+    if visibility is not None:
+        conditions.append(visibility)
+    overdue_flag = _overdue_case().label("is_overdue")
+
+    owned_tasks = select(
+        Task.office_id.label("office_id"),
+        Task.id.label("task_id"),
+        overdue_flag,
+    ).where(*conditions, Task.office_id.isnot(None))
+    tagged_tasks = (
+        select(
+            TaskOffice.office_id.label("office_id"),
+            Task.id.label("task_id"),
+            overdue_flag,
+        )
+        .join(Task, Task.id == TaskOffice.task_id)
+        .where(*conditions, Task.task_scope == "GLOBAL")
+    )
+    # UNION drops the duplicate row for a task an office both owns and tags,
+    # so a plain count is already a count of distinct task ids.
+    office_tasks = owned_tasks.union(tagged_tasks).subquery()
+
+    open_count = func.count(office_tasks.c.task_id)
+    statement = (
+        select(
+            Office.id,
+            Office.office_code,
+            Office.office_name,
+            Office.location,
+            Office.secondary_location,
+            open_count.label("open_count"),
+            func.coalesce(func.sum(office_tasks.c.is_overdue), 0).label("overdue_count"),
+        )
+        .join(office_tasks, office_tasks.c.office_id == Office.id)
+        # A deactivated office is not a place work is running from, so it drops
+        # off the navigator map and the panel beside it.
+        .where(Office.is_active.is_(True))
+        .group_by(
+            Office.id, Office.office_code, Office.office_name,
+            Office.location, Office.secondary_location,
+        )
+        .order_by(open_count.desc(), Office.office_name)
+    )
+    if office_ids is not None:
+        if not office_ids:
+            return []
+        statement = statement.where(Office.id.in_(office_ids))
+
+    return [
+        {
+            "id": row.id,
+            "office_code": row.office_code or "",
+            "office_name": row.office_name,
+            "location": row.location or "",
+            # An office working from two places is pinned at both, so the map
+            # shows where the work actually happens.
+            "locations": [
+                place for place in (row.location, row.secondary_location)
+                if place and place.strip()
+            ],
+            "open_count": int(row.open_count or 0),
+            "overdue_count": int(row.overdue_count or 0),
+        }
+        for row in db.session.execute(statement).all()
+    ]
+
+
+def _global_task_counts() -> dict[str, int]:
+    """Open and overdue counts for GLOBAL-scope work, which belongs to no one office.
+
+    Shown beside the map rather than on it: a global task is the workspace's,
+    not a location's, even when it is tagged to offices.
+    """
+    conditions = [_open_task_condition(), Task.task_scope == "GLOBAL"]
+    visibility = _visible_task_ids_condition()
+    if visibility is not None:
+        conditions.append(visibility)
+
+    row = db.session.execute(
+        select(
+            func.count(Task.id),
+            func.coalesce(func.sum(_overdue_case()), 0),
+        ).where(*conditions)
+    ).one()
+    return {"open_count": int(row[0] or 0), "overdue_count": int(row[1] or 0)}
+
+
+REGISTER_OFFICE_SESSION_KEY = "task_register_office_id"
+
+
+def _register_office_condition(office_id: int):
+    """Tasks the Task Register shows when it is pointed at one office.
+
+    The office's own tasks and the GLOBAL tasks tagged to it — the same union
+    the office navigator counts with — plus the GLOBAL tasks tagged to no office
+    at all. Workspace-wide work belongs on every office's register; scoping it
+    away would leave it visible on none of them.
+    """
+    untagged_global = ~Task.id.in_(select(db.session.query(TaskOffice.task_id).subquery().c.task_id))
+    return or_(
+        _office_task_condition(office_id),
+        and_(Task.task_scope == "GLOBAL", untagged_global),
+    )
+
+
+def _selectable_register_offices() -> list[Office]:
+    """The offices a user may point the register at, in name order."""
+    if current_user.is_super_user():
+        return Office.query.filter(Office.is_active.is_(True)).order_by(Office.office_name).all()
+    if current_user.office_id is None:
+        return []
+    office = db.session.get(Office, current_user.office_id)
+    return [office] if office is not None else []
+
+
+def _resolve_register_office(requested_office_id: str = "") -> Office | None:
+    """Resolve the single office whose tasks the register renders.
+
+    The register always shows one office at a time. A regular user is pinned to
+    their own office and cannot switch. A super user picks any active office;
+    the choice is remembered for the session so the register does not snap back
+    on the next visit, and falls back to their own office, then to the first
+    active office.
+    """
+    if not current_user.is_super_user():
+        if current_user.office_id is None:
+            return None
+        return db.session.get(Office, current_user.office_id)
+
+    selectable = _selectable_register_offices()
+    if not selectable:
+        return None
+    by_id = {office.id: office for office in selectable}
+
+    if requested_office_id.isdigit():
+        chosen = by_id.get(int(requested_office_id))
+        if chosen is None:
+            # An inactive or deleted office reached us from a stale link.
+            chosen = db.session.get(Office, int(requested_office_id))
+        if chosen is not None:
+            session[REGISTER_OFFICE_SESSION_KEY] = chosen.id
+            return chosen
+
+    remembered = session.get(REGISTER_OFFICE_SESSION_KEY)
+    if isinstance(remembered, int) and remembered in by_id:
+        return by_id[remembered]
+
+    if current_user.office_id in by_id:
+        return by_id[current_user.office_id]
+    return selectable[0]
 
 
 def _recurring_template_visibility_query():
@@ -740,7 +921,7 @@ def _next_task_display_order() -> int:
 
 # Focus shortcuts used by the home page tiles. Each key must select exactly the
 # tasks its tile counted, so the two views never disagree.
-TASK_FOCUS_KEYS = ("overdue", "today", "week", "pending", "critical", "unassigned")
+TASK_FOCUS_KEYS = ("open", "overdue", "today", "week", "pending", "critical", "unassigned")
 
 
 def _focus_filter_condition(focus: str):
@@ -748,6 +929,10 @@ def _focus_filter_condition(focus: str):
     today = date_type.today()
     week_end = today + timedelta(days=(6 - today.weekday()))
 
+    if focus == "open":
+        # The caller already restricts to live, unclosed work — which is exactly
+        # what "open" means, so this shortcut adds no further condition.
+        return Task.id.isnot(None)
     if focus == "overdue":
         return and_(Task.due_date.isnot(None), Task.due_date < today)
     if focus == "today":
@@ -768,10 +953,16 @@ def _focus_filter_condition(focus: str):
 
 
 def _filtered_task_query_from_request():
-    """Return the task-list query after applying the current request filters."""
+    """Return the register query, its filters, and the office it is scoped to.
+
+    The register renders one office at a time, so the resolved office travels
+    back with the query and the filters — every view built on this helper then
+    describes the same office as the rows it shows.
+    """
     status_filter = request.args.get("status", "").strip()
     priority_filter = request.args.get("priority", "").strip()
     owner_filter = request.args.get("owner", "").strip()
+    office_filter = request.args.get("office", "").strip()
     scope_filter = _normalize_task_scope(request.args.get("scope", "").strip())
     focus_filter = request.args.get("focus", "").strip().lower()
     view_raw = request.args.get("view", "").strip().lower()
@@ -792,6 +983,14 @@ def _filtered_task_query_from_request():
         query = query.filter(Task.priority == priority_filter)
     if owner_filter.isdigit():
         query = query.filter(Task.owner_id == int(owner_filter))
+    # The register is always pointed at exactly one office — including for super
+    # users, who choose which one rather than seeing every office pooled together.
+    register_office = _resolve_register_office(office_filter)
+    if register_office is not None:
+        query = query.filter(_register_office_condition(register_office.id))
+        office_filter = str(register_office.id)
+    else:
+        office_filter = ""
     if scope_filter in TASK_SCOPES:
         query = query.filter(_scope_filter_condition(scope_filter))
     if focus_filter in TASK_FOCUS_KEYS:
@@ -807,10 +1006,11 @@ def _filtered_task_query_from_request():
         "status": status_filter,
         "priority": priority_filter,
         "owner": owner_filter,
+        "office": office_filter,
         "scope": scope_filter,
         "focus": focus_filter,
         "view": view_filter,
-    }
+    }, register_office
 
 
 # ── List Tasks ────────────────────────────────────────────────────
@@ -819,13 +1019,21 @@ def _filtered_task_query_from_request():
 @login_required
 @_task_read_access_required
 def list_tasks():
-    query, filters = _filtered_task_query_from_request()
+    query, filters, register_office = _filtered_task_query_from_request()
     all_tasks = _order_task_collection(query.all())
     active_tasks = [task for task in all_tasks if not _is_archived_task(task)]
-    archived_tasks = [task for task in all_tasks if _is_archived_task(task)]
+    # Closed work splits two ways: tasks finished or cancelled while still on
+    # the active tracker, and tasks lifted off it. Both collapse in the register,
+    # but a user looking for a finished task should not have to guess which.
+    completed_tasks = [
+        task for task in all_tasks
+        if _is_archived_task(task) and task.is_active
+    ]
+    archived_tasks = [task for task in all_tasks if not task.is_active]
     global_tasks, my_tasks = _split_tasks_for_list(active_tasks)
     is_privileged = _is_privileged()
     owners = _active_owner_options() if is_privileged else []
+    register_offices = _selectable_register_offices() if current_user.is_super_user() else []
 
     task_permissions = {
         task.id: {
@@ -843,6 +1051,10 @@ def list_tasks():
         global_tasks=global_tasks,
         my_tasks=my_tasks,
         owners=owners,
+        register_office=register_office,
+        register_offices=register_offices,
+        can_switch_office=current_user.is_super_user(),
+        completed_tasks=completed_tasks,
         task_statuses=TASK_STATUSES,
         task_priorities=TASK_PRIORITIES,
         task_scopes=TASK_SCOPES,
@@ -870,7 +1082,7 @@ def reorder_task(task_id: int):
         flash("Choose a valid reorder direction.", "danger")
         return redirect(url_for("tasks.list_tasks", **request.args.to_dict()))
 
-    query, filters = _filtered_task_query_from_request()
+    query, filters, _register_office = _filtered_task_query_from_request()
     target_task = query.filter(Task.id == task_id).first()
     if target_task is None or not _can_view_task(target_task):
         flash("Task not found in the current visible list.", "warning")
@@ -947,7 +1159,7 @@ def reorder_task(task_id: int):
 @login_required
 @_task_read_access_required
 def task_dashboard():
-    """Sectioned command dashboard for superusers and office power users."""
+    """Sectioned command dashboard for superusers."""
     dashboard_context = _task_dashboard_context()
     all_tasks = (
         _task_dashboard_query()
@@ -961,36 +1173,24 @@ def task_dashboard():
     # ── Recent activity (latest event per active visible task) ───────────────
     recent_activity = _build_recent_task_activity(all_tasks, limit=5)
 
-    # ── Due-soon tasks ─────────────────────────────────────────────
-    # Built directly from calendar_tasks (the already-serialised dicts) so it is
-    # guaranteed to be identical to what the calendar dots show.  ISO date strings
-    # sort lexicographically, so string comparison gives correct date order.
-    due_soon_rows = (
-        _task_dashboard_query()
-        .filter(
-            Task.is_active.is_(True),
-            Task.due_date.isnot(None),
-            Task.status.notin_(("Completed", "Cancelled")),
-        )
-        .order_by(Task.due_date.asc())
-        .limit(8)
-        .all()
-    )
-    due_soon_tasks = [
-        {
-            "id": t.id,
-            "title": t.task_title,
-            "scope": _normalize_task_scope(t.task_scope),
-            "due_date": t.due_date.strftime("%Y-%m-%d"),
-            "status": t.status,
-        }
-        for t in due_soon_rows
-        if t.due_date
-    ]
+    # ── Location navigator ───────────────────────────────────────
+    # Everyone sees the map. A super user sees every office; anybody else sees
+    # only their own, counted against the tasks they are allowed to see.
+    if current_user.is_super_user():
+        office_navigator = _offices_with_open_tasks()
+        navigator_scope = "every ONGC location"
+    elif current_user.office_id is not None:
+        office_navigator = _offices_with_open_tasks(office_ids=[current_user.office_id])
+        navigator_scope = "your office"
+    else:
+        office_navigator = []
+        navigator_scope = "your office"
+    global_task_counts = _global_task_counts()
+    show_office_navigator = bool(office_navigator) or global_task_counts["open_count"] > 0
 
     # ── Super-user analytics ─────────────────────────────────────
     analytics = None
-    if _can_access_power_dashboard():
+    if _can_access_command_dashboard():
         today = date_type.today()
         status_counts   = dict(Counter(t.status       for t in all_tasks))
         priority_counts = dict(Counter(t.priority     for t in all_tasks))
@@ -1005,15 +1205,74 @@ def task_dashboard():
         total     = len(all_tasks)
         completion_pct = round((completed / total * 100) if total else 0)
 
+        # Every dimension the register can filter on, so each slice below has a
+        # drilldown. Counted over the same all_tasks the charts describe.
+        week_end = today + timedelta(days=(6 - today.weekday()))
+        due_window = Counter()
+        for t in all_tasks:
+            if t.status in ("Completed", "Cancelled"):
+                due_window["Closed"] += 1
+            elif t.due_date is None:
+                due_window["No date"] += 1
+            elif t.due_date < today:
+                due_window["Overdue"] += 1
+            elif t.due_date == today:
+                due_window["Due today"] += 1
+            elif t.due_date <= week_end:
+                due_window["Due this week"] += 1
+            else:
+                due_window["Later"] += 1
+
+        # Owners and offices are filtered by id, so counts are kept keyed by id
+        # and only rendered by name — two people can share a display name.
+        owner_rows = Counter(
+            (t.owner.id, t.owner.full_name or t.owner.username) if t.owner else (None, "Unassigned")
+            for t in all_tasks
+        )
+        office_rows = Counter(
+            (t.office.id, t.office.office_name) if t.office else (None, "No office")
+            for t in all_tasks
+        )
+        open_tasks = sum(1 for t in all_tasks if t.status not in ("Completed", "Cancelled"))
+        critical_open = sum(
+            1 for t in all_tasks
+            if t.priority == "Critical" and t.status not in ("Completed", "Cancelled")
+        )
+        unassigned_open = sum(
+            1 for t in all_tasks
+            if t.owner_id is None and t.status not in ("Completed", "Cancelled")
+        )
+        pending_count = sum(1 for t in all_tasks if t.status in PENDING_UPDATE_STATUSES)
+
+        # Ordered link targets, aligned with the chart label order below.
+        owners_for_links = [
+            {"id": owner_id, "name": name, "count": count}
+            for (owner_id, name), count in owner_rows.most_common(8)
+            if owner_id is not None
+        ]
+        offices_for_links = [
+            {"id": office_id, "name": name, "count": count}
+            for (office_id, name), count in office_rows.most_common()
+            if office_id is not None
+        ]
+
         analytics = {
             "status":         status_counts,
             "priority":       priority_counts,
             "scope":          scope_counts,
+            "due_window":     dict(due_window),
             "overdue":        overdue_count,
             "total":          total,
+            "open":           open_tasks,
             "completed":      completed,
             "completion_pct": completion_pct,
+            "critical_open":  critical_open,
+            "unassigned":     unassigned_open,
+            "pending":        pending_count,
         }
+    else:
+        owners_for_links = []
+        offices_for_links = []
 
     return render_template(
         "tasks/dashboard.html",
@@ -1021,10 +1280,15 @@ def task_dashboard():
         global_tasks=global_tasks,
         my_tasks=my_tasks,
         recent_activity=recent_activity,
-        due_soon_tasks=due_soon_tasks,
-        is_privileged=_can_access_power_dashboard(),
+        is_privileged=_can_access_command_dashboard(),
+        show_office_navigator=show_office_navigator,
+        office_navigator=office_navigator,
+        navigator_scope=navigator_scope,
+        global_task_counts=global_task_counts,
         show_task_actions=current_user.has_module_access("tasks"),
         analytics=analytics,
+        owners_for_links=owners_for_links,
+        offices_for_links=offices_for_links,
         task_statuses=TASK_STATUSES,
         task_priorities=TASK_PRIORITIES,
         calendar_initial={"year": date_type.today().year, "month": date_type.today().month},
@@ -1734,7 +1998,7 @@ def task_summary(task_id):
 @office_bp.route("/<int:task_id>/command-summary")
 @login_required
 def task_command_summary(task_id):
-    if not _can_access_power_dashboard():
+    if not _can_access_command_dashboard():
         abort(403)
 
     task = Task.query.get_or_404(task_id)

@@ -47,16 +47,29 @@ def _seed_roles():
 
 
 def _seed_pilot_office():
-    """Create the pilot office from config if missing."""
+    """Create the pilot office from config if missing.
+
+    Head Corporate Chemistry functions from Mumbai and Dehradun as one office
+    sharing one task register, so both locations are recorded on the single row.
+    An existing office is backfilled rather than duplicated.
+    """
     code = current_app.config["PILOT_OFFICE_CODE"]
-    if not Office.query.filter_by(office_code=code).first():
+    office = Office.query.filter_by(office_code=code).first()
+    if office is None:
         db.session.add(Office(
             office_code=code,
             office_name="Corporate Chemistry",
-            location="Dehradun",
+            location="Mumbai",
+            secondary_location="Dehradun",
         ))
         db.session.commit()
-        click.echo(f"  Pilot office '{code}' created.")
+        click.echo(f"  Pilot office '{code}' created (Mumbai & Dehradun).")
+        return
+
+    if not (office.secondary_location or "").strip():
+        office.secondary_location = "Dehradun"
+        db.session.commit()
+        click.echo(f"  Pilot office '{code}' already exists – Dehradun location added.")
     else:
         click.echo(f"  Pilot office '{code}' already exists.")
 
@@ -184,7 +197,7 @@ def _ensure_office(office_code: str) -> Office:
 
     # Fallback defaults aligned with current pilot office conventions.
     office_name = "Corporate Chemistry" if office_code == "CORP_CHEM" else office_code
-    location = "Dehradun" if office_code == "CORP_CHEM" else ""
+    location = "Mumbai" if office_code == "CORP_CHEM" else ""
 
     office_kwargs = {
         "office_code": office_code,

@@ -1,6 +1,6 @@
 <nav class="mod-nav mod-subnav" aria-label="Laboratory navigation">
     <a href="{{ url_for('quality_control.landing') }}"><i class="bi bi-grid"></i> All Laboratories</a>
     <a href="{{ url_for('quality_control.laboratory_dashboard', lab_code=laboratory.code) }}" class="{{ 'is-active' if request.endpoint == 'quality_control.laboratory_dashboard' else '' }}"><i class="bi bi-speedometer2"></i> {{ laboratory.name }} Dashboard</a>
-    <a href="{{ url_for('quality_control.sample_history', lab=laboratory.code) }}"><i class="bi bi-database"></i> {{ laboratory.name }} History</a>
+    <a href="{{ url_for('quality_control.samples', lab_code=laboratory.code) }}" class="{{ 'is-active' if request.endpoint == 'quality_control.samples' else '' }}"><i class="bi bi-database"></i> {{ laboratory.name }} History</a>
     <a href="{{ url_for('quality_control.management_brief', lab_code=laboratory.code) }}" class="{{ 'is-active' if request.endpoint == 'quality_control.management_brief' else '' }}"><i class="bi bi-easel2"></i> Management Brief</a>
 </nav>

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "tasks/_office_nav.html" import office_nav %}
+{% from "components/_geo_map.html" import geo_map, geo_map_script with context %}
 {% block title %}Task Management – {{ app_name }}{% endblock %}
 
 {% block head_extra %}
@@ -99,6 +100,114 @@
     {% endif %}
   </section>
 
+  {% if show_office_navigator %}
+  {# ── Location navigator ───────────────────────────────────── #}
+  <section class="mod-geo-card" aria-label="Location navigator">
+    <div class="mod-geo-heading">
+      <div>
+        <span>Location navigator</span>
+        <h2>Open tasks across locations</h2>
+        <p>Select a location to open the Task Register filtered to it. The map covers {{ navigator_scope }}; global tasks belong to the workspace rather than to one location, so they are counted separately.</p>
+      </div>
+      {% if office_navigator %}
+      {# An office working from two places contributes two locations, matching
+         the pins the map draws for it. #}
+      {% set counter = namespace(n=0) %}
+      {% for office in office_navigator %}{% set counter.n = counter.n + (office.locations|length or 1) %}{% endfor %}
+      <span><i class="bi bi-geo-alt-fill"></i> {{ counter.n }} location{{ '' if counter.n == 1 else 's' }} · {{ office_navigator|sum(attribute='open_count') }} open</span>
+      {% endif %}
+    </div>
+
+    {# Global work sits outside the map, with the same two counts. #}
+    <div class="om-geo-global">
+      <div>
+        <span>Global tasks</span>
+        <small>Raised for the whole workspace, not for one location.</small>
+      </div>
+      <div class="om-geo-counts">
+        <a class="om-count is-open" href="{{ url_for('tasks.list_tasks', scope='GLOBAL') }}">
+          <strong>{{ global_task_counts.open_count }}</strong> open
+        </a>
+        <a class="om-count is-overdue {{ 'is-zero' if not global_task_counts.overdue_count }}" href="{{ url_for('tasks.list_tasks', scope='GLOBAL', focus='overdue') }}">
+          <strong>{{ global_task_counts.overdue_count }}</strong> overdue
+        </a>
+      </div>
+    </div>
+
+    {% if office_navigator %}
+    <div class="mod-geo-layout">
+      {{ geo_map('taskOfficeMap', 'Map of India with ONGC locations') }}
+      <aside class="mod-geo-list is-detailed" aria-label="Location list">
+        {% for office in office_navigator %}
+        <a class="mod-geo-list-button has-meta {{ 'is-overdue' if office.overdue_count else 'is-ready' }}"
+           href="{{ url_for('tasks.list_tasks', office=office.id) }}"
+           title="{{ office.office_name }}{% if office.location %} · {{ office.location }}{% endif %} · {{ office.open_count }} open · {{ office.overdue_count }} overdue">
+          <strong>{{ office.office_name }}</strong>
+          <small class="om-geo-counts">
+            <span class="om-count is-open"><strong>{{ office.open_count }}</strong> open</span>
+            <span class="om-count is-overdue {{ 'is-zero' if not office.overdue_count }}"><strong>{{ office.overdue_count }}</strong> overdue</span>
+          </small>
+        </a>
+        {% endfor %}
+      </aside>
+    </div>
+    <p class="mod-geo-legend"><span class="is-ready"><i></i> Open tasks</span><span class="is-overdue"><i></i> Overdue tasks</span></p>
+    {% else %}
+    <p class="om-geo-empty"><i class="bi bi-geo-alt"></i> No open tasks are mapped to {{ navigator_scope }} at this time.</p>
+    {% endif %}
+  </section>
+  {% if office_navigator %}
+  {{ geo_map_script() }}
+  <script nonce="{{ csp_nonce() }}">(() => {const offices={{ office_navigator|tojson }};
+/* Real WGS84 coordinates per office, keyed by office_code so a renamed office
+   keeps its pin, projected by ModGeoMap with the equirectangular constants
+   documented in components/_geo_map.html. To add an office, add one GEO entry:
+   "OFFICE_CODE":{ll:[lat,lng]}. Optional per entry: dx/dy (viewBox units) shift
+   the label pill away from its dot so clustered labels stay apart (a leader
+   line then appears automatically); kind:"offshore" marks at-sea locations.
+   The Gujarat cluster and the Mumbai pair reuse the offsets already tuned for
+   these exact coordinates in inventory/landing.html. */
+const GEO={
+"DFS_AHMD":{ll:[23.03,72.58],dx:72,dy:-17},
+"ST_MHSN":{ll:[23.60,72.40],dx:-62,dy:-16},
+"QPCL":{ll:[21.12,72.65],dx:-67,dy:26},
+"DFS_MUMBAI":{ll:[19.00,72.85],dx:66,dy:-4},
+"MH_ASSET":{ll:[19.50,71.60],dx:-56,dy:34,kind:"offshore"},
+"DFS_ASSAM":{ll:[26.98,94.64],dx:24,dy:-24},
+"ST_RJY":{ll:[17.00,81.78],dx:71,dy:-18},
+"CORP_CHEM":{ll:[19.08,72.88],dx:66,dy:-54}
+};
+/* An office that works from more than one place gets a pin at each. Keyed by
+   office_code then by the location name as stored on the office record, so a
+   second location only appears on the map once it exists in the database. */
+const EXTRA_PINS={
+"CORP_CHEM":{"Dehradun":{ll:[30.32,78.03],dx:62,dy:-16}}
+};
+const REGISTER_URL={{ url_for('tasks.list_tasks', office=999999)|tojson }};
+const open=office=>{window.location.href=REGISTER_URL.replace('999999',office.id)};
+const counts=office=>office.open_count+' open \u00b7 '+office.overdue_count+' overdue';
+/* The list beside the map is rendered server-side so its counts can carry the
+   open/overdue colours; only the markers are drawn from here. */
+/* One entry per pin: the office's own seat, plus any further location the
+   record carries that has coordinates. Every pin opens the same register,
+   because they are the same office. */
+const entries=offices.flatMap(office=>{
+  const base={...(GEO[office.office_code]||{}),id:office.id,label:office.office_name,
+    state:office.overdue_count?'overdue':'ready'};
+  const extras=EXTRA_PINS[office.office_code]||{};
+  const seat=office.locations&&office.locations.length?office.locations[0]:office.location;
+  const pins=[{...base,title:office.office_name+(seat?' \u00b7 '+seat:'')+' \u00b7 '+counts(office)}];
+  (office.locations||[]).slice(1).forEach(place=>{
+    const geo=extras[place];
+    if(!geo){return}
+    pins.push({...base,...geo,title:office.office_name+' \u00b7 '+place+' \u00b7 '+counts(office)});
+  });
+  return pins;
+});
+ModGeoMap.render(document.getElementById('taskOfficeMap'),entries,open);})();</script>
+  {% endif %}
+  {% endif %}
+
   {# ── Calendar + side panels ───────────────────────────────── #}
   <div class="mod-section-heading">
     <div>
@@ -156,36 +265,6 @@
         {% endif %}
       </section>
 
-      <section class="om-panel">
-        <h3>Due soon</h3>
-        <p>Nearest committed dates in your visible scope.</p>
-        {% if due_soon_tasks %}
-        <div class="om-activity">
-          {% for t in due_soon_tasks %}
-          <div class="om-activity-item">
-            <div class="om-activity-top">
-              <span class="om-activity-who">
-                <span class="db-scope-dot dot-{{ 'my' if t.scope == 'MY' else t.scope|lower }}" title="{{ 'Local' if t.scope == 'MY' else 'Global' }} task"></span>
-                {{ 'Local' if t.scope == 'MY' else 'Global' }}
-              </span>
-              <span class="om-activity-when">
-                {{- t.due_date[8:10] }}&nbsp;{{ ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][t.due_date[5:7]|int - 1] -}}
-              </span>
-            </div>
-            <a
-              href="{{ url_for('tasks.task_detail', task_id=t.id) }}"
-              class="om-activity-link"
-              data-task-summary-url="{{ url_for('tasks.task_summary', task_id=t.id) }}"
-              data-task-summary-title="{{ t.title }}"
-            >{{ t.title }}</a>
-            <span class="om-pill om-pill-status-{{ t.status|lower|replace(' ','-') }}">{{ t.status }}</span>
-          </div>
-          {% endfor %}
-        </div>
-        {% else %}
-        <p class="om-activity-kind">No tasks with due dates found.</p>
-        {% endif %}
-      </section>
     </div>
   </div>
 
@@ -194,23 +273,153 @@
   <div class="mod-section-heading">
     <div>
       <span>Portfolio analytics</span>
-      <h2>Status, priority and scope</h2>
-      <p>Distribution across every task visible in this workspace view.</p>
+      <h2>Interactive portfolio analysis</h2>
+      <p>
+        Distribution across every task visible in this workspace view.
+        {% if show_task_actions %}Select any tile, segment, bar or label to open that slice of the register.{% endif %}
+      </p>
     </div>
   </div>
 
-  <div class="mod-stats">
+  {# Headline signals. Each one is a filter the register can reproduce, so the
+     number and the list it opens always describe the same tasks. #}
+  <div class="db-signal-grid">
+    {% set signals = [
+      ('Total tasks', analytics.total, 'Active tasks in this view', '', none),
+      ('Open', analytics.open, 'Not completed or cancelled', 'focus', 'open'),
+      ('Overdue', analytics.overdue, 'Past the committed date', 'focus', 'overdue'),
+      ('Critical open', analytics.critical_open, 'Highest priority, still running', 'focus', 'critical'),
+      ('Awaiting progress', analytics.pending, 'No movement recorded yet', 'focus', 'pending'),
+      ('Unassigned', analytics.unassigned, 'Open work with no owner', 'focus', 'unassigned'),
+    ] %}
+    {% for label, value, detail, param, arg in signals %}
+    {% if show_task_actions and param %}
+    <a class="db-signal" href="{{ url_for('tasks.list_tasks', **{param: arg}) }}">
+      <span>{{ label }}</span><strong>{{ value }}</strong><small>{{ detail }}</small>
+    </a>
+    {% else %}
+    <div class="db-signal">
+      <span>{{ label }}</span><strong>{{ value }}</strong><small>{{ detail }}</small>
+    </div>
+    {% endif %}
+    {% endfor %}
+    <div class="db-signal">
+      <span>Completion</span><strong>{{ analytics.completion_pct }}%</strong>
+      <small>{{ analytics.completed }} of {{ analytics.total }} completed</small>
+    </div>
+  </div>
+
+  {# A canvas cannot be reached by keyboard, so each chart is paired with a row of
+     real links carrying the same filters — the chart is the shortcut, not the only
+     route. Both go to the register, which the ribbon links to the same way. #}
+  <div class="db-chart-grid">
     <div class="om-card">
       <div class="om-card-head"><h2><i class="bi bi-pie-chart"></i> Task status</h2></div>
-      <div class="om-card-body"><div class="db-chart-wrap"><canvas id="chartStatus"></canvas></div></div>
+      <div class="om-card-body">
+        <div class="db-chart-wrap"><canvas id="chartStatus"></canvas></div>
+        {% if show_task_actions %}
+        <div class="db-chart-links" aria-label="Filter the register by status">
+          {% for status, count in analytics.status.items() %}
+          {% if count %}
+          <a href="{{ url_for('tasks.list_tasks', status=status) }}">
+            <span class="db-chart-swatch status-{{ status|lower|replace(' ', '-') }}" aria-hidden="true"></span>
+            {{ status }} <b>{{ count }}</b>
+          </a>
+          {% endif %}
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
     </div>
     <div class="om-card">
       <div class="om-card-head"><h2><i class="bi bi-bar-chart"></i> Priority</h2></div>
-      <div class="om-card-body"><div class="db-chart-wrap"><canvas id="chartPriority"></canvas></div></div>
+      <div class="om-card-body">
+        <div class="db-chart-wrap"><canvas id="chartPriority"></canvas></div>
+        {% if show_task_actions %}
+        <div class="db-chart-links" aria-label="Filter the register by priority">
+          {% for priority, count in analytics.priority.items() %}
+          {% if count %}
+          <a href="{{ url_for('tasks.list_tasks', priority=priority) }}">
+            <span class="db-chart-swatch priority-{{ priority|lower }}" aria-hidden="true"></span>
+            {{ priority }} <b>{{ count }}</b>
+          </a>
+          {% endif %}
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
     </div>
     <div class="om-card">
       <div class="om-card-head"><h2><i class="bi bi-diagram-2"></i> Scope</h2></div>
-      <div class="om-card-body"><div class="db-chart-wrap"><canvas id="chartScope"></canvas></div></div>
+      <div class="om-card-body">
+        <div class="db-chart-wrap"><canvas id="chartScope"></canvas></div>
+        {% if show_task_actions %}
+        <div class="db-chart-links" aria-label="Filter the register by scope">
+          {% for scope, count in analytics.scope.items() %}
+          {% if count %}
+          <a href="{{ url_for('tasks.list_tasks', scope=scope) }}">
+            <span class="db-chart-swatch scope-{{ scope|lower }}" aria-hidden="true"></span>
+            {{ 'Local' if scope == 'MY' else 'Global' }} <b>{{ count }}</b>
+          </a>
+          {% endif %}
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="om-card">
+      <div class="om-card-head"><h2><i class="bi bi-calendar-week"></i> Due window</h2></div>
+      <div class="om-card-body">
+        <div class="db-chart-wrap"><canvas id="chartDue"></canvas></div>
+        {% if show_task_actions %}
+        {% set due_focus = {'Overdue': 'overdue', 'Due today': 'today', 'Due this week': 'week'} %}
+        <div class="db-chart-links" aria-label="Filter the register by due window">
+          {% for window, count in analytics.due_window.items() %}
+          {% if count and due_focus.get(window) %}
+          <a href="{{ url_for('tasks.list_tasks', focus=due_focus[window]) }}">
+            <span class="db-chart-swatch due-{{ due_focus[window] }}" aria-hidden="true"></span>
+            {{ window }} <b>{{ count }}</b>
+          </a>
+          {% endif %}
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="om-card">
+      <div class="om-card-head"><h2><i class="bi bi-people"></i> Owner load</h2></div>
+      <div class="om-card-body">
+        <div class="db-chart-wrap"><canvas id="chartOwner"></canvas></div>
+        {% if show_task_actions %}
+        <div class="db-chart-links" aria-label="Filter the register by owner">
+          {% for owner in owners_for_links %}
+          <a href="{{ url_for('tasks.list_tasks', owner=owner.id) }}">
+            <span class="db-chart-swatch" aria-hidden="true"></span>
+            {{ owner.name }} <b>{{ owner.count }}</b>
+          </a>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="om-card">
+      <div class="om-card-head"><h2><i class="bi bi-building"></i> Office load</h2></div>
+      <div class="om-card-body">
+        <div class="db-chart-wrap"><canvas id="chartOffice"></canvas></div>
+        {% if show_task_actions %}
+        <div class="db-chart-links" aria-label="Filter the register by office">
+          {% for office in offices_for_links %}
+          <a href="{{ url_for('tasks.list_tasks', office=office.id) }}">
+            <span class="db-chart-swatch" aria-hidden="true"></span>
+            {{ office.name }} <b>{{ office.count }}</b>
+          </a>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
     </div>
   </div>
 
@@ -219,6 +428,18 @@
       status: {{ analytics.status | tojson }},
       priority: {{ analytics.priority | tojson }},
       scope: {{ analytics.scope | tojson }},
+      due_window: {{ analytics.due_window | tojson }},
+      /* Ordered arrays, not objects: tojson sorts object keys, which would
+         misalign a label with the id its slice is meant to filter by. */
+      owners: {{ owners_for_links | tojson }},
+      offices: {{ offices_for_links | tojson }},
+    };
+    /* Clicking a slice opens the register filtered the same way the link row
+       below the chart does. Inert when the user has no register access — the
+       ribbon tiles above go inert under the same rule. */
+    const ANALYTICS_LINKS = {
+      enabled: {{ 'true' if show_task_actions else 'false' }},
+      base: {{ url_for('tasks.list_tasks') | tojson }},
     };
   </script>
   {% endif %}
@@ -421,7 +642,7 @@ function openModalByDate(dateStr) {
 
   if (tasks.length === 0) {
     const empty = document.createElement('li');
-    empty.style.color = themeValue('--color-text-muted', '#888');
+    empty.style.color = themeValue('--muted', '#888');
     empty.textContent = 'No tasks.';
     modalList.appendChild(empty);
   } else {
@@ -522,6 +743,33 @@ renderCalendar();
     }
   }
 
+  /* Open the register filtered by whichever slice was clicked. `values` maps a
+     slice index to the query value, which is not always the printed label — the
+     Scope chart prints "Local" for the MY scope the register filters on. */
+  function filterOnClick(param, values) {
+    return function (event, elements, chart) {
+      if (!ANALYTICS_LINKS.enabled || !elements.length) {
+        return;
+      }
+      const value = values[elements[0].index];
+      // Slices with no register filter — "Later", "No date", "Unassigned" —
+      // carry no value and simply do not navigate.
+      if (value === undefined || value === null) {
+        return;
+      }
+      window.location.href = ANALYTICS_LINKS.base
+        + '?' + param + '=' + encodeURIComponent(value);
+    };
+  }
+
+  /* A pointer over a clickable slice is the only cue a canvas can give. */
+  function pointerOnHover(event, elements) {
+    if (!ANALYTICS_LINKS.enabled) {
+      return;
+    }
+    event.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+  }
+
   function renderCharts() {
     destroyCharts();
 
@@ -572,7 +820,12 @@ renderCalendar();
           borderColor: chartBorder,
         }],
       },
-      options: { ...chartDefaults, cutout: '60%' },
+      options: {
+        ...chartDefaults,
+        cutout: '60%',
+        onClick: filterOnClick('status', statusKeys),
+        onHover: pointerOnHover,
+      },
     }));
 
     const priKeys = Object.keys(ANALYTICS.priority);
@@ -591,6 +844,8 @@ renderCalendar();
       },
       options: {
         ...chartDefaults,
+        onClick: filterOnClick('priority', priKeys),
+        onHover: pointerOnHover,
         plugins: { ...chartDefaults.plugins, legend: { display: false } },
         scales: {
           y: {
@@ -619,8 +874,80 @@ renderCalendar();
           borderColor: chartBorder,
         }],
       },
-      options: { ...chartDefaults, cutout: '55%' },
+      options: {
+        ...chartDefaults,
+        cutout: '55%',
+        onClick: filterOnClick('scope', scopeKeys),
+        onHover: pointerOnHover,
+      },
     }));
+
+    /* Due window — only the three near-term buckets have a register filter, so
+       the rest render as context without a click target. */
+    const dueColorsMap = {
+      'Overdue': themeValue('--chart-priority-critical', '#ef4444'),
+      'Due today': themeValue('--chart-priority-high', '#f97316'),
+      'Due this week': themeValue('--chart-priority-medium', '#60a5fa'),
+      'Later': themeValue('--chart-status-not-started', '#94a3b8'),
+      'No date': themeValue('--chart-grid', '#e2e8f0'),
+      'Closed': themeValue('--chart-status-completed', '#22c55e'),
+    };
+    const dueFocus = { 'Overdue': 'overdue', 'Due today': 'today', 'Due this week': 'week' };
+    const dueKeys = Object.keys(ANALYTICS.due_window);
+    charts.push(new Chart(document.getElementById('chartDue'), {
+      type: 'bar',
+      data: {
+        labels: dueKeys,
+        datasets: [{
+          label: 'Tasks',
+          data: Object.values(ANALYTICS.due_window),
+          backgroundColor: dueKeys.map((key) => dueColorsMap[key] || chartText),
+          borderRadius: 6,
+          borderSkipped: false,
+        }],
+      },
+      options: {
+        ...chartDefaults,
+        onClick: filterOnClick('focus', dueKeys.map((key) => dueFocus[key])),
+        onHover: pointerOnHover,
+        plugins: { ...chartDefaults.plugins, legend: { display: false } },
+        scales: {
+          y: { beginAtZero: true, ticks: { stepSize: 1, font: { size: 11 }, color: chartText }, grid: { color: chartGrid } },
+          x: { ticks: { font: { size: 10 }, color: chartText }, grid: { display: false } },
+        },
+      },
+    }));
+
+    /* Owner and office bars filter by id, which rides with each row. */
+    const loadBar = (canvasId, rows, param) => {
+      if (!rows.length) { return; }
+      charts.push(new Chart(document.getElementById(canvasId), {
+        type: 'bar',
+        data: {
+          labels: rows.map((row) => row.name),
+          datasets: [{
+            label: 'Tasks',
+            data: rows.map((row) => row.count),
+            backgroundColor: themeValue('--om-accent', '#2563eb'),
+            borderRadius: 6,
+            borderSkipped: false,
+          }],
+        },
+        options: {
+          ...chartDefaults,
+          indexAxis: 'y',
+          onClick: filterOnClick(param, rows.map((row) => row.id)),
+          onHover: pointerOnHover,
+          plugins: { ...chartDefaults.plugins, legend: { display: false } },
+          scales: {
+            x: { beginAtZero: true, ticks: { stepSize: 1, font: { size: 11 }, color: chartText }, grid: { color: chartGrid } },
+            y: { ticks: { font: { size: 10 }, color: chartText }, grid: { display: false } },
+          },
+        },
+      }));
+    };
+    loadBar('chartOwner', ANALYTICS.owners, 'owner');
+    loadBar('chartOffice', ANALYTICS.offices, 'office');
   }
 
   renderCharts();

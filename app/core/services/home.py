@@ -1,8 +1,8 @@
 """Home page context builder.
 
-The home page is a single adaptive surface. Superusers and office power users
-switch its data scope with the scope selector; everyone else sees ``my`` scope
-only. Deep analytics live on their own page and are linked from here.
+The home page is a single adaptive surface. Superusers switch its data scope
+with the scope selector; everyone else sees ``my`` scope only. Deep analytics
+live on their own page and are linked from here.
 """
 
 from __future__ import annotations
@@ -63,8 +63,6 @@ def available_scopes(user) -> list[str]:
         if has_office:
             scopes.append(SCOPE_OFFICE)
         scopes.append(SCOPE_WORKSPACE)
-    elif user.is_office_power_user():
-        scopes.append(SCOPE_OFFICE)
 
     return scopes
 
@@ -220,8 +218,8 @@ def get_home_context(user, scope: str | None = None, app=None) -> dict:
     week_end = today + timedelta(days=(6 - today.weekday()))
 
     task_links_active = user_can_access_module("office_management", user, app)
-    # Office and workspace scopes are entitlement-driven, so a power user or
-    # superuser keeps command visibility even without an explicit module grant.
+    # Office and workspace scopes are entitlement-driven, so a superuser keeps
+    # command visibility even without an explicit module grant.
     tasks_visible = task_links_active or scope in (SCOPE_OFFICE, SCOPE_WORKSPACE)
 
     open_tasks: list[Task] = []
@@ -335,11 +333,12 @@ def get_home_context(user, scope: str | None = None, app=None) -> dict:
     ]
 
     analytics = None
-    if user.is_super_user() or user.is_office_power_user():
+    if user.is_super_user():
         analytics = {
-            "label": "Portfolio Analytics",
-            "detail": "Charts, drilldowns, and the reporting organogram.",
-            "href": url_for("main.analytics", scope=scope),
+            "label": "Organograms",
+            "detail": "Reporting lines by office, alongside portfolio charts and drilldowns.",
+            # Lands on the organogram tab; the portfolio charts stay one tab away.
+            "href": url_for("main.analytics", scope=scope, _anchor="organogram"),
         }
 
     module_cards = _build_module_showcase(user, app)

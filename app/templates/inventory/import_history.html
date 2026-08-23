@@ -1,19 +1,22 @@
 {% extends "base.html" %}
-{% block title %}Inventory Monitoring · Import history{% endblock %}
+{% block title %}Inventory Monitoring · Data Import{% endblock %}
 {% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory_monitoring.css') }}">{% endblock %}
 {% from "inventory/_monitoring_nav.html" import monitoring_nav %}
-{% block content %}<div class="page-wrapper mod-page is-inventory im-page">
+{% block content %}<div class="page-wrapper mod-page im-page">
 {{ monitoring_nav() }}
-<nav class="im-breadcrumb"><a href="{{ url_for('inventory.landing') }}"><i class="bi bi-arrow-left"></i> Inventory Monitoring</a><span>/</span><strong>Import control centre</strong></nav>
 
-<section class="im-import-centre-hero">
+
+<div class="mod-page-head">
   <div>
-    <span class="im-kicker">Data operations · Audit trail</span>
-    <h1>Import control<br><em>centre</em></h1>
-    <p>Bring the mapping baseline and both inventory groups into one governed reporting period. Every workbook stays available here with its validation and replacement history.</p>
+    <div class="im-kicker">Data operations · Import centre</div>
+    <h1 class="mod-page-title"><i class="bi bi-database-add"></i> Data Import</h1>
+    <p class="mod-page-sub">The single route for Inventory Monitoring workbooks. Import the mapping baseline and both inventory groups into one governed reporting period; every workbook stays here with its validation and replacement history.</p>
   </div>
-  <div class="im-import-centre-actions"><a class="btn btn-light" href="{{ url_for('inventory.imports') }}"><i class="bi bi-cloud-arrow-up"></i> Import workbook</a><a class="im-import-centre-link" href="{{ url_for('inventory.landing') }}"><i class="bi bi-grid"></i> Monitoring home</a></div>
-</section>
+  <div class="mod-page-actions">
+    <a class="btn btn-secondary" href="{{ url_for('inventory.landing') }}"><i class="bi bi-grid"></i> Monitoring home</a>
+    <a class="btn btn-primary" href="{{ url_for('inventory.imports') }}"><i class="bi bi-cloud-arrow-up"></i> Import workbook</a>
+  </div>
+</div>
 
 <section class="im-import-kpis">
   <article><span>Active workbooks</span><strong>{{ active_batches|length }}</strong><small>current sources used by monitoring</small></article>
@@ -39,7 +42,7 @@
     <div class="im-import-audit-meta"><span class="im-import-audit-count">{{ batches|length }} batches retained</span><span class="im-import-order"><i class="bi bi-sort-down"></i> Newest first</span></div>
   </div>
   <div class="im-table-wrap im-import-history-wrap"><table class="table im-import-history-table">
-    <thead><tr><th>Source &amp; workbook</th><th>Reporting period</th><th>Data quality</th><th>Imported</th><th>Lifecycle</th></tr></thead>
+    <thead><tr><th scope="col">Source &amp; workbook</th><th scope="col">Reporting period</th><th scope="col">Data quality</th><th scope="col">Imported</th><th scope="col">Lifecycle</th></tr></thead>
     <tbody>{% for batch in batches %}
       {% set source = {'mapping': {'label': 'Mapping baseline', 'icon': 'diagram-3'}, 'mapping_manual': {'label': 'Manual mapping update', 'icon': 'pencil-square'}, '09': {'label': 'Group 09', 'icon': 'boxes'}, '10': {'label': 'Group 10', 'icon': 'beaker'}}.get(batch.source_group, {'label': batch.source_group, 'icon': 'file-earmark-spreadsheet'}) %}
       <tr class="{{ 'is-active' if not batch.is_superseded else 'is-superseded' }}">

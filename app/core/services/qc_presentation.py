@@ -9,13 +9,96 @@ from app.models.quality_control.qc_sample import QCSample
 from app.models.quality_control.qc_testing_standard import QCTestingStandard
 
 
+# Deck chrome shared by every QC export: one navy rule at the top, a thin border
+# above and below the body, the ONGC mark, and a footer carrying the data source.
+# Kept module-level so the lab decks cannot drift apart visually.
+class _DeckChrome:
+    """Slide furniture for a QC deck, bound to one Presentation."""
+
+    NAVY, BLUE, RED, GREEN, GREY = "071D42", "1976D2", "C53B3B", "18794E", "526173"
+    BORDER = "D7E2EE"
+
+    def __init__(self, prs, static_folder: str, source_line: str):
+        from pptx.util import Inches, Pt
+        self.prs = prs
+        self.blank = prs.slide_layouts[6]
+        self.source_line = source_line
+        self.logo = Path(static_folder) / "images" / "ongc-corporate-chemistry-logo.png"
+        self._Inches, self._Pt = Inches, Pt
+
+    def color(self, value):
+        from pptx.dml.color import RGBColor
+        return RGBColor.from_string(value)
+
+    def add_text(self, slide, value, x, y, w, h, size=18, tone=None, bold=False):
+        from pptx.util import Inches, Pt
+        shape = slide.shapes.add_textbox(Inches(x), Inches(y), Inches(w), Inches(h))
+        p = shape.text_frame.paragraphs[0]
+        p.text = str(value)
+        p.font.size = Pt(size)
+        p.font.bold = bold
+        p.font.color.rgb = self.color(tone or self.NAVY)
+        p.font.name = "Arial"
+        return shape
+
+    def add_wrapped_text(self, slide, value, x, y, w, h, size=18, tone=None, bold=False):
+        shape = self.add_text(slide, value, x, y, w, h, size, tone, bold)
+        shape.text_frame.word_wrap = True
+        return shape
+
+    def rectangle(self, slide, x, y, w, h, fill, line=None):
+        from pptx.enum.shapes import MSO_SHAPE
+        from pptx.util import Inches
+        shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(x), Inches(y), Inches(w), Inches(h))
+        shape.fill.solid()
+        shape.fill.fore_color.rgb = self.color(fill)
+        shape.line.color.rgb = self.color(line or fill)
+        return shape
+
+    def canvas_background(self, slide):
+        slide.background.fill.solid()
+        slide.background.fill.fore_color.rgb = self.color("FFFFFF")
+        self.rectangle(slide, 0, 0, 13.333, .08, self.NAVY)
+        self.rectangle(slide, .42, 1.26, 12.45, .015, self.BORDER)
+        self.rectangle(slide, .42, 6.93, 12.45, .015, self.BORDER)
+
+    def header(self, slide, title, page):
+        from pptx.util import Inches
+        self.canvas_background(slide)
+        self.add_text(slide, "ONGC CORPORATE CHEMISTRY \u00b7 QC LABORATORY MONITORING", .42, .27, 7.4, .24, 11, self.BLUE, True)
+        self.add_text(slide, title, .42, .7, 11.5, .46, 27, self.NAVY, True)
+        if self.logo.exists():
+            slide.shapes.add_picture(str(self.logo), Inches(12.24), Inches(.16), width=Inches(.55), height=Inches(.55))
+        self.add_text(slide, self.source_line, .42, 7.08, 8.6, .16, 8, self.GREY)
+        self.add_text(slide, f"{page:02d}", 12.5, 7.08, .25, .16, 8, self.GREY)
+
+    def metric(self, slide, x, y, value, label, tone=None):
+        from pptx.enum.shapes import MSO_SHAPE
+        from pptx.util import Inches
+        tone = tone or self.NAVY
+        card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(x - .18), Inches(y - .18), Inches(3.45), Inches(1.35))
+        card.fill.solid()
+        card.fill.fore_color.rgb = self.color(
+            "EAF4FF" if tone == self.BLUE else "FCEBEC" if tone == self.RED
+            else "EAF7F0" if tone == self.GREEN else "F2F4F7"
+        )
+        card.line.color.rgb = self.color(self.BORDER)
+        self.add_text(slide, value, x, y, 2.7, .4, 27, tone, True)
+        self.add_text(slide, label, x, y + .52, 3.0, .25, 13, self.NAVY, True)
+
+    def new_slide(self, title, page):
+        slide = self.prs.slides.add_slide(self.blank)
+        self.header(slide, title, page)
+        return slide
+
+
 def build_lab_performance_presentation(lab_code: str, static_folder: str) -> tuple[BytesIO, str]:
     """Create a lab-specific review deck without loading PPTX libraries at startup."""
     from pptx import Presentation
     from pptx.dml.color import RGBColor
     from pptx.enum.shapes import MSO_SHAPE
     from pptx.util import Inches, Pt
-    from app.core.services.quality_control import CLOSED_SAMPLE_REVIEW_SLA_DAYS, _normalized_chemical, latest_dashboard_data
+    from app.core.services.quality_control import CLOSED_SAMPLE_REVIEW_STT_DAYS, _normalized_chemical, latest_dashboard_data
 
     data = latest_dashboard_data(lab_code)
     batch = data["batch"]
@@ -26,46 +109,22 @@ def build_lab_performance_presentation(lab_code: str, static_folder: str) -> tup
     next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
     completed = QCSample.query.filter(QCSample.lab_code == lab_code, QCSample.report_issue_date >= month_start, QCSample.report_issue_date < next_month).all()
     completed = [s for s in completed if s.result_status in {"pass", "fail", "report_issued"} and s.turnaround_days is not None]
-    def sla(sample): return standards.get(_normalized_chemical(sample.chemical_name)) or CLOSED_SAMPLE_REVIEW_SLA_DAYS
-    late, within = [s for s in completed if s.turnaround_days > sla(s)], [s for s in completed if s.turnaround_days <= sla(s)]
-    prs = Presentation(); prs.slide_width = Inches(13.333); prs.slide_height = Inches(7.5); blank = prs.slide_layouts[6]
-    navy, blue, red, green, grey = "071D42", "1976D2", "C53B3B", "18794E", "526173"
-    border = "D7E2EE"
-    def color(value): return RGBColor.from_string(value)
+    def stt(sample): return standards.get(_normalized_chemical(sample.chemical_name)) or CLOSED_SAMPLE_REVIEW_STT_DAYS
+    late, within = [s for s in completed if s.turnaround_days > stt(s)], [s for s in completed if s.turnaround_days <= stt(s)]
+    prs = Presentation(); prs.slide_width = Inches(13.333); prs.slide_height = Inches(7.5)
+    chrome = _DeckChrome(prs, static_folder, f"Source: {data['laboratory']['name']} QC data \u00b7 {data['month_label']}")
+    blank = chrome.blank
+    navy, blue, red, green, grey = chrome.NAVY, chrome.BLUE, chrome.RED, chrome.GREEN, chrome.GREY
+    border = chrome.BORDER
+    color, add_text, add_wrapped_text = chrome.color, chrome.add_text, chrome.add_wrapped_text
+    rectangle, header, metric = chrome.rectangle, chrome.header, chrome.metric
+    canvas_background, logo = chrome.canvas_background, chrome.logo
     def overview_text(value, limit=74):
         """Keep narrative spreadsheet remarks readable in overview slides."""
         text = " ".join(str(value or "Not recorded").split())
         if len(text) <= limit:
             return text
         return f"{text[:limit + 1].rsplit(' ', 1)[0].rstrip('.,;:')}…"
-    def add_text(slide, value, x, y, w, h, size=18, tone=navy, bold=False):
-        shape = slide.shapes.add_textbox(Inches(x), Inches(y), Inches(w), Inches(h)); p = shape.text_frame.paragraphs[0]
-        p.text = str(value); p.font.size = Pt(size); p.font.bold = bold; p.font.color.rgb = color(tone); p.font.name = "Arial"; return shape
-    def add_wrapped_text(slide, value, x, y, w, h, size=18, tone=navy, bold=False):
-        shape = add_text(slide, value, x, y, w, h, size, tone, bold)
-        shape.text_frame.word_wrap = True
-        return shape
-    logo = Path(static_folder) / "images" / "ongc-corporate-chemistry-logo.png"
-    def rectangle(slide, x, y, w, h, fill, line=None):
-        shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(x), Inches(y), Inches(w), Inches(h))
-        shape.fill.solid(); shape.fill.fore_color.rgb = color(fill)
-        shape.line.color.rgb = color(line or fill)
-        return shape
-    def canvas_background(slide):
-        slide.background.fill.solid(); slide.background.fill.fore_color.rgb = color("FFFFFF")
-        rectangle(slide, 0, 0, 13.333, .08, navy)
-        rectangle(slide, .42, 1.26, 12.45, .015, border)
-        rectangle(slide, .42, 6.93, 12.45, .015, border)
-    def header(slide, title, page):
-        canvas_background(slide)
-        add_text(slide, "ONGC CORPORATE CHEMISTRY · QC LABORATORY MONITORING", .42, .27, 7.4, .24, 11, blue, True); add_text(slide, title, .42, .7, 11.5, .46, 27, navy, True)
-        if logo.exists(): slide.shapes.add_picture(str(logo), Inches(12.24), Inches(.16), width=Inches(.55), height=Inches(.55))
-        add_text(slide, f"Source: {data['laboratory']['name']} QC data · {data['month_label']}", .42, 7.08, 8.6, .16, 8, grey); add_text(slide, f"{page:02d}", 12.5, 7.08, .25, .16, 8, grey)
-    def metric(slide, x, y, value, label, tone=navy):
-        card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(x-.18), Inches(y-.18), Inches(3.45), Inches(1.35))
-        card.fill.solid(); card.fill.fore_color.rgb = color("EAF4FF" if tone == blue else "FCEBEC" if tone == red else "EAF7F0" if tone == green else "F2F4F7")
-        card.line.color.rgb = color(border)
-        add_text(slide, value, x, y, 2.7, .4, 27, tone, True); add_text(slide, label, x, y+.52, 3.0, .25, 13, navy, True)
     def table_slide(title, rows, page, reason=False):
         slide = prs.slides.add_slide(blank); header(slide, title, page)
         if not rows:
@@ -79,17 +138,17 @@ def build_lab_performance_presentation(lab_code: str, static_folder: str) -> tup
             add_text(slide, sample.chemical_name, 1.1, 2.3, 5.2, .35, 24, navy, True)
             add_text(slide, f"Notification: {sample.notification_no or sample.po_number or '—'}", 1.1, 2.78, 3.8, .25, 14, grey)
             add_text(slide, f"Received: {sample.sample_receipt_date:%d %b %Y} · Reported: {sample.report_issue_date:%d %b %Y}", 5.0, 2.78, 4.8, .25, 14, grey)
-            add_text(slide, f"Actual TAT: {sample.turnaround_days} days · SLA: {sla(sample)} days · Variance: {sample.turnaround_days-sla(sample):+d} days", 1.1, 3.2, 6.8, .25, 15, red if reason else green, True)
+            add_text(slide, f"Actual TAT: {sample.turnaround_days} days · STT: {stt(sample)} days · Variance: {sample.turnaround_days-stt(sample):+d} days", 1.1, 3.2, 6.8, .25, 15, red if reason else green, True)
             add_text(slide, f"Delay reason: {sample.delay_reason or 'Not recorded'}" if reason else f"Outcome: {sample.result_status.replace('_', ' ').title()}", 1.1, 3.62, 9.8, .25, 14, navy)
             return
-        heads = ["Chemical", "Notification", "Received", "Reported", "TAT", "SLA", "Variance", "Delay reason" if reason else "Outcome"]
+        heads = ["Chemical", "Notification", "Received", "Reported", "TAT", "STT", "Variance", "Delay reason" if reason else "Outcome"]
         table_height = min(5.35, .31*(len(rows)+1))
         table = slide.shapes.add_table(len(rows)+1, len(heads), Inches(.42), Inches(1.4), Inches(12.45), Inches(table_height)).table
         widths = [2.6,1.25,.85,.85,.55,.55,.7,5.1] if reason else [3.6,1.45,1,1,.65,.65,.85,2.9]
         for i,w in enumerate(widths): table.columns[i].width = Inches(w)
         for c,h in enumerate(heads): table.cell(0,c).text=h; table.cell(0,c).fill.solid(); table.cell(0,c).fill.fore_color.rgb=color(navy)
         for r,s in enumerate(rows,1):
-            values=[s.chemical_name, s.notification_no or s.po_number or "—", s.sample_receipt_date.strftime("%d %b") if s.sample_receipt_date else "—", s.report_issue_date.strftime("%d %b") if s.report_issue_date else "—", f"{s.turnaround_days}d", f"{sla(s)}d", f"+{max(s.turnaround_days-sla(s),0)}d", (s.delay_reason or "Not recorded") if reason else s.result_status.replace("_", " ").title()]
+            values=[s.chemical_name, s.notification_no or s.po_number or "—", s.sample_receipt_date.strftime("%d %b") if s.sample_receipt_date else "—", s.report_issue_date.strftime("%d %b") if s.report_issue_date else "—", f"{s.turnaround_days}d", f"{stt(s)}d", f"+{max(s.turnaround_days-stt(s),0)}d", (s.delay_reason or "Not recorded") if reason else s.result_status.replace("_", " ").title()]
             for c,v in enumerate(values):
                 table.cell(r,c).text=str(v)
                 table.cell(r,c).fill.solid()
@@ -113,12 +172,12 @@ def build_lab_performance_presentation(lab_code: str, static_folder: str) -> tup
         slide.shapes.add_picture(str(logo), Inches(11.15), Inches(.53), width=Inches(1.05), height=Inches(1.05))
     add_text(slide, "Office of Head Corporate Chemistry | Mumbai / Dehradun", .76, 6.45, 7.2, .2, 11, grey)
 
-    slide=prs.slides.add_slide(blank); header(slide, f"{data['laboratory']['name']} | Performance metrics", 2); month=data['month_sla']
-    for i,(v,l,t) in enumerate([(data['month_intake'],"Monthly intake",blue),(month['closed'],"Closed reports",navy),(month['within_standard'],"Within SLA",green),(month['late'],"Late closures",red),(f"{month['compliance_rate']}%","SLA achieved",blue),(f"{month['average_turnaround']} d","Average TAT",navy)]): metric(slide,.6+(i%3)*4.2,1.7+(i//3)*2.0,v,l,t)
-    slide=prs.slides.add_slide(blank); header(slide,"Current-week workload and SLA exceptions",3); week=data['week_sla']
-    for i,(v,l,t) in enumerate([(data['summary']['total'],"Samples in review",blue),(data['summary']['under_testing'],"Open workload",navy),(week['closed'],"Closed reports",navy),(week['late'],"Closed above SLA",red),(f"{week['compliance_rate']}%","Weekly SLA",blue),(len(data['overdue_samples']),"Aged open samples",red)]): metric(slide,.6+(i%3)*4.2,1.7+(i//3)*2.0,v,l,t)
-    slide=prs.slides.add_slide(blank); header(slide,"Monthly SLA and delay analytics",4)
-    metric(slide,.8,1.7,month['within_standard'],"Within applicable SLA",green); metric(slide,4.5,1.7,month['late'],"Late closures",red); metric(slide,8.2,1.7,f"{month['compliance_rate']}%","SLA achieved",blue)
+    slide=prs.slides.add_slide(blank); header(slide, f"{data['laboratory']['name']} | Performance metrics", 2); month=data['month_stt']
+    for i,(v,l,t) in enumerate([(data['month_intake'],"Monthly intake",blue),(month['closed'],"Closed reports",navy),(month['within_standard'],"Within STT",green),(month['late'],"Late closures",red),(f"{month['compliance_rate']}%","STT achieved",blue),(f"{month['average_turnaround']} d","Average TAT",navy)]): metric(slide,.6+(i%3)*4.2,1.7+(i//3)*2.0,v,l,t)
+    slide=prs.slides.add_slide(blank); header(slide,"Current-week workload and STT exceptions",3); week=data['week_stt']
+    for i,(v,l,t) in enumerate([(data['summary']['total'],"Samples in review",blue),(data['summary']['under_testing'],"Open workload",navy),(week['closed'],"Closed reports",navy),(week['late'],"Closed above STT",red),(f"{week['compliance_rate']}%","Weekly STT",blue),(len(data['overdue_samples']),"Aged open samples",red)]): metric(slide,.6+(i%3)*4.2,1.7+(i//3)*2.0,v,l,t)
+    slide=prs.slides.add_slide(blank); header(slide,"Monthly STT and delay analytics",4)
+    metric(slide,.8,1.7,month['within_standard'],"Within applicable STT",green); metric(slide,4.5,1.7,month['late'],"Late closures",red); metric(slide,8.2,1.7,f"{month['compliance_rate']}%","STT achieved",blue)
     reasons={}
     for sample in late: reasons[sample.delay_reason or "No reason recorded"] = reasons.get(sample.delay_reason or "No reason recorded",0)+1
     add_text(slide,"Delay reason distribution",.8,3.45,5.5,.3,18,navy,True)
@@ -126,17 +185,116 @@ def build_lab_performance_presentation(lab_code: str, static_folder: str) -> tup
     slide=prs.slides.add_slide(blank); header(slide,"Exception concentration and review focus",5)
     open_exceptions=data['overdue_samples']; add_text(slide,"Current open samples above the 9-day review threshold",.8,1.55,8.5,.3,18,navy,True)
     if open_exceptions:
-        sample=open_exceptions[0]; metric(slide,.8,2.35,len(open_exceptions),"Open SLA exceptions",red); add_text(slide,sample.chemical_name,4.5,2.35,4.5,.3,22,navy,True); add_text(slide,f"Notification: {sample.notification_no or sample.po_number or '—'} · Age: {sample.days_open} days",4.5,2.77,5.8,.25,13,grey); add_wrapped_text(slide,f"Reason: {overview_text(sample.delay_reason, 82)}",4.5,3.1,7.7,.5,13,grey)
+        sample=open_exceptions[0]; metric(slide,.8,2.35,len(open_exceptions),"Open STT exceptions",red); add_text(slide,sample.chemical_name,4.5,2.35,4.5,.3,22,navy,True); add_text(slide,f"Notification: {sample.notification_no or sample.po_number or '—'} · Age: {sample.days_open} days",4.5,2.77,5.8,.25,13,grey); add_wrapped_text(slide,f"Reason: {overview_text(sample.delay_reason, 82)}",4.5,3.1,7.7,.5,13,grey)
     else: add_text(slide,"No current open samples are beyond the 9-day threshold.",.8,2.25,7,.3,16,green,True)
     add_text(slide,"Questions for the review",.8,4.35,5,.3,18,navy,True)
     for i,question in enumerate(["Which external testing dependencies require agreed result dates?", "Which late closures need complete delay documentation?", "Who owns each current exception and target closure date?"]): add_text(slide,f"{i+1}",.8,4.8+i*.48,.25,.2,15,blue,True); add_text(slide,question,1.2,4.8+i*.48,9.6,.25,14,navy)
-    table_slide("Completed samples above applicable SLA", late, 6, True); table_slide("Completed samples within applicable SLA", within, 7)
+    table_slide("Completed samples above applicable STT", late, 6, True); table_slide("Completed samples within applicable STT", within, 7)
     slide=prs.slides.add_slide(blank); header(slide,"Completed-sample product outcomes",8); passed=sum(s.result_status=="pass" for s in completed); failed=sum(s.result_status=="fail" for s in completed); report_issued=sum(s.result_status=="report_issued" for s in completed)
     metric(slide,.7,1.7,passed,"Pass (product outcome)",green); metric(slide,3.8,1.7,failed,"Fail (product outcome)",red); metric(slide,6.9,1.7,report_issued,"Report issued only",blue); metric(slide,10.0,1.7,len(completed),"Completed samples",navy); add_text(slide,"Product pass/fail is quality context only; report-issued records do not have a recorded pass/fail result.",.8,3.25,11.2,.3,14,grey)
-    slide=prs.slides.add_slide(blank); header(slide,"SLA assessment basis",9)
-    metric(slide,.8,1.7,month['material_standard_count'],"Material-specific SLA",blue); metric(slide,4.5,1.7,month['fallback_sla_count'],"9-day review fallback",blue); metric(slide,8.2,1.7,month['assessed'],"Assessed closures",navy)
-    add_text(slide,"Material-specific SLA where defined; otherwise the 9-day management-review SLA is applied.",.8,3.25,10.8,.35,16,grey)
+    slide=prs.slides.add_slide(blank); header(slide,"Standard Testing Time (STT) assessment basis",9)
+    metric(slide,.8,1.7,month['material_standard_count'],"Material-specific STT",blue); metric(slide,4.5,1.7,month['fallback_stt_count'],"9-day review fallback",blue); metric(slide,8.2,1.7,month['assessed'],"Assessed closures",navy)
+    add_text(slide,"Standard Testing Time (STT): the material-specific standard where defined; otherwise the 9-day management-review STT is applied.",.8,3.25,10.8,.35,16,grey)
     output=BytesIO(); prs.save(output); output.seek(0); return output, f"{data['laboratory']['name']} Performance Review {month_start:%b %Y}.pptx"
+
+
+def build_lab_brief_presentation(lab_code: str, static_folder: str) -> tuple[BytesIO, str]:
+    """The weekly management brief as a deck, mirroring the page section for section.
+
+    Deliberately narrower than the performance review: this is the one reporting
+    week the brief covers, in the same order the page presents it, so a reader
+    can follow the screen and the slide interchangeably.
+    """
+    from pptx import Presentation
+    from pptx.util import Inches
+    from app.core.services.quality_control import latest_dashboard_data
+
+    data = latest_dashboard_data(lab_code)
+    batch = data["batch"]
+    if batch is None:
+        raise ValueError("Import a weekly QC workbook before downloading the management brief.")
+
+    laboratory, summary, samples = data["laboratory"], data["summary"], data["samples"]
+    prs = Presentation()
+    prs.slide_width, prs.slide_height = Inches(13.333), Inches(7.5)
+    chrome = _DeckChrome(
+        prs, static_folder,
+        f"Source: {laboratory['name']} weekly QC workbook \u00b7 {batch.report_label}",
+    )
+    navy, blue, red, green, grey = chrome.NAVY, chrome.BLUE, chrome.RED, chrome.GREEN, chrome.GREY
+
+    # 01 · Cover
+    slide = chrome.new_slide("Quality Control Laboratory — Weekly Management Brief", 1)
+    chrome.add_text(slide, laboratory["name"], .42, 1.85, 9.0, .6, 34, navy, True)
+    chrome.add_text(slide, laboratory["location"], .42, 2.55, 9.0, .35, 16, grey)
+    chrome.add_text(slide, batch.report_label, .42, 3.05, 11.0, .4, 20, blue, True)
+    chrome.rectangle(slide, .42, 3.62, 3.2, .05, blue)
+
+    # 02 · The four figures the brief leads with
+    slide = chrome.new_slide("Weekly position", 2)
+    turnaround = f"{summary['average_turnaround']} d" if summary["average_turnaround"] is not None else "—"
+    chrome.metric(slide, .8, 1.9, summary["total"], "Weekly sample load", blue)
+    chrome.metric(slide, 4.3, 1.9, summary["under_testing"], "Open workload", red if summary["under_testing"] else navy)
+    chrome.metric(slide, 7.8, 1.9, f"{summary['passed']}/{summary['failed']}", "Pass / fail reports issued", green)
+    chrome.metric(slide, .8, 3.9, turnaround, "Average turnaround, issued", navy)
+    chrome.metric(slide, 4.3, 3.9, summary["delayed_open"], "Aged beyond target", red if summary["delayed_open"] else green)
+    chrome.metric(slide, 7.8, 3.9, summary["issued"], "Reports issued this week", navy)
+
+    # 03 · Management attention required
+    attention = [s for s in samples if s.result_status == "under_testing" and s.delay_reason]
+    slide = chrome.new_slide("Management attention required", 3)
+    if attention:
+        y = 1.75
+        for sample in attention[:8]:
+            received = sample.sample_receipt_date.strftime("%d %b %Y") if sample.sample_receipt_date else "date not recorded"
+            chrome.rectangle(slide, .8, y, 11.6, .04, red)
+            chrome.add_text(slide, sample.chemical_name, .8, y + .12, 5.4, .3, 16, navy, True)
+            chrome.add_text(slide, f"Received {received}", 6.4, y + .14, 3.0, .25, 12, grey)
+            chrome.add_wrapped_text(slide, " ".join(str(sample.delay_reason).split()), .8, y + .48, 11.5, .42, 12, grey)
+            y += 1.06
+        if len(attention) > 8:
+            chrome.add_text(slide, f"+ {len(attention) - 8} further open samples with recorded remarks", .8, y + .05, 8.0, .3, 12, grey)
+    else:
+        chrome.add_text(slide, "No open sample has a recorded delay remark for this week.", .8, 2.0, 10.5, .35, 18, green, True)
+
+    # 04 · Issued reports
+    issued = [s for s in samples if s.result_status != "under_testing"]
+    slide = chrome.new_slide("Issued reports", 4)
+    if issued:
+        rows = [["Material", "Outcome", "Report date", "Turnaround"]] + [
+            [
+                s.chemical_name,
+                "Report issued" if s.result_status == "report_issued" else s.result_status.title(),
+                s.report_issue_date.strftime("%d %b %Y") if s.report_issue_date else "—",
+                f"{s.turnaround_days} days" if s.turnaround_days is not None else "—",
+            ]
+            for s in issued[:14]
+        ]
+        table = slide.shapes.add_table(
+            len(rows), 4, Inches(.8), Inches(1.7), Inches(11.6), Inches(.34 * len(rows)),
+        ).table
+        for width, index in zip((5.0, 2.4, 2.2, 2.0), range(4)):
+            table.columns[index].width = Inches(width)
+        for r, row in enumerate(rows):
+            for c, value in enumerate(row):
+                cell = table.cell(r, c)
+                cell.text = str(value)
+                cell.fill.solid()
+                cell.fill.fore_color.rgb = chrome.color(navy if r == 0 else ("FFFFFF" if r % 2 else "F2F4F7"))
+                paragraph = cell.text_frame.paragraphs[0]
+                paragraph.font.size = chrome._Pt(12 if r else 11)
+                paragraph.font.bold = r == 0
+                paragraph.font.name = "Arial"
+                paragraph.font.color.rgb = chrome.color("FFFFFF" if r == 0 else navy)
+        if len(issued) > 14:
+            chrome.add_text(slide, f"+ {len(issued) - 14} further issued reports in the full register", .8, 1.75 + .34 * len(rows), 8.0, .3, 12, grey)
+    else:
+        chrome.add_text(slide, "No reports were issued in this weekly review.", .8, 2.0, 10.5, .35, 18, grey, True)
+
+    output = BytesIO()
+    prs.save(output)
+    output.seek(0)
+    return output, f"{laboratory['name']} Management Brief {batch.week_end:%d %b %Y}.pptx"
 
 
 def build_portfolio_management_presentation(static_folder: str, reporting_week_end=None) -> tuple[BytesIO, str]:
@@ -244,7 +402,7 @@ def build_portfolio_management_presentation(static_folder: str, reporting_week_e
     add_text(slide, "A material-specific approved standard is used where available; no fallback is included in this cross-laboratory comparison.", .8, 3.35, 11.1, .3, 14, grey)
 
     late_table_rows = [[data["laboratories_by_code"].get(item["sample"].lab_code, {"name": item["sample"].lab_code})["name"], item["sample"].chemical_name, item["sample"].notification_no or item["sample"].po_number or "—", f"{item['sample'].turnaround_days} d", f"{item['standard_days']} d", f"+{item['variance_days']} d", concise(item["sample"].delay_reason)] for item in late_rows]
-    paginated_table("Completed tests above SLA", ["Laboratory", "Chemical", "Notification", "Actual", "Standard", "Variance", "Delay reason"], late_table_rows, [1.75, 2.15, 1.2, .75, .85, .85, 4.9])
+    paginated_table("Completed tests above STT", ["Laboratory", "Chemical", "Notification", "Actual", "Standard", "Variance", "Delay reason"], late_table_rows, [1.75, 2.15, 1.2, .75, .85, .85, 4.9])
 
     open_rows = [[data["laboratories_by_code"].get(sample.lab_code, {"name": sample.lab_code})["name"], sample.chemical_name, sample.notification_no or sample.po_number or "—", sample.sample_receipt_date.strftime("%d %b %Y") if sample.sample_receipt_date else "—", f"{sample.days_open} d", concise(sample.delay_reason)] for sample in data["overdue_samples"]]
     paginated_table("Open samples above 9-day threshold", ["Laboratory", "Material", "Notification", "Received", "Age", "Remarks"], open_rows, [1.85, 2.4, 1.35, 1.15, .7, 4.85])

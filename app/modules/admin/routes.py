@@ -45,6 +45,7 @@ from app.models.tasks.task import Task
 from app.models.tasks.task_collaborator import TaskCollaborator
 from app.models.tasks.task_update import TaskUpdate
 from app.models.core.user_module_permission import (
+    ADMIN_DEFAULT_MODULES,
     UserModulePermission,
     SUPER_USER_MODULES,
 )
@@ -60,6 +61,11 @@ from app.core.services.backups import (
     restore_database_backup,
     get_runtime_environment_name,
     validate_backup_file,
+)
+from app.core.services.msds_service import (
+    MSDSError,
+    build_msds_archive,
+    count_msds_files,
 )
 from app.core.roles import (
     ADMIN_ROLE,
@@ -85,7 +91,20 @@ def _set_module_permissions(user: User, selected_codes: list, role: Role):
     superuser → all business modules
     admin     → admin_users only
     user      → exactly what is in selected_codes (admin-controlled)
+
+    Grants for modules the form never offered — retired or feature-off ones —
+    are carried across untouched, so editing a user cannot silently drop access
+    an admin was never shown.
     """
+    offered_codes = _offered_module_codes()
+    unoffered_codes = [
+        permission.module_code
+        for permission in UserModulePermission.query.filter_by(
+            user_id=user.id, can_access=True
+        ).all()
+        if permission.module_code not in offered_codes
+    ]
+
     UserModulePermission.query.filter_by(user_id=user.id).delete()
     db.session.flush()
 
@@ -94,9 +113,9 @@ def _set_module_permissions(user: User, selected_codes: list, role: Role):
     if canonical_role == SUPERUSER_ROLE:
         codes_to_save = list(SUPER_USER_MODULES)
     elif canonical_role == ADMIN_ROLE:
-        codes_to_save = ["admin_users"]
+        codes_to_save = sorted(ADMIN_DEFAULT_MODULES)
     else:
-        codes_to_save = list(selected_codes)
+        codes_to_save = list(dict.fromkeys([*selected_codes, *unoffered_codes]))
 
     for code in codes_to_save:
         db.session.add(
@@ -110,17 +129,33 @@ def _set_module_permissions(user: User, selected_codes: list, role: Role):
 
 
 def _module_options():
-    """Expose module permissions with app-level feature status for admin forms."""
+    """Every module code the registry knows, for labelling stored permission rows."""
     return get_admin_module_options()
 
 
+def _offered_module_options():
+    """Modules an admin may actually grant — the ones this deployment runs.
+
+    Retired modules (Committee) and modules whose feature flag is off (Reports,
+    Forecasting, Manpower Planning) are not offered: granting access to a surface
+    nobody can open only makes the access list harder to read. Grants already
+    stored against those codes are left untouched — see _set_module_permissions.
+    """
+    return [option for option in _module_options() if option["enabled"]]
+
+
+def _offered_module_codes() -> set[str]:
+    return {option["code"] for option in _offered_module_options()}
+
+
 def _manageable_module_options():
-    """Return business modules that can have workspace-assigned module admins."""
-    return [
-        option
-        for option in _module_options()
-        if option["code"] not in {"dashboard", "admin_users"}
-    ]
+    """Return business modules that can have workspace-assigned module admins.
+
+    The administration surfaces are not among them: they belong to the admin
+    role itself, not to a module admin appointed inside a workspace.
+    """
+    excluded = {"dashboard", *ADMIN_DEFAULT_MODULES}
+    return [option for option in _offered_module_options() if option["code"] not in excluded]
 
 
 def _user_can_admin_module(user: User, module_code: str) -> bool:
@@ -197,57 +232,6 @@ def _resolve_officer_selection(raw_id, label, target_user_id=None):
         return None, f"A user cannot be their own {label}."
 
     return officer, None
-
-
-def _parse_power_user_limit(raw_value):
-    cleaned = (raw_value or "").strip()
-    if cleaned == "":
-        return 0, None
-    if not cleaned.isdigit():
-        return 0, "Power user slots must be a non-negative whole number."
-
-    value = int(cleaned)
-    if value < 0:
-        return 0, "Power user slots cannot be negative."
-    if value > 25:
-        return 0, "Power user slots cannot exceed 25 for one office."
-    return value, None
-
-
-def _power_user_candidates_for_office(office_id: int) -> list[User]:
-    return (
-        User.query
-        .options(joinedload(User.role))
-        .filter(User.office_id == office_id, User.is_active.is_(True))
-        .order_by(User.full_name, User.username)
-        .all()
-    )
-
-
-def _resolve_power_user_selection(office_id: int, raw_ids: list[str]) -> tuple[list[int], list[str]]:
-    errors: list[str] = []
-    selected_ids: list[int] = []
-
-    if not raw_ids:
-        return selected_ids, errors
-
-    candidates = {user.id: user for user in _power_user_candidates_for_office(office_id)}
-
-    for raw_id in raw_ids:
-        value = (raw_id or "").strip()
-        if not value:
-            continue
-        if not value.isdigit():
-            errors.append("Select valid power users from the selected office.")
-            continue
-        user_id = int(value)
-        if user_id not in candidates:
-            errors.append("Power users must be active users mapped to this office.")
-            continue
-        if user_id not in selected_ids:
-            selected_ids.append(user_id)
-
-    return selected_ids, errors
 
 
 def _record_dependency_change(changes: list[str], label: str, count: int) -> None:
@@ -328,8 +312,6 @@ def _build_user_report_workbook(
         ["Mapped Users", hierarchy_summary["mapped_users"]],
         ["Fully Mapped Users", hierarchy_summary["fully_mapped_users"]],
         ["Office Heads", hierarchy_summary["office_heads"]],
-        ["Power Users", hierarchy_summary.get("power_users", 0)],
-        ["Configured Power User Slots", hierarchy_summary.get("power_user_slots", 0)],
         ["Active Users", sum(1 for user in users if user.is_active)],
         ["Inactive Users", sum(1 for user in users if not user.is_active)],
         ["Roles", len(roles)],
@@ -362,7 +344,6 @@ def _build_user_report_workbook(
                 user.role.name if user.role else "",
                 user.office.office_name if user.office else "",
                 user.office.office_code if user.office else "",
-                "Yes" if user.is_power_user else "No",
                 _display_user_name(user.controlling_officer) if user.controlling_officer else "",
                 _display_user_name(user.reviewing_officer) if user.reviewing_officer else "",
                 _display_user_name(user.accepting_officer) if user.accepting_officer else "",
@@ -387,7 +368,6 @@ def _build_user_report_workbook(
             "Role",
             "Office",
             "Office Code",
-            "Power User",
             "Controlling Officer",
             "Reviewing Officer",
             "Accepting Officer",
@@ -431,10 +411,8 @@ def _build_user_report_workbook(
                 office.id,
                 office.office_code,
                 office.office_name,
-                office.location or "",
+                office.location_label or "",
                 "Active" if office.is_active else "Inactive",
-                office.power_user_limit,
-                sum(1 for user in office_users if user.is_power_user and user.is_active),
                 len(office_users),
                 sum(1 for user in office_users if user.is_active),
                 _format_excel_datetime(office.created_at),
@@ -449,8 +427,6 @@ def _build_user_report_workbook(
             "Office Name",
             "Location",
             "Status",
-            "Power User Slots",
-            "Assigned Power Users",
             "Total Users",
             "Active Users",
             "Created At",
@@ -790,8 +766,6 @@ def users():
             and user.accepting_officer_id
         ),
         "office_heads": sum(section["office_heads"] for section in organogram),
-        "power_users": sum(1 for user in all_users if user.is_power_user and user.is_active),
-        "power_user_slots": sum(office.power_user_limit for office in Office.query.all()),
     }
     return render_template(
         "admin/users.html",
@@ -856,8 +830,6 @@ def export_users_report():
             and user.accepting_officer_id
         ),
         "office_heads": sum(section["office_heads"] for section in organogram),
-        "power_users": sum(1 for user in users if user.is_power_user and user.is_active),
-        "power_user_slots": sum(office.power_user_limit for office in offices),
     }
 
     workbook = _build_user_report_workbook(
@@ -1104,7 +1076,7 @@ def create_user():
                 roles=roles,
                 offices=offices,
                 officers=officers,
-                supported_modules=_module_options(),
+                supported_modules=_offered_module_options(),
                 form_data=request.form,
                 selected_modules=selected_modules,
             )
@@ -1163,7 +1135,7 @@ def create_user():
         roles=roles,
         offices=offices,
         officers=officers,
-        supported_modules=_module_options(),
+        supported_modules=_offered_module_options(),
         form_data={},
         selected_modules=[],
     )
@@ -1184,9 +1156,13 @@ def edit_user(user_id):
         .all()
     )
     # Current module permissions for this user
+    # Only the modules this deployment offers: a grant left over from a retired
+    # module is kept in the database but never shown or edited here.
+    offered_codes = _offered_module_codes()
     current_module_codes = [
         p.module_code
         for p in UserModulePermission.query.filter_by(user_id=user_id, can_access=True).all()
+        if p.module_code in offered_codes
     ]
 
     if request.method == "POST":
@@ -1265,7 +1241,7 @@ def edit_user(user_id):
                 roles=roles,
                 offices=offices,
                 officers=officers,
-                supported_modules=_module_options(),
+                supported_modules=_offered_module_options(),
                 current_module_codes=selected_modules,
                 form_data=request.form,
             )
@@ -1285,9 +1261,6 @@ def edit_user(user_id):
         if str(target.office_id) != str(office_id):
             changed_fields.append(f"office_id: {target.office_id} → {office_id}")
             target.office_id = int(office_id)
-            if target.is_power_user:
-                changed_fields.append("power_user: cleared after office reassignment")
-                target.is_power_user = False
         if target.designation != designation:
             changed_fields.append(f"designation: '{target.designation}' → '{designation}'")
             target.designation = designation
@@ -1297,9 +1270,6 @@ def edit_user(user_id):
         if target.is_active != is_active:
             changed_fields.append(f"is_active: {target.is_active} → {is_active}")
             target.is_active = is_active
-            if not is_active and target.is_power_user:
-                changed_fields.append("power_user: cleared because account was deactivated")
-                target.is_power_user = False
 
         # Hierarchy changes
         old_co = target.controlling_officer_id
@@ -1389,7 +1359,7 @@ def edit_user(user_id):
         roles=roles,
         offices=offices,
         officers=officers,
-        supported_modules=_module_options(),
+        supported_modules=_offered_module_options(),
         current_module_codes=current_module_codes,
         form_data={},
     )
@@ -1467,8 +1437,6 @@ def toggle_user_active(user_id):
 
     if target.is_active:
         target.is_active = False
-        if target.is_power_user:
-            target.is_power_user = False
         action = "USER_DEACTIVATED"
         verb = "deactivated"
     else:
@@ -1773,11 +1741,18 @@ def backup_center():
         db.session.rollback()
         history_available = False
 
+    try:
+        msds_document_count = count_msds_files()
+    except MSDSError:
+        db.session.rollback()
+        msds_document_count = None
+
     return render_template(
         "admin/backups.html",
         snapshots=snapshots,
         backup_events=backup_events,
         history_available=history_available,
+        msds_document_count=msds_document_count,
         environment_name=get_runtime_environment_name(),
         next_backup_filename=build_backup_filename(),
         restore_phrase="RESTORE BACKUP",
@@ -1836,6 +1811,61 @@ def export_backup():
         max_age=0,
     )
     response.call_on_close(artifact.cleanup)
+    return response
+
+
+@admin_bp.route("/backups/msds", methods=["POST"])
+@login_required
+@roles_required(ADMIN_ROLE)
+def export_msds_archive():
+    """Download every stored MSDS as PDFs named by corporate specification reference."""
+    try:
+        archive = build_msds_archive()
+    except MSDSError as exc:
+        db.session.rollback()
+        flash(str(exc), "danger")
+        return redirect(url_for("admin.backup_center"))
+
+    if archive.file_count == 0:
+        archive.cleanup()
+        flash("There are no MSDS documents stored yet.", "info")
+        return redirect(url_for("admin.backup_center"))
+
+    try:
+        db.session.add(
+            AuditLog(
+                action="MSDS_ARCHIVE_EXPORTED",
+                user_id=current_user.id,
+                entity_type="MSDSFile",
+                entity_id=archive.download_name,
+                details=(
+                    f"Admin '{current_user.username}' exported {archive.file_count} MSDS "
+                    f"document(s) across {archive.material_count} material(s) as "
+                    f"'{archive.download_name}'."
+                ),
+                ip_address=AuditLog._normalize_ip(_client_ip()),
+                user_agent=AuditLog._normalize_user_agent(get_user_agent()),
+            )
+        )
+        log_activity(
+            current_user.username,
+            "msds_archive_exported",
+            "msds",
+            archive.download_name,
+            details=f"files={archive.file_count}, materials={archive.material_count}",
+        )
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+
+    response = send_file(
+        archive.temp_path,
+        as_attachment=True,
+        download_name=archive.download_name,
+        mimetype="application/zip",
+        max_age=0,
+    )
+    response.call_on_close(archive.cleanup)
     return response
 
 
@@ -1984,8 +2014,7 @@ def add_office():
         office_code = request.form.get("office_code", "").strip().upper()
         office_name = request.form.get("office_name", "").strip()
         location = request.form.get("location", "").strip()
-        power_user_limit_raw = request.form.get("power_user_limit", "").strip()
-        power_user_limit, limit_error = _parse_power_user_limit(power_user_limit_raw)
+        secondary_location = request.form.get("secondary_location", "").strip()
 
         errors = []
         if not office_code:
@@ -1998,8 +2027,8 @@ def add_office():
             errors.append("Office name cannot exceed 150 characters.")
         if len(location) > 150:
             errors.append("Location cannot exceed 150 characters.")
-        if limit_error:
-            errors.append(limit_error)
+        if len(secondary_location) > 150:
+            errors.append("Second location cannot exceed 150 characters.")
 
         if office_code and Office.query.filter_by(office_code=office_code).first():
             errors.append(f"Office code '{office_code}' already exists.")
@@ -2018,7 +2047,7 @@ def add_office():
                 office_code=office_code,
                 office_name=office_name,
                 location=location,
-                power_user_limit=power_user_limit,
+                secondary_location=secondary_location,
                 is_active=True,
             )
             db.session.add(new_office)
@@ -2031,7 +2060,7 @@ def add_office():
                 entity_id=str(new_office.id),
                 details=(
                     f"Admin '{current_user.username}' created office "
-                    f"'{office_name}' ({office_code}) with {power_user_limit} power-user slot(s)."
+                    f"'{office_name}' ({office_code})."
                 ),
                 ip_address=_client_ip(),
                 user_agent=get_user_agent(),
@@ -2041,10 +2070,7 @@ def add_office():
                 "office_created",
                 "office",
                 office_name,
-                details=(
-                    f"code={office_code}, location={location or '-'}, "
-                    f"power_user_limit={power_user_limit}"
-                ),
+                details=f"code={office_code}, location={location or '-'}",
             )
             db.session.commit()
         except SQLAlchemyError:
@@ -2054,8 +2080,6 @@ def add_office():
                 "admin/office_form.html",
                 mode="add",
                 form_data=request.form,
-                power_user_candidates=[],
-                selected_power_user_ids=[],
             )
 
         flash(f"Office '{office_name}' created successfully.", "success")
@@ -2065,8 +2089,6 @@ def add_office():
         "admin/office_form.html",
         mode="add",
         form_data={},
-        power_user_candidates=[],
-        selected_power_user_ids=[],
     )
 
 
@@ -2077,29 +2099,11 @@ def add_office():
 def edit_office(office_id):
     _require_office_management()
     office = Office.query.get_or_404(office_id)
-    office_users = (
-        User.query
-        .options(joinedload(User.role))
-        .filter(User.office_id == office.id)
-        .order_by(User.full_name, User.username)
-        .all()
-    )
-    power_user_candidates = _power_user_candidates_for_office(office.id)
-    current_power_user_ids = [
-        str(user.id)
-        for user in office_users
-        if user.is_power_user
-    ]
 
     if request.method == "POST":
         office_name = request.form.get("office_name", "").strip()
         location = request.form.get("location", "").strip()
-        power_user_limit_raw = request.form.get("power_user_limit", "").strip()
-        selected_power_user_ids, selection_errors = _resolve_power_user_selection(
-            office.id,
-            request.form.getlist("power_user_ids"),
-        )
-        power_user_limit, limit_error = _parse_power_user_limit(power_user_limit_raw)
+        secondary_location = request.form.get("secondary_location", "").strip()
 
         errors = []
         if not office_name:
@@ -2108,14 +2112,8 @@ def edit_office(office_id):
             errors.append("Office name cannot exceed 150 characters.")
         if len(location) > 150:
             errors.append("Location cannot exceed 150 characters.")
-        if limit_error:
-            errors.append(limit_error)
-        errors.extend(selection_errors)
-        if len(selected_power_user_ids) > power_user_limit:
-            errors.append(
-                f"Select at most {power_user_limit} power user"
-                f"{'' if power_user_limit == 1 else 's'} for this office."
-            )
+        if len(secondary_location) > 150:
+            errors.append("Second location cannot exceed 150 characters.")
 
         if errors:
             for err in errors:
@@ -2125,8 +2123,6 @@ def edit_office(office_id):
                 mode="edit",
                 office=office,
                 form_data=request.form,
-                power_user_candidates=power_user_candidates,
-                selected_power_user_ids=[str(user_id) for user_id in selected_power_user_ids],
             )
 
         changed_fields = []
@@ -2136,33 +2132,11 @@ def edit_office(office_id):
         if (office.location or "") != location:
             changed_fields.append(f"location '{office.location or '-'}' → '{location or '-'}'")
             office.location = location
-        if office.power_user_limit != power_user_limit:
+        if (office.secondary_location or "") != secondary_location:
             changed_fields.append(
-                f"power_user_limit '{office.power_user_limit}' → '{power_user_limit}'"
+                f"second location '{office.secondary_location or '-'}' → '{secondary_location or '-'}'"
             )
-            office.power_user_limit = power_user_limit
-
-        previous_power_user_ids = {user.id for user in office_users if user.is_power_user}
-        next_power_user_ids = set(selected_power_user_ids)
-        if previous_power_user_ids != next_power_user_ids:
-            previous_labels = [
-                _display_user_name(user)
-                for user in office_users
-                if user.id in previous_power_user_ids
-            ]
-            next_labels = [
-                _display_user_name(user)
-                for user in office_users
-                if user.id in next_power_user_ids
-            ]
-            changed_fields.append(
-                "power_users "
-                f"'{', '.join(previous_labels) or '-'}' → "
-                f"'{', '.join(next_labels) or '-'}'"
-            )
-
-        for office_user in office_users:
-            office_user.is_power_user = office_user.id in next_power_user_ids
+            office.secondary_location = secondary_location
 
         try:
             db.session.flush()
@@ -2196,8 +2170,6 @@ def edit_office(office_id):
                 mode="edit",
                 office=office,
                 form_data=request.form,
-                power_user_candidates=power_user_candidates,
-                selected_power_user_ids=[str(user_id) for user_id in selected_power_user_ids],
             )
 
         flash(f"Office '{office.office_name}' updated successfully.", "success")
@@ -2208,8 +2180,6 @@ def edit_office(office_id):
         mode="edit",
         office=office,
         form_data={},
-        power_user_candidates=power_user_candidates,
-        selected_power_user_ids=current_power_user_ids,
     )
 
 
@@ -2221,23 +2191,31 @@ def toggle_office(office_id):
     _require_office_management()
     office = Office.query.get_or_404(office_id)
 
+    cascaded_users: list[User] = []
+    skipped_self = False
+
     if office.is_active:
-        active_user_count = User.query.filter_by(
-            office_id=office.id, is_active=True
-        ).count()
-        if active_user_count > 0:
-            flash(
-                f"Cannot deactivate '{office.office_name}' — "
-                f"{active_user_count} active user(s) are assigned to it. "
-                "Reassign them first.",
-                "danger",
-            )
-            return redirect(url_for("admin.offices"))
+        # Closing an office closes the accounts mapped to it: the users lose
+        # their workspace, so leaving them able to sign in would leave live
+        # accounts behind a shut office. The admin doing this keeps their own
+        # account, so they cannot lock themselves out mid-change.
+        cascaded_users = [
+            user
+            for user in User.query.filter_by(office_id=office.id, is_active=True).all()
+            if user.id != current_user.id
+        ]
+        skipped_self = (
+            current_user.office_id == office.id and current_user.is_active
+        )
+        for user in cascaded_users:
+            user.is_active = False
 
         office.is_active = False
         action = "OFFICE_DEACTIVATED"
         verb = "deactivated"
     else:
+        # Reactivating the office does not reactivate accounts: some were
+        # deactivated on their own merits, so each one is restored deliberately.
         office.is_active = True
         action = "OFFICE_ACTIVATED"
         verb = "activated"
@@ -2252,23 +2230,56 @@ def toggle_office(office_id):
             details=(
                 f"Admin '{current_user.username}' {verb} office "
                 f"'{office.office_name}' ({office.office_code})."
+                + (
+                    f" {len(cascaded_users)} mapped user(s) deactivated with it: "
+                    + ", ".join(sorted(user.username for user in cascaded_users))
+                    + "."
+                    if cascaded_users
+                    else ""
+                )
             ),
             ip_address=_client_ip(),
             user_agent=get_user_agent(),
         )
+        for user in cascaded_users:
+            AuditLog.log(
+                action="USER_DEACTIVATED",
+                user_id=current_user.id,
+                entity_type="User",
+                entity_id=str(user.id),
+                details=(
+                    f"User '{user.username}' deactivated because their office "
+                    f"'{office.office_name}' ({office.office_code}) was deactivated."
+                ),
+                ip_address=_client_ip(),
+                user_agent=get_user_agent(),
+            )
         log_activity(
             current_user.username,
             f"office_{verb}",
             "office",
             office.office_name,
+            details=(
+                f"cascaded_user_deactivations={len(cascaded_users)}"
+                if cascaded_users
+                else None
+            ),
         )
         db.session.commit()
     except SQLAlchemyError:
         db.session.rollback()
-        flash(f"Could not {verb[:-1]}e office due to a database error.", "danger")
+        flash(f"Office could not be {verb} due to a database error.", "danger")
         return redirect(url_for("admin.offices"))
 
-    flash(f"Office '{office.office_name}' has been {verb}.", "success")
+    message = f"Office '{office.office_name}' has been {verb}."
+    if cascaded_users:
+        message += (
+            f" {len(cascaded_users)} mapped user account(s) were deactivated with it;"
+            " reactivate them individually when they are reassigned."
+        )
+    if skipped_self:
+        message += " Your own account was left active."
+    flash(message, "success")
     return redirect(url_for("admin.offices"))
 
 
@@ -2288,7 +2299,7 @@ def office_users(office_id):
             joinedload(User.accepting_officer),
         )
         .filter_by(office_id=office.id)
-        .order_by(User.is_power_user.desc(), User.is_active.desc(), User.full_name, User.username)
+        .order_by(User.is_active.desc(), User.full_name, User.username)
         .all()
     )
     return render_template(
