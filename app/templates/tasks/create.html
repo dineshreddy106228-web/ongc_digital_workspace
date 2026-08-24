@@ -202,6 +202,25 @@
               </small>
             </div>
 
+
+            <div class="form-group" id="assigned-post-group">
+              <label class="form-label" for="assigned_post_id">Or assign to a post</label>
+              <select id="assigned_post_id" name="assigned_post_id" class="form-control">
+                <option value="">Not assigned to a post</option>
+                {% for post in posts %}
+                <option
+                  value="{{ post.id }}"
+                  {{ 'selected' if (form_data.get('assigned_post_id', '')|string == post.id|string) }}
+                >
+                  {{ post.post_title }} &middot; {{ post.holder_label }}{% if post.office %} ({{ post.office.office_code }}){% endif %}
+                </option>
+                {% endfor %}
+              </select>
+              <small class="form-hint">
+                A post-assigned task follows the post: when the holder changes, the open task moves with it.
+                Choosing a post overrides the owner above.
+              </small>
+            </div>
             <div id="local-task-group" style="display:none; width:100%;">
               <div class="form-group">
                 <label class="form-label" for="local_owner_display">Local Task Owner</label>

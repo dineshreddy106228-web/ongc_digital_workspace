@@ -36,6 +36,12 @@ class Task(db.Model):
     display_order = db.Column(db.Integer, nullable=True)
     due_date = db.Column(db.Date, nullable=True)
     owner_id = db.Column(db.BigInteger, db.ForeignKey("users.id"), nullable=True)
+    # When a task belongs to a post rather than a person, owner_id tracks whoever
+    # holds that post. A handover re-points the open work automatically, while
+    # every update already written stays attributed to its author.
+    assigned_post_id = db.Column(
+        db.BigInteger, db.ForeignKey("office_posts.id"), nullable=True, index=True
+    )
     created_by = db.Column(db.BigInteger, db.ForeignKey("users.id"), nullable=True)
     office_id = db.Column(db.BigInteger, db.ForeignKey("offices.id"), nullable=True)
     recurring_template_id = db.Column(
@@ -76,6 +82,16 @@ class Task(db.Model):
         "User", foreign_keys=[created_by], back_populates="tasks_created", lazy="joined"
     )
     office = db.relationship("Office", back_populates="tasks", lazy="joined")
+    assigned_post = db.relationship("OfficePost", foreign_keys=[assigned_post_id], lazy="joined")
+    @property
+    def assignment_label(self) -> str:
+        """Who the task sits with — the post and its holder, or the person."""
+        if self.assigned_post is not None:
+            return f"{self.assigned_post.post_title} · {self.assigned_post.holder_label}"
+        if self.owner is not None:
+            return self.owner.full_name or self.owner.username
+        return "Unassigned"
+
     recurring_template = db.relationship(
         "RecurringTaskTemplate", back_populates="generated_tasks", lazy="joined"
     )

@@ -156,6 +156,23 @@
               </select>
             </div>
 
+
+            <div class="form-group" id="assigned-post-group">
+              <label class="form-label" for="assigned_post_id">Or assign to a post</label>
+              {% set selected_post = form_data.get('assigned_post_id', task.assigned_post_id|string if task.assigned_post_id else '') %}
+              <select id="assigned_post_id" name="assigned_post_id" class="form-control">
+                <option value="">Not assigned to a post</option>
+                {% for post in posts %}
+                <option value="{{ post.id }}" {{ 'selected' if selected_post == post.id|string }}>
+                  {{ post.post_title }} &middot; {{ post.holder_label }}{% if post.office %} ({{ post.office.office_code }}){% endif %}
+                </option>
+                {% endfor %}
+              </select>
+              <small class="form-hint">
+                A post-assigned task follows the post: when the holder changes, the open task moves with it.
+                Choosing a post overrides the owner above.
+              </small>
+            </div>
             <div class="form-group">
               <label class="form-label" for="task_scope">Task Scope <span class="required">*</span></label>
               {% set selected_scope = 'GLOBAL' if form_data.get('task_scope', task.task_scope) == 'GLOBAL' else 'LOCAL' %}

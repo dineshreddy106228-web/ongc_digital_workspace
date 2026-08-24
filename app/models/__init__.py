@@ -3,6 +3,7 @@
 from app.models.core.role import Role                                    # noqa: F401
 from app.models.office.office import Office                                # noqa: F401
 from app.models.core.user import User                                    # noqa: F401
+from app.models.office.office_post import OfficePost, OfficePostAssignment  # noqa: F401
 from app.models.core.user_module_permission import UserModulePermission  # noqa: F401
 from app.models.core.module_admin_assignment import ModuleAdminAssignment  # noqa: F401
 from app.models.core.audit_log import AuditLog                          # noqa: F401

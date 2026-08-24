@@ -38,3 +38,12 @@
     </div>
 </div>
 {% endblock %}
+
+{% block scripts_extra %}
+<script nonce="{{ csp_nonce() }}">
+/* The workspace menu remembers whether it was left open, which meant a new
+   session inherited the last one's drawer. Reaching the login screen starts a
+   fresh session, so the preference is cleared and the workspace opens closed. */
+try { localStorage.removeItem('ongc-sidebar-flyout-open'); } catch (err) { /* private mode */ }
+</script>
+{% endblock %}

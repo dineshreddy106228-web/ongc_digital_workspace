@@ -7,11 +7,13 @@ Governance V2 additions:
   - User category reflected via role assignment
 """
 
+from __future__ import annotations
+
 import logging
 import os
 from pathlib import Path
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone
 from io import BytesIO
 from flask import render_template, redirect, url_for, flash, request, send_file
 from flask_login import login_required, current_user
@@ -25,6 +27,7 @@ from app.models.core.user import User
 from app.models.core.role import Role
 from app.models.core.module_admin_assignment import ModuleAdminAssignment
 from app.models.office.office import Office
+from app.models.office.office_post import OfficePost, OfficePostAssignment
 from app.models.core.audit_log import AuditLog
 from app.models.core.activity_log import ActivityLog
 from app.models.core.announcement import (
@@ -2437,3 +2440,221 @@ def set_user_officers(user_id):
         "success",
     )
     return redirect(url_for("admin.edit_user", user_id=user_id))
+
+
+# ── Office Posts ─────────────────────────────────────────────────
+# A post is the designation; the user account is the person. Keeping them apart
+# means a handover never rewrites the history a person authored.
+
+def _assignable_post_holders():
+    """Active users, office first, for the holder dropdown."""
+    return (
+        User.query.filter_by(is_active=True)
+        .order_by(User.office_id, User.full_name, User.username)
+        .all()
+    )
+
+
+def _set_post_holder(post: OfficePost, user: User | None) -> str | None:
+    """Move a post to a new holder, closing the outgoing tenure.
+
+    Returns a description of the change, or None when the holder is unchanged.
+    The outgoing assignment is closed rather than deleted so "who held this post
+    in July" stays answerable.
+    """
+    current_id = post.holder_user_id
+    new_id = user.id if user else None
+    if current_id == new_id:
+        return None
+
+    now = datetime.now(timezone.utc)
+    open_assignment = post.current_assignment
+    if open_assignment is not None:
+        open_assignment.ended_at = now
+
+    previous = post.holder_label
+    post.holder_user_id = new_id
+
+    # Open work assigned to the post follows the post. Closed work keeps the
+    # owner it had when it closed — reassigning finished tasks would misstate
+    # who did them.
+    from app.models.tasks.task import Task
+
+    moved = (
+        Task.query.filter(
+            Task.assigned_post_id == post.id,
+            Task.is_active.is_(True),
+            Task.status.notin_(("Completed", "Cancelled")),
+        ).update({Task.owner_id: new_id}, synchronize_session=False)
+    )
+
+    if user is not None:
+        db.session.add(OfficePostAssignment(
+            post=post,
+            user_id=user.id,
+            # Name as it stands today, so the succession survives a later rename.
+            holder_name=(user.full_name or user.username)[:150],
+            started_at=now,
+        ))
+        return (
+            f"holder '{previous}' → '{user.full_name or user.username}'"
+            + (f"; {moved} open task(s) reassigned" if moved else "")
+        )
+    return f"holder '{previous}' → vacant" + (f"; {moved} open task(s) unassigned" if moved else "")
+
+
+@admin_bp.route("/posts")
+@admin_bp.route("/posts/")
+@login_required
+@roles_required(ADMIN_ROLE)
+def office_posts():
+    _require_office_management()
+    posts = (
+        OfficePost.query.options(joinedload(OfficePost.office), joinedload(OfficePost.holder))
+        .join(Office, OfficePost.office_id == Office.id)
+        .order_by(Office.office_name, OfficePost.post_title)
+        .all()
+    )
+    return render_template("admin/office_posts.html", posts=posts)
+
+
+@admin_bp.route("/posts/add", methods=["GET", "POST"])
+@admin_bp.route("/posts/<int:post_id>/edit", methods=["GET", "POST"])
+@login_required
+@roles_required(ADMIN_ROLE)
+def edit_office_post(post_id: int | None = None):
+    _require_office_management()
+    post = OfficePost.query.get_or_404(post_id) if post_id else None
+    mode = "edit" if post else "add"
+
+    if request.method == "POST":
+        post_code = request.form.get("post_code", "").strip().upper()
+        post_title = request.form.get("post_title", "").strip()
+        description = request.form.get("description", "").strip()
+        office_raw = request.form.get("office_id", "").strip()
+        holder_raw = request.form.get("holder_user_id", "").strip()
+
+        errors = []
+        if not post_code:
+            errors.append("Post code is required.")
+        elif len(post_code) > 50:
+            errors.append("Post code cannot exceed 50 characters.")
+        if not post_title:
+            errors.append("Post title is required.")
+        elif len(post_title) > 150:
+            errors.append("Post title cannot exceed 150 characters.")
+        if len(description) > 255:
+            errors.append("Description cannot exceed 255 characters.")
+
+        office = db.session.get(Office, int(office_raw)) if office_raw.isdigit() else None
+        if office is None:
+            errors.append("Select the office this post belongs to.")
+
+        holder = db.session.get(User, int(holder_raw)) if holder_raw.isdigit() else None
+        if holder_raw and holder is None:
+            errors.append("The selected holder no longer exists.")
+
+        clash = OfficePost.query.filter(OfficePost.post_code == post_code)
+        if post:
+            clash = clash.filter(OfficePost.id != post.id)
+        if post_code and clash.first():
+            errors.append(f"Post code '{post_code}' already exists.")
+
+        if errors:
+            for err in errors:
+                flash(err, "danger")
+            return render_template(
+                "admin/office_posts_form.html", mode=mode, post=post,
+                offices=Office.query.filter_by(is_active=True).order_by(Office.office_name).all(),
+                holders=_assignable_post_holders(), form_data=request.form,
+            )
+
+        try:
+            if post is None:
+                post = OfficePost(
+                    post_code=post_code, post_title=post_title,
+                    description=description, office_id=office.id, is_active=True,
+                )
+                db.session.add(post)
+                db.session.flush()
+                changes = ["created"]
+            else:
+                changes = []
+                if post.post_code != post_code:
+                    changes.append(f"code '{post.post_code}' → '{post_code}'")
+                    post.post_code = post_code
+                if post.post_title != post_title:
+                    changes.append(f"title '{post.post_title}' → '{post_title}'")
+                    post.post_title = post_title
+                if (post.description or "") != description:
+                    changes.append("description updated")
+                    post.description = description
+                if post.office_id != office.id:
+                    changes.append(f"office → '{office.office_name}'")
+                    post.office_id = office.id
+
+            holder_change = _set_post_holder(post, holder)
+            if holder_change:
+                changes.append(holder_change)
+
+            AuditLog.log(
+                action="OFFICE_POST_CREATED" if mode == "add" else "OFFICE_POST_UPDATED",
+                user_id=current_user.id,
+                entity_type="OfficePost",
+                entity_id=str(post.id),
+                details=(
+                    f"Admin '{current_user.username}' {'created' if mode == 'add' else 'updated'} "
+                    f"post '{post_title}' ({post_code}). "
+                    f"Changes: {'; '.join(changes) if changes else 'none'}"
+                ),
+                ip_address=_client_ip(),
+                user_agent=get_user_agent(),
+            )
+            log_activity(
+                current_user.username,
+                "office_post_created" if mode == "add" else "office_post_updated",
+                "office_post", post_title,
+                details="; ".join(changes) if changes else "no change",
+            )
+            db.session.commit()
+        except SQLAlchemyError:
+            db.session.rollback()
+            flash("Could not save the post due to a database error.", "danger")
+            return redirect(url_for("admin.office_posts"))
+
+        flash(f"Post '{post_title}' saved.", "success")
+        return redirect(url_for("admin.office_posts"))
+
+    return render_template(
+        "admin/office_posts_form.html", mode=mode, post=post,
+        offices=Office.query.filter_by(is_active=True).order_by(Office.office_name).all(),
+        holders=_assignable_post_holders(), form_data={},
+    )
+
+
+@admin_bp.route("/posts/<int:post_id>/toggle-active", methods=["POST"])
+@login_required
+@roles_required(ADMIN_ROLE)
+def toggle_office_post_active(post_id: int):
+    """Retire or restore a post. The succession is kept either way."""
+    _require_office_management()
+    post = OfficePost.query.get_or_404(post_id)
+    post.is_active = not post.is_active
+    state = "restored" if post.is_active else "retired"
+    if not post.is_active:
+        # A retired post holds nobody; the tenure is closed, not erased.
+        _set_post_holder(post, None)
+
+    AuditLog.log(
+        action="OFFICE_POST_TOGGLED",
+        user_id=current_user.id,
+        entity_type="OfficePost",
+        entity_id=str(post.id),
+        details=f"Admin '{current_user.username}' {state} post '{post.post_title}'.",
+        ip_address=_client_ip(),
+        user_agent=get_user_agent(),
+    )
+    log_activity(current_user.username, "office_post_updated", "office_post", post.post_title, details=state)
+    db.session.commit()
+    flash(f"Post '{post.post_title}' {state}.", "success")
+    return redirect(url_for("admin.office_posts"))

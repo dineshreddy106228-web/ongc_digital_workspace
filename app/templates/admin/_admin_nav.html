@@ -9,6 +9,9 @@
   <a class="{{ 'is-active' if active == 'offices' }}" href="{{ url_for('admin.offices') }}">
     <i class="bi bi-building"></i><span>Offices</span>
   </a>
+  <a class="{{ 'is-active' if active == 'posts' }}" href="{{ url_for('admin.office_posts') }}">
+    <i class="bi bi-person-badge"></i><span>Office Posts</span>
+  </a>
   <a class="{{ 'is-active' if active == 'modules' }}" href="{{ url_for('admin.module_management') }}">
     <i class="bi bi-grid"></i><span>Module Management</span>
   </a>

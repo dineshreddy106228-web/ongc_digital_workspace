@@ -541,11 +541,13 @@ def _visible_task_ids_condition():
 
 
 def _offices_with_open_tasks(office_ids: list[int] | None = None) -> list[dict[str, object]]:
-    """Offices carrying open tasks, heaviest first, for the office navigator.
+    """Every active office, heaviest open load first, for the office navigator.
 
-    Only active offices appear: a deactivated office is not a location work runs
-    from. An office's open tasks are the ones it owns unioned with the open
-    GLOBAL tasks tagged to it; a task that is both owned and tagged counts once.
+    An office with no open work still appears, reporting zero — the map is the
+    organisation, not a list of today's busy locations. A deactivated office is
+    not a place work runs from, so it is the one thing left out.
+    An office's open tasks are the ones it owns unioned with the open GLOBAL
+    tasks tagged to it; a task that is both owned and tagged counts once.
     Aggregated in one grouped query over that union, never one query per office.
     Pass office_ids to narrow the map to the offices a user may look at.
     """
@@ -584,7 +586,10 @@ def _offices_with_open_tasks(office_ids: list[int] | None = None) -> list[dict[s
             open_count.label("open_count"),
             func.coalesce(func.sum(office_tasks.c.is_overdue), 0).label("overdue_count"),
         )
-        .join(office_tasks, office_tasks.c.office_id == Office.id)
+        # Outer join: every active office is on the map, whether or not it is
+        # carrying open work. An office with none reports zero rather than
+        # disappearing, so the map shows the organisation, not just today's load.
+        .outerjoin(office_tasks, office_tasks.c.office_id == Office.id)
         # A deactivated office is not a place work is running from, so it drops
         # off the navigator map and the panel beside it.
         .where(Office.is_active.is_(True))
@@ -592,7 +597,13 @@ def _offices_with_open_tasks(office_ids: list[int] | None = None) -> list[dict[s
             Office.id, Office.office_code, Office.office_name,
             Office.location, Office.secondary_location,
         )
-        .order_by(open_count.desc(), Office.office_name)
+        # The navigator reports status, so the locations needing attention lead;
+        # open load breaks ties, then name.
+        .order_by(
+            func.coalesce(func.sum(office_tasks.c.is_overdue), 0).desc(),
+            open_count.desc(),
+            Office.office_name,
+        )
     )
     if office_ids is not None:
         if not office_ids:
@@ -917,6 +928,30 @@ def _next_task_display_order() -> int:
     """Return the next shared task order slot for newly created tasks."""
     max_order = db.session.query(db.func.max(Task.display_order)).scalar()
     return int(max_order or 0) + 1
+
+
+def _assignable_posts():
+    """Active posts, office first, offered alongside individual owners."""
+    from app.models.office.office_post import OfficePost
+
+    return (
+        OfficePost.query.filter_by(is_active=True)
+        .join(Office, OfficePost.office_id == Office.id)
+        .order_by(Office.office_name, OfficePost.post_title)
+        .all()
+    )
+
+
+def _resolve_assigned_post(raw_value: str):
+    """The post a form selected, or None. Only active posts may be assigned."""
+    from app.models.office.office_post import OfficePost
+
+    if not raw_value or not raw_value.isdigit():
+        return None
+    post = db.session.get(OfficePost, int(raw_value))
+    if post is None or not post.is_active:
+        return None
+    return post
 
 
 # Focus shortcuts used by the home page tiles. Each key must select exactly the
@@ -1406,6 +1441,7 @@ def create_task():
         return render_template(
             "tasks/create.html",
             owners=owners,
+            posts=_assignable_posts(),
             collaborator_options=owners,
             selected_collaborator_ids=selected_collaborator_ids,
             collaborator_count=_collaborator_count(
@@ -1447,6 +1483,7 @@ def create_task():
         priority = request.form.get("priority", "").strip()
         due_date_raw = request.form.get("due_date", "").strip()
         owner_id_raw = request.form.get("owner_id", "").strip()
+        assigned_post = _resolve_assigned_post(request.form.get("assigned_post_id", "").strip())
         task_scope = _normalize_task_scope(request.form.get("task_scope"), default="GLOBAL")
         schedule_mode = _normalize_schedule_mode(
             request.form.get("schedule_mode"), default="ONE_TIME"
@@ -1742,7 +1779,10 @@ def create_task():
                     priority=priority,
                     display_order=_next_task_display_order(),
                     due_date=due_date,
-                    owner_id=owner.id if owner else None,
+                    # A post-assigned task owns through its current holder, so
+                    # visibility and permissions keep working unchanged.
+                    owner_id=(assigned_post.holder_user_id if assigned_post else (owner.id if owner else None)),
+                    assigned_post_id=assigned_post.id if assigned_post else None,
                     created_by=current_user.id,
                     office_id=local_office_id if task_scope != "GLOBAL" else (current_user.office_id if current_user.office_id else None),
                     is_active=True,
@@ -2124,6 +2164,7 @@ def edit_task(task_id):
             "tasks/edit.html",
             task=task,
             owners=owners,
+            posts=_assignable_posts(),
             collaborator_options=owners,
             selected_collaborator_ids=selected_collaborator_ids,
             collaborator_count=_collaborator_count(
@@ -2159,6 +2200,7 @@ def edit_task(task_id):
         priority = request.form.get("priority", "").strip()
         due_date_raw = request.form.get("due_date", "").strip()
         owner_id_raw = request.form.get("owner_id", "").strip()
+        edit_assigned_post = _resolve_assigned_post(request.form.get("assigned_post_id", "").strip())
         task_scope = _normalize_task_scope(
             request.form.get("task_scope", task.task_scope),
             default=_normalize_task_scope(task.task_scope, default="MY"),
@@ -2323,7 +2365,11 @@ def edit_task(task_id):
 
         changed_fields = []
         previous_owner_id = task.owner_id
-        new_owner_id = owner.id if owner else None
+        task.assigned_post_id = edit_assigned_post.id if edit_assigned_post else None
+        new_owner_id = (
+            edit_assigned_post.holder_user_id if edit_assigned_post
+            else (owner.id if owner else None)
+        )
         previous_collaborator_ids = _task_collaborator_user_ids(task)
         new_collaborator_ids = {user.id for user in collaborator_users}
 

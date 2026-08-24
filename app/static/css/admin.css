@@ -95,6 +95,37 @@
   gap: 1rem;
 }
 
+/* Organograms page: the office picker and per-office heading. Kept here beside
+   the organogram styles, because that page loads admin.css and not office.css. */
+.organogram-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 1rem;
+}
+.organogram-toolbar-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: min(100%, 320px);
+}
+.organogram-toolbar .mod-card-sub { flex: 1; min-width: 12rem; }
+
+.organogram-office-heading { margin-bottom: 1rem; }
+
+.organogram-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 2.25rem 1rem;
+  text-align: center;
+  color: var(--muted);
+}
+.organogram-empty i { font-size: 1.6rem; opacity: 0.55; }
+.organogram-empty strong { color: var(--text); }
+.organogram-empty p { margin: 0; font-size: 0.88rem; }
+
 .organogram-office-section {
   border:1px solid color-mix(in srgb, var(--panel-border-strong, var(--border)) 78%, var(--mod-accent, var(--primary)));
   border-radius: 1rem;
@@ -258,12 +289,14 @@
   right: 50%;
 }
 
+/* Flat surface, one-pixel border, 12px radius — the same card language the
+   module pages use. The gradient, deep shadow and 0.85rem radius here predated
+   that and read as a different product. */
 .organogram-card {
   padding: 1rem 1.05rem;
-  border:1px solid color-mix(in srgb, var(--panel-border-strong, var(--border)) 80%, var(--mod-accent, var(--primary)));
-  border-radius: 0.85rem;
-  background:linear-gradient(135deg, color-mix(in srgb, var(--surface-alt) 42%, var(--surface)) 0%, var(--surface) 100%);
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
 }
 
 .organogram-card-compact {
@@ -272,24 +305,24 @@
 }
 
 .organogram-card-level-accepting {
-  border-color:color-mix(in srgb, var(--tone-ok-fg) 35%, var(--panel-border-strong, var(--border)));
+  border-color:color-mix(in srgb, var(--tone-ok-fg) 35%, var(--border));
 }
 
 .organogram-card-level-head {
-  border-color:color-mix(in srgb, var(--tone-alt-fg) 38%, var(--panel-border-strong, var(--border)));
-  background:linear-gradient(135deg, color-mix(in srgb, var(--tone-alt-bg) 72%, var(--surface)) 0%, var(--surface) 100%);
+  border-color:color-mix(in srgb, var(--tone-alt-fg) 38%, var(--border));
+  background:color-mix(in srgb, var(--tone-alt-bg) 30%, var(--surface));
 }
 
 .organogram-card-level-reviewing {
-  border-color:color-mix(in srgb, var(--mod-accent, var(--primary)) 35%, var(--panel-border-strong, var(--border)));
+  border-color:color-mix(in srgb, var(--mod-accent, var(--primary)) 35%, var(--border));
 }
 
 .organogram-card-level-controlling {
-  border-color:color-mix(in srgb, var(--tone-warn-fg) 35%, var(--panel-border-strong, var(--border)));
+  border-color:color-mix(in srgb, var(--tone-warn-fg) 35%, var(--border));
 }
 
 .organogram-card-level-user {
-  border-color:color-mix(in srgb, var(--muted) 28%, var(--panel-border-strong, var(--border)));
+  border-color:color-mix(in srgb, var(--muted) 28%, var(--border));
 }
 
 .organogram-card.is-inactive {
@@ -1791,7 +1824,7 @@ body.modal-open {
 }
 
 .task-summary-modal-shell {
-  width: min(1080px, 100%);
+  width: min(1120px, 100%);
   max-height: calc(100vh - 3rem);
   overflow: hidden;
   border-radius: 18px;
@@ -1918,16 +1951,8 @@ body.modal-open {
   color: var(--mod-accent-strong, var(--primary));
 }
 
-.task-summary-title {
-  margin: 0.3rem 0 0;
-  font-size: clamp(1.3rem, 2vw, 1.7rem);
-  font-weight: 700;
-  line-height: 1.18;
-  color: var(--text);
-}
-
 .task-summary-subtitle {
-  margin: 0.45rem 0 0;
+  margin: 0.3rem 0 0;
   max-width: 48rem;
   color: var(--muted);
   font-size: 0.88rem;
@@ -1939,6 +1964,38 @@ body.modal-open {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.5rem;
+}
+
+/* Reference facts on one line. As four cards they consumed the space the
+   latest remark needed to sit above the fold. */
+.task-summary-meta-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 2rem;
+  margin: 0;
+  padding: 0.85rem 1.05rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-alt);
+}
+.task-summary-meta-strip > div { min-width: 0; }
+.task-summary-meta-strip dt {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+/* Several names can sit here, so this cell is allowed to wrap rather than
+   stretching the strip out of shape. */
+.task-summary-meta-collaborators { max-width: 26rem; }
+
+.task-summary-meta-strip dd {
+  margin: 0.15rem 0 0;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.35;
 }
 
 .task-summary-stat-grid {
@@ -1985,12 +2042,14 @@ body.modal-open {
 
 /* ── Latest update leads ─────────────────────────────────────── */
 
+/* Flat card, like every other card in the app. The latest remark carries its
+   weight through the section header and the type scale, not a tinted panel —
+   the tint read as the older UI it came from. */
 .task-summary-latest-card {
-  padding: 1.05rem 1.15rem;
+  padding: 1.15rem 1.25rem;
   border: 1px solid var(--border);
-  border-left: 3px solid var(--mod-accent, var(--primary));
   border-radius: 12px;
-  background: var(--surface-alt);
+  background: var(--surface);
 }
 
 .task-summary-latest-top {
@@ -2017,8 +2076,9 @@ body.modal-open {
 .task-summary-latest-text {
   margin: 0;
   color: var(--text);
-  font-size: 1.02rem;
+  font-size: 1.08rem;
   line-height: 1.6;
+  font-weight: 500;
   white-space: pre-line;
   overflow-wrap: anywhere;
 }
@@ -2157,9 +2217,10 @@ body.modal-open {
 }
 
 .task-summary-fact {
-  padding: 0.85rem 0.9rem;
-  border-radius: 0.9rem;
-  background:color-mix(in srgb, var(--surface-alt) 78%, transparent);
+  padding: 0.8rem 0.95rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-alt);
 }
 
 .task-summary-fact-wide {
@@ -2228,21 +2289,36 @@ body.modal-open {
   margin-bottom: 0.45rem;
 }
 
+/* Structured like the composer on the full task page: a head bar naming the
+   card, then a padded body holding the form. The single flat box it replaced
+   ran the heading straight into the textarea. */
 .task-summary-composer {
-  margin-bottom: 1rem;
-  padding: 1rem 1.05rem;
-  border: 1px solid rgba(96, 165, 250, 0.34);
-  border-radius: 1rem;
-  background:linear-gradient(180deg, var(--surface) 0%, var(--surface-alt) 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  margin-bottom: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  overflow: hidden;
 }
 
-.task-summary-composer-header {
+.task-summary-composer-head {
   display: flex;
-  align-items: flex-start;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
   gap: 0.85rem;
-  margin-bottom: 0.85rem;
+  padding: 0.9rem 1.15rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-alt);
+}
+
+.task-summary-composer-body { padding: 1.05rem 1.15rem 1.15rem; }
+
+/* The lede under a section heading, as the full page has above its composer. */
+.task-summary-section-lede {
+  margin: -0.5rem 0 0.85rem;
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.5;
 }
 
 .task-summary-composer-title {
@@ -2261,9 +2337,10 @@ body.modal-open {
 .task-summary-composer-pill {
   display: inline-flex;
   align-items: center;
-  padding: 0.4rem 0.72rem;
+  padding: 0.32rem 0.7rem;
   border-radius: 999px;
-  background: rgba(37, 99, 235, 0.12);
+  border: 1px solid color-mix(in srgb, var(--mod-accent, var(--primary)) 30%, var(--border));
+  background: color-mix(in srgb, var(--mod-accent, var(--primary)) 10%, var(--surface));
   color:var(--mod-accent, var(--primary));
   font-size: 0.76rem;
   font-weight: 700;
@@ -2345,7 +2422,7 @@ body.modal-open {
   .task-summary-hero,
   .task-summary-latest-top,
   .task-summary-modal-bar,
-  .task-summary-composer-header,
+  .task-summary-composer-head,
   .task-summary-composer-actions {
     flex-direction: column;
   }

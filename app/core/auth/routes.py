@@ -177,7 +177,6 @@ def logout():
     )
     log_activity(uname, "logout", "user", uname)
     db.session.commit()
-    flash("You have been logged out.", "info")
     return redirect(url_for("auth.login"))
 
 

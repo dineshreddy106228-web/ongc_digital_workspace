@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% from "admin/_admin_nav.html" import admin_nav with context %}
+{% from "components/ui.html" import page_header %}
+{% block title %}Office Posts{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+  {{ admin_nav('posts') }}
+  {% call page_header("Office Posts", "The designation, held separately from the person. Change the holder on handover — what a person already wrote stays theirs.", "Administration", "Admin", "neutral") %}
+    <a href="{{ url_for('admin.edit_office_post') }}" class="btn btn-primary">
+      <i class="bi bi-person-badge"></i>
+      <span>Add Post</span>
+    </a>
+  {% endcall %}
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <div class="alert alert-{{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <div class="card">
+    <div class="card-body">
+      {% if posts %}
+      <div class="table-responsive">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th scope="col">#</th>
+              <th scope="col">Post Code</th>
+              <th scope="col">Post</th>
+              <th scope="col">Office</th>
+              <th scope="col">Current Holder</th>
+              <th scope="col">Held Since</th>
+              <th scope="col">Status</th>
+              <th scope="col">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for post in posts %}
+            {% set current = post.current_assignment %}
+            <tr>
+              <td>{{ loop.index }}</td>
+              <td><strong>{{ post.post_code }}</strong></td>
+              <td>
+                {{ post.post_title }}
+                {% if post.description %}<div class="mod-cell-meta">{{ post.description }}</div>{% endif %}
+              </td>
+              <td>{{ post.office.office_name if post.office else '—' }}</td>
+              <td>
+                {% if post.holder %}
+                  <strong>{{ post.holder_label }}</strong>
+                  <div class="mod-cell-meta">{{ post.holder.designation or post.holder.username }}</div>
+                {% else %}
+                  <span class="badge badge-inactive">Vacant</span>
+                {% endif %}
+              </td>
+              <td>
+                {{ current.started_at|datetime_ist('%d %b %Y') if current and current.started_at else '—' }}
+                {% if post.assignments|length > 1 %}
+                <div class="mod-cell-meta">{{ post.assignments|length }} holders on record</div>
+                {% endif %}
+              </td>
+              <td>
+                {% if post.is_active %}
+                  <span class="badge badge-active">Active</span>
+                {% else %}
+                  <span class="badge badge-inactive">Retired</span>
+                {% endif %}
+              </td>
+              <td class="actions-cell">
+                <a href="{{ url_for('admin.edit_office_post', post_id=post.id) }}"
+                   class="btn btn-sm btn-secondary" title="Edit post or change holder">Edit</a>
+                <form method="POST" action="{{ url_for('admin.toggle_office_post_active', post_id=post.id) }}" style="display:inline">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit" class="btn btn-sm {{ 'btn-secondary' if post.is_active else 'btn-primary' }}">
+                    {{ 'Retire' if post.is_active else 'Restore' }}
+                  </button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="organogram-empty">
+        <i class="bi bi-person-badge"></i>
+        <strong>No posts defined yet</strong>
+        <p>Create a post such as "Head RGL Rajahmundry" and assign whoever holds it today.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -98,8 +98,9 @@
         throw new Error(`Request failed (${response.status})`);
       }
       modalBody.innerHTML = await response.text();
-      const title = modalBody.querySelector('.task-summary-title');
-      modalHeading.textContent = title ? title.textContent.trim() : (titleText || 'Task brief');
+      // The panel no longer repeats the title — the bar is the only place it
+      // appears — so it comes from the row that opened the modal.
+      modalHeading.textContent = titleText || 'Task brief';
     } catch (error) {
       if (error.name === 'AbortError') return;
       console.error('Task summary modal failed:', error);

@@ -1,8 +1,9 @@
 {% macro monitoring_nav(active='') %}
 <nav class="mod-nav" aria-label="Inventory Monitoring navigation">
   <a class="{{ 'is-active' if active == 'home' }}" href="{{ url_for('inventory.landing') }}"><i class="bi bi-house-door"></i><span>Monitoring home</span></a>
-  <a class="{{ 'is-active' if active == 'health' }}" href="{{ url_for('inventory.health') }}"><i class="bi bi-heart-pulse"></i><span>Inventory Health</span></a>
-  <a class="{{ 'is-active' if active == 'materials' }}" href="{{ url_for('inventory.materials') }}"><i class="bi bi-boxes"></i><span>Material Monitoring</span></a>
+  <a class="{{ 'is-active' if active == 'materials' }}" href="{{ url_for('inventory.materials') }}"><i class="bi bi-boxes"></i><span>Material Register</span></a>
   <a class="{{ 'is-active' if active == 'review' }}" href="{{ url_for('inventory.portfolio') }}"><i class="bi bi-easel2"></i><span>Management Review</span></a>
+  <a class="{{ 'is-active' if active == 'health' }}" href="{{ url_for('inventory.health') }}"><i class="bi bi-heart-pulse"></i><span>Inventory Health</span></a>
+  <a class="{{ 'is-active' if active == 'imports' }}" href="{{ url_for('inventory.import_history') }}"><i class="bi bi-database-add"></i><span>Data Import</span></a>
 </nav>
 {% endmacro %}

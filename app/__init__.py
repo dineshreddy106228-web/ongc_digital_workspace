@@ -4,7 +4,7 @@ import logging
 import os
 import secrets
 from importlib import import_module
-from flask import Flask, flash, g, jsonify, redirect, render_template_string
+from flask import Flask, flash, g, jsonify, redirect, render_template_string, request
 from flask_login import current_user
 from flask_wtf.csrf import CSRFError
 from config import Config
@@ -90,6 +90,43 @@ def create_app(config_class=Config):
     @app.before_request
     def set_csp_nonce():
         g.csp_nonce = secrets.token_urlsafe(16)
+
+    # ── Recurring routines catch up on first use each day ────────
+    # A cron running `flask generate-recurring-tasks` is the intended trigger;
+    # this is the safety net for the day it does not run, so a routine never
+    # silently stops rolling. Runs at most once per process per day, and the
+    # generator is idempotent, so a second run is a no-op.
+    app._recurring_generated_on = None
+
+    @app.before_request
+    def roll_recurring_tasks():
+        from datetime import date as _date
+
+        if request.endpoint in (None, "static"):
+            return
+        today = _date.today()
+        if app._recurring_generated_on == today:
+            return
+        # Claim the day before doing the work: a failure must not put every
+        # later request into a retry loop.
+        app._recurring_generated_on = today
+        try:
+            from app.core.services.recurring_tasks import generate_due_recurring_tasks
+            from app.core.services.dashboard import invalidate_dashboard_summary_metrics
+
+            result = generate_due_recurring_tasks()
+            if result["tasks"] or result["rolled"]:
+                invalidate_dashboard_summary_metrics()
+                db.session.commit()
+                app.logger.info(
+                    "Recurring routines rolled: %s created, %s rolled forward.",
+                    result["tasks"], result["rolled"],
+                )
+            else:
+                db.session.rollback()
+        except Exception:
+            db.session.rollback()
+            app.logger.exception("Recurring task roll-forward failed")
 
     # ── Security response headers ────────────────────────────────
     @app.after_request

@@ -39,10 +39,13 @@ def task_app(tmp_path):
         db.drop_all()
 
 
-def _office(office_id: int, code: str, name: str, location: str = ""):
+def _office(office_id: int, code: str, name: str, location: str = "", is_active: bool = True):
     from app.models.office.office import Office
 
-    office = Office(id=office_id, office_code=code, office_name=name, location=location)
+    office = Office(
+        id=office_id, office_code=code, office_name=name,
+        location=location, is_active=is_active,
+    )
     db.session.add(office)
     return office
 
@@ -165,7 +168,13 @@ def _current_app():
     return current_app._get_current_object()
 
 
-def test_only_offices_carrying_open_tasks_are_listed(task_app):
+def test_every_active_office_is_listed_and_closed_work_is_not_counted(task_app):
+    """The map shows the organisation, not only the offices busy today.
+
+    An office whose work is all completed, cancelled or archived still appears,
+    reporting zero — otherwise it would vanish from the map the moment it
+    finished everything, and a reader could not reach its register from there.
+    """
     _office(1, "CORP_CHEM", "Office of Head Corporate Chemistry", "Dehradun")
     _office(2, "QPCL", "Quality and Process Control Laboratory", "Hazira")
     _office(3, "ST_RJY", "RJY Surface Chemistry Team", "Rajahmundry")
@@ -178,11 +187,32 @@ def test_only_offices_carrying_open_tasks_are_listed(task_app):
 
     rows = _navigator_rows()
 
-    assert list(rows) == ["CORP_CHEM"]
+    assert set(rows) == {"CORP_CHEM", "QPCL", "ST_RJY"}
+    # Heaviest open load leads, so the office actually carrying work sorts first.
+    assert list(rows)[0] == "CORP_CHEM"
     assert rows["CORP_CHEM"]["open_count"] == 2
     assert rows["CORP_CHEM"]["overdue_count"] == 0
     assert rows["CORP_CHEM"]["office_name"] == "Office of Head Corporate Chemistry"
     assert rows["CORP_CHEM"]["location"] == "Dehradun"
+    # Closed, cancelled and archived work counts for nothing.
+    assert rows["QPCL"]["open_count"] == 0
+    assert rows["QPCL"]["overdue_count"] == 0
+    assert rows["ST_RJY"]["open_count"] == 0
+    assert rows["ST_RJY"]["overdue_count"] == 0
+
+
+def test_a_deactivated_office_stays_off_the_map_even_with_open_tasks(task_app):
+    """Now that every active office is listed, the active flag is the only thing
+    keeping a retired office off the map — so it is worth asserting directly."""
+    _office(1, "CORP_CHEM", "Office of Head Corporate Chemistry")
+    _office(2, "OLD_UNIT", "Retired Field Unit", is_active=False)
+    _task(1, "Live work", 1)
+    _task(2, "Work left on a retired office", 2)
+    db.session.commit()
+
+    rows = _navigator_rows()
+
+    assert set(rows) == {"CORP_CHEM"}
 
 
 def test_a_tagged_global_task_counts_for_every_office_it_reaches_but_once_each(task_app):

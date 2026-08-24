@@ -22,6 +22,11 @@
     {% if task.task_origin %}
     <span class="om-task-sub">{{ task.task_origin }}</span>
     {% endif %}
+    {% if task.assigned_post %}
+    <span class="om-task-sub">
+      <i class="bi bi-person-badge"></i> {{ task.assigned_post.post_title }} · {{ task.assigned_post.holder_label }}
+    </span>
+    {% endif %}
     {% if task.recurring_template %}
     <span class="om-task-sub">
       <i class="bi bi-arrow-repeat"></i> {{ recurrence_summary(task.recurring_template) }}
@@ -54,11 +59,10 @@
         </form>
       </span>
       {% endif %}
+      {# View opens the full record; the task title opens the quick summary. #}
       <a
         href="{{ url_for('tasks.task_detail', task_id=task.id) }}"
         class="btn btn-sm btn-secondary"
-        data-task-summary-url="{{ url_for('tasks.task_summary', task_id=task.id) }}"
-        data-task-summary-title="{{ task.task_title }}"
       >View</a>
       {% if perms.get('can_edit') %}
       <a href="{{ url_for('tasks.edit_task', task_id=task.id) }}" class="btn btn-sm btn-secondary">Edit</a>
@@ -132,11 +136,6 @@
       {% if is_privileged %}
       <a href="{{ url_for('tasks.task_dashboard') }}" class="btn btn-secondary">
         <i class="bi bi-speedometer2"></i><span>Dashboard</span>
-      </a>
-      {% endif %}
-      {% if can_create_global %}
-      <a href="{{ url_for('tasks.create_task') }}?scope=GLOBAL" class="btn btn-secondary">
-        <i class="bi bi-globe2"></i><span>Global task</span>
       </a>
       {% endif %}
       <a href="{{ url_for('tasks.create_task') }}" class="btn btn-primary">
@@ -254,7 +253,25 @@
     </div>
   </div>
 
-  {% if filters.scope %}
+  {# An office reachable from the map may simply have no work on it yet. Say so
+     plainly, rather than leaving the reader to infer it from empty sections. #}
+  {% if register_office and not tasks and not filters.status and not filters.priority
+        and not filters.owner and not filters.scope and not filters.focus and not filters.view %}
+  <div class="om-card">
+    <div class="om-card-body">
+      <div class="om-empty">
+        <i class="bi bi-clipboard-plus"></i>
+        <strong>No tasks yet for {{ register_office.office_name }}</strong>
+        <p>
+          This office is on the workspace but has no task raised against it so far.
+          {% if can_switch_office %}Choose another office above, or create the first task for this one.{% else %}Create the first task to start its register.{% endif %}
+        </p>
+        <a class="btn btn-primary btn-sm" href="{{ url_for('tasks.create_task') }}"><i class="bi bi-plus-lg"></i> Create task</a>
+      </div>
+    </div>
+  </div>
+
+  {% elif filters.scope %}
   {# ── Filtered view (single scope) ─────────────────────────── #}
   <div class="om-card">
     <div class="om-card-head">
@@ -272,6 +289,7 @@
 
   {% else %}
   {# ── Sectioned view (all scopes) ──────────────────────────── #}
+  {% if global_tasks %}
   <div class="om-card">
     <div class="om-card-head">
       <div>
@@ -282,11 +300,24 @@
     </div>
     {{ task_table(global_tasks, task_permissions, 'No global tasks', 'No global tasks have been raised at this time.', filters, can_reorder_tasks, today) }}
   </div>
+  {% else %}
+  {# Nothing raised workspace-wide: stated in one line rather than a full empty
+     card, so the office's own work leads the register. #}
+  <div class="om-card om-card-quiet">
+    <div class="om-card-head">
+      <div>
+        <h2><i class="bi bi-globe2"></i> Global tasks</h2>
+        <p>None raised at this time. Any global task would appear here for every office.</p>
+      </div>
+      <span class="om-count-chip om-count-chip-zero">0</span>
+    </div>
+  </div>
+  {% endif %}
 
   <div class="om-card">
     <div class="om-card-head">
       <div>
-        <h2><i class="bi bi-person"></i> Self and local tasks</h2>
+        <h2><i class="bi bi-person"></i> Local tasks</h2>
         <p>Your own tasks, plus local tasks shared across officer workflows.</p>
       </div>
       <span class="om-count-chip">{{ my_tasks|length }}</span>

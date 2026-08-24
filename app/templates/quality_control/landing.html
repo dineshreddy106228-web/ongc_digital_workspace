@@ -34,7 +34,7 @@
             <a class="mod-tile" href="{{ url_for('quality_control.portfolio_management_review') }}"><i class="bi bi-easel2"></i><strong>Management Review</strong><small>Current workload, quality outcomes and aged samples.</small></a>
             <a class="mod-tile" href="{{ url_for('quality_control.management_analytics') }}"><i class="bi bi-bar-chart-line"></i><strong>Management Analytics</strong><small>Laboratory performance and pass/fail patterns.</small></a>
             <a class="mod-tile" href="{{ url_for('quality_control.data_import') }}"><i class="bi bi-database-add"></i><strong>Data Import</strong><small>Import every laboratory's weekly workbook.</small></a>
-            {% if current_user.is_super_user() %}<a class="mod-tile" href="{{ url_for('quality_control.testing_standards') }}"><i class="bi bi-stopwatch"></i><strong>STT Management</strong><small>Standard Testing Time — approved chemical testing times and revisions.</small></a>{% endif %}
+            {% if current_user.is_super_user() %}<a class="mod-tile" href="{{ url_for('quality_control.testing_standards') }}"><i class="bi bi-sliders"></i><strong>Administration</strong><small>Standard Testing Time (STT) — approved chemical testing times and revisions.</small></a>{% endif %}
         </div>
     </section>
 

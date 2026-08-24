@@ -72,6 +72,14 @@
         <table class="om-doc-info">
           <tbody>
             <tr><th>Owner</th><td>{{ task.owner.full_name if task.owner and task.owner.full_name else (task.owner.username if task.owner else '—') }}</td></tr>
+            <tr>
+              <th>Collaborators</th>
+              <td>
+                {%- if task.collaborator_links -%}
+                  {% for link in task.collaborator_links %}{{ link.user.full_name or link.user.username }}{% if not loop.last %}, {% endif %}{% endfor %}
+                {%- else -%}—{%- endif -%}
+              </td>
+            </tr>
             <tr><th>Office</th><td>{{ task.office.office_name if task.office else '—' }}</td></tr>
             <tr><th>Due date</th><td>{{ task.due_date.strftime('%d %b %Y') if task.due_date else '—' }}</td></tr>
             <tr><th>Task origin</th><td>{{ task.task_origin or '—' }}</td></tr>
@@ -83,14 +91,6 @@
             <tr><th>Series start</th><td>{{ task.recurring_template.start_date.strftime('%d %b %Y') if task.recurring_template.start_date else '—' }}</td></tr>
             <tr><th>Series end</th><td>{{ task.recurring_template.end_date.strftime('%d %b %Y') if task.recurring_template.end_date else 'No end date' }}</td></tr>
             {% endif %}
-            <tr>
-              <th>Collaborators</th>
-              <td>
-                {%- if task.collaborator_links -%}
-                  {% for link in task.collaborator_links %}{{ link.user.full_name or link.user.username }}{% if not loop.last %}, {% endif %}{% endfor %}
-                {%- else -%}—{%- endif -%}
-              </td>
-            </tr>
             {% if task.task_scope == 'GLOBAL' and task.tagged_offices %}
             <tr>
               <th>Tagged offices</th>

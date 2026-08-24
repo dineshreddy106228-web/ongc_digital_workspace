@@ -87,62 +87,28 @@ def control_center():
 @dashboard_bp.route("/dashboard/analytics")
 @login_required
 def analytics():
-    """Portfolio charts, task drilldowns, and the reporting organogram."""
+    """The reporting organogram, by office.
+
+    The portfolio charts and task drilldowns that used to share this page were
+    removed; Task Management carries its own analytics, so this page is only
+    the reporting lines.
+    """
     if not current_user.is_super_user():
-        flash("Portfolio Analytics is not available for this account.", "danger")
+        flash("Organograms are not available for this account.", "danger")
         return redirect(url_for("main.dashboard"))
 
     from app.modules.admin.routes import _build_user_organogram
 
-    scope = resolve_scope(current_user, request.args.get("scope"))
-    if scope not in (SCOPE_OFFICE, SCOPE_WORKSPACE):
-        scope = SCOPE_WORKSPACE if current_user.is_super_user() else SCOPE_OFFICE
-
-    office_id = getattr(current_user, "office_id", None)
-    if scope == SCOPE_OFFICE and office_id is None:
-        scope = SCOPE_WORKSPACE
-
-    briefing = get_dashboard_briefing(
-        scope, office_id if scope == SCOPE_OFFICE else None
+    reporting_organogram, default_organogram_office_key = _reporting_organograms(
+        _build_user_organogram
     )
+    scope_label = getattr(getattr(current_user, "office", None), "office_name", None) or "Workspace"
 
-    reporting_organogram = []
-    default_organogram_office_key = None
-    if current_user.is_super_user():
-        reporting_organogram, default_organogram_office_key = _reporting_organograms(
-            _build_user_organogram
-        )
-
-    scope_label = "Workspace" if scope == SCOPE_WORKSPACE else (
-        getattr(getattr(current_user, "office", None), "office_name", None) or "My Office"
-    )
-    scope_options = []
-    if current_user.is_super_user() and office_id is not None:
-        scope_options = [
-            {
-                "key": SCOPE_WORKSPACE,
-                "label": "Workspace",
-                "href": url_for("main.analytics", scope=SCOPE_WORKSPACE),
-                "is_active": scope == SCOPE_WORKSPACE,
-            },
-            {
-                "key": SCOPE_OFFICE,
-                "label": getattr(current_user.office, "office_name", "My Office"),
-                "href": url_for("main.analytics", scope=SCOPE_OFFICE),
-                "is_active": scope == SCOPE_OFFICE,
-            },
-        ]
-
-    last_refreshed = datetime.now(timezone.utc).astimezone(INDIA_TIMEZONE)
     return render_template(
         "main/analytics.html",
-        briefing=briefing,
-        scope=scope,
-        scope_label=scope_label,
-        scope_options=scope_options,
         reporting_organogram=reporting_organogram,
         default_organogram_office_key=default_organogram_office_key,
-        last_refreshed=last_refreshed,
+        scope_label=scope_label,
         user=current_user,
     )
 

@@ -1,5 +1,4 @@
 {% set scope_label = 'Global Task' if task.task_scope == 'GLOBAL' else 'Local Task' %}
-{% set owner_label = task.owner.full_name if task.owner and task.owner.full_name else (task.owner.username if task.owner else '—') %}
 {% set creator_label = task.creator.full_name if task.creator and task.creator.full_name else (task.creator.username if task.creator else '—') %}
 {% set office_label = task.office.office_name if task.office else '—' %}
 {% set can_open_full_page = allow_full_page if allow_full_page is defined else true %}
@@ -12,13 +11,12 @@
 {{ update.updater.full_name if update.updater and update.updater.full_name else (update.updater.username if update.updater else '—') }}
 {%- endmacro %}
 <div class="task-summary-panel">
+  {# The modal bar already carries the task title, so the panel does not repeat
+     it. It opens on identity and state, then goes straight to the latest remark. #}
   <div class="task-summary-hero">
     <div class="task-summary-hero-copy">
       <div class="task-summary-eyebrow">Task #{{ task.id }} · {{ scope_label }}</div>
-      <h2 class="task-summary-title">{{ task.task_title }}</h2>
-      <p class="task-summary-subtitle">
-        {{ task.task_origin or "Task Management workflow item" }}
-      </p>
+      <p class="task-summary-subtitle">{{ task.task_origin or "Task Management workflow item" }}</p>
     </div>
     <div class="task-summary-hero-meta">
       <span class="task-badge status-{{ task.status|lower|replace(' ', '-') }}">{{ task.status }}</span>
@@ -26,24 +24,27 @@
     </div>
   </div>
 
-  <div class="task-summary-stat-grid">
-    <div class="task-summary-stat-card">
-      <div class="task-summary-stat-label">Owner</div>
-      <div class="task-summary-stat-value">{{ owner_label }}</div>
+  {# One compact row rather than four cards: these are reference facts, and the
+     space they took pushed the latest remark below the fold. #}
+  <dl class="task-summary-meta-strip">
+    <div>
+      <dt>{{ 'Post' if task.assigned_post else 'Owner' }}</dt>
+      <dd>{{ task.assignment_label }}</dd>
     </div>
-    <div class="task-summary-stat-card">
-      <div class="task-summary-stat-label">Due Date</div>
-      <div class="task-summary-stat-value">{{ task.due_date.strftime('%d %b %Y') if task.due_date else '—' }}</div>
+    {# Named beside the owner: a task worked jointly should read that way at a
+       glance, rather than the collaborators sitting in a block further down. #}
+    <div class="task-summary-meta-collaborators">
+      <dt>Collaborators</dt>
+      <dd>
+        {%- if task.collaborator_links -%}
+        {% for link in task.collaborator_links %}{{ link.user.full_name or link.user.username }}{% if not loop.last %}, {% endif %}{% endfor %}
+        {%- else -%}None{%- endif -%}
+      </dd>
     </div>
-    <div class="task-summary-stat-card">
-      <div class="task-summary-stat-label">Office</div>
-      <div class="task-summary-stat-value">{{ office_label }}</div>
-    </div>
-    <div class="task-summary-stat-card">
-      <div class="task-summary-stat-label">Updates</div>
-      <div class="task-summary-stat-value">{{ updates|length }}</div>
-    </div>
-  </div>
+    <div><dt>Due date</dt><dd>{{ task.due_date.strftime('%d %b %Y') if task.due_date else '—' }}</dd></div>
+    <div><dt>Office</dt><dd>{{ office_label }}</dd></div>
+    <div><dt>Updates</dt><dd>{{ updates|length }}</dd></div>
+  </dl>
 
   <div class="task-summary-flow">
 
@@ -82,53 +83,6 @@
       </article>
       {% else %}
       <div class="task-summary-empty">No updates have been recorded yet.</div>
-      {% endif %}
-
-      {% if allow_manage_actions and can_add_update %}
-      <div class="task-summary-composer">
-        <div class="task-summary-composer-header">
-          <div>
-            <h4 class="task-summary-composer-title">Add Update</h4>
-            <p class="task-summary-composer-note">Post the latest progress here so the next user immediately sees where to type and what changed.</p>
-          </div>
-          <span class="task-summary-composer-pill">Type Here</span>
-        </div>
-        <form
-          id="task-update-form"
-          class="task-summary-composer-form"
-          method="POST"
-          action="{{ url_for('tasks.add_task_update', task_id=task.id) }}"
-        >
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <div class="form-group">
-            <label class="form-label" for="summaryUpdateText">Update <span style="color:var(--danger)">*</span></label>
-            <textarea
-              id="summaryUpdateText"
-              name="update_text"
-              class="form-control"
-              rows="5"
-              required
-              maxlength="5000"
-              placeholder="Example: Reviewed inputs from office and forwarded the draft for approval."
-            ></textarea>
-          </div>
-          <div class="task-summary-composer-actions">
-            <div class="form-group">
-              <label class="form-label" for="summaryNewStatus">Optional Status Change</label>
-              <select id="summaryNewStatus" name="new_status" class="form-control">
-                <option value="">No status change</option>
-                {% for status in ['Not Started', 'In Progress', 'On Hold', 'Completed', 'Cancelled'] %}
-                {% if status in ('Completed', 'Cancelled') and not can_close %}
-                {% else %}
-                <option value="{{ status }}">{{ status }}</option>
-                {% endif %}
-                {% endfor %}
-              </select>
-            </div>
-            <button type="submit" class="btn btn-primary">Post Update</button>
-          </div>
-        </form>
-      </div>
       {% endif %}
 
       {% if earlier_updates %}
@@ -171,6 +125,61 @@
       </details>
       {% endif %}
     </section>
+
+    {% if allow_manage_actions and can_add_update %}
+    <section class="task-summary-section">
+      <div class="task-summary-section-header">
+        <h3><i class="bi bi-pencil-square"></i> Add an update</h3>
+      </div>
+      <p class="task-summary-section-lede">Record the latest progress note, blocker, or completion remark against this task.</p>
+      <div class="task-summary-composer">
+        <div class="task-summary-composer-head">
+          <div>
+            <h4 class="task-summary-composer-title">New update</h4>
+            <p class="task-summary-composer-note">Visible to everyone who can see this task.</p>
+          </div>
+          <span class="task-summary-composer-pill">Type here</span>
+        </div>
+        <div class="task-summary-composer-body">
+        <form
+          id="task-update-form"
+          class="task-summary-composer-form"
+          method="POST"
+          action="{{ url_for('tasks.add_task_update', task_id=task.id) }}"
+        >
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="form-group">
+            <label class="form-label" for="summaryUpdateText">Update <span style="color:var(--danger)">*</span></label>
+            <textarea
+              id="summaryUpdateText"
+              name="update_text"
+              class="form-control"
+              rows="5"
+              required
+              maxlength="5000"
+              placeholder="Example: Reviewed inputs from office and forwarded the draft for approval."
+            ></textarea>
+          </div>
+          <div class="task-summary-composer-actions">
+            <div class="form-group">
+              <label class="form-label" for="summaryNewStatus">Optional Status Change</label>
+              <select id="summaryNewStatus" name="new_status" class="form-control">
+                <option value="">No status change</option>
+                {% for status in ['Not Started', 'In Progress', 'On Hold', 'Completed', 'Cancelled'] %}
+                {% if status in ('Completed', 'Cancelled') and not can_close %}
+                {% else %}
+                <option value="{{ status }}">{{ status }}</option>
+                {% endif %}
+                {% endfor %}
+              </select>
+            </div>
+            <button type="submit" class="btn btn-primary">Post Update</button>
+          </div>
+        </form>
+        </div>
+      </div>
+    </section>
+    {% endif %}
 
     <section class="task-summary-section">
       <div class="task-summary-section-header">
@@ -218,18 +227,6 @@
           <p>No detailed description has been added for this task.</p>
           {% endif %}
         </div>
-      </div>
-      <div class="task-summary-copy-block">
-        <div class="task-summary-copy-label">Collaborators</div>
-        {% if task.collaborator_links %}
-        <div class="task-summary-chip-row">
-          {% for link in task.collaborator_links %}
-          <span class="task-summary-chip">{{ link.user.full_name or link.user.username }}</span>
-          {% endfor %}
-        </div>
-        {% else %}
-        <p>No collaborators assigned.</p>
-        {% endif %}
       </div>
       {% if task.task_scope == 'GLOBAL' and task.tagged_offices %}
       <div class="task-summary-copy-block">

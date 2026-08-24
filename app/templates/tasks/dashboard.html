@@ -106,31 +106,33 @@
     <div class="mod-geo-heading">
       <div>
         <span>Location navigator</span>
-        <h2>Open tasks across locations</h2>
-        <p>Select a location to open the Task Register filtered to it. The map covers {{ navigator_scope }}; global tasks belong to the workspace rather than to one location, so they are counted separately.</p>
+        <h2>Task status across locations</h2>
+        <p>Select a location to open the Task Register filtered to it. The map covers {{ navigator_scope }}; global tasks belong to the workspace rather than to one location, so they are shown separately.</p>
       </div>
       {% if office_navigator %}
       {# An office working from two places contributes two locations, matching
          the pins the map draws for it. #}
       {% set counter = namespace(n=0) %}
       {% for office in office_navigator %}{% set counter.n = counter.n + (office.locations|length or 1) %}{% endfor %}
-      <span><i class="bi bi-geo-alt-fill"></i> {{ counter.n }} location{{ '' if counter.n == 1 else 's' }} · {{ office_navigator|sum(attribute='open_count') }} open</span>
+      <span><i class="bi bi-geo-alt-fill"></i> {{ counter.n }} location{{ '' if counter.n == 1 else 's' }}</span>
       {% endif %}
     </div>
 
-    {# Global work sits outside the map, with the same two counts. #}
+    {# Global work sits outside the map, reporting the same status the
+       locations do. #}
     <div class="om-geo-global">
       <div>
         <span>Global tasks</span>
         <small>Raised for the whole workspace, not for one location.</small>
       </div>
       <div class="om-geo-counts">
-        <a class="om-count is-open" href="{{ url_for('tasks.list_tasks', scope='GLOBAL') }}">
-          <strong>{{ global_task_counts.open_count }}</strong> open
-        </a>
-        <a class="om-count is-overdue {{ 'is-zero' if not global_task_counts.overdue_count }}" href="{{ url_for('tasks.list_tasks', scope='GLOBAL', focus='overdue') }}">
+        {% if global_task_counts.overdue_count %}
+        <a class="om-count is-overdue" href="{{ url_for('tasks.list_tasks', scope='GLOBAL', focus='overdue') }}">
           <strong>{{ global_task_counts.overdue_count }}</strong> overdue
         </a>
+        {% else %}
+        <a class="om-count is-clear" href="{{ url_for('tasks.list_tasks', scope='GLOBAL') }}">Nothing overdue</a>
+        {% endif %}
       </div>
     </div>
 
@@ -141,17 +143,20 @@
         {% for office in office_navigator %}
         <a class="mod-geo-list-button has-meta {{ 'is-overdue' if office.overdue_count else 'is-ready' }}"
            href="{{ url_for('tasks.list_tasks', office=office.id) }}"
-           title="{{ office.office_name }}{% if office.location %} · {{ office.location }}{% endif %} · {{ office.open_count }} open · {{ office.overdue_count }} overdue">
+           title="{{ office.office_name }}{% if office.location %} · {{ office.location }}{% endif %} · {{ office.overdue_count }} overdue">
           <strong>{{ office.office_name }}</strong>
           <small class="om-geo-counts">
-            <span class="om-count is-open"><strong>{{ office.open_count }}</strong> open</span>
-            <span class="om-count is-overdue {{ 'is-zero' if not office.overdue_count }}"><strong>{{ office.overdue_count }}</strong> overdue</span>
+            {% if office.overdue_count %}
+            <span class="om-count is-overdue"><strong>{{ office.overdue_count }}</strong> overdue</span>
+            {% else %}
+            <span class="om-count is-clear">Nothing overdue</span>
+            {% endif %}
           </small>
         </a>
         {% endfor %}
       </aside>
     </div>
-    <p class="mod-geo-legend"><span class="is-ready"><i></i> Open tasks</span><span class="is-overdue"><i></i> Overdue tasks</span></p>
+    <p class="mod-geo-legend"><span class="is-ready"><i></i> Nothing overdue</span><span class="is-overdue"><i></i> Has overdue tasks</span></p>
     {% else %}
     <p class="om-geo-empty"><i class="bi bi-geo-alt"></i> No open tasks are mapped to {{ navigator_scope }} at this time.</p>
     {% endif %}
@@ -185,7 +190,7 @@ const EXTRA_PINS={
 };
 const REGISTER_URL={{ url_for('tasks.list_tasks', office=999999)|tojson }};
 const open=office=>{window.location.href=REGISTER_URL.replace('999999',office.id)};
-const counts=office=>office.open_count+' open \u00b7 '+office.overdue_count+' overdue';
+const counts=office=>office.overdue_count?office.overdue_count+' overdue':'nothing overdue';
 /* The list beside the map is rendered server-side so its counts can carry the
    open/overdue colours; only the markers are drawn from here. */
 /* One entry per pin: the office's own seat, plus any further location the

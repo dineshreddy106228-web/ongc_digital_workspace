@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% from "admin/_admin_nav.html" import admin_nav with context %}
+{% from "components/ui.html" import page_header %}
+{% block title %}{{ 'Edit Post' if mode == 'edit' else 'Add Post' }}{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+  {{ admin_nav('posts') }}
+  {% call page_header(
+      ('Edit Post' if mode == 'edit' else 'Add Post'),
+      'A post outlives the people who hold it. Changing the holder records a handover; it never alters what the previous holder wrote.',
+      'Administration', 'Admin', 'neutral') %}
+    <a href="{{ url_for('admin.office_posts') }}" class="btn btn-secondary"><i class="bi bi-arrow-left"></i> <span>All Posts</span></a>
+  {% endcall %}
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+    <div class="alert alert-{{ category }}">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  <div class="card">
+    <div class="card-body">
+      <form method="POST">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="post_code" class="form-label">Post Code <span style="color:var(--danger)">*</span></label>
+            <input type="text" id="post_code" name="post_code" class="form-control" required maxlength="50"
+                   placeholder="e.g. HEAD_RGL_RJY"
+                   value="{{ form_data.get('post_code', '') or (post.post_code if mode == 'edit' else '') }}">
+            <small class="form-hint">A stable identifier for the post. It does not change when the holder does.</small>
+          </div>
+
+          <div class="form-group">
+            <label for="post_title" class="form-label">Post Title <span style="color:var(--danger)">*</span></label>
+            <input type="text" id="post_title" name="post_title" class="form-control" required maxlength="150"
+                   placeholder="e.g. Head, RGL Rajahmundry"
+                   value="{{ form_data.get('post_title', '') or (post.post_title if mode == 'edit' else '') }}">
+          </div>
+
+          <div class="form-group">
+            <label for="office_id" class="form-label">Office <span style="color:var(--danger)">*</span></label>
+            <select id="office_id" name="office_id" class="form-control" required>
+              <option value="">Select an office</option>
+              {% for office in offices %}
+              <option value="{{ office.id }}"
+                {{ 'selected' if (form_data.get('office_id')|string == office.id|string) or (mode == 'edit' and post.office_id == office.id) }}>
+                {{ office.office_name }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="holder_user_id" class="form-label">Current Holder</label>
+            <select id="holder_user_id" name="holder_user_id" class="form-control">
+              <option value="">Vacant</option>
+              {% for user in holders %}
+              <option value="{{ user.id }}"
+                {{ 'selected' if (form_data.get('holder_user_id')|string == user.id|string) or (mode == 'edit' and post.holder_user_id == user.id) }}>
+                {{ user.full_name or user.username }}{% if user.office %} · {{ user.office.office_name }}{% endif %}
+              </option>
+              {% endfor %}
+            </select>
+            <small class="form-hint">Changing this closes the outgoing tenure and opens a new one. Leave as Vacant between holders.</small>
+          </div>
+
+          <div class="form-group">
+            <label for="description" class="form-label">Description</label>
+            <input type="text" id="description" name="description" class="form-control" maxlength="255"
+                   placeholder="What this post is responsible for"
+                   value="{{ form_data.get('description', '') or (post.description if mode == 'edit' else '') }}">
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">{{ 'Update Post' if mode == 'edit' else 'Create Post' }}</button>
+          <a href="{{ url_for('admin.office_posts') }}" class="btn btn-secondary">Cancel</a>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  {% if mode == 'edit' and post.assignments %}
+  <div class="card" style="margin-top:1rem">
+    <div class="card-body">
+      <h2 class="mod-card-title">Succession</h2>
+      <p class="mod-card-sub">Who has held this post, newest first. Closed tenures are kept so past records stay readable.</p>
+      <div class="table-responsive">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th scope="col">Holder</th>
+              <th scope="col">From</th>
+              <th scope="col">To</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for assignment in post.assignments %}
+            <tr>
+              <td>
+                <strong>{{ assignment.holder_name or (assignment.user.full_name if assignment.user else '—') }}</strong>
+                {% if assignment.is_current %}<span class="badge badge-active">Current</span>{% endif %}
+              </td>
+              <td>{{ assignment.started_at|datetime_ist('%d %b %Y') if assignment.started_at else '—' }}</td>
+              <td>{{ assignment.ended_at|datetime_ist('%d %b %Y') if assignment.ended_at else '—' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
