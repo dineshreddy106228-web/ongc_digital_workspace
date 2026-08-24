@@ -100,6 +100,31 @@ class Config:
     LOGIN_RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get("LOGIN_RATE_LIMIT_WINDOW_SECONDS", "300"))
     LOGIN_RATE_LIMIT_LOCK_SECONDS = int(os.environ.get("LOGIN_RATE_LIMIT_LOCK_SECONDS", "300"))
 
+    # ── Password reset requests ──────────────────────────────────
+    # A temporary password is a stop-gap the user is expected to replace on
+    # the next sign-in, so its life is measured in hours, not days.
+    PASSWORD_RESET_TEMP_TTL_HOURS = int(
+        os.environ.get("PASSWORD_RESET_TEMP_TTL_HOURS", "3")
+    )
+    # An unhandled request goes stale; expiring it keeps the admin queue
+    # showing live work and lets the user raise a fresh one.
+    PASSWORD_RESET_REQUEST_TTL_HOURS = int(
+        os.environ.get("PASSWORD_RESET_REQUEST_TTL_HOURS", "24")
+    )
+    PASSWORD_MIN_LENGTH = int(os.environ.get("PASSWORD_MIN_LENGTH", "8"))
+    # Shortlist an admin can pick from when dictating a password over the
+    # phone.  These values are public knowledge by design — they are only ever
+    # safe because approval requires verified identity and expires in hours,
+    # and because no user may keep one as their own password.
+    PASSWORD_RESET_PRESETS = [
+        entry.strip()
+        for entry in os.environ.get(
+            "PASSWORD_RESET_PRESETS",
+            "Password@123,Ongc@12345,Welcome@123",
+        ).split(",")
+        if entry.strip()
+    ]
+
     # ── CSP rollout (report-only by default to avoid behavior changes) ─────
     CSP_ENABLED = _as_bool(os.environ.get("CSP_ENABLED"), default=True)
     CSP_REPORT_ONLY = _as_bool(os.environ.get("CSP_REPORT_ONLY"), default=False)

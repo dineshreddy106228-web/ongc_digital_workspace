@@ -1363,6 +1363,30 @@ body.workspace-flyout-open .workspace-backdrop {
     display: block;
 }
 
+.auth-form-footer {
+    margin-top: 1rem;
+    text-align: center;
+    font-size: .85rem;
+}
+
+.auth-form-footer a { color: var(--accent); text-decoration: none; }
+.auth-form-footer a:hover { text-decoration: underline; }
+
+/* Explains, on the change-password card, why the current-password field is
+   absent for someone who signed in with an admin-issued password. */
+.auth-notice {
+    border: 1px solid color-mix(in srgb, var(--warning) 40%, var(--border));
+    background: color-mix(in srgb, var(--warning) 10%, var(--surface));
+    border-radius: 8px;
+    padding: .8rem .9rem;
+    margin-bottom: 1.4rem;
+    font-size: .85rem;
+    line-height: 1.5;
+    color: var(--text);
+}
+
+.auth-notice strong { display: block; margin-bottom: .2rem; }
+
 /* ── Flash messages ─────────────────────────────────────────── */
 .flash-area { margin-bottom: 1.5rem; }
 

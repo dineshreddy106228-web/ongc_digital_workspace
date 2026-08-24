@@ -7,6 +7,7 @@ from app.models.office.office_post import OfficePost, OfficePostAssignment  # no
 from app.models.core.user_module_permission import UserModulePermission  # noqa: F401
 from app.models.core.module_admin_assignment import ModuleAdminAssignment  # noqa: F401
 from app.models.core.audit_log import AuditLog                          # noqa: F401
+from app.models.core.password_reset_request import PasswordResetRequest  # noqa: F401
 from app.models.tasks.task import Task                                    # noqa: F401
 from app.models.tasks.task_collaborator import TaskCollaborator          # noqa: F401
 from app.models.tasks.recurring_task_template import RecurringTaskTemplate  # noqa: F401

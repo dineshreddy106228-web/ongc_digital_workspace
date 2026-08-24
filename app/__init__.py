@@ -4,7 +4,7 @@ import logging
 import os
 import secrets
 from importlib import import_module
-from flask import Flask, flash, g, jsonify, redirect, render_template_string, request
+from flask import Flask, flash, g, jsonify, redirect, render_template_string, request, url_for
 from flask_login import current_user
 from flask_wtf.csrf import CSRFError
 from config import Config
@@ -90,6 +90,31 @@ def create_app(config_class=Config):
     @app.before_request
     def set_csp_nonce():
         g.csp_nonce = secrets.token_urlsafe(16)
+
+    # ── A pending password change blocks everything else ─────────
+    # An admin-issued password is meant to survive exactly one sign-in.  Without
+    # this gate a user could reach the change-password prompt and simply
+    # navigate away, leaving a shared or dictated credential live on the
+    # account for the rest of its window.
+    _PASSWORD_CHANGE_EXEMPT = {
+        "auth.change_password",
+        "auth.logout",
+        "auth.login",
+        "auth.forgot_password",
+        "static",
+    }
+
+    @app.before_request
+    def force_pending_password_change():
+        endpoint = request.endpoint
+        if endpoint in (None, "static") or endpoint in _PASSWORD_CHANGE_EXEMPT:
+            return None
+        if not current_user.is_authenticated:
+            return None
+        if not getattr(current_user, "must_change_password", False):
+            return None
+        flash("Please change your password before continuing.", "warning")
+        return redirect(url_for("auth.change_password"))
 
     # ── Recurring routines catch up on first use each day ────────
     # A cron running `flask generate-recurring-tasks` is the intended trigger;

@@ -63,6 +63,28 @@
     color: var(--mod-on-accent);
 }
 
+/* Count of items waiting on the reader in that section — currently the
+   password reset queue, where an unseen request is a person locked out. */
+.mod-nav-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: var(--danger);
+    color: #fff;
+    font-size: .72rem;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.mod-nav a.is-active .mod-nav-badge {
+    background: var(--mod-on-accent);
+    color: var(--mod-accent);
+}
+
 /* ── Hero ────────────────────────────────────────────────────── */
 
 /* The module header follows the home page identity bar: no card, no

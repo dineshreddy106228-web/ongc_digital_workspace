@@ -2436,3 +2436,160 @@ body.modal-open {
     grid-template-columns: 1fr;
   }
 }
+
+/* ── Password reset requests ──────────────────────────────────────
+   A queue where each row is a person who cannot get in. The issued
+   credential is shown once, so it is given the loudest treatment on
+   the page and never repeated afterwards. */
+.pw-section-title {
+  margin: 0 0 0.9rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.pw-issued-card {
+  border-color: var(--accent);
+  margin-bottom: 1.25rem;
+}
+
+.pw-issued-kicker {
+  display: inline-block;
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.pw-issued-title {
+  margin: .35rem 0 .2rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.pw-issued-meta,
+.pw-issued-note {
+  margin: 0;
+  font-size: .84rem;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.pw-issued-value {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  flex-wrap: wrap;
+  margin: .9rem 0;
+}
+
+.pw-issued-value code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 1.3rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  padding: .5rem .8rem;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: var(--surface-alt);
+  color: var(--text);
+  user-select: all;
+}
+
+.pw-request {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.1rem 1.15rem;
+  margin-bottom: 1rem;
+  background: var(--surface);
+}
+
+.pw-request:last-child { margin-bottom: 0; }
+
+.pw-request-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: .9rem;
+}
+
+.pw-request-head h3 {
+  margin: 0 0 .2rem;
+  font-size: .98rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.pw-request-when { text-align: right; }
+
+.pw-request-flag {
+  margin: 0 0 .9rem;
+  padding: .55rem .7rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warning) 12%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--warning) 35%, var(--border));
+  font-size: .82rem;
+  color: var(--text);
+}
+
+.pw-privileged-tag {
+  display: inline-block;
+  margin-left: .45rem;
+  padding: .15rem .5rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--danger) 14%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--border));
+  color: var(--danger);
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.pw-request-flag-privileged {
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
+}
+
+.pw-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: .75rem;
+  margin-bottom: 1rem;
+}
+
+.pw-mode {
+  display: flex;
+  gap: .6rem;
+  align-items: flex-start;
+  padding: .8rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-alt);
+  cursor: pointer;
+}
+
+.pw-mode span { display: block; }
+.pw-mode strong { display: block; font-size: .88rem; color: var(--text); }
+.pw-mode small { display: block; margin: .15rem 0 .5rem; font-size: .78rem; color: var(--muted); line-height: 1.45; }
+.pw-mode .form-control { margin-bottom: .4rem; }
+.pw-mode .form-control:last-child { margin-bottom: 0; }
+
+.pw-verify {
+  display: flex;
+  gap: .6rem;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+  font-size: .84rem;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+@media (max-width: 640px) {
+  .pw-request-when { text-align: left; }
+}

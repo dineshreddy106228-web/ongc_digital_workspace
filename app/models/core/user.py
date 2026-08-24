@@ -2,7 +2,7 @@
 
 import logging
 from functools import lru_cache
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from flask_login import UserMixin
 from sqlalchemy import inspect
 from sqlalchemy.exc import OperationalError, ProgrammingError
@@ -56,6 +56,13 @@ class User(UserMixin, db.Model):
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     must_change_password = db.Column(db.Boolean, default=True, nullable=False)
     last_login_at = db.Column(db.DateTime, nullable=True)
+
+    # ── Temporary password state ──────────────────────────────────
+    # An admin-issued password is a stop-gap, not a credential the account
+    # keeps.  The expiry is what makes it one: past it the password stops
+    # working and the user has to ask again.
+    temp_password_expires_at = db.Column(db.DateTime, nullable=True)
+    temp_password_used_at = db.Column(db.DateTime, nullable=True)
 
     created_at = db.Column(
         db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
@@ -220,6 +227,34 @@ class User(UserMixin, db.Model):
             return check_password_hash(self.password_hash, password)
         except (AttributeError, ValueError):
             return False
+
+    # ── Temporary password lifecycle ──────────────────────────────
+    def set_temporary_password(self, password: str, ttl_hours: int) -> datetime:
+        """Issue an admin-set password that stops working after *ttl_hours*."""
+        self.set_password(password)
+        self.must_change_password = True
+        self.temp_password_used_at = None
+        self.temp_password_expires_at = datetime.now(timezone.utc) + timedelta(
+            hours=max(int(ttl_hours), 1)
+        )
+        return self.temp_password_expires_at
+
+    def clear_temporary_password_state(self) -> None:
+        """Drop temporary-password bookkeeping once a real password is set."""
+        self.temp_password_expires_at = None
+        self.temp_password_used_at = None
+
+    def has_temporary_password(self) -> bool:
+        return self.temp_password_expires_at is not None
+
+    def temporary_password_expired(self, now=None) -> bool:
+        """True when a temporary password was issued and its window has closed."""
+        if self.temp_password_expires_at is None:
+            return False
+        expires_at = self.temp_password_expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        return (now or datetime.now(timezone.utc)) >= expires_at
 
     # ── Role helpers (existing – preserved) ──────────────────────
     def has_role(self, *role_names: str) -> bool:

@@ -15,7 +15,7 @@ from pathlib import Path
 import tempfile
 from datetime import datetime, timezone
 from io import BytesIO
-from flask import render_template, redirect, url_for, flash, request, send_file
+from flask import render_template, redirect, url_for, flash, request, send_file, current_app
 from flask_login import login_required, current_user
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import joinedload
@@ -36,6 +36,12 @@ from app.models.core.announcement import (
     AnnouncementVote,
 )
 from app.models.core.notification import Notification
+from app.models.core.password_reset_request import (
+    STATUS_APPROVED,
+    STATUS_PENDING,
+    STATUS_REJECTED,
+    PasswordResetRequest,
+)
 from app.models.csc.draft import CSCDraft
 from app.models.csc.revision import CSCRevision
 from app.models.inventory.inventory_consumption_seed import InventoryConsumptionSeed
@@ -56,6 +62,16 @@ from app.core.utils.decorators import roles_required
 from app.core.utils.request_meta import get_client_ip, get_user_agent
 from app.core.utils.activity import log_activity
 from app.core.permissions import can_manage_offices
+from app.core.services.password_reset import (
+    expire_stale_requests,
+    generate_temporary_password,
+    is_preset_password,
+    password_min_length,
+    pending_request_count,
+    preset_passwords,
+    temp_password_ttl_hours,
+    validate_chosen_password,
+)
 from app.core.module_registry import invalidate_user_module_access_cache
 from app.core.services.backups import (
     BackupError,
@@ -1384,20 +1400,38 @@ def reset_user_password(user_id):
         confirm_password = request.form.get("confirm_password", "")
 
         errors = []
-        if not new_password:
-            errors.append("New password is required.")
-        elif len(new_password) < 6:
-            errors.append("Password must be at least 6 characters.")
+        validation_error = validate_chosen_password(new_password)
+        if validation_error:
+            errors.append(validation_error)
         if new_password and new_password != confirm_password:
             errors.append("Passwords do not match.")
 
         if errors:
             for err in errors:
                 flash(err, "danger")
-            return render_template("admin/reset_user_password.html", target=target)
+            return render_template(
+                "admin/reset_user_password.html",
+                target=target,
+                min_length=password_min_length(),
+                temp_ttl_hours=temp_password_ttl_hours(),
+            )
 
-        target.set_password(new_password)
-        target.must_change_password = True
+        # An admin-set password is a temporary one wherever it comes from, so
+        # it carries the same expiry as one issued from the request queue.
+        expires_at = target.set_temporary_password(
+            new_password, temp_password_ttl_hours()
+        )
+
+        # A direct reset answers any request the user already raised.
+        pending = PasswordResetRequest.query.filter_by(
+            user_id=target.id, status=STATUS_PENDING
+        ).all()
+        for entry in pending:
+            entry.status = STATUS_APPROVED
+            entry.handled_by_id = current_user.id
+            entry.handled_at = datetime.now(timezone.utc)
+            entry.handled_note = "Handled by a direct reset from User Management."
+            entry.temp_password_expires_at = expires_at
         db.session.flush()
 
         AuditLog.log(
@@ -1407,7 +1441,7 @@ def reset_user_password(user_id):
             entity_id=str(target.id),
             details=(
                 f"Admin '{current_user.username}' reset password for user '{target.username}'. "
-                f"must_change_password set to True."
+                f"must_change_password set to True; expires {expires_at.isoformat()}."
             ),
             ip_address=_client_ip(),
             user_agent=get_user_agent(),
@@ -1418,13 +1452,194 @@ def reset_user_password(user_id):
         db.session.commit()
 
         flash(
-            f"Password for '{target.username}' has been reset. "
-            "They will be required to change it on next login.",
+            f"Password for '{target.username}' has been reset. They must change "
+            f"it on next login, and it stops working after "
+            f"{temp_password_ttl_hours()} hours.",
             "success",
         )
         return redirect(url_for("admin.users"))
 
-    return render_template("admin/reset_user_password.html", target=target)
+    return render_template(
+        "admin/reset_user_password.html",
+        target=target,
+        min_length=password_min_length(),
+        temp_ttl_hours=temp_password_ttl_hours(),
+    )
+
+
+# ── Password Reset Requests ──────────────────────────────────────
+# A request arrives from an unauthenticated form, so it proves nothing about
+# who sent it.  The administrator is the control: they confirm the caller is
+# who they say they are, and only then does a credential get issued.
+_RESET_MODE_GENERATE = "generate"
+_RESET_MODE_PRESET = "preset"
+_RESET_MODE_CUSTOM = "custom"
+
+
+def _reset_queue_context(**extra):
+    expire_stale_requests()
+    pending = (
+        PasswordResetRequest.query.filter_by(status=STATUS_PENDING)
+        .order_by(PasswordResetRequest.created_at.asc())
+        .all()
+    )
+    recent = (
+        PasswordResetRequest.query.filter(
+            PasswordResetRequest.status != STATUS_PENDING
+        )
+        .order_by(PasswordResetRequest.created_at.desc())
+        .limit(25)
+        .all()
+    )
+    context = {
+        "pending_requests": pending,
+        "recent_requests": recent,
+        "presets": preset_passwords(),
+        "temp_ttl_hours": temp_password_ttl_hours(),
+        "request_ttl_hours": current_app.config.get(
+            "PASSWORD_RESET_REQUEST_TTL_HOURS", 24
+        ),
+        "min_length": password_min_length(),
+        "issued": None,
+    }
+    context.update(extra)
+    return context
+
+
+@admin_bp.route("/password-requests")
+@login_required
+@roles_required(ADMIN_ROLE)
+def password_requests():
+    return render_template("admin/password_requests.html", **_reset_queue_context())
+
+
+@admin_bp.route("/password-requests/<int:request_id>/approve", methods=["POST"])
+@login_required
+@roles_required(ADMIN_ROLE)
+def approve_password_request(request_id):
+    reset_request = PasswordResetRequest.query.get_or_404(request_id)
+    target = reset_request.user
+
+    def _reject_with(message, status=400):
+        flash(message, "danger")
+        return render_template("admin/password_requests.html", **_reset_queue_context()), status
+
+    if not reset_request.is_pending:
+        return _reject_with("That request has already been handled.", 409)
+
+    if target is None:
+        return _reject_with("The account behind that request no longer exists.", 404)
+
+    if target.id == current_user.id:
+        return _reject_with("Use Change Password to set your own password.", 403)
+
+    if not request.form.get("identity_verified"):
+        return _reject_with(
+            "Confirm you verified the request with the user before issuing a "
+            "temporary password."
+        )
+
+    mode = request.form.get("password_mode", _RESET_MODE_GENERATE)
+
+    if mode == _RESET_MODE_GENERATE:
+        new_password = generate_temporary_password()
+    elif mode == _RESET_MODE_PRESET:
+        chosen = request.form.get("preset_password", "")
+        # Never trust the posted value: it has to be one of ours.
+        if chosen not in preset_passwords():
+            return _reject_with("Select one of the listed shared passwords.")
+        new_password = chosen
+    elif mode == _RESET_MODE_CUSTOM:
+        new_password = request.form.get("custom_password", "")
+        error = validate_chosen_password(new_password)
+        if error:
+            return _reject_with(error)
+        if new_password != request.form.get("confirm_custom_password", ""):
+            return _reject_with("The typed passwords do not match.")
+    else:
+        return _reject_with("Choose how the temporary password should be set.")
+
+    expires_at = target.set_temporary_password(new_password, temp_password_ttl_hours())
+    reset_request.status = STATUS_APPROVED
+    reset_request.handled_by_id = current_user.id
+    reset_request.handled_at = datetime.now(timezone.utc)
+    reset_request.handled_note = request.form.get("note", "").strip()[:255]
+    reset_request.temp_password_expires_at = expires_at
+    db.session.flush()
+
+    AuditLog.log(
+        action="PASSWORD_RESET_REQUEST_APPROVED",
+        user_id=current_user.id,
+        entity_type="User",
+        entity_id=str(target.id),
+        details=(
+            f"Admin '{current_user.username}' issued a "
+            f"{'shared' if is_preset_password(new_password) else mode} temporary "
+            f"password for '{target.username}' (request #{reset_request.id}); "
+            f"identity verified; expires {expires_at.isoformat()}."
+        ),
+        ip_address=_client_ip(),
+        user_agent=get_user_agent(),
+    )
+    log_activity(current_user.username, "password_reset_approved", "user", target.username)
+    db.session.commit()
+
+    # Rendered rather than redirected: the plaintext is shown once, on this
+    # response, and never put into the session cookie to survive the round trip.
+    return render_template(
+        "admin/password_requests.html",
+        **_reset_queue_context(
+            issued={
+                "username": target.username,
+                "full_name": target.full_name or target.username,
+                "password": new_password,
+                "expires_at": expires_at,
+                "is_shared": is_preset_password(new_password),
+            }
+        ),
+    )
+
+
+@admin_bp.route("/password-requests/<int:request_id>/reject", methods=["POST"])
+@login_required
+@roles_required(ADMIN_ROLE)
+def reject_password_request(request_id):
+    reset_request = PasswordResetRequest.query.get_or_404(request_id)
+
+    if not reset_request.is_pending:
+        flash("That request has already been handled.", "warning")
+        return redirect(url_for("admin.password_requests"))
+
+    reset_request.status = STATUS_REJECTED
+    reset_request.handled_by_id = current_user.id
+    reset_request.handled_at = datetime.now(timezone.utc)
+    reset_request.handled_note = request.form.get("note", "").strip()[:255]
+    db.session.flush()
+
+    AuditLog.log(
+        action="PASSWORD_RESET_REQUEST_REJECTED",
+        user_id=current_user.id,
+        entity_type="User",
+        entity_id=str(reset_request.user_id),
+        details=(
+            f"Admin '{current_user.username}' rejected reset request "
+            f"#{reset_request.id}. Note: {reset_request.handled_note or '—'}"
+        ),
+        ip_address=_client_ip(),
+        user_agent=get_user_agent(),
+    )
+    db.session.commit()
+
+    flash("Reset request rejected.", "success")
+    return redirect(url_for("admin.password_requests"))
+
+
+@admin_bp.context_processor
+def inject_pending_reset_count():
+    """Surfaces the queue depth on the administration nav."""
+    if not current_user.is_authenticated or not current_user.has_role(ADMIN_ROLE):
+        return {"pending_reset_count": 0}
+    return {"pending_reset_count": pending_request_count()}
 
 
 # ── Toggle Active ────────────────────────────────────────────────

@@ -12,6 +12,10 @@
   <a class="{{ 'is-active' if active == 'posts' }}" href="{{ url_for('admin.office_posts') }}">
     <i class="bi bi-person-badge"></i><span>Office Posts</span>
   </a>
+  <a class="{{ 'is-active' if active == 'password-requests' }}" href="{{ url_for('admin.password_requests') }}">
+    <i class="bi bi-key"></i><span>Password Requests</span>
+    {% if pending_reset_count %}<span class="mod-nav-badge">{{ pending_reset_count }}</span>{% endif %}
+  </a>
   <a class="{{ 'is-active' if active == 'modules' }}" href="{{ url_for('admin.module_management') }}">
     <i class="bi bi-grid"></i><span>Module Management</span>
   </a>

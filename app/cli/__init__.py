@@ -17,6 +17,7 @@ def register_cli(app):
         sync_csc_master_data_command,
     )
     from app.cli.normalize import normalize_roles
+    from app.cli.passwords import issue_temp_password
     from app.cli.seed import (
         fix_password_hashes,
         list_users,
@@ -40,6 +41,7 @@ def register_cli(app):
     app.cli.add_command(normalize_roles)
     app.cli.add_command(generate_recurring_tasks)
     app.cli.add_command(fix_password_hashes)
+    app.cli.add_command(issue_temp_password)
 
     # Inventory CLI commands depend on pandas/numpy (heavy optional deps).
     # Import and register them only when ENABLE_INVENTORY is explicitly True
