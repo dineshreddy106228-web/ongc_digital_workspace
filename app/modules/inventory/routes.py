@@ -225,30 +225,62 @@ def material(material_id: int):
 @login_required
 @module_access_required("inventory")
 def administration():
-    if not current_user.is_super_user(): abort(403)
+    """Monitoring thresholds. Everyone with module access may read them; only a
+    superuser may change them, and every change is recorded."""
+    from app.core.services.administration import (
+        administration_trail, can_edit_administration, record_admin_change,
+    )
     from app.models.inventory.monitoring import InventoryMonitoringThreshold
+
+    can_edit = can_edit_administration()
     if request.method == "POST":
+        if not can_edit:
+            abort(403)
         try:
+            from decimal import Decimal
+
+            changes = []
             for key in ("critical_low_stock_months", "low_stock_months", "slow_moving_months", "excess_stock_months"):
                 value = request.form.get(key, "").strip()
                 if value:
                     item = db.session.get(InventoryMonitoringThreshold, key) or InventoryMonitoringThreshold(key=key)
+                    # Compare as numbers: the column is Numeric, so a stored 2
+                    # reads back as Decimal('2.00') and would never equal "2".
+                    incoming = Decimal(value)
+                    if item.value is None or Decimal(item.value) != incoming:
+                        previous = "unset" if item.value is None else f"{Decimal(item.value):g}"
+                        changes.append(f"{key.replace('_', ' ')}: {previous} → {incoming:g}")
                     item.value, item.updated_by = value, current_user.id; db.session.add(item)
+            if changes:
+                record_admin_change(
+                    "inventory", "Thresholds updated — " + "; ".join(changes),
+                    entity_id="thresholds", ip_address=request.remote_addr or "",
+                )
             db.session.commit(); flash("Monitoring thresholds updated.", "success")
         except Exception:
             db.session.rollback(); flash("Thresholds must be valid numbers.", "danger")
     thresholds = {item.key: item for item in InventoryMonitoringThreshold.query.all()}
-    return render_template("inventory/administration.html", thresholds=thresholds)
+    return render_template(
+        "inventory/administration.html", thresholds=thresholds,
+        can_edit=can_edit, admin_trail=administration_trail("inventory"),
+    )
 
 
 @inventory_bp.route("/administration/fill-units", methods=["POST"])
 @login_required
 @module_access_required("inventory")
 def fill_missing_units():
-    if not current_user.is_super_user(): abort(403)
+    from app.core.services.administration import can_edit_administration, record_admin_change
+    if not can_edit_administration():
+        abort(403)
     from app.core.services.inventory_monitoring import backfill_missing_uom
     try:
         updated = backfill_missing_uom()
+        if updated:
+            record_admin_change(
+                "inventory", f"Units of measure backfilled for {updated:,} stock lines.",
+                entity_id="unit-backfill", ip_address=request.remote_addr or "",
+            )
         db.session.commit()
         flash(
             f"{updated:,} stock lines were given a unit of measure from consumption history."

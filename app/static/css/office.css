@@ -845,7 +845,26 @@
     font-size: .88rem;
     font-weight: 600;
     text-decoration: none;
-}.cal-modal-task-link:hover{ text-decoration: underline; }.cal-modal-status{
+}.cal-modal-task-link:hover{ text-decoration: underline; }.cal-modal-group-heading{
+    display: block;
+    margin: 14px 0 2px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    color: var(--tone-bad-fg);
+    font-size: .72rem;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}.cal-modal-group-heading:first-child{ margin-top: 0; padding-top: 0; border-top: none; }.cal-modal-show-more{ margin-top: 6px; }.cal-modal-show-more button{
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--om-accent);
+    font-size: .76rem;
+    font-weight: 600;
+    cursor: pointer;
+}.cal-modal-show-more button:hover{ background: var(--surface-alt); }.cal-modal-status{
     flex-shrink: 0;
     color: var(--muted);
     font-size: .72rem;

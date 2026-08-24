@@ -7,6 +7,6 @@
   <a class="{{ 'is-active' if active == 'history' }}" href="{{ url_for('quality_control.sample_history') }}"><i class="bi bi-database"></i><span>Sample Register</span></a>
   <a class="{{ 'is-active' if active == 'review' }}" href="{{ url_for('quality_control.portfolio_management_review') }}"><i class="bi bi-easel2"></i><span>Management Review</span></a>
   <a class="{{ 'is-active' if active == 'analytics' }}" href="{{ url_for('quality_control.management_analytics') }}"><i class="bi bi-bar-chart-line"></i><span>Management Analytics</span></a>
-  {% if current_user.is_super_user() %}<a class="{{ 'is-active' if active == 'standards' }}" href="{{ url_for('quality_control.testing_standards') }}"><i class="bi bi-sliders"></i><span>Administration</span></a>{% endif %}
+  <a class="{{ 'is-active' if active == 'standards' }}" href="{{ url_for('quality_control.testing_standards') }}"><i class="bi bi-sliders"></i><span>Administration</span></a>
 </nav>
 {% endmacro %}

@@ -1434,7 +1434,37 @@ def calendar_data():
             (item["title"] or "").lower(),
         )
     )
-    return jsonify({"year": year, "month": month, "items": items})
+
+    # Work that is already late travels with every month, because looking at a
+    # day ahead should still show what is outstanding from before it. Overdue is
+    # measured against today, not against the day being viewed: a task due later
+    # this week has not been missed yet.
+    today = date_type.today()
+    overdue_rows = (
+        _task_dashboard_query()
+        .filter(
+            Task.is_active.is_(True),
+            Task.due_date.isnot(None),
+            Task.due_date < today,
+            Task.status.notin_(CLOSED_TASK_STATUSES),
+        )
+        .order_by(Task.due_date.asc(), Task.id.asc())
+        .all()
+    )
+    overdue = [
+        {
+            "id": int(t.id),
+            "template_id": int(t.recurring_template_id) if t.recurring_template_id else None,
+            "title": t.task_title or "",
+            "scope": _normalize_task_scope(t.task_scope),
+            "due_date": t.due_date.strftime("%Y-%m-%d"),
+            "status": t.status or "Not Started",
+            "is_projected": False,
+        }
+        for t in overdue_rows
+    ]
+
+    return jsonify({"year": year, "month": month, "items": items, "overdue": overdue})
 
 
 # ── Create Task ───────────────────────────────────────────────────

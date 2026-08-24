@@ -498,6 +498,11 @@ let currentYear = {{ calendar_initial.year }};
 let currentMonth = {{ calendar_initial.month }} - 1;  // 0-based
 const monthCache = new Map(); // key: "YYYY-MM"
 let activeDateMap = {};
+/* Work already late, independent of the month on screen: looking at a day
+   ahead should still show what is outstanding from before it. */
+let overdueTasks = [];
+const TODAY_ISO = new Date().toLocaleDateString('en-CA');
+const OVERDUE_PREVIEW = 5;
 const charts = [];
 
 function themeValue(name, fallback) {
@@ -552,6 +557,7 @@ async function loadCalendarMonth(year, month0) {
     const map = buildDateMapFromItems(Array.isArray(payload.items) ? payload.items : []);
     monthCache.set(key, map);
     activeDateMap = map;
+    overdueTasks = Array.isArray(payload.overdue) ? payload.overdue : [];
   } catch (err) {
     console.error('Calendar month load failed:', err);
     activeDateMap = {};
@@ -643,6 +649,50 @@ const overlay   = document.getElementById('cal-modal-overlay');
 const modalList = document.getElementById('cal-modal-list');
 const modalTitle= document.getElementById('cal-modal-title');
 
+/* One row, shared by both groups in the day modal. */
+function buildTaskRow(task, options) {
+  const li = document.createElement('li');
+  li.className = 'cal-modal-task-item';
+
+  const dot = document.createElement('span');
+  dot.className = 'cal-modal-scope-dot';
+  dot.style.background = getScopeColors()[task.scope] || themeValue('--muted', '#666');
+  dot.title = SCOPE_LABELS[task.scope] || String(task.scope || '');
+
+  const link = document.createElement('a');
+  link.className = 'cal-modal-task-link';
+  if (task.id) {
+    link.href = `/tasks/${Number(task.id) || 0}`;
+    link.dataset.taskSummaryUrl = TASK_SUMMARY_URL_TEMPLATE.replace('999999', String(Number(task.id) || 0));
+    link.dataset.taskSummaryTitle = String(task.title || '');
+    link.addEventListener('click', closeModal);
+  } else if (task.template_id) {
+    link.href = TASK_SERIES_URL_TEMPLATE.replace('999999', String(Number(task.template_id) || 0));
+    link.addEventListener('click', closeModal);
+  } else {
+    link.href = '#';
+  }
+  link.textContent = String(task.title || '');
+
+  const status = document.createElement('span');
+  status.className = 'cal-modal-status';
+  if (options && options.showDueDate) {
+    // In the overdue group the day it was due is the point, not the status.
+    const [y, m, dd] = String(task.due_date || '').split('-');
+    const due = y ? `${dd} ${MONTH_NAMES[Number(m) - 1].slice(0, 3)} ${y}` : task.due_date;
+    status.textContent = `Due ${due} · ${String(task.status || '')}`.trim();
+  } else {
+    status.textContent = task.is_projected
+      ? `Scheduled · ${String(task.status || '')}`.trim()
+      : String(task.status || '');
+  }
+
+  li.appendChild(dot);
+  li.appendChild(link);
+  li.appendChild(status);
+  return li;
+}
+
 function openModalByDate(dateStr) {
   const tasks = activeDateMap[dateStr] || [];
   const [yyyy, mm, dd] = dateStr.split('-');
@@ -658,41 +708,39 @@ function openModalByDate(dateStr) {
     empty.textContent = 'No tasks.';
     modalList.appendChild(empty);
   } else {
-    tasks.forEach((task) => {
-      const li = document.createElement('li');
-      li.className = 'cal-modal-task-item';
+    tasks.forEach((task) => modalList.appendChild(buildTaskRow(task)));
+  }
 
-      const dot = document.createElement('span');
-      dot.className = 'cal-modal-scope-dot';
-      dot.style.background = getScopeColors()[task.scope] || themeValue('--muted', '#666');
-      dot.title = SCOPE_LABELS[task.scope] || String(task.scope || '');
+  /* Today and any day ahead: what is already late is still outstanding then, so
+     it is listed under its own heading rather than mixed into the day's work.
+     Past days are left alone — the backlog had not been carried past them. */
+  if (dateStr >= TODAY_ISO && overdueTasks.length) {
+    const heading = document.createElement('li');
+    heading.className = 'cal-modal-group-heading';
+    heading.textContent = `Still open from before today (${overdueTasks.length})`;
+    modalList.appendChild(heading);
 
-      const link = document.createElement('a');
-      link.className = 'cal-modal-task-link';
-      if (task.id) {
-        link.href = `/tasks/${Number(task.id) || 0}`;
-        link.dataset.taskSummaryUrl = TASK_SUMMARY_URL_TEMPLATE.replace('999999', String(Number(task.id) || 0));
-        link.dataset.taskSummaryTitle = String(task.title || '');
-        link.addEventListener('click', closeModal);
-      } else if (task.template_id) {
-        link.href = TASK_SERIES_URL_TEMPLATE.replace('999999', String(Number(task.template_id) || 0));
-        link.addEventListener('click', closeModal);
-      } else {
-        link.href = '#';
-      }
-      link.textContent = String(task.title || '');
+    /* A long backlog would otherwise bury the day's own work, so only the
+       oldest few show until the reader asks for the rest. */
+    const shown = overdueTasks.slice(0, OVERDUE_PREVIEW);
+    shown.forEach((task) => modalList.appendChild(buildTaskRow(task, { showDueDate: true })));
 
-      const status = document.createElement('span');
-      status.className = 'cal-modal-status';
-      status.textContent = task.is_projected
-        ? `Scheduled · ${String(task.status || '')}`.trim()
-        : String(task.status || '');
-
-      li.appendChild(dot);
-      li.appendChild(link);
-      li.appendChild(status);
-      modalList.appendChild(li);
-    });
+    const remaining = overdueTasks.slice(OVERDUE_PREVIEW);
+    if (remaining.length) {
+      const more = document.createElement('li');
+      more.className = 'cal-modal-show-more';
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = `Show ${remaining.length} more`;
+      button.addEventListener('click', () => {
+        remaining.forEach((task) => {
+          modalList.insertBefore(buildTaskRow(task, { showDueDate: true }), more);
+        });
+        more.remove();
+      });
+      more.appendChild(button);
+      modalList.appendChild(more);
+    }
   }
 
   overlay.classList.remove('hidden');

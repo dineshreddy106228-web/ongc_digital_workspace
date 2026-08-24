@@ -192,23 +192,40 @@ def download_management_report():
 @login_required
 @module_access_required("quality_control")
 def testing_standards():
-    if not current_user.is_super_user():
-        abort(403)
+    """Standard Testing Times. Everyone with module access may read them; only a
+    superuser may change them, and every change is recorded."""
+    from app.core.services.administration import (
+        administration_trail, can_edit_administration, record_admin_change,
+    )
     from app.core.services.quality_control import import_testing_standards_workbook
     from app.models.quality_control.qc_testing_standard import QCTestingStandard
+
+    can_edit = can_edit_administration()
     if request.method == "POST":
+        if not can_edit:
+            abort(403)
         workbook = request.files.get("standards_workbook")
         if not workbook or not workbook.filename:
             flash("Select the testing-time standards workbook.", "warning")
         else:
             try:
                 created, updated = import_testing_standards_workbook(workbook.read(), current_user.id)
+                record_admin_change(
+                    "quality_control",
+                    f"Standard Testing Times imported from '{workbook.filename}' — "
+                    f"{created} new, {updated} revised.",
+                    entity_id="testing-standards", ip_address=request.remote_addr or "",
+                )
                 db.session.commit()
                 flash(f"Testing standards updated: {created} new, {updated} revised.", "success")
             except ValueError as exc:
                 db.session.rollback(); flash(str(exc), "danger")
         return redirect(url_for("quality_control.testing_standards"))
-    return render_template("quality_control/testing_standards.html", standards=QCTestingStandard.query.order_by(QCTestingStandard.chemical_name).all())
+    return render_template(
+        "quality_control/testing_standards.html",
+        standards=QCTestingStandard.query.order_by(QCTestingStandard.chemical_name).all(),
+        can_edit=can_edit, admin_trail=administration_trail("quality_control"),
+    )
 
 
 @quality_control_bp.route("/labs/<lab_code>/samples")

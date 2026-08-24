@@ -1,3 +1,30 @@
 {% extends "base.html" %}
 {% from "quality_control/_qc_nav.html" import qc_nav with context %}{% block title %}Administration · QC Laboratory Monitoring{% endblock %}{% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/quality_control.css') }}">{% endblock %}{% block content %}<div class="page-wrapper mod-page">
-{{ qc_nav('standards') }}<div class="mod-page-head"><div><div class="qc-lab-eyebrow">Superuser controlled master data</div><h1 class="mod-page-title"><i class="bi bi-sliders"></i> Administration</h1><p class="mod-page-sub">Standard Testing Time (STT) — the approved chemical testing times monitoring assesses turnaround against. Only superusers can update them.</p></div></div><section class="card qc-upload-card"><div class="card-body"><div><h2 class="mod-card-title">Upload approved standards</h2><p class="mod-card-sub">Required columns: Chemical Name and Average (Days).</p></div><form method="POST" enctype="multipart/form-data" class="qc-inline-upload"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input name="standards_workbook" type="file" class="form-control" accept=".xlsx,.xls" required aria-label="Approved standards workbook (.xlsx or .xls)"><button class="btn btn-primary">Upload standards</button></form></div></section><section class="card"><div class="card-body"><h2 class="mod-card-title">Current standards</h2><div class="mod-table-wrap"><table class="mod-table"><thead><tr><th scope="col">Chemical</th><th scope="col">Specification</th><th scope="col">Material code</th><th scope="col">Standard time</th><th scope="col">Remarks</th></tr></thead><tbody>{% for item in standards %}<tr><td>{{ item.chemical_name }}</td><td>{{ item.specification_no or '—' }}</td><td>{{ item.material_code or '—' }}</td><td>{{ item.standard_days if item.standard_days is not none else 'Not defined' }}{% if item.standard_days is not none %} days{% endif %}</td><td>{{ item.remarks or '—' }}</td></tr>{% endfor %}</tbody></table></div></div></section></div>{% endblock %}
+{{ qc_nav('standards') }}<div class="mod-page-head"><div><div class="qc-lab-eyebrow">{{ 'Superuser controlled master data' if can_edit else 'Read-only view' }}</div><h1 class="mod-page-title"><i class="bi bi-sliders"></i> Administration</h1><p class="mod-page-sub">Standard Testing Time (STT) — the approved chemical testing times monitoring assesses turnaround against. Only superusers can update them.</p></div></div>{% if can_edit %}
+<section class="card qc-upload-card"><div class="card-body"><div><h2 class="mod-card-title">Upload approved standards</h2><p class="mod-card-sub">Required columns: Chemical Name and Average (Days).</p></div><form method="POST" enctype="multipart/form-data" class="qc-inline-upload"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input name="standards_workbook" type="file" class="form-control" accept=".xlsx,.xls" required aria-label="Approved standards workbook (.xlsx or .xls)"><button class="btn btn-primary">Upload standards</button></form></div></section>
+{% else %}
+<div class="alert alert-info">
+  <strong>Read-only.</strong> Standard Testing Times are the basis every laboratory's turnaround is assessed against, so only a superuser can change them. The approved times and the record of changes are shown below.
+</div>
+{% endif %}<section class="card"><div class="card-body"><h2 class="mod-card-title">Current standards</h2><div class="mod-table-wrap"><table class="mod-table"><thead><tr><th scope="col">Chemical</th><th scope="col">Specification</th><th scope="col">Material code</th><th scope="col">Standard time</th><th scope="col">Remarks</th></tr></thead><tbody>{% for item in standards %}<tr><td>{{ item.chemical_name }}</td><td>{{ item.specification_no or '—' }}</td><td>{{ item.material_code or '—' }}</td><td>{{ item.standard_days if item.standard_days is not none else 'Not defined' }}{% if item.standard_days is not none %} days{% endif %}</td><td>{{ item.remarks or '—' }}</td></tr>{% endfor %}</tbody></table></div></div></section>
+
+<section class="card" style="margin-top:1rem"><div class="card-body">
+  <h2 class="mod-card-title"><i class="bi bi-clock-history"></i> Administration audit trail</h2>
+  <p class="mod-card-sub">Every change made to the approved testing times, newest first.</p>
+  <div class="mod-table-wrap">
+    <table class="mod-table">
+      <thead><tr><th scope="col">When</th><th scope="col">Who</th><th scope="col">Change</th></tr></thead>
+      <tbody>
+        {% for entry in admin_trail %}
+        <tr>
+          <td>{{ entry.created_at|datetime_ist('%d %b %Y · %I:%M %p') if entry.created_at else '—' }}</td>
+          <td>{{ entry.actor }}</td>
+          <td>{{ entry.details }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3">No changes have been recorded yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div></section></div>{% endblock %}
