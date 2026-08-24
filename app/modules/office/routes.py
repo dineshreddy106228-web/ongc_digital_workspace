@@ -583,6 +583,10 @@ def _offices_with_open_tasks(office_ids: list[int] | None = None) -> list[dict[s
             Office.office_name,
             Office.location,
             Office.secondary_location,
+            Office.latitude,
+            Office.longitude,
+            Office.secondary_latitude,
+            Office.secondary_longitude,
             open_count.label("open_count"),
             func.coalesce(func.sum(office_tasks.c.is_overdue), 0).label("overdue_count"),
         )
@@ -596,6 +600,8 @@ def _offices_with_open_tasks(office_ids: list[int] | None = None) -> list[dict[s
         .group_by(
             Office.id, Office.office_code, Office.office_name,
             Office.location, Office.secondary_location,
+            Office.latitude, Office.longitude,
+            Office.secondary_latitude, Office.secondary_longitude,
         )
         # The navigator reports status, so the locations needing attention lead;
         # open load breaks ties, then name.
@@ -617,10 +623,22 @@ def _offices_with_open_tasks(office_ids: list[int] | None = None) -> list[dict[s
             "office_name": row.office_name,
             "location": row.location or "",
             # An office working from two places is pinned at both, so the map
-            # shows where the work actually happens.
+            # shows where the work actually happens. Each point carries its own
+            # coordinates, so an office the template has never seen still pins.
             "locations": [
                 place for place in (row.location, row.secondary_location)
                 if place and place.strip()
+            ],
+            "points": [
+                point for point in (
+                    {"label": (row.location or "").strip(), "lat": row.latitude, "lng": row.longitude},
+                    {
+                        "label": (row.secondary_location or "").strip(),
+                        "lat": row.secondary_latitude,
+                        "lng": row.secondary_longitude,
+                    },
+                )
+                if point["lat"] is not None and point["lng"] is not None
             ],
             "open_count": int(row.open_count or 0),
             "overdue_count": int(row.overdue_count or 0),

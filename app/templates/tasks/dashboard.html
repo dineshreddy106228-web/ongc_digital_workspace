@@ -182,11 +182,11 @@ const GEO={
 "ST_RJY":{ll:[17.00,81.78],dx:71,dy:-18},
 "CORP_CHEM":{ll:[19.08,72.88],dx:66,dy:-54}
 };
-/* An office that works from more than one place gets a pin at each. Keyed by
-   office_code then by the location name as stored on the office record, so a
-   second location only appears on the map once it exists in the database. */
-const EXTRA_PINS={
-"CORP_CHEM":{"Dehradun":{ll:[30.32,78.03],dx:62,dy:-16}}
+/* Label offsets only, keyed by office_code: they nudge a label pill away from
+   its dot where markers cluster. Coordinates no longer live here — an office
+   whose code was missing from this table used to vanish from the map. */
+const LABEL_NUDGE={
+"CORP_CHEM_2":{dx:62,dy:-16}
 };
 const REGISTER_URL={{ url_for('tasks.list_tasks', office=999999)|tojson }};
 const open=office=>{window.location.href=REGISTER_URL.replace('999999',office.id)};
@@ -196,18 +196,25 @@ const counts=office=>office.overdue_count?office.overdue_count+' overdue':'nothi
 /* One entry per pin: the office's own seat, plus any further location the
    record carries that has coordinates. Every pin opens the same register,
    because they are the same office. */
+/* One entry per mapped point the office record carries. The GEO table above is
+   only a fallback for offices that have no coordinates stored yet, so a fresh
+   deployment still shows its pins while the records are being filled in. */
 const entries=offices.flatMap(office=>{
   const base={...(GEO[office.office_code]||{}),id:office.id,label:office.office_name,
     state:office.overdue_count?'overdue':'ready'};
-  const extras=EXTRA_PINS[office.office_code]||{};
-  const seat=office.locations&&office.locations.length?office.locations[0]:office.location;
-  const pins=[{...base,title:office.office_name+(seat?' \u00b7 '+seat:'')+' \u00b7 '+counts(office)}];
-  (office.locations||[]).slice(1).forEach(place=>{
-    const geo=extras[place];
-    if(!geo){return}
-    pins.push({...base,...geo,title:office.office_name+' \u00b7 '+place+' \u00b7 '+counts(office)});
-  });
-  return pins;
+  const points=office.points||[];
+  if(!points.length){
+    /* No stored coordinates: fall back to the table, or drop off the map. */
+    if(!base.ll){return []}
+    const seat=office.locations&&office.locations.length?office.locations[0]:office.location;
+    return [{...base,title:office.office_name+(seat?' \u00b7 '+seat:'')+' \u00b7 '+counts(office)}];
+  }
+  return points.map((point,index)=>({
+    ...base,
+    ...(index?LABEL_NUDGE[office.office_code+'_2']||{}:{}),
+    ll:[point.lat,point.lng],
+    title:office.office_name+(point.label?' \u00b7 '+point.label:'')+' \u00b7 '+counts(office),
+  }));
 });
 ModGeoMap.render(document.getElementById('taskOfficeMap'),entries,open);})();</script>
   {% endif %}

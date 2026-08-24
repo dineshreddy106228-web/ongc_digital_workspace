@@ -1988,6 +1988,22 @@ def import_backup():
 #  OFFICE MANAGEMENT
 # ══════════════════════════════════════════════════════════════════
 
+def _parse_coordinate(raw: str, low: float, high: float, label: str, errors: list):
+    """A blank coordinate is 'not placed on the map'; a bad one is an error."""
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    try:
+        value = float(raw)
+    except ValueError:
+        errors.append(f"{label} must be a number.")
+        return None
+    if not low <= value <= high:
+        errors.append(f"{label} must be between {low} and {high}.")
+        return None
+    return value
+
+
 def _require_office_management():
     """Abort 403 if current_user cannot manage offices."""
     if not can_manage_offices(current_user):
@@ -2020,6 +2036,11 @@ def add_office():
         secondary_location = request.form.get("secondary_location", "").strip()
 
         errors = []
+        latitude = _parse_coordinate(request.form.get("latitude"), -90, 90, "Latitude", errors)
+        longitude = _parse_coordinate(request.form.get("longitude"), -180, 180, "Longitude", errors)
+        secondary_latitude = _parse_coordinate(request.form.get("secondary_latitude"), -90, 90, "Second latitude", errors)
+        secondary_longitude = _parse_coordinate(request.form.get("secondary_longitude"), -180, 180, "Second longitude", errors)
+
         if not office_code:
             errors.append("Office code is required.")
         elif len(office_code) > 50:
@@ -2051,6 +2072,10 @@ def add_office():
                 office_name=office_name,
                 location=location,
                 secondary_location=secondary_location,
+                latitude=latitude,
+                longitude=longitude,
+                secondary_latitude=secondary_latitude,
+                secondary_longitude=secondary_longitude,
                 is_active=True,
             )
             db.session.add(new_office)
@@ -2109,6 +2134,11 @@ def edit_office(office_id):
         secondary_location = request.form.get("secondary_location", "").strip()
 
         errors = []
+        latitude = _parse_coordinate(request.form.get("latitude"), -90, 90, "Latitude", errors)
+        longitude = _parse_coordinate(request.form.get("longitude"), -180, 180, "Longitude", errors)
+        secondary_latitude = _parse_coordinate(request.form.get("secondary_latitude"), -90, 90, "Second latitude", errors)
+        secondary_longitude = _parse_coordinate(request.form.get("secondary_longitude"), -180, 180, "Second longitude", errors)
+
         if not office_name:
             errors.append("Office name is required.")
         elif len(office_name) > 150:
@@ -2140,6 +2170,13 @@ def edit_office(office_id):
                 f"second location '{office.secondary_location or '-'}' → '{secondary_location or '-'}'"
             )
             office.secondary_location = secondary_location
+        for field, value in (
+            ("latitude", latitude), ("longitude", longitude),
+            ("secondary_latitude", secondary_latitude), ("secondary_longitude", secondary_longitude),
+        ):
+            if getattr(office, field) != value:
+                changed_fields.append(f"{field.replace('_', ' ')} set to {value if value is not None else 'none'}")
+                setattr(office, field, value)
 
         try:
             db.session.flush()

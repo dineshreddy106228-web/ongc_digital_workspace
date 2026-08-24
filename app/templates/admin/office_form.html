@@ -114,6 +114,36 @@
             >
             <small class="form-hint">Optional. For an office that functions from two locations while sharing one task register.</small>
           </div>
+
+          <div class="form-group">
+            <label for="latitude" class="form-label">Latitude</label>
+            <input type="text" id="latitude" name="latitude" class="form-control" inputmode="decimal"
+                   placeholder="e.g. 19.08"
+                   value="{{ form_data.get('latitude', '') or (office.latitude if mode == 'edit' and office.latitude is not none else '') }}">
+            <small class="form-hint">Where the office is pinned on the location map. Leave both blank to keep it off the map.</small>
+          </div>
+
+          <div class="form-group">
+            <label for="longitude" class="form-label">Longitude</label>
+            <input type="text" id="longitude" name="longitude" class="form-control" inputmode="decimal"
+                   placeholder="e.g. 72.88"
+                   value="{{ form_data.get('longitude', '') or (office.longitude if mode == 'edit' and office.longitude is not none else '') }}">
+          </div>
+
+          <div class="form-group">
+            <label for="secondary_latitude" class="form-label">Second location latitude</label>
+            <input type="text" id="secondary_latitude" name="secondary_latitude" class="form-control" inputmode="decimal"
+                   placeholder="e.g. 30.32"
+                   value="{{ form_data.get('secondary_latitude', '') or (office.secondary_latitude if mode == 'edit' and office.secondary_latitude is not none else '') }}">
+            <small class="form-hint">Only needed when the office works from a second location.</small>
+          </div>
+
+          <div class="form-group">
+            <label for="secondary_longitude" class="form-label">Second location longitude</label>
+            <input type="text" id="secondary_longitude" name="secondary_longitude" class="form-control" inputmode="decimal"
+                   placeholder="e.g. 78.03"
+                   value="{{ form_data.get('secondary_longitude', '') or (office.secondary_longitude if mode == 'edit' and office.secondary_longitude is not none else '') }}">
+          </div>
         </div>
 
         <div class="form-actions">
