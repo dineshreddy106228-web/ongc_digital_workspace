@@ -803,8 +803,21 @@ body.workspace-flyout-open .workspace-main {
 }
 
 .workspace-welcome-bar {
-    padding-bottom: .9rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding-bottom: 1rem;
     border-bottom: 1px solid var(--border);
+}
+
+/* The emblem leads the card, so it is given real size rather than sitting as a
+   token beside the title. */
+.workspace-welcome-logo {
+    width: 76px;
+    height: 76px;
+    margin-bottom: .85rem;
+    object-fit: contain;
 }
 
 .workspace-welcome-eyebrow {

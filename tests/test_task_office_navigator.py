@@ -321,7 +321,14 @@ def test_everyone_gets_the_map_but_only_a_super_user_sees_every_location(task_ap
     assert local_rows["QPCL"]["open_count"] == 1
 
 
-def test_a_standard_user_never_counts_a_task_the_visibility_model_hides(task_app):
+def test_private_work_is_left_out_of_the_navigator_for_everyone(task_app):
+    """The map reports the same workspace figure to every reader, and a private
+    task is in nobody's figure — not the owner's and not a super user's.
+
+    These counts are deliberately taken across the whole workspace rather than
+    per reader (see test_office_navigator_visibility), so the one thing that
+    must never reach them is work somebody marked private.
+    """
     _office(1, "CORP_CHEM", "Office of Head Corporate Chemistry")
     owner = _user(21, "owner", office_id=1)
     colleague = _user(22, "colleague", office_id=1)
@@ -335,9 +342,9 @@ def test_a_standard_user_never_counts_a_task_the_visibility_model_hides(task_app
     colleague_rows, _ = _navigator_for(task_app, colleague)
     owner_rows, _ = _navigator_for(task_app, owner)
 
-    assert super_rows["CORP_CHEM"]["open_count"] == 2
+    assert super_rows["CORP_CHEM"]["open_count"] == 1
     assert colleague_rows["CORP_CHEM"]["open_count"] == 1
-    assert owner_rows["CORP_CHEM"]["open_count"] == 2
+    assert owner_rows["CORP_CHEM"]["open_count"] == 1
 
 
 def test_global_tasks_are_counted_apart_from_the_map(task_app):

@@ -550,11 +550,19 @@ def _offices_with_open_tasks(office_ids: list[int] | None = None) -> list[dict[s
     tasks tagged to it; a task that is both owned and tagged counts once.
     Aggregated in one grouped query over that union, never one query per office.
     Pass office_ids to narrow the map to the offices a user may look at.
+
+    DELIBERATE EXCEPTION TO THE VISIBILITY MODEL. These counts are taken over
+    the whole workspace, not over the tasks the reader may open. Corporate
+    Chemistry shows how the office works to everyone in it: a reader sees that
+    another location is carrying late work without being able to see what that
+    work is. Restricting the counts to a reader's own visible tasks would make
+    every other location report zero, which is worse than showing nothing.
+    Do not "fix" this back — test_office_navigator_visibility covers it.
+
+    Tasks a user marked private are left out entirely, so a public number never
+    reveals that a private task exists.
     """
-    conditions = [_open_task_condition()]
-    visibility = _visible_task_ids_condition()
-    if visibility is not None:
-        conditions.append(visibility)
+    conditions = [_open_task_condition(), Task.is_private_self_task.is_(False)]
     overdue_flag = _overdue_case().label("is_overdue")
 
     owned_tasks = select(
@@ -1229,15 +1237,16 @@ def task_dashboard():
     # ── Location navigator ───────────────────────────────────────
     # Everyone sees the map. A super user sees every office; anybody else sees
     # only their own, counted against the tasks they are allowed to see.
-    if current_user.is_super_user():
-        office_navigator = _offices_with_open_tasks()
-        navigator_scope = "every ONGC location"
-    elif current_user.office_id is not None:
-        office_navigator = _offices_with_open_tasks(office_ids=[current_user.office_id])
-        navigator_scope = "your office"
-    else:
-        office_navigator = []
-        navigator_scope = "your office"
+    # Everyone sees the whole map: Corporate Chemistry shows how the office
+    # works to everyone in it. Opening a location's register is a separate
+    # question — a reader may only open their own, so the rest are shown but
+    # not clickable rather than being made to look available.
+    office_navigator = _offices_with_open_tasks()
+    for office in office_navigator:
+        office["can_open"] = bool(
+            current_user.is_super_user() or office["id"] == current_user.office_id
+        )
+    navigator_scope = "every ONGC location"
     global_task_counts = _global_task_counts()
     show_office_navigator = bool(office_navigator) or global_task_counts["open_count"] > 0
 

@@ -1399,6 +1399,22 @@ a.db-signal:focus-visible{
 .om-count.is-overdue{ background: var(--tone-bad-bg); color: var(--tone-bad-fg); }
 /* A location with nothing overdue says so plainly rather than showing a zero. */
 .om-count.is-clear{ background: var(--tone-ok-bg); color: var(--tone-ok-fg); }
+/* A location shown for context but not open to this reader: same card, no
+   affordance, with a quiet lock so the difference is visible rather than felt
+   as a broken link. */
+.mod-geo-list-button.is-locked{
+    position: relative;
+    cursor: default;
+    opacity: .82;
+}
+.mod-geo-list-button.is-locked:hover{ transform: none; }
+.om-geo-locked{
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    color: var(--muted);
+    font-size: .78rem;
+}
 a.om-count:hover{ filter: brightness(.96); }
 
 /* Zero overdue is not an alarm, so it drops back to a quiet chip. */

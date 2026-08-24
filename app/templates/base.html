@@ -234,6 +234,13 @@
     <div class="workspace-welcome-overlay" id="loginWelcomeModal" role="dialog" aria-modal="true" aria-labelledby="loginWelcomeTitle">
         <div class="workspace-welcome-modal">
             <header class="workspace-welcome-bar">
+                {# The emblem leads the release note: this card is the first
+                   thing a user meets on signing in. #}
+                <img
+                    class="workspace-welcome-logo"
+                    src="{{ url_for('static', filename='images/ongc-corporate-chemistry-logo.png') }}"
+                    alt="ONGC Corporate Chemistry emblem"
+                >
                 <p class="workspace-welcome-eyebrow">ONGC Corporate Chemistry</p>
                 <h2 class="workspace-welcome-title" id="loginWelcomeTitle">Version 2</h2>
                 <p class="workspace-welcome-meta">

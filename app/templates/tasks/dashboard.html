@@ -107,7 +107,7 @@
       <div>
         <span>Location navigator</span>
         <h2>Task status across locations</h2>
-        <p>Select a location to open the Task Register filtered to it. The map covers {{ navigator_scope }}; global tasks belong to the workspace rather than to one location, so they are shown separately.</p>
+        <p>Select a location on the map to open its Task Register. The map includes every ONGC location that reports to Corporate Chemistry. Global tasks aren't tied to any single location, so they're listed separately from the workspace.</p>
       </div>
       {% if office_navigator %}
       {# An office working from two places contributes two locations, matching
@@ -141,9 +141,7 @@
       {{ geo_map('taskOfficeMap', 'Map of India with ONGC locations') }}
       <aside class="mod-geo-list is-detailed" aria-label="Location list">
         {% for office in office_navigator %}
-        <a class="mod-geo-list-button has-meta {{ 'is-overdue' if office.overdue_count else 'is-ready' }}"
-           href="{{ url_for('tasks.list_tasks', office=office.id) }}"
-           title="{{ office.office_name }}{% if office.location %} · {{ office.location }}{% endif %} · {{ office.overdue_count }} overdue">
+        {% set office_status %}
           <strong>{{ office.office_name }}</strong>
           <small class="om-geo-counts">
             {% if office.overdue_count %}
@@ -152,7 +150,22 @@
             <span class="om-count is-clear">Nothing overdue</span>
             {% endif %}
           </small>
+        {% endset %}
+        {% if office.can_open %}
+        <a class="mod-geo-list-button has-meta {{ 'is-overdue' if office.overdue_count else 'is-ready' }}"
+           href="{{ url_for('tasks.list_tasks', office=office.id) }}"
+           title="{{ office.office_name }}{% if office.location %} · {{ office.location }}{% endif %} · {{ office.overdue_count }} overdue">
+          {{ office_status }}
         </a>
+        {% else %}
+        {# Shown so the workspace reads whole, but not offered: this reader
+           cannot open another location's register. #}
+        <div class="mod-geo-list-button has-meta is-locked {{ 'is-overdue' if office.overdue_count else 'is-ready' }}"
+             title="{{ office.office_name }}{% if office.location %} · {{ office.location }}{% endif %} · {{ office.overdue_count }} overdue · you do not have access to this register">
+          {{ office_status }}
+          <span class="om-geo-locked" aria-label="No access to this register"><i class="bi bi-lock-fill"></i></span>
+        </div>
+        {% endif %}
         {% endfor %}
       </aside>
     </div>
@@ -189,8 +202,15 @@ const LABEL_NUDGE={
 "CORP_CHEM_2":{dx:62,dy:-16}
 };
 const REGISTER_URL={{ url_for('tasks.list_tasks', office=999999)|tojson }};
-const open=office=>{window.location.href=REGISTER_URL.replace('999999',office.id)};
-const counts=office=>office.overdue_count?office.overdue_count+' overdue':'nothing overdue';
+/* Only a location this reader may open actually navigates. The rest are on the
+   map so the workspace reads whole, but clicking them would promise a register
+   they cannot see. */
+const open=office=>{
+  if(!office.can_open){return}
+  window.location.href=REGISTER_URL.replace('999999',office.id);
+};
+const counts=office=>(office.overdue_count?office.overdue_count+' overdue':'nothing overdue')
+  +(office.can_open?'':' \u00b7 no access to this register');
 /* The list beside the map is rendered server-side so its counts can carry the
    open/overdue colours; only the markers are drawn from here. */
 /* One entry per pin: the office's own seat, plus any further location the
@@ -201,6 +221,7 @@ const counts=office=>office.overdue_count?office.overdue_count+' overdue':'nothi
    deployment still shows its pins while the records are being filled in. */
 const entries=offices.flatMap(office=>{
   const base={...(GEO[office.office_code]||{}),id:office.id,label:office.office_name,
+    can_open:office.can_open,
     state:office.overdue_count?'overdue':'ready'};
   const points=office.points||[];
   if(!points.length){
