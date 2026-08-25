@@ -3,9 +3,10 @@
 {% macro delta(cur, prev) %}{% if prev is not none %}{% set d = (cur or 0) - (prev or 0) %}{% if d > 0 %}<span class="im-delta is-up"><i class="bi bi-arrow-up-short"></i>{{ cr(d) }}</span>{% elif d < 0 %}<span class="im-delta is-down"><i class="bi bi-arrow-down-short"></i>{{ cr(-d) }}</span>{% else %}<span class="im-delta is-flat">No change</span>{% endif %}{% else %}<span class="im-delta is-flat">New this period</span>{% endif %}{% endmacro %}
 {% macro share(value) %}<div class="im-share-cell"><div class="im-share-track"><i style="width:{{ value }}%"></i></div><b>{{ value }}%</b></div>{% endmacro %}
 {% from "inventory/_monitoring_nav.html" import monitoring_nav %}
+{% from "components/_deck_scope.html" import deck_scope %}
 {% block content %}<div class="page-wrapper mod-page im-page">
   {{ monitoring_nav('review') }}
-  <div class="mod-page-head">
+  <div class="mod-page-head is-stacked-actions">
     <div>
       <div class="im-kicker">Executive workbench</div>
       <h1 class="mod-page-title"><i class="bi bi-easel2"></i> Portfolio Management Review</h1>
@@ -13,7 +14,7 @@
     </div>
     <div class="mod-page-actions">
       <a class="btn btn-secondary" href="{{ url_for('inventory.landing') }}"><i class="bi bi-grid"></i> Monitoring home</a>
-      {% if kpis %}<a class="btn btn-primary" href="{{ url_for('inventory.download_management_presentation', reporting_date=reporting_date.isoformat() if reporting_date else none, compare_date=previous_date.isoformat() if previous_date else none) }}"><i class="bi bi-file-earmark-ppt"></i> Download presentation</a>{% endif %}
+      {% if kpis %}<button type="button" class="btn btn-primary" data-deck-open="deckScope"><i class="bi bi-file-earmark-ppt"></i> Download presentation</button>{% endif %}
     </div>
   </div>
   <section class="card im-pf-period-card"><div class="card-body">
@@ -85,47 +86,60 @@
     </div>
   </div></section>
 
-  <div class="im-two-col im-pf-two-col">
-    <section class="card im-pf-card"><div class="card-body">
-      <div class="im-section-heading"><div><span>Geographic spread</span><h2>Value by zone</h2></div></div>
-      <div class="im-table-wrap"><table class="im-pf-table">
-        <thead><tr><th scope="col">Zone</th><th scope="col" class="im-num">Value</th><th scope="col">Share of portfolio</th>{% if previous_date %}<th scope="col" class="im-num">Vs {{ previous_date.strftime('%d %b') }}</th>{% endif %}</tr></thead>
-        <tbody>
-          {% for z in zones %}<tr><td>{{ z.zone }}</td><td class="im-num im-value">{{ cr(z.value) }}</td><td>{{ share(z.share) }}</td>{% if previous_date %}<td class="im-num">{{ delta(z.value, z.prev) }}</td>{% endif %}</tr>
-          {% else %}<tr class="im-pf-empty-row"><td colspan="4">No zone-level inventory for this period.</td></tr>{% endfor %}
-        </tbody>
-      </table></div>
-    </div></section>
-    <section class="card im-pf-card"><div class="card-body">
-      <div class="im-section-heading"><div><span>Period movement</span><h2>Largest movers</h2></div></div>
-      {% if comparison %}
-        <div class="im-pf-scope">
-          <div><span>Like-for-like</span><strong>{{ cr(comparison.like_for_like_delta) }}</strong><small>{{ comparison.common_centres }} work centres reporting in both periods{% if comparison.like_for_like_change is not none %} · {{ '%+.1f'|format(comparison.like_for_like_change) }}%{% endif %}</small></div>
-          <div class="{{ 'im-pf-scope-warn' if comparison.entrant_count or comparison.exit_count }}"><span>Scope difference</span><strong>{{ comparison.entrant_count }} in · {{ comparison.exit_count }} out</strong><small>{% if comparison.entrant_count or comparison.exit_count %}{{ cr(comparison.entrant_value) }} reported only now, {{ cr(comparison.exit_value) }} only on {{ comparison.previous_date.strftime('%d %b') }}{% else %}Both periods cover the same work centres{% endif %}</small></div>
-        </div>
-        {% if movers.up %}<h3 class="im-mover-heading">Build-ups</h3><ul class="im-mover-list">{% for m in movers.up %}<li><span>{{ m.name }}</span><b class="is-up">▲ {{ cr(m.delta) }}</b></li>{% endfor %}</ul>{% endif %}
-        {% if movers.down %}<h3 class="im-mover-heading">Draw-downs</h3><ul class="im-mover-list">{% for m in movers.down %}<li><span>{{ m.name }}</span><b class="is-down">▼ {{ cr(-m.delta) }}</b></li>{% endfor %}</ul>{% endif %}
-        {% if not movers.up and not movers.down %}<p class="im-pf-muted">No work centre reported in both periods changed its holding.</p>{% endif %}
-        {% if entrants %}<h3 class="im-mover-heading">Reporting only this period</h3><ul class="im-mover-list">{% for m in entrants[:3] %}<li><span>{{ m.name }}</span><b class="is-up">{{ cr(m.value) }}</b></li>{% endfor %}</ul>{% endif %}
-        {% if exits %}<h3 class="im-mover-heading">Not reported this period</h3><ul class="im-mover-list">{% for m in exits[:3] %}<li><span>{{ m.name }}</span><b class="is-down">{{ cr(m.value) }} on {{ comparison.previous_date.strftime('%d %b') }}</b></li>{% endfor %}</ul>{% endif %}
-      {% else %}<p class="im-pf-muted">Movement appears once a second reporting period is published.</p>{% endif %}
-    </div></section>
-  </div>
-
+  {# Movement is read per material and kept apart by phase: a kilolitre of brine
+     and a tonne of cement are different trades, and averaging them hides both. #}
   <section class="card im-pf-card"><div class="card-body">
-    <div class="im-section-heading"><div><span>Concentration</span><h2>Top work centres by inventory value</h2><p>Share of the total monitored portfolio, movement against the comparison period and open exceptions per centre.</p></div></div>
+    <div class="im-section-heading"><div><span>Period movement</span><h2>Largest movers</h2><p>Materials whose held value moved most against the comparison period, biggest movement first. Liquids and solids are ranked separately, because a kilolitre and a tonne do not compare.</p></div></div>
+    {% if comparison %}
+      <div class="im-pf-scope">
+        <div><span>Like-for-like</span><strong>{{ cr(comparison.like_for_like_delta) }}</strong><small>{{ comparison.common_centres }} work centres reporting in both periods{% if comparison.like_for_like_change is not none %} · {{ '%+.1f'|format(comparison.like_for_like_change) }}%{% endif %}</small></div>
+        <div class="{{ 'im-pf-scope-warn' if comparison.entrant_count or comparison.exit_count }}"><span>Scope difference</span><strong>{{ comparison.entrant_count }} in · {{ comparison.exit_count }} out</strong><small>{% if comparison.entrant_count or comparison.exit_count %}{{ cr(comparison.entrant_value) }} reported only now, {{ cr(comparison.exit_value) }} only on {{ comparison.previous_date.strftime('%d %b') }}{% else %}Both periods cover the same work centres{% endif %}</small></div>
+      </div>
+      <div class="im-mover-split">
+        {% for phase, label, unit_note in [('liquid', 'Liquids', 'measured in litres, kilolitres or cubic metres'), ('solid', 'Solids', 'measured in kilograms or tonnes')] %}
+        <div>
+          <h3 class="im-phase-heading">{{ label }} <small>{{ unit_note }}</small></h3>
+          <div class="im-table-wrap"><table class="im-pf-table" data-work-centre-filter="false">
+            <thead><tr><th scope="col">Material</th><th scope="col" class="im-uom-col">UoM</th><th scope="col" class="im-num">{{ reporting_date.strftime('%d %b') }}</th><th scope="col" class="im-num">{{ comparison.previous_date.strftime('%d %b') }}</th><th scope="col" class="im-num">Movement</th></tr></thead>
+            <tbody>
+              {% for m in material_movers[phase].ranked %}<tr>
+                <td>{% if m.material_id %}<a class="im-pf-link im-material-code" href="{{ url_for('inventory.material', material_id=m.material_id) }}">{{ m.code }}</a>{% else %}<span class="im-material-code">{{ m.code }}</span>{% endif %}<small class="im-pf-desc">{{ m.description or '' }}</small></td>
+                <td class="im-uom-col"><span class="im-uom">{{ m.uom or '—' }}</span></td>
+                <td class="im-num im-value">{{ cr(m.value) }}</td>
+                <td class="im-num">{{ cr(m.prev) }}</td>
+                <td class="im-num"><b class="{{ 'is-up' if m.delta > 0 else 'is-down' }}">{{ '▲' if m.delta > 0 else '▼' }} {{ cr(m.delta if m.delta > 0 else -m.delta) }}</b></td>
+              </tr>{% else %}<tr class="im-pf-empty-row"><td colspan="5">No {{ label|lower }} held in both periods changed value.</td></tr>{% endfor %}
+            </tbody>
+          </table></div>
+        </div>
+        {% endfor %}
+      </div>
+      {% if material_movers.other.up or material_movers.other.down %}<p class="im-pf-muted">Materials counted in pieces rather than volume or weight are left out of both columns: {{ (material_movers.other.up + material_movers.other.down)|length }} of them moved this period.</p>{% endif %}
+      {% if entrants %}<h4 class="im-mover-heading">Work centres reporting only this period</h4><ul class="im-mover-list">{% for m in entrants[:3] %}<li><span>{{ m.name }}</span><b class="is-up">{{ cr(m.value) }}</b></li>{% endfor %}</ul>{% endif %}
+      {% if exits %}<h4 class="im-mover-heading">Work centres not reported this period</h4><ul class="im-mover-list">{% for m in exits[:3] %}<li><span>{{ m.name }}</span><b class="is-down">{{ cr(m.value) }} on {{ comparison.previous_date.strftime('%d %b') }}</b></li>{% endfor %}</ul>{% endif %}
+    {% else %}<p class="im-pf-muted">Movement appears once a second reporting period is published.</p>{% endif %}
+  </div></section>
+
+  {# Twelve-month consumption comes from the workbook's own material summary
+     sheets, which are all-ONGC: they carry no work centre, so these two cards
+     always report the whole of ONGC even when the rest of the page is read for
+     one zone. #}
+  <section class="card im-pf-card"><div class="card-body">
+    <div class="im-section-heading"><div><span>Consumption over twelve months</span><h2>Top materials by consumption value</h2><p>Every material consuming more than {{ cr(consumption.floor) }} of value over the twelve months to {{ reporting_date.strftime('%d %b %Y') }}, all ONGC and both groups. The twelve-month figure is SAP's own, read from the material summary sheet of the imported workbook — it is not derived from the imported snapshots.</p></div><strong>{{ consumption.by_value|length }} materials · {{ cr(consumption.by_value_total) }}</strong></div>
     <div class="im-table-wrap"><table class="im-pf-table" data-work-centre-filter="false">
-      <thead><tr><th scope="col" class="im-rank">#</th><th scope="col">Work centre</th><th scope="col">Zone</th><th scope="col" class="im-num">Value</th><th scope="col">Share of portfolio</th>{% if previous_date %}<th scope="col" class="im-num">Vs {{ previous_date.strftime('%d %b') }}</th>{% endif %}<th scope="col" class="im-num">Exceptions</th></tr></thead>
+      <thead><tr><th scope="col" class="im-rank">#</th><th scope="col">Material</th><th scope="col" class="im-uom-col">UoM</th><th scope="col">Grp</th><th scope="col">Phase</th><th scope="col" class="im-num">Consumption value</th><th scope="col" class="im-num">Share of consumption</th><th scope="col" class="im-num">Inventory held</th><th scope="col" class="im-num">Months</th></tr></thead>
       <tbody>
-        {% for c in centres %}<tr>
+        {% for item in consumption.by_value %}<tr>
           <td class="im-rank">{{ loop.index }}</td>
-          <td><a class="im-pf-link" href="{{ url_for('inventory.work_centre', work_center_id=c.id) }}">{{ c.name }}</a></td>
-          <td>{{ c.zone or '—' }}</td>
-          <td class="im-num im-value">{{ cr(c.value) }}</td>
-          <td>{{ share(c.share) }}</td>
-          {% if previous_date %}<td class="im-num">{{ delta(c.value, c.prev) }}</td>{% endif %}
-          <td class="im-num">{% if c.exceptions %}<span class="im-pf-count">{{ c.exceptions }}</span>{% else %}—{% endif %}</td>
-        </tr>{% else %}<tr class="im-pf-empty-row"><td colspan="7">No work centre reported stock for this period.</td></tr>{% endfor %}
+          <td>{% if item.material_id %}<a class="im-pf-link im-material-code" href="{{ url_for('inventory.material', material_id=item.material_id) }}">{{ item.code }}</a>{% else %}<span class="im-material-code">{{ item.code }}</span>{% endif %}<small class="im-pf-desc">{{ item.description or '' }}</small></td>
+          <td class="im-uom-col"><span class="im-uom">{{ item.uom or '—' }}</span></td>
+          <td><span class="im-group-badge im-group-{{ item.group }}">{{ item.group }}</span></td>
+          <td><span class="im-phase-badge im-phase-{{ item.phase }}">{{ item.phase_label }}</span></td>
+          <td class="im-num im-value">{{ cr(item.consumption_value) }}</td>
+          <td class="im-num">{{ item.share }}%</td>
+          <td class="im-num">{{ cr(item.inventory_value) }}</td>
+          <td class="im-num">{{ '{:,.1f}'.format(item.stock_months) if item.stock_months is not none else '—' }}</td>
+        </tr>{% else %}<tr class="im-pf-empty-row"><td colspan="9">{% if consumption.materials %}No material consumed more than {{ cr(consumption.floor) }} in this period.{% else %}Consumption appears once a workbook carrying the material summary sheets has been imported for this date.{% endif %}</td></tr>{% endfor %}
       </tbody>
     </table></div>
   </div></section>
@@ -134,10 +148,10 @@
     <section class="card im-pf-card"><div class="card-body">
       <div class="im-section-heading"><div><span>Material concentration</span><h2>Top materials by value</h2></div></div>
       <div class="im-table-wrap"><table class="im-pf-table">
-        <thead><tr><th scope="col">Material</th><th scope="col">Group</th><th scope="col" class="im-num">Value</th><th scope="col" class="im-num">Share</th><th scope="col" class="im-num">Centres</th></tr></thead>
+        <thead><tr><th scope="col">Material</th><th scope="col" class="im-uom-col">UoM</th><th scope="col">Group</th><th scope="col" class="im-num">Value</th><th scope="col" class="im-num">Share</th><th scope="col" class="im-num">Centres</th></tr></thead>
         <tbody>
-          {% for m in top_materials %}<tr><td><span class="im-material-code">{{ m.code }}</span><small class="im-pf-desc">{{ m.description or '' }}</small></td><td><span class="im-group-badge im-group-{{ m.group }}">{{ m.group }}</span></td><td class="im-num im-value">{{ cr(m.value) }}</td><td class="im-num">{{ m.share }}%</td><td class="im-num">{{ m.centres }}</td></tr>
-          {% else %}<tr class="im-pf-empty-row"><td colspan="5">No materials reported for this period.</td></tr>{% endfor %}
+          {% for m in top_materials %}<tr><td><span class="im-material-code">{{ m.code }}</span><small class="im-pf-desc">{{ m.description or '' }}</small></td><td class="im-uom-col"><span class="im-uom">{{ m.uom or '—' }}</span></td><td><span class="im-group-badge im-group-{{ m.group }}">{{ m.group }}</span></td><td class="im-num im-value">{{ cr(m.value) }}</td><td class="im-num">{{ m.share }}%</td><td class="im-num">{{ m.centres }}</td></tr>
+          {% else %}<tr class="im-pf-empty-row"><td colspan="6">No materials reported for this period.</td></tr>{% endfor %}
         </tbody>
       </table></div>
     </div></section>
@@ -160,19 +174,45 @@
   <section class="card im-pf-card"><div class="card-body">
     <div class="im-section-heading"><div><span>Highest value first</span><h2>Exceptions requiring attention</h2><p>The largest open stock-coverage and source-register exceptions for this reporting date.</p></div></div>
     <div class="im-table-wrap"><table class="im-pf-table">
-      <thead><tr><th scope="col">Severity</th><th scope="col">Exception</th><th scope="col">Work centre</th><th scope="col">Material</th><th scope="col" class="im-num">Value</th><th scope="col" class="im-num">Months</th></tr></thead>
+      <thead><tr><th scope="col">Severity</th><th scope="col">Exception</th><th scope="col">Work centre</th><th scope="col">Material</th><th scope="col" class="im-uom-col">UoM</th><th scope="col" class="im-num">Value</th><th scope="col" class="im-num">Months</th></tr></thead>
       <tbody>
         {% for item in exceptions %}<tr>
           <td><span class="im-severity im-{{ item.severity }}">{{ item.severity }}</span></td>
           <td>{{ item.exception_type|replace('_', ' ')|capitalize }}</td>
           <td>{{ item.work_center.name if item.work_center else '—' }}</td>
           <td>{% if item.material %}<span class="im-material-code">{{ item.material.material_code }}</span>{% else %}—{% endif %}</td>
+          <td class="im-uom-col"><span class="im-uom">{{ (item.material.uom if item.material else none) or '—' }}</span></td>
           <td class="im-num im-value">{{ cr(item.inventory_value_inr) }}</td>
           <td class="im-num">{{ item.stock_months if item.stock_months is not none else '—' }}</td>
-        </tr>{% else %}<tr class="im-pf-empty-row"><td colspan="6">No exceptions for this period.</td></tr>{% endfor %}
+        </tr>{% else %}<tr class="im-pf-empty-row"><td colspan="7">No exceptions for this period.</td></tr>{% endfor %}
       </tbody>
     </table></div>
   </div></section>
+
+  {# The deck is asked for, not assumed: all of ONGC, or the assets ticked in the
+     chooser, drilled down zone first because that is how a region is reviewed. #}
+  {% call deck_scope(
+      'deckScope', url_for('inventory.download_management_presentation'),
+      title='Which assets should the deck cover?',
+      intro='The deck is built on the position as on ' ~ reporting_date.strftime('%d %b %Y') ~ (', compared with ' ~ previous_date.strftime('%d %b %Y') if previous_date else '') ~ '. Every figure in it counts only the assets chosen here.',
+      all_label='All ONGC', all_hint='Every work centre reporting monitored stock in this period — ' ~ kpis.centre_count ~ ' of them.',
+      set_label='A set of assets', set_hint='Pick a zone or individual assets below. Ticking any asset selects this option.',
+      set_value='assets',
+      summary='All ONGC — ' ~ kpis.centre_count ~ ' work centres.',
+      hidden={'reporting_date': reporting_date.isoformat() if reporting_date else '', 'compare_date': previous_date.isoformat() if previous_date else ''}) %}
+    {% for zone in scope_directory %}
+    <details class="mod-scope-group">
+      <summary><label class="mod-scope-group-tick"><input type="checkbox" data-deck-scope-group> <strong>{{ zone.zone }}</strong></label><span>{{ zone.assets|length }} asset{{ '' if zone.assets|length == 1 else 's' }} · {{ cr(zone.value) }}</span></summary>
+      <div class="mod-scope-items">
+        {% for asset in zone.assets %}
+        <label class="mod-scope-item"><input type="checkbox" name="centre" value="{{ asset.id }}" data-deck-scope-item><span><strong>{{ asset.name }}</strong><small>{% if asset.plant_codes %}{{ asset.plant_codes|join(' · ') }} · {% endif %}{{ asset.unit or 'Work centre' }} · {{ cr(asset.value) }}</small></span></label>
+        {% endfor %}
+      </div>
+    </details>
+    {% else %}
+    <p class="im-pf-muted">No assets reported stock for this period, so only the all-ONGC deck can be built.</p>
+    {% endfor %}
+  {% endcall %}
 
   {% endif %}
 </div>{% endblock %}

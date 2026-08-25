@@ -240,6 +240,54 @@ def test_archiving_the_standing_task_stops_the_routine(task_app):
     assert _tasks_for(template)[0].occurrence_date == date(2026, 3, 24)
 
 
+def test_a_period_completed_on_its_own_occurrence_is_not_opened_twice(task_app):
+    """A monthly routine completed on the 1st must not be re-opened for the 1st.
+
+    It used to be: the standing task was closed, so a fresh one was created for
+    the same occurrence, the (template, occurrence) uniqueness rejected it, and
+    the exception aborted the roll-forward for every template behind it — on
+    every request, because the roll-forward runs per request.
+    """
+    from app.core.services.recurring_tasks import (
+        create_initial_task_for_template, generate_due_recurring_tasks,
+    )
+
+    template = _template(recurrence_type="MONTHLY", monthly_day=1, start=date(2026, 8, 1))
+    task = create_initial_task_for_template(template)
+    task.status = "Completed"
+    db.session.commit()
+
+    result = generate_due_recurring_tasks(as_of_date=date(2026, 8, 25))
+    db.session.commit()
+
+    tasks = _tasks_for(template)
+    assert len(tasks) == 1, "the occurrence already has a task; a second one is a duplicate"
+    assert tasks[0].occurrence_date == date(2026, 8, 1)
+    assert result["tasks"] == 0
+    # The routine is still live and pointed at the occurrence after this one.
+    assert template.is_active is True
+    assert template.next_generation_date == date(2026, 9, 1)
+
+
+def test_one_stalled_routine_does_not_stop_the_others(task_app):
+    """The roll-forward reaches every template, not just the ones before a problem."""
+    from app.core.services.recurring_tasks import (
+        create_initial_task_for_template, generate_due_recurring_tasks,
+    )
+
+    stalled = _template(recurrence_type="MONTHLY", monthly_day=1, start=date(2026, 8, 1))
+    closed = create_initial_task_for_template(stalled)
+    closed.status = "Completed"
+    later = _template(start=date(2026, 8, 20))
+    create_initial_task_for_template(later)
+    db.session.commit()
+
+    generate_due_recurring_tasks(as_of_date=date(2026, 8, 25))
+    db.session.commit()
+
+    assert [task.occurrence_date for task in _tasks_for(later)] == [date(2026, 8, 25)]
+
+
 def test_a_completed_period_still_opens_the_next_one(task_app):
     """The contrast: completing is closing a period, not removing the routine."""
     from app.core.services.recurring_tasks import (

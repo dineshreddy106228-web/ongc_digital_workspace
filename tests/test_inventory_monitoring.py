@@ -86,7 +86,7 @@ def test_management_presentation_covers_every_register(monkeypatch, tmp_path):
     import app.core.services.inventory_monitoring as monitoring
     from app.core.services.inventory_presentation import build_management_review_presentation
 
-    monkeypatch.setattr(monitoring, "management_review_data", lambda reporting_date=None, compare_date=None: _management_review_stub())
+    monkeypatch.setattr(monitoring, "management_review_data", lambda reporting_date=None, compare_date=None, centre_ids=None: _management_review_stub())
     output, filename = build_management_review_presentation(str(tmp_path))
 
     assert filename == "ONGC Inventory Management Review 31 Jul 2026.pptx"
@@ -113,7 +113,7 @@ def test_management_presentation_requires_a_published_period(monkeypatch, tmp_pa
     import app.core.services.inventory_monitoring as monitoring
     from app.core.services.inventory_presentation import build_management_review_presentation
 
-    monkeypatch.setattr(monitoring, "management_review_data", lambda reporting_date=None, compare_date=None: {"reporting_date": None, "kpis": None})
+    monkeypatch.setattr(monitoring, "management_review_data", lambda reporting_date=None, compare_date=None, centre_ids=None: {"reporting_date": None, "kpis": None})
     with pytest.raises(ValueError):
         build_management_review_presentation(str(tmp_path))
 
@@ -121,6 +121,9 @@ def test_management_presentation_requires_a_published_period(monkeypatch, tmp_pa
 def _centre_record(code, description, group, months, value_crore, qty):
     return SimpleNamespace(
         material_code=code, material_description=description, material_group=group,
+        # The unit is the material's, read from the workbook's material summary sheet;
+        # a stock line only carries a copy of it.
+        material=SimpleNamespace(material_code=code, description=description, uom="MT"),
         stock_qty=Decimal(qty), uom="MT", inventory_value_inr=Decimal(str(value_crore)) * Decimal("10000000"),
         stock_months=Decimal(str(months)),
     )
@@ -138,7 +141,7 @@ def _work_centre_stub():
     }
     findings = [
         SimpleNamespace(exception_type="non_moving", details="Imported from Non Moving Inventory (row 5).",
-                        material=SimpleNamespace(material_code="100002004", description="DEFOAMER LIQUID"),
+                        material=SimpleNamespace(material_code="100002004", description="DEFOAMER LIQUID", uom="L"),
                         inventory_value_inr=Decimal("9700000"))
     ]
     return {

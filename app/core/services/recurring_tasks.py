@@ -326,9 +326,23 @@ def generate_due_recurring_tasks(as_of_date: date_type | None = None) -> dict[st
 
         changed = False
         if open_task is None:
-            _create_task_instance(template, occurrence)
-            created_tasks += 1
-            changed = True
+            # The routine may already have produced — and closed — the task for
+            # this occurrence. A monthly routine completed on the 1st is in
+            # exactly that state for the rest of the month. Opening a second task
+            # for the same occurrence collides with the (template, occurrence)
+            # uniqueness, and that collision aborted the whole roll-forward on
+            # every request, so nothing after it was rolled either. The period is
+            # accounted for: the routine waits for the next occurrence.
+            already_generated = db.session.query(
+                Task.query.filter(
+                    Task.recurring_template_id == template.id,
+                    Task.occurrence_date == occurrence,
+                ).exists()
+            ).scalar()
+            if not already_generated:
+                _create_task_instance(template, occurrence)
+                created_tasks += 1
+                changed = True
         elif open_task.occurrence_date is None or open_task.occurrence_date < occurrence:
             # Roll the standing task forward; its updates and status ride along.
             open_task.occurrence_date = occurrence

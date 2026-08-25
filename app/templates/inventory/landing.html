@@ -15,7 +15,7 @@
       <a class="mod-tile" href="{{ url_for('inventory.administration') }}"><i class="bi bi-sliders"></i><strong>Administration</strong><small>Thresholds and mapping imports.</small></a>
     </div>
   </section>
-  <section class="mod-geo-card"><div class="mod-geo-heading"><div><span>Asset navigator</span><h2>Inventory health across India</h2><p>Select an asset label on the map, then choose Combined status or a mapped unit such as DFS / ST.</p></div><span><i class="bi bi-geo-alt-fill"></i> {{ map_assets|length }} assets</span></div><div class="mod-geo-layout">
+  <section class="mod-geo-card"><div class="mod-geo-heading"><div><span>Asset navigator</span><h2>Inventory health across India</h2><p>Select an asset label on the map, then choose Combined status or a mapped unit such as DFS / ST. Each asset lists the SAP plant codes reporting into it — a merged asset carries all of them on one entry.</p></div><span><i class="bi bi-geo-alt-fill"></i> {{ map_assets|length }} assets</span></div><div class="mod-geo-layout">
     {{ geo_map('inventoryAssetMap', 'Map of India with inventory assets') }}
     <aside id="inventoryAssetList" class="mod-geo-list" aria-label="Mapped asset list"></aside>
   </div></section>
@@ -79,10 +79,18 @@ const GEO={
 };
 const list=document.getElementById('inventoryAssetList'),modal=ModGeoMap.modal(document.getElementById('assetUnitModal'));
 const urlFor=id => {{ url_for('inventory.work_centre', work_center_id=999999)|tojson }}.replace('999999',id);
-function open(asset){if(!asset.id)return;modal.open({kicker:asset.zone,title:asset.label,choices:[
+function open(asset){if(!asset.id)return;modal.open({kicker:asset.zone+(asset.plantCodes.length?' \u00b7 SAP plant '+asset.plantCodes.join(' + '):''),title:asset.label,choices:[
   {label:'Combined status',hint:'All mapped units for this asset',href:urlFor(asset.id),combined:true},
   ...asset.units.map(unit=>({label:unit,hint:'Mapped '+unit+' material status',href:urlFor(asset.id)+'?unit='+encodeURIComponent(unit)}))]})}
 /* Every asset reaches the list; only those with coordinates reach the map. */
-const entries=assets.map(asset=>({...(GEO[asset.name]||{}),id:asset.id,label:asset.name,title:asset.zone+' \u00b7 '+asset.units.join(', '),units:asset.units,zone:asset.zone}));
+/* The list beside the map names an asset's SAP plant codes, so a merged asset —
+   one asset, two codes — reads as one entry that answers to both. */
+/* Coordinates are held by asset name; a merged asset keeps its place by falling
+   back to the names that were merged into it. */
+const place=asset=>GEO[asset.name]||(asset.aliases||[]).map(name=>GEO[name]).find(Boolean)||{};
+const entries=assets.map(asset=>({...place(asset),id:asset.id,label:asset.name,
+  meta:(asset.plant_codes||[]).join(' + ')||undefined,
+  title:asset.zone+' \u00b7 '+asset.units.join(', ')+((asset.plant_codes||[]).length?' \u00b7 SAP plant '+asset.plant_codes.join(' + '):''),
+  units:asset.units,zone:asset.zone,plantCodes:asset.plant_codes||[]}));
 ModGeoMap.renderList(list,entries,open);
 ModGeoMap.render(document.getElementById('inventoryAssetMap'),entries,open);})();</script>{% endblock %}

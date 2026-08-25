@@ -37,9 +37,28 @@ LABORATORIES = {
     "rgl_chennai": {"code": "rgl_chennai", "name": "RGL Chennai", "location": "Chennai", "description": "Regional Geoscience Laboratory"},
     "idwe_cementing": {"code": "idwe_cementing", "name": "IDWE Cementing Laboratory", "location": "Dehradun", "description": "Institute of Drilling and Well Engineering · Cementing"},
     "idwe_df_cf": {"code": "idwe_df_cf", "name": "IDWE DF–CF Laboratory", "location": "Dehradun", "description": "Institute of Drilling and Well Engineering · DF–CF"},
+    "wss_ahmedabad": {"code": "wss_ahmedabad", "name": "WSS Ahmedabad", "location": "Ahmedabad", "description": "Well Services Station", "is_additional_designated": True},
+    "ahmedabad_asset_lab": {"code": "ahmedabad_asset_lab", "name": "Ahmedabad Asset Lab", "location": "Ahmedabad", "description": "Ahmedabad Asset testing laboratory", "is_additional_designated": True},
+    "ankleshwar_asset_lab": {"code": "ankleshwar_asset_lab", "name": "Ankleshwar Asset Lab", "location": "Ankleshwar", "description": "Ankleshwar Asset testing laboratory", "is_additional_designated": True},
+    "mehsana_asset_lab": {"code": "mehsana_asset_lab", "name": "Mehsana Asset Lab", "location": "Mehsana", "description": "Mehsana Asset testing laboratory", "is_additional_designated": True},
+    "hazira_plant_lab": {"code": "hazira_plant_lab", "name": "Hazira Plant Lab", "location": "Hazira", "description": "Hazira Plant testing laboratory", "is_additional_designated": True},
+    "uran_plant_lab": {"code": "uran_plant_lab", "name": "Uran Plant Lab", "location": "Uran", "description": "Uran Plant testing laboratory", "is_additional_designated": True},
 }
 
 IDWE_WORKSTREAM_CODES = ("idwe_cementing", "idwe_df_cf")
+
+# The controlled designation list calls this simply "IDWE Dehradun". It is
+# deliberately separate from the two weekly-reporting workstreams above: the
+# source does not say which one is designated, so the CSC register must not
+# infer one. It is offered only when authorising specifications.
+CSC_DESIGNATION_ONLY_LABORATORIES = {
+    "idwe_dehradun": {
+        "code": "idwe_dehradun",
+        "name": "IDWE Dehradun",
+        "location": "Dehradun",
+        "description": "Institute of Drilling and Well Engineering · document designation",
+    },
+}
 
 
 @dataclass(frozen=True)
@@ -483,6 +502,7 @@ def laboratory_navigator_data(laboratories: list[dict[str, Any]]) -> list[dict[s
             "location": lab["location"],
             "description": lab["description"],
             "is_group": bool(lab.get("is_group")),
+            "is_additional_designated": bool(lab.get("is_additional_designated")),
             "workstream_count": len(lab.get("workstreams", [])),
             "is_reporting": batch is not None,
             "reporting_period": batch.week_end.strftime("%d %b %Y") if batch else None,
@@ -582,8 +602,36 @@ def latest_dashboard_data(lab_code: str) -> dict[str, Any]:
     }
 
 
-def portfolio_management_data(reporting_week_end: date | None = None) -> dict[str, Any]:
-    """Build a period-controlled management view without mixing reporting weeks."""
+def _laboratory_scope_groups(laboratory_reviews: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Laboratories grouped by the establishment they belong to, for the deck chooser.
+
+    The RGL network and the IDWE workstreams are separate establishments, so a
+    reader can take a whole establishment in one tick.
+    """
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for review in laboratory_reviews:
+        laboratory = review["laboratory"]
+        establishment = str(laboratory.get("description") or "Laboratories").split("·")[0].strip()
+        groups.setdefault(establishment, []).append({
+            "code": laboratory["code"],
+            "name": laboratory["name"],
+            "location": laboratory.get("location") or "",
+            "submitted": review["batch"] is not None,
+            "samples": review["summary"].get("total", 0) if review["batch"] else 0,
+        })
+    return [
+        {"establishment": establishment, "laboratories": laboratories,
+         "submitted": sum(item["submitted"] for item in laboratories)}
+        for establishment, laboratories in groups.items()
+    ]
+
+
+def portfolio_management_data(reporting_week_end: date | None = None, lab_codes: set[str] | None = None) -> dict[str, Any]:
+    """Build a period-controlled management view without mixing reporting weeks.
+
+    ``lab_codes`` narrows every figure to a chosen set of laboratories, which is
+    how a single-laboratory deck is exported; ``None`` is the whole network.
+    """
     available_week_ends = [
         item[0]
         for item in QCUploadBatch.query.with_entities(QCUploadBatch.week_end)
@@ -599,7 +647,11 @@ def portfolio_management_data(reporting_week_end: date | None = None) -> dict[st
     }
     laboratory_reviews: list[dict[str, Any]] = []
     portfolio_samples: list[QCSample] = []
-    for laboratory in LABORATORIES.values():
+    in_scope = [
+        laboratory for laboratory in LABORATORIES.values()
+        if lab_codes is None or laboratory["code"] in lab_codes
+    ]
+    for laboratory in in_scope:
         latest_available_batch = (
             QCUploadBatch.query.filter_by(lab_code=laboratory["code"])
             .order_by(QCUploadBatch.week_end.desc())
@@ -733,6 +785,8 @@ def portfolio_management_data(reporting_week_end: date | None = None) -> dict[st
             for week_end in available_week_ends
         ],
         "laboratories_by_code": LABORATORIES,
+        "scope_laboratories": _laboratory_scope_groups(laboratory_reviews),
+        "scope_codes": [laboratory["code"] for laboratory in in_scope],
         "completed_testing": completed_testing,
         "weekly_chemical_metrics": weekly_chemical_metrics,
         "completed_with_standard": len(completed_with_standard),
@@ -872,11 +926,13 @@ def management_analytics_data() -> dict[str, Any]:
         })
     chemical_metrics.sort(key=lambda item: (-item["total"], item["chemical_name"].casefold()))
 
+    # Each band carries the view that opens the samples in it, so a count on the
+    # dashboard is a way into the register rather than a number to go and re-find.
     age_buckets = [
-        {"label": "0-3 days", "count": 0, "tone": "neutral"},
-        {"label": "4-9 days", "count": 0, "tone": "warning"},
-        {"label": "10-14 days", "count": 0, "tone": "risk"},
-        {"label": "15+ days", "count": 0, "tone": "critical"},
+        {"label": "0-3 days", "count": 0, "tone": "neutral", "view": "age_0_3"},
+        {"label": "4-9 days", "count": 0, "tone": "warning", "view": "age_4_9"},
+        {"label": "10-14 days", "count": 0, "tone": "risk", "view": "age_10_14"},
+        {"label": "15+ days", "count": 0, "tone": "critical", "view": "age_15_plus"},
     ]
     for sample in samples:
         if sample.result_status != "under_testing" or sample.days_open is None:
@@ -936,6 +992,40 @@ def management_analytics_data() -> dict[str, Any]:
     summary = build_summary(samples)
     tested = summary["passed"] + summary["failed"]
     standards_summary = standard_performance(samples)
+
+    # The head's own view: the few numbers a decision is taken on, each one the
+    # count of a register that can be opened. "Comparable" is the number that
+    # needs explaining, so its other half — completed tests with no standard to
+    # compare against — is carried beside it rather than left implied.
+    open_ages = [sample.days_open for sample in samples if sample.result_status == "under_testing" and sample.days_open is not None]
+    completed_samples = [
+        sample for sample in samples
+        if sample.result_status in COMPLETED_STATUSES and sample.turnaround_days is not None
+    ]
+    head_dashboard = {
+        "samples": summary["total"],
+        "laboratories": len(LABORATORIES),
+        "laboratories_reporting": len({sample.lab_code for sample in samples}),
+        "chemicals": len(chemical_metrics),
+        "under_testing": summary["under_testing"],
+        "aged_open": summary["delayed_open"],
+        "oldest_open": max(open_ages) if open_ages else None,
+        "completed": len(completed_samples),
+        "passed": summary["passed"],
+        "failed": summary["failed"],
+        "pass_rate": round(summary["passed"] / tested * 100, 1) if tested else None,
+        "average_turnaround": summary["average_turnaround"],
+        "comparable": standards_summary["comparable"],
+        "no_standard": len(completed_samples) - standards_summary["comparable"],
+        "standard_coverage": round(standards_summary["comparable"] / len(completed_samples) * 100, 1) if completed_samples else None,
+        "within_standard": standards_summary["within_standard"],
+        "late": standards_summary["late"],
+        "compliance_rate": standards_summary["compliance_rate"],
+        "average_variance": standards_summary["average_variance"],
+        "chemicals_at_risk": len(risk_register),
+        "top_risk": risk_register[0] if risk_register else None,
+    }
+
     analysis_briefs: list[dict[str, str]] = []
 
     if not tested:
@@ -1081,6 +1171,7 @@ def management_analytics_data() -> dict[str, Any]:
         "lab_metrics": lab_metrics,
         "chemical_metrics": chemical_metrics,
         "laboratories_by_code": LABORATORIES,
+        "head_dashboard": head_dashboard,
         "standards_summary": standards_summary,
         "age_buckets": age_buckets,
         "monthly_trend": monthly_trend,
@@ -1089,8 +1180,51 @@ def management_analytics_data() -> dict[str, Any]:
     }
 
 
+# The views a headline number can be opened as. Each is a question the analytics
+# page answers with a count, so the count is a link to the samples behind it —
+# the register is the evidence, not a separate place to go and search again.
+# Ageing and lateness are derived from a sample's own dates, not stored, so these
+# read as predicates rather than as SQL.
+SAMPLE_VIEWS: dict[str, dict[str, Any]] = {
+    "under_testing": {"label": "Samples under testing", "status": "under_testing"},
+    "aged": {"label": "Open beyond 9 days", "status": "under_testing", "age": (10, None)},
+    "age_0_3": {"label": "Open 0–3 days", "status": "under_testing", "age": (0, 3)},
+    "age_4_9": {"label": "Open 4–9 days", "status": "under_testing", "age": (4, 9)},
+    "age_10_14": {"label": "Open 10–14 days", "status": "under_testing", "age": (10, 14)},
+    "age_15_plus": {"label": "Open 15 days or more", "status": "under_testing", "age": (15, None)},
+    "completed": {"label": "Completed tests", "completed": True},
+    "late": {"label": "Completed later than the approved standard", "completed": True, "standard": "late"},
+    "within_standard": {"label": "Completed within the approved standard", "completed": True, "standard": "within"},
+    "no_standard": {"label": "Completed with no approved standard to compare against", "completed": True, "standard": "none"},
+    "failed": {"label": "Failed samples", "status": "fail"},
+}
+COMPLETED_STATUSES = {"pass", "fail", "report_issued"}
+
+
+def _matches_view(sample: QCSample, view: dict[str, Any], standards: dict[str, Any]) -> bool:
+    """Whether one sample belongs in a named view."""
+    if view.get("status") and sample.result_status != view["status"]:
+        return False
+    if view.get("completed") and (sample.result_status not in COMPLETED_STATUSES or sample.turnaround_days is None):
+        return False
+    if "age" in view:
+        low, high = view["age"]
+        if sample.days_open is None or sample.days_open < low or (high is not None and sample.days_open > high):
+            return False
+    if "standard" in view:
+        standard = standards.get(_normalized_chemical(sample.chemical_name))
+        standard_days = standard.standard_days if standard else None
+        if view["standard"] == "none":
+            return standard_days is None
+        if standard_days is None:
+            return False
+        late = sample.turnaround_days > standard_days
+        return late if view["standard"] == "late" else not late
+    return True
+
+
 def search_samples(
-    lab_code: str = "", chemical_name: str = "", specification_no: str = "", status: str = "",
+    lab_code: str = "", chemical_name: str = "", specification_no: str = "", status: str = "", view: str = "",
 ) -> list[QCSample]:
     statement = QCSample.query
     if lab_code:
@@ -1102,7 +1236,12 @@ def search_samples(
         statement = statement.filter(QCSample.specification_no.ilike(f"%{specification_no.strip()}%"))
     if status in {"pass", "fail", "under_testing", "report_issued"}:
         statement = statement.filter(QCSample.result_status == status)
-    return statement.order_by(QCSample.sample_receipt_date.desc(), QCSample.id.desc()).limit(500).all()
+    ordered = statement.order_by(QCSample.sample_receipt_date.desc(), QCSample.id.desc())
+    selected = SAMPLE_VIEWS.get(view)
+    if selected is None:
+        return ordered.limit(500).all()
+    standards = {item.normalized_name: item for item in QCTestingStandard.query.all()}
+    return [sample for sample in ordered.limit(2000).all() if _matches_view(sample, selected, standards)][:500]
 
 
 def history_filter_options(lab_code: str = "") -> dict[str, list]:

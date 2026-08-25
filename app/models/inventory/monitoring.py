@@ -68,6 +68,15 @@ class InventoryMonitoringSnapshot(db.Model):
 
 
 class InventoryMonitoringWorkCenter(db.Model):
+    """One asset, whatever SAP still calls it.
+
+    SAP keeps a plant code per legacy asset, so a merger of two assets leaves two
+    codes reporting into one place. ``sap_plant_codes`` holds them all on the
+    surviving asset — comma separated, e.g. ``12A1,13A1`` — and ``merged_into_id``
+    points a retired asset row at its successor so imported stock lands on one
+    asset instead of two.
+    """
+
     __tablename__ = "inventory_monitoring_work_centers"
     __table_args__ = (db.UniqueConstraint("normalized_name", name="uq_inventory_monitoring_work_center_name"),)
 
@@ -76,11 +85,29 @@ class InventoryMonitoringWorkCenter(db.Model):
     normalized_name = db.Column(db.String(255), nullable=False)
     zone = db.Column(db.String(120), nullable=True)
     work_center_type = db.Column(db.String(80), nullable=True)
+    sap_plant_codes = db.Column(db.String(255), nullable=True)
+    merged_into_id = db.Column(db.BigInteger, db.ForeignKey("inventory_monitoring_work_centers.id", ondelete="SET NULL"), nullable=True)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
+    merged_into = db.relationship("InventoryMonitoringWorkCenter", remote_side=[id])
+
+    @property
+    def plant_codes(self) -> list[str]:
+        """The SAP plant codes reporting into this asset, in the order they were entered."""
+        return [part.strip().upper() for part in (self.sap_plant_codes or "").split(",") if part.strip()]
+
 
 class InventoryMonitoringMaterial(db.Model):
+    """One material code, with the unit the workbook states against it.
+
+    The detailed inventory sheet carries no unit column; the material summary
+    sheets — "09 Oil well cement - Chemical S" and "10 Chemi incl mud chemi -
+    Chemi" — do. That unit is read against the material code at import and kept
+    here, so every table can state it beside the code and so a material can be
+    read as a liquid (L, KL, GAL) or a solid (KG, MT).
+    """
+
     __tablename__ = "inventory_monitoring_materials"
     __table_args__ = (db.UniqueConstraint("material_code", name="uq_inventory_monitoring_material_code"),)
 
@@ -88,6 +115,7 @@ class InventoryMonitoringMaterial(db.Model):
     material_code = db.Column(db.String(64), nullable=False)
     description = db.Column(db.String(500), nullable=True)
     material_group = db.Column(db.String(2), nullable=True)
+    uom = db.Column(db.String(32), nullable=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
 
@@ -179,3 +207,70 @@ class InventoryMonitoringThreshold(db.Model):
     value = db.Column(db.Numeric(12, 2), nullable=False)
     updated_by = db.Column(db.BigInteger, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+
+
+class InventoryMonitoringMaterialSummary(db.Model):
+    """One material's all-ONGC line from a workbook's material summary sheets.
+
+    The detailed inventory sheet reports stock per work centre and carries no
+    consumption. The two material summary sheets in the same workbook do: one
+    gives quantity consumed over twelve months with its unit, the other the
+    value of that consumption. They are stored here so the review can rank
+    materials by what is actually used, not only by what is held.
+    """
+
+    __tablename__ = "inventory_monitoring_material_summaries"
+    __table_args__ = (
+        db.UniqueConstraint("snapshot_id", "material_code", name="uq_inventory_monitoring_summary_material"),
+        db.Index("ix_inventory_monitoring_summaries_snapshot", "snapshot_id"),
+        db.Index("ix_inventory_monitoring_summaries_material", "material_id"),
+    )
+
+    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    snapshot_id = db.Column(db.BigInteger, db.ForeignKey("inventory_monitoring_snapshots.id", ondelete="CASCADE"), nullable=False)
+    batch_id = db.Column(db.BigInteger, db.ForeignKey("inventory_monitoring_upload_batches.id", ondelete="CASCADE"), nullable=False)
+    material_id = db.Column(db.BigInteger, db.ForeignKey("inventory_monitoring_materials.id", ondelete="SET NULL"), nullable=True)
+    material_group = db.Column(db.String(2), nullable=False)
+    material_code = db.Column(db.String(64), nullable=False)
+    material_description = db.Column(db.String(500), nullable=True)
+    stock_qty = db.Column(db.Numeric(20, 3), nullable=True)
+    uom = db.Column(db.String(32), nullable=True)
+    consumption_qty_12m = db.Column(db.Numeric(20, 3), nullable=True)
+    consumption_value_inr = db.Column(db.Numeric(20, 2), nullable=True)
+    inventory_value_inr = db.Column(db.Numeric(20, 2), nullable=True)
+    stock_months = db.Column(db.Numeric(12, 2), nullable=True)
+
+    snapshot = db.relationship("InventoryMonitoringSnapshot")
+    batch = db.relationship("InventoryMonitoringUploadBatch")
+    material = db.relationship("InventoryMonitoringMaterial")
+
+
+class InventoryMonitoringPlantAlert(db.Model):
+    """A plant code or work centre an import reported that no asset claims yet.
+
+    Work centres are not expected to change, so an unrecognised one is news: it
+    is raised here for the module admin to attach to an existing asset or to
+    open as a new asset, and the stock it carries is never silently dropped.
+    """
+
+    __tablename__ = "inventory_monitoring_plant_alerts"
+    __table_args__ = (
+        db.Index("ix_inventory_monitoring_plant_alerts_status", "status"),
+    )
+
+    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    plant_code = db.Column(db.String(32), nullable=True)
+    work_center_name = db.Column(db.String(255), nullable=False)
+    batch_id = db.Column(db.BigInteger, db.ForeignKey("inventory_monitoring_upload_batches.id", ondelete="SET NULL"), nullable=True)
+    work_center_id = db.Column(db.BigInteger, db.ForeignKey("inventory_monitoring_work_centers.id", ondelete="SET NULL"), nullable=True)
+    line_count = db.Column(db.Integer, nullable=False, default=0)
+    inventory_value_inr = db.Column(db.Numeric(20, 2), nullable=True)
+    status = db.Column(db.String(24), nullable=False, default="open")  # open | resolved
+    resolution = db.Column(db.String(500), nullable=True)
+    resolved_by = db.Column(db.BigInteger, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    resolved_at = db.Column(db.DateTime, nullable=True)
+    detected_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    batch = db.relationship("InventoryMonitoringUploadBatch")
+    work_center = db.relationship("InventoryMonitoringWorkCenter")
+    resolver = db.relationship("User", foreign_keys=[resolved_by])

@@ -20,8 +20,8 @@
             <span>Laboratory locations</span>
             <strong>{{ laboratories|length }}</strong>
             <hr>
-            <span>Reporting workstreams</span>
-            <strong>7 <em>including IDWE and DF–CF</em></strong>
+            <span>Additional designated labs</span>
+            <strong>{{ designated_laboratories|length }}</strong>
             <hr>
             <span>Import route</span>
             <strong>Weekly workbook, validated</strong>
@@ -50,13 +50,23 @@
                     <i class="bi bi-calendar-week"></i> <b>Awaiting first import</b>
                     {% endif %}
                 </p>
-                <p>Select a laboratory on the map or in the list to open its dashboard for the latest reporting week.</p>
+                <p>The map shows RGLs and IDWE Dehradun. Other designated laboratories are listed separately alongside it.</p>
             </div>
-            <span><i class="bi bi-geo-alt-fill"></i> {{ laboratories|length }} locations</span>
+            <span><i class="bi bi-geo-alt-fill"></i> {{ mapped_laboratory_total }} mapped locations</span>
         </div>
         <div class="mod-geo-layout">
             {{ geo_map('qcLabMap', 'Map of India with QC laboratories') }}
-            <aside id="qcLabList" class="mod-geo-list" aria-label="Laboratory list"></aside>
+            <aside class="mod-geo-list qc-lab-selector" aria-label="Laboratory selector">
+                <section class="qc-lab-selector-group">
+                    <h3>RGLs and IDWE Dehradun</h3>
+                    <div id="qcLabList" class="mod-geo-list" aria-label="RGL and IDWE Dehradun laboratories"></div>
+                </section>
+                <section class="qc-lab-selector-group">
+                    <h3>Other designated laboratories</h3>
+                    <p>Assigned to specific chemicals in the controlled designation register.</p>
+                    <div id="qcOtherLabList" class="mod-geo-list" aria-label="Other designated laboratories"></div>
+                </section>
+            </aside>
         </div>
         <p class="mod-geo-legend"><span class="is-ready"><i></i> Reporting</span><span class="is-pending"><i></i> Awaiting import</span></p>
     </section>
@@ -79,17 +89,21 @@ const GEO={
 "rgl_chennai":{ll:[13.08,80.27],dx:62,dy:16},
 "idwe_dehradun":{ll:[30.32,78.03],dx:60,dy:-14}/* one institute, two workstreams — the modal splits them */
 };
-const list=document.getElementById('qcLabList'),modal=ModGeoMap.modal(document.getElementById('qcLabModal'));
+const list=document.getElementById('qcLabList'),otherList=document.getElementById('qcOtherLabList'),modal=ModGeoMap.modal(document.getElementById('qcLabModal'));
 /* A laboratory opens its dashboard directly. Only IDWE Dehradun still asks,
    because its one location runs two workstreams with separate dashboards. */
 function open(lab){
   if(lab.is_group){modal.open({kicker:lab.location,title:lab.name,choices:lab.choices});return}
   window.location.href=lab.dashboard_href;
 }
-/* Every laboratory reaches the list; only those with coordinates reach the map. */
+/* Keep the map focused on RGLs and IDWE Dehradun; show the chemical-specific
+   designations in their own selector next to it. */
 const entries=labs.map(lab=>({...(GEO[lab.code]||{}),...lab,label:lab.name,
   state:lab.is_reporting?'ready':'pending',
   meta:(lab.workstream_count?lab.workstream_count+' workstreams \u00b7 ':'')+(lab.is_reporting?'Reporting to '+lab.reporting_period:'Awaiting first import'),
   title:lab.location+' \u00b7 '+(lab.is_reporting?'reporting to '+lab.reporting_period:'awaiting first import')}));
-ModGeoMap.renderList(list,entries,open);
-ModGeoMap.render(document.getElementById('qcLabMap'),entries,open);})();</script>{% endblock %}
+const mapEntries=entries.filter(lab=>!lab.is_additional_designated);
+const otherEntries=entries.filter(lab=>lab.is_additional_designated);
+ModGeoMap.renderList(list,mapEntries,open);
+ModGeoMap.renderList(otherList,otherEntries,open);
+ModGeoMap.render(document.getElementById('qcLabMap'),mapEntries,open);})();</script>{% endblock %}

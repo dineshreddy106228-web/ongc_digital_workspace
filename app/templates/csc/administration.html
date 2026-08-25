@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% from "csc/_specs_nav.html" import specs_nav %}
+{% block title %}Administration — Corporate Specifications — {{ app_name }}{% endblock %}
+{% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/corporate_specifications.css') }}">{% endblock %}
+{% block content %}<div class="page-wrapper mod-page cs-page">
+  {{ specs_nav('administration') }}
+
+  <div class="cs-title">
+    <div><span>{{ 'Controlled specification data' if can_edit else 'Read-only view' }}</span><h1>Specification Administration</h1><p>Set the approved Standard Testing Time and the ONGC laboratories authorised to issue reports against each corporate specification.</p></div>
+    <div class="cs-title-actions"><a class="btn btn-secondary" href="{{ url_for('csc.management_review') }}"><i class="bi bi-easel2"></i> Management review</a></div>
+  </div>
+
+  <section class="cs-stats" aria-label="Administration summary">
+    <div class="cs-stat"><span>Chemicals</span><strong>{{ summary.total }}</strong><small>{{ summary.shown }} shown by this filter</small></div>
+    <div class="cs-stat"><span>Testing time set</span><strong>{{ summary.with_time }}</strong><small>register chemicals with an STT</small></div>
+    <div class="cs-stat"><span>Laboratory authorisation</span><strong>{{ summary.with_labs }}</strong><small>chemicals with one or more labs</small></div>
+    <div class="cs-stat"><span>Laboratories</span><strong>{{ summary.laboratories }}</strong><small>available for authorisation</small></div>
+  </section>
+
+  {% if not can_edit %}<div class="alert alert-info"><strong>Read-only.</strong> These settings apply to every user of Corporate Specifications and QC Laboratory Monitoring. Only a superuser or Corporate Specifications module administrator can change them; the current values and audit trail remain visible to everyone with access.</div>{% endif %}
+
+  <section class="cs-card"><div class="cs-card-body">
+    <div class="cs-section-heading cs-section-heading-flush"><div><span>Find a chemical</span><h2>Specification register</h2><p>Standard Testing Time is maintained on the linked corporate register. An off-register specification may still have authorised laboratories, but cannot have a register testing time.</p></div></div>
+    <form class="cs-toolbar" method="get" action="{{ url_for('csc.administration') }}">
+      <select class="form-select" name="category" aria-label="Chemical sub-group"><option value="">All sub-groups</option>{% for option in summary.categories %}<option value="{{ option.code }}" {{ 'selected' if selected_category == option.code }}>{{ option.code }} — {{ option.label }} ({{ option.count }})</option>{% endfor %}</select>
+      <input type="search" name="q" value="{{ query }}" placeholder="Search chemical, specification or material code" aria-label="Search specifications">
+      <button class="btn btn-primary" type="submit"><i class="bi bi-search"></i> Filter</button>{% if selected_category or query %}<a class="btn btn-secondary" href="{{ url_for('csc.administration') }}">Clear</a>{% endif %}
+    </form>
+
+    <div class="cs-admin-list">
+      {% for row in rows %}
+      <article class="cs-admin-row">
+        <header class="cs-admin-row-head"><div><span>{{ row.category_label }}</span><h3><a href="{{ url_for('csc.specification', ref=row.ref) }}">{{ row.chemical_name }}</a></h3><p>{{ row.spec_number }}{% if row.material_code %} · {{ row.material_code }}{% endif %}{% if not row.on_register %} · <b>Off register</b>{% endif %}</p></div><div>{% if row.has_parameters %}<span class="cs-pill is-ready">v{{ row.version }} · parameters recorded</span>{% else %}<span class="cs-pill is-awaiting">Awaiting parameters</span>{% endif %}</div></header>
+        <form method="post" action="{{ url_for('csc.administration') }}" class="cs-admin-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="ref" value="{{ row.ref }}"><input type="hidden" name="category" value="{{ selected_category }}"><input type="hidden" name="q" value="{{ query }}">
+          <fieldset class="cs-admin-labs" {{ 'disabled' if not can_edit }}><legend>Authorised testing laboratories</legend><div class="cs-lab-options">{% for lab in laboratories %}<label class="cs-lab-option"><input type="checkbox" name="lab_codes[]" value="{{ lab.code }}" {{ 'checked' if lab.code in row.lab_codes }}><span><b>{{ lab.name }}</b><small>{{ lab.location }}</small></span></label>{% endfor %}</div></fieldset>
+          <div class="cs-field-grid cs-admin-register-fields">
+            <div class="cs-field"><label for="stt-{{ loop.index }}">Standard Testing Time</label>{% if row.on_register %}<input id="stt-{{ loop.index }}" name="standard_days" type="number" min="0" max="365" step="1" value="{{ row.standard_days if row.standard_days is not none else '' }}" {{ 'disabled' if not can_edit }}><small>Whole days; blank means not defined.</small>{% else %}<input id="stt-{{ loop.index }}" value="Not available off register" disabled><small>Set only for a corporate-register chemical.</small>{% endif %}</div>
+            <div class="cs-field"><label for="remarks-{{ loop.index }}">Register remarks</label>{% if row.on_register %}<textarea id="remarks-{{ loop.index }}" name="remarks" {{ 'disabled' if not can_edit }}>{{ row.remarks or '' }}</textarea>{% else %}<textarea id="remarks-{{ loop.index }}" disabled>Remarks are held only on the corporate register.</textarea>{% endif %}</div>
+          </div>
+          {% if can_edit %}<div class="cs-editor-actions"><button class="btn btn-primary" type="submit"><i class="bi bi-check2-circle"></i> Save this chemical</button></div>{% endif %}
+        </form>
+      </article>
+      {% else %}<div class="cs-empty"><i class="bi bi-search"></i><strong>No specifications matched</strong><p>Try a different sub-group or search phrase.</p></div>{% endfor %}
+    </div>
+  </div></section>
+
+  <section class="cs-card cs-audit-card"><div class="cs-card-body"><div class="cs-section-heading cs-section-heading-flush"><div><span>Controlled changes</span><h2>Administration audit trail</h2><p>Every saved change, newest first.</p></div></div><div class="cs-table-wrap"><table class="cs-table"><thead><tr><th scope="col">When</th><th scope="col">Who</th><th scope="col">Change</th></tr></thead><tbody>{% for item in admin_trail %}<tr><td>{{ item.created_at|datetime_ist('%d %b %Y · %I:%M %p') if item.created_at else '—' }}</td><td>{{ item.actor }}</td><td>{{ item.details }}</td></tr>{% else %}<tr><td colspan="3">No administration changes have been recorded yet.</td></tr>{% endfor %}</tbody></table></div></div></section>
+</div>{% endblock %}

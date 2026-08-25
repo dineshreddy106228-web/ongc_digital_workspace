@@ -7,13 +7,14 @@ application database connection and it never points local imports at Railway.
 ## Import sequence
 
 1. As a module user, open **Inventory Monitoring → Import workbooks**.
-2. Import the work-centre material mapping workbook. This creates a versioned
-   mapping; material codes are stored as text so Group 09 leading zeroes remain
-   intact.
-3. Import Group 09 and Group 10 workbooks. Each upload is staged, validated,
+2. Import Group 09 and Group 10 workbooks. Each upload is staged, validated,
    reviewed, and committed only after confirmation.
-4. Select the as-on date if it cannot be derived from the file name. Both group
+3. Select the as-on date if it cannot be derived from the file name. Both group
    imports must use the same date before the portfolio is published.
+
+There is no third workbook. Work centres do not change, so the work-centre
+directory is not uploaded any more — see **Unrecognised plants** below for what
+happens when a workbook names one nobody claims.
 
 Each record retains its source workbook, sheet and row. A replacement upload is
 kept in history and marks the prior batch as superseded rather than deleting it.
@@ -61,18 +62,97 @@ to stock. They are still counted in each tile's specification total, and the til
 states how many have no SAP code. Codes are matched after the same zero-padding
 the imports use, so the master's `90001043` matches stock code `090001043`.
 
-## Units of measure
+## SAP plant codes, merged assets and unrecognised plants
 
-The Group 09 and 10 exports carry no unit column, so every stock line was stored
-without one. `_read_inventory` now accepts whatever the export calls it (`UoM`,
-`Unit`, `Base Unit of Measure`, `Unit of Entry`, …), and until the export carries
-one, **Administration → Fill missing units** backfills the unit from the retained
-consumption and usage history (`inventory_consumption_seed_rows`,
-`inventory_records`). Imports run the same backfill automatically.
+SAP keeps a plant code per legacy asset, so a merger leaves two codes reporting
+into one place long after the assets became one: N&H and B&S merged into NH-BS
+while 12A1 and 13A1 stayed apart. Monitoring holds this on the asset rather than
+duplicating the asset:
 
-That history covers 231 material codes — about 1,268 of the 2,708 current stock
-lines, and 83% of inventory value. Adding a UoM column to the workbook export is
-the only way to cover the rest.
+- `inventory_monitoring_work_centers.sap_plant_codes` lists every code reporting
+  into an asset, comma separated (`12A1,13A1`).
+- `merged_into_id` points a retired asset row at its successor. Imported stock
+  lands on the successor, while the record keeps the name the workbook used, so
+  a merged asset is one line in every register and history still resolves.
+- **Administration → Assets and their SAP plant codes** is where both are set.
+  The asset navigator lists an asset's codes beside it, and a merged asset is
+  drawn as one pin, placed by the coordinates of either of the merged names.
+
+### Unrecognised plants
+
+Work centres are not expected to change, so a plant an import cannot place is
+news rather than routine. Each import raises an open alert
+(`inventory_monitoring_plant_alerts`) for any plant code that no asset claims —
+or, while the export still carries no plant column, any work-centre name that is
+neither in the directory nor assigned a zone. The stock is still imported and
+still counted; what is outstanding is a decision.
+
+The import review lists them before the import is confirmed, the import flashes
+a warning, and Administration is where the module admin settles each one:
+**attach** it to an existing asset (which is how one asset comes to carry two
+codes), **add** it as a new asset, or record it as **not monitored**. Every
+outcome is written to the administration audit trail.
+**Administration → Read consumption and check plants** applies the same check to
+stock that was imported before the check existed.
+
+## Twelve-month consumption, and what a material is measured in
+
+The detailed inventory sheet carries neither consumption nor a unit. The two
+material summary sheets in the same workbook carry both — "09 Oil well cement -
+Chemical S" / "10 Chemi incl mud chemi - Chemi" for quantity and its unit, and
+the "Chemical P" / "Che 1" sheets for value in crores. They are found by their
+columns, not their titles, and stored per material in
+`inventory_monitoring_material_summaries`.
+
+The unit is also written onto the material itself
+(`inventory_monitoring_materials.uom`), because it belongs to the material and
+not to a stock line. Two things follow:
+
+- **Every table states the unit immediately after the material code** — the
+  health registers, the material register, each work-centre register, the review
+  tables, and every register in both decks.
+- **A material is a liquid or a solid by its unit.** L, LT, LTR, KL, ML, M3, GAL
+  and BBL are read as volume and ranked in kilolitres; G, KG, MT, TO, QTL and LB
+  are read as weight and ranked in tonnes. A unit that counts pieces (NO, PAC,
+  ST) is neither: those materials are counted in a footnote rather than forced
+  into one of the two tables.
+
+The management review ranks consumption by **value**: everything above ₹ 10 Cr
+(`HIGH_CONSUMPTION_VALUE_FLOOR`), all-ONGC, both groups. Value is one scale, so
+one table can hold every material.
+
+Quantity is not one scale, and it is only ranked where like is compared with
+like — the period movers, which are per material and split by phase. There is
+deliberately no "top materials by consumption quantity" table: ranking litres
+against tonnes needs a conversion the reader has to trust, and the same
+information is already carried by the value table.
+
+The twelve months are SAP's, not ours. The summary sheet states a rolling
+twelve-month consumption against each material code, so the figure is a full
+year read out of the workbook — it is not accumulated from the imported
+snapshots, however few of those there are. The card says so, because two
+snapshots a week apart otherwise make a twelve-month figure look impossible.
+
+These figures are all-ONGC: the summary sheets carry no work centre, so they do
+not narrow with an asset-scoped view, and the cards say so.
+
+## Units of measure on a stock line
+
+A stock line carries a copy of its material's unit so a quantity can be read on
+the spot. The detailed inventory sheet still has no unit column —
+`_read_inventory` accepts whatever the export calls it (`UoM`, `Unit`, `Base Unit
+of Measure`, `Unit of Entry`, …) for the day it carries one — so the copy is
+filled in after the fact, in this order:
+
+1. the unit the workbook states against the material code on its material summary
+   sheet, which is the material's own unit;
+2. the retained consumption and usage history
+   (`inventory_consumption_seed_rows`, `inventory_records`), for a code the
+   summary sheets have never carried.
+
+Imports run this automatically, and **Administration → Fill missing units**
+re-runs it. The summary sheets cover every material the workbooks report, so this
+is no longer a partial fill: history is now only a fallback.
 
 ## Groups 09 and 10 are one portfolio
 
@@ -92,6 +172,20 @@ book from the health and work-centre views — so the readers treat it as live,
 `import_workbook` repairs any such row before each import, and migration
 `f8a9b0c1d2e` clears the ones already stored.
 
+## Reading the registers
+
+- The **material register** leads with the material's own drill-down: latest
+  source inventory first, then the mapping. A stock line at or below the
+  critical threshold and one at or above the excess threshold are shaded and
+  labelled, with a legend stating the boundary in force.
+- **Largest movers** on the review is a table per phase — material, unit, the
+  value at each of the two dates, and the movement — ranked by the size of the
+  movement whichever way it went.
+- On **Inventory Health**, a slow-moving row that the source workbook also names
+  in its own non-moving, slow-moving, aged, surplus or transit register is
+  shaded: the condition is confirmed twice over, by our reading of stock months
+  and by the workbook's own registers.
+
 ## Mapping comes from the uploaded inventory
 
 Work-centre mapping is not declared ahead of the inventory. Every imported stock
@@ -101,9 +195,11 @@ figure on any page is gated on a mapping decision. Materials with no current
 corporate specification are already shown separately, under **Not in Corporate
 Specification List**, which is where an unfamiliar code surfaces.
 
-The mapping workbook remains the **work-centre directory**: it supplies zones,
-work-centre names and the DFS / ST unit split used by the asset map and the unit
-filter. It no longer declares which material may be held where.
+The last imported mapping workbook remains the **work-centre directory**: it
+supplies zones, work-centre names and the DFS / ST unit split used by the asset
+map and the unit filter. It no longer declares which material may be held where,
+and it is no longer uploaded — the directory is read from the batch already
+retained, and anything new arrives through the unrecognised-plant alerts.
 
 The material register's **mapped plant / work centre** column is read straight
 from the latest published Group 09 and Group 10 workbooks — wherever they report
@@ -143,6 +239,20 @@ Comparison is explicit, never assumed:
 PowerPoint deck for the selected reporting period from the published Group 09
 and Group 10 snapshots. Nothing is stored: the deck is generated on request from
 the same data the page shows.
+
+The scope is asked for rather than assumed. **Download presentation** opens a
+chooser — the whole of ONGC, or a set of assets drilled down zone by zone.
+Ticking any asset selects the second option, and ticking a zone ticks the assets
+in it. A scoped deck counts only those assets in every figure, names its scope on
+the cover, on every slide's source line and in its filename, and reports the
+zone's name when the whole of one zone is chosen.
+
+The chooser is shared, not inventory's own: the dialog comes from
+`templates/components/_deck_scope.html`, its styles from the `mod-modal-*` and
+`mod-scope-*` blocks of `module_shell.css`, and its behaviour from
+`static/js/deck_scope.js`. QC Laboratory Monitoring's management review uses the
+same component to pick laboratories, so both reviews ask the question the same
+way and their action rows sit in the same place (`is-stacked-actions`).
 
 The deck carries the executive summary, group and zone composition, coverage
 bands, every work centre ranked by value, like-for-like movement against the
@@ -199,6 +309,14 @@ table heads, map pins — use `--mod-ink` / `--mod-ink-strong`, which mix the mo
 accent with near-black. Do not use the hero tokens for those: the hero is light.
 
 ## Migration and legacy retirement
+
+`b1c2d3e4f5a6_inventory_plant_codes_and_consumption.py` adds the asset's SAP
+plant codes and merge pointer, the material's unit, and the two new tables
+(`inventory_monitoring_material_summaries`,
+`inventory_monitoring_plant_alerts`). It adds nothing that existing rows depend
+on, so an install upgrades without re-importing: **Administration → Read
+consumption and check plants** fills consumption and raises the plant alerts from
+the workbooks already retained.
 
 `b4d5e6f7a8b_add_inventory_monitoring_tables.py` only creates new
 `inventory_monitoring_*` tables. It deliberately does **not** drop legacy

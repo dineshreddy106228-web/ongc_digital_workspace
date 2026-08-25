@@ -10,6 +10,10 @@
       <span class="mod-kicker"><i class="bi bi-journal-bookmark"></i> Corporate Chemistry · Specifications</span>
       <h1>Corporate<br><em>Specifications</em></h1>
       <p>Every ONGC oil-field chemical specification in force, grouped by chemical category. Open a category to read the specification sheet, its parameters and its revision history.</p>
+      <div class="mod-hero-actions">
+        <a class="mod-hero-primary" href="{{ url_for('csc.management_review') }}"><i class="bi bi-easel2"></i> Open management review</a>
+        <a class="mod-hero-secondary" href="{{ url_for('csc.dossier_download') }}"><i class="bi bi-folder-symlink"></i> Download dossiers</a>
+      </div>
     </div>
     <aside>
       <span>Chemicals on the register</span>
@@ -23,6 +27,16 @@
     </aside>
   </section>
 
+  <section aria-label="Module actions">
+    <div class="mod-tiles">
+      <a class="mod-tile" href="{{ url_for('csc.master_export') }}"><i class="bi bi-file-earmark-arrow-down"></i><strong>Master Data Export</strong><small>The register as a workbook, or every specification as one indexed document.</small></a>
+      <a class="mod-tile" href="{{ url_for('csc.msds_page') }}"><i class="bi bi-file-earmark-pdf"></i><strong>MSDS Center</strong><small>ONGC and vendor safety data sheets, one standard and three vendor slots per material.</small></a>
+      <a class="mod-tile" href="{{ url_for('csc.management_review') }}"><i class="bi bi-easel2"></i><strong>Management Review</strong><small>Coverage, ageing, impact and the specifications needing attention.</small></a>
+      <a class="mod-tile" href="{{ url_for('csc.management_analytics') }}"><i class="bi bi-bar-chart-line"></i><strong>Management Analytics</strong><small>Revision activity, parameter mix and testing-time spread.</small></a>
+      <a class="mod-tile" href="{{ url_for('csc.administration') }}"><i class="bi bi-sliders"></i><strong>Administration</strong><small>Authorised testing laboratories and Standard Testing Time per specification.</small></a>
+    </div>
+  </section>
+
   <section class="mod-stats">
     <div class="mod-stat"><span>Specification parameters</span><strong>{{ '{:,}'.format(parameter_total) }}</strong><small>Across all specifications in force</small></div>
     <div class="mod-stat"><span>Chemical categories</span><strong>{{ tiles|length }}</strong><small>Register categories with mapped chemicals</small></div>
@@ -30,6 +44,13 @@
     <div class="mod-stat"><span>Off-register specifications</span><strong>{{ off_register_total }}</strong><small>Held in the system but not on the register</small></div>
   </section>
 
+  <div class="cs-section-heading">
+    <div>
+      <span>The register</span>
+      <h2>Chemical sub-groups</h2>
+      <p>Open a sub-group to read the specifications it holds, their parameters and their revision history.</p>
+    </div>
+  </div>
   <section class="cs-tiles">
     {% for tile in tiles %}
     <a class="cs-tile {{ 'is-unspecified' if tile.is_unspecified }}" href="{{ url_for('csc.category', key=tile.key) }}">
@@ -43,21 +64,4 @@
     {% endfor %}
   </section>
 
-  <div class="cs-section-heading">
-    <div>
-      <span>Module tools</span>
-      <h2>Export and safety documents</h2>
-      <p>Download the consolidated register, or manage the material safety data sheets held against each material code.</p>
-    </div>
-  </div>
-  <section class="cs-utility">
-    <a href="{{ url_for('csc.master_export') }}">
-      <i class="bi bi-file-earmark-arrow-down"></i>
-      <span><strong>Master Export</strong><small>The whole register as a workbook, or the consolidated specification document in ONGC Format A.</small></span>
-    </a>
-    <a href="{{ url_for('csc.msds_page') }}">
-      <i class="bi bi-file-earmark-pdf"></i>
-      <span><strong>MSDS Center</strong><small>ONGC and vendor material safety data sheets, one standard slot and three vendor slots per material.</small></span>
-    </a>
-  </section>
 </div>{% endblock %}

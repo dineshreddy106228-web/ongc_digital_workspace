@@ -1,49 +1,58 @@
 {% extends "base.html" %}
-{% block title %}Master Export — Corporate Specifications — {{ app_name }}{% endblock %}
+{% block title %}Master Data Export — Corporate Specifications — {{ app_name }}{% endblock %}
 {% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/corporate_specifications.css') }}">{% endblock %}
 {% from "csc/_specs_nav.html" import specs_nav %}
 {% block content %}<div class="page-wrapper mod-page cs-page">
   {{ specs_nav('export') }}
 
   <nav class="cs-breadcrumb" aria-label="Breadcrumb">
-    <a href="{{ url_for('csc.index') }}">Corporate Specifications</a> <span>/</span> <span>Master Export</span>
+    <a href="{{ url_for('csc.index') }}">Corporate Specifications</a> <span>/</span> <span>Master Data Export</span>
   </nav>
 
   <div class="cs-title">
     <div>
       <span>Module tools</span>
-      <h1>Master Export</h1>
-      <p>Download the corporate specification register as a workbook, or the consolidated specification document in ONGC Format A.</p>
+      <h1>Master Data Export</h1>
+      <p>The specifications themselves — an index, a header page opening each chemical sub-group, and one ONGC Format A sheet per chemical. Nothing from the dossier is printed here; that is a separate controlled document with its own download.</p>
+    </div>
+    <div class="cs-title-actions">
+      <a class="btn btn-secondary" href="{{ url_for('csc.dossier_download') }}"><i class="bi bi-folder-symlink"></i> Dossier Download</a>
     </div>
   </div>
 
   <section class="cs-stats">
     <div class="cs-stat"><span>Chemicals</span><strong>{{ chemical_total }}</strong><small>Rows in the register export</small></div>
     <div class="cs-stat"><span>Specifications</span><strong>{{ specification_total }}</strong><small>Specification sheets available</small></div>
+    <div class="cs-stat"><span>Sub-groups</span><strong>{{ categories|length }}</strong><small>Header pages in the document</small></div>
     <div class="cs-stat"><span>Parameters</span><strong>{{ '{:,}'.format(parameter_total) }}</strong><small>Rows on the parameters sheet</small></div>
   </section>
 
   <div class="cs-detail">
     <section class="cs-card"><div class="cs-card-body">
       <div class="cs-section-heading cs-section-heading-flush">
-        <div><span>Word</span><h2>Consolidated specification document</h2><p>{{ document_total }} specifications with parameters recorded, one ONGC Format A sheet each, ordered by category and serial.</p></div>
+        <div><span>Word</span><h2>Consolidated specification document</h2><p>{{ document_total }} specifications with parameters recorded, one ONGC Format A sheet each, ordered by sub-group and serial.</p></div>
       </div>
       <form method="get" action="{{ url_for('csc.export_master_document') }}">
         <div class="cs-field-grid">
           <div class="cs-field cs-field-wide">
-            <label for="category">Category</label>
+            <label for="category">Chemical sub-group</label>
             <select id="category" name="category">
-              <option value="">All categories ({{ document_total }} specifications)</option>
+              <option value="">All sub-groups ({{ document_total }} specifications)</option>
               {% for option in categories %}<option value="{{ option.code }}">{{ option.code }} — {{ option.label }} ({{ option.count }})</option>{% endfor %}
             </select>
-          </div>
-          <div class="cs-field cs-field-wide">
-            <label for="dossier"><input type="checkbox" id="dossier" name="dossier" value="1" checked> Include the full CSC dossier note after each sheet — issue register, impact assessment and narrative</label>
-          </div>
-          <div class="cs-field cs-field-wide">
-            <label for="metadata"><input type="checkbox" id="metadata" name="metadata" value="1"> Include version and revision metadata appendix</label>
+            <small>Choosing one sub-group prints that sub-group's header page and its sheets only.</small>
           </div>
         </div>
+
+        <fieldset class="cs-choice-set">
+          <legend>Requirement classification</legend>
+          <p class="cs-choice-hint">Vital, Essential and Desirable are ONGC's internal weighting of a requirement. A copy issued outside is often wanted without them, so the same document prints either way.</p>
+          <label class="cs-choice"><input type="radio" name="labels" value="1" checked>
+            <span><b>With Vital and Essential labels</b><small>Each parameter carries its classification in brackets after the name.</small></span></label>
+          <label class="cs-choice"><input type="radio" name="labels" value="0">
+            <span><b>Without Vital and Essential labels</b><small>Parameter names only — the requirement values are unchanged.</small></span></label>
+        </fieldset>
+
         <div class="cs-editor-actions">
           <button class="btn btn-primary" type="submit"><i class="bi bi-file-earmark-word"></i> Download .docx</button>
         </div>
@@ -57,8 +66,12 @@
         <a class="btn btn-primary" href="{{ url_for('csc.export_register_workbook') }}"><i class="bi bi-file-earmark-spreadsheet"></i> Download .xlsx</a>
       </section>
       <section class="cs-panel">
-        <h3>What is included</h3>
-        <div class="cs-panel-text">Both exports read the live register — the same list QC Laboratory Monitoring maintains and Inventory Monitoring reads. Chemicals whose parameters have not been entered yet appear in the workbook, but are left out of the Word document because they have no sheet to print. A single specification's dossier is downloadable from its own page.</div>
+        <h3>How the document is laid out</h3>
+        <div class="cs-panel-text">The index comes first, listing every sub-group and, under it, every specification with its page number. A sub-group header page then opens each run of sheets. Page numbers are printed as calculated and refresh to the exact printed page in Word with Ctrl+A then F9.</div>
+      </section>
+      <section class="cs-panel">
+        <h3>What is left out</h3>
+        <div class="cs-panel-text">Chemicals whose parameters have not been entered yet appear in the workbook but have no sheet to print, so they are not in the Word document. The issue register, impact assessment and narrative belong to the dossier — take those from <a href="{{ url_for('csc.dossier_download') }}">Dossier Download</a>.</div>
       </section>
     </aside>
   </div>

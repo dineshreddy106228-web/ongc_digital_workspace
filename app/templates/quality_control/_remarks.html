@@ -1,0 +1,40 @@
+{# A sample's remark is free text a laboratory typed — often a sentence or two,
+   sometimes several hundred characters. Given a column of its own it takes over
+   the register and pushes the dated columns out of view, so the cell carries an
+   excerpt and the whole remark opens in a dialog.
+
+   Usage: one remark_cell() per row, one remark_dialog() per page.
+
+     {% from "quality_control/_remarks.html" import remark_cell, remark_dialog %}
+     <td>{{ remark_cell(sample.delay_reason, sample.chemical_name) }}</td>
+     …
+     {{ remark_dialog() }}
+
+   Behaviour is in static/js/quality_control.js. Without it the excerpt and its
+   title attribute still carry the remark, so nothing is hidden by a failed
+   script. #}
+
+{% macro remark_cell(text, title='') %}
+{%- set remark = (text or '') | trim -%}
+{%- if remark -%}
+<button type="button" class="qc-remark-chip" data-qc-remark="{{ remark }}" data-qc-remark-title="{{ title }}" title="{{ remark }}">
+  <i class="bi bi-chat-left-text"></i>
+  <span>{{ remark if remark | length <= 42 else remark[:42] | trim ~ '…' }}</span>
+</button>
+{%- else -%}
+<span class="qc-remark-empty">—</span>
+{%- endif -%}
+{% endmacro %}
+
+{% macro remark_dialog() %}
+<div class="mod-modal" id="qcRemarkDialog" hidden data-qc-remark-dialog>
+  <div class="mod-modal-backdrop" data-qc-remark-close></div>
+  <section class="mod-modal-dialog qc-remark-dialog" role="dialog" aria-modal="true" aria-labelledby="qcRemarkDialogTitle">
+    <button class="mod-modal-close" type="button" aria-label="Close" data-qc-remark-close>&times;</button>
+    <span class="qc-section-eyebrow">Remark recorded by the laboratory</span>
+    <h2 id="qcRemarkDialogTitle" class="mod-card-title" data-qc-remark-heading></h2>
+    <p class="qc-remark-body" data-qc-remark-body></p>
+    <div class="qc-remark-actions"><button class="btn btn-secondary" type="button" data-qc-remark-close>Close</button></div>
+  </section>
+</div>
+{% endmacro %}

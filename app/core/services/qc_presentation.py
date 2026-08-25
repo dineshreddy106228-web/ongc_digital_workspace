@@ -297,17 +297,35 @@ def build_lab_brief_presentation(lab_code: str, static_folder: str) -> tuple[Byt
     return output, f"{laboratory['name']} Management Brief {batch.week_end:%d %b %Y}.pptx"
 
 
-def build_portfolio_management_presentation(static_folder: str, reporting_week_end=None) -> tuple[BytesIO, str]:
-    """Create an on-demand, consolidated management-review presentation."""
+def build_portfolio_management_presentation(static_folder: str, reporting_week_end=None, lab_codes: set[str] | None = None) -> tuple[BytesIO, str]:
+    """Create an on-demand, consolidated management-review presentation.
+
+    ``lab_codes`` builds it for the chosen laboratories instead of the whole
+    network. Every figure then counts only those laboratories, and the deck says
+    so on its cover, on every slide's source line, and in its filename.
+    """
     from pptx import Presentation
     from pptx.dml.color import RGBColor
     from pptx.enum.shapes import MSO_SHAPE
     from pptx.util import Inches, Pt
     from app.core.services.quality_control import portfolio_management_data
 
-    data = portfolio_management_data(reporting_week_end)
+    data = portfolio_management_data(reporting_week_end, lab_codes)
     if not data["reporting_labs"]:
-        raise ValueError("Import a weekly QC workbook for at least one laboratory before downloading a presentation.")
+        raise ValueError(
+            "None of the selected laboratories submitted a workbook for this reporting week."
+            if lab_codes is not None else
+            "Import a weekly QC workbook for at least one laboratory before downloading a presentation."
+        )
+    names = [review["laboratory"]["name"] for review in data["laboratory_reviews"]]
+    if lab_codes is None:
+        scope_heading, scope_note, scope_stem = "ALL ONGC", "the whole laboratory network", "QC Portfolio"
+    elif len(names) == 1:
+        scope_heading = scope_note = scope_stem = names[0]
+    else:
+        listed = ", ".join(names[:4]) + (f" and {len(names) - 4} more" if len(names) > 4 else "")
+        scope_heading, scope_stem = f"{len(names)} LABORATORIES", f"{len(names)} laboratories"
+        scope_note = f"{len(names)} laboratories — {listed}"
 
     prs = Presentation(); prs.slide_width = Inches(13.333); prs.slide_height = Inches(7.5); blank = prs.slide_layouts[6]
     navy, blue, red, green, grey, border = "071D42", "1976D2", "C53B3B", "18794E", "526173", "D7E2EE"
@@ -331,7 +349,7 @@ def build_portfolio_management_presentation(static_folder: str, reporting_week_e
     def header(slide, title, page):
         background(slide); add_text(slide, "ONGC CORPORATE CHEMISTRY · QC LABORATORY MONITORING", .42, .27, 7.6, .24, 11, blue, True); add_text(slide, title, .42, .7, 11.35, .46, 27, navy, True)
         if logo.exists(): slide.shapes.add_picture(str(logo), Inches(12.24), Inches(.16), width=Inches(.55), height=Inches(.55))
-        add_text(slide, f"Source: Selected reporting week · {period_label}", .42, 7.08, 9.6, .16, 8, grey); add_text(slide, f"{page:02d}", 12.5, 7.08, .25, .16, 8, grey)
+        add_text(slide, f"Source: Selected reporting week · {period_label} · Scope: {scope_note}", .42, 7.08, 9.6, .16, 8, grey); add_text(slide, f"{page:02d}", 12.5, 7.08, .25, .16, 8, grey)
     def metric(slide, x, y, value, label, tone=navy):
         card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(x-.18), Inches(y-.18), Inches(3.45), Inches(1.35)); card.fill.solid(); card.fill.fore_color.rgb = color("EAF4FF" if tone == blue else "FCEBEC" if tone == red else "EAF7F0" if tone == green else "F2F4F7"); card.line.color.rgb = color(border)
         add_text(slide, value, x, y, 2.8, .4, 27, tone, True); add_text(slide, label, x, y+.52, 3.0, .25, 13, navy, True)
@@ -369,8 +387,8 @@ def build_portfolio_management_presentation(static_folder: str, reporting_week_e
             table(slide, headers, rows[start:end], widths, font_size=font_size)
 
     slide = prs.slides.add_slide(blank); background(slide); slide.background.fill.solid(); slide.background.fill.fore_color.rgb = color("EAF4FF"); rectangle(slide, 12.48, .08, .85, 6.85, "D7EAFB")
-    add_text(slide, "QC LABORATORY MONITORING", .76, 1.28, 5.5, .28, 14, blue, True); add_text(slide, "Portfolio Management Review", .76, 1.82, 10.5, .7, 50, navy, True); rectangle(slide, .76, 2.75, 1.15, .045, blue)
-    add_text(slide, period_label, .76, 3.08, 8.5, .36, 24, navy, True); add_text(slide, f"Consolidated position across {data['reporting_labs']} reporting laboratories", .76, 3.68, 8.5, .36, 16, grey)
+    add_text(slide, f"QC LABORATORY MONITORING · {scope_heading}", .76, 1.28, 8.5, .28, 14, blue, True); add_text(slide, "Portfolio Management Review", .76, 1.82, 10.5, .7, 50, navy, True); rectangle(slide, .76, 2.75, 1.15, .045, blue)
+    add_text(slide, period_label, .76, 3.08, 8.5, .36, 24, navy, True); add_text(slide, f"Consolidated position across {data['reporting_labs']} reporting laborator{'y' if data['reporting_labs'] == 1 else 'ies'} — {scope_note}", .76, 3.68, 10.5, .36, 16, grey, wrap=True)
     if logo.exists(): rectangle(slide, 11.08, .46, 1.2, 1.2, "FFFFFF", border); slide.shapes.add_picture(str(logo), Inches(11.15), Inches(.53), width=Inches(1.05), height=Inches(1.05))
     add_text(slide, "Office of Head Corporate Chemistry | Mumbai / Dehradun", .76, 6.45, 7.2, .2, 11, grey)
 
@@ -411,4 +429,4 @@ def build_portfolio_management_presentation(static_folder: str, reporting_week_e
     paginated_table("Weekly chemical performance", ["Chemical", "Laboratories", "Samples", "Pass", "Fail", "Open", "Average time", "Standard"], chemical_rows, [2.35, 3.35, .75, .65, .65, .65, 1.15, 1.15])
 
     output = BytesIO(); prs.save(output); output.seek(0)
-    return output, f"QC Portfolio Management Review {period['end']:%b %Y}.pptx"
+    return output, f"{scope_stem} Management Review {period['end']:%b %Y}.pptx"

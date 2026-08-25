@@ -1,7 +1,8 @@
 {% extends "base.html" %}
 {% from "quality_control/_qc_nav.html" import qc_nav with context %}
+{% from "quality_control/_remarks.html" import remark_cell, remark_dialog %}
 {% block title %}{{ laboratory.name }} Sample History{% endblock %}
-{% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/quality_control.css') }}">{% endblock %}
+{% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/quality_control.css') }}"><script defer src="{{ url_for('static', filename='js/quality_control.js') }}"></script>{% endblock %}
 {% block content %}<div class="page-wrapper mod-page">
 {{ qc_nav('') }}
 
@@ -86,7 +87,7 @@
             <td>{{ sample.report_issue_date.strftime('%d %b %Y') if sample.report_issue_date else '—' }}</td>
             <td><span class="status-badge {{ 'status-success' if sample.result_status == 'pass' else 'status-danger' if sample.result_status == 'fail' else 'status-pending' }}">{{ 'Report issued; outcome not recorded' if sample.result_status == 'report_issued' else sample.result_status.replace('_', ' ').title() }}</span></td>
             <td>{{ sample.turnaround_days ~ ' days' if sample.turnaround_days is not none else '—' }}</td>
-            <td>{{ sample.delay_reason or '—' }}</td>
+            <td class="qc-remark-cell">{{ remark_cell(sample.delay_reason, sample.chemical_name) }}</td>
           </tr>
           {% else %}
           <tr><td colspan="7">No samples match the selected filters for this laboratory.</td></tr>
@@ -96,4 +97,5 @@
     </div>
   </div>
 </section>
+{{ remark_dialog() }}
 </div>{% endblock %}

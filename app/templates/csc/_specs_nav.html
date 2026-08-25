@@ -1,7 +1,11 @@
 {% macro specs_nav(active='') %}
 <nav class="mod-nav" aria-label="Corporate Specifications navigation">
   <a class="{{ 'is-active' if active == 'home' }}" href="{{ url_for('csc.index') }}"><i class="bi bi-house-door"></i><span>Specification home</span></a>
-  <a class="{{ 'is-active' if active == 'export' }}" href="{{ url_for('csc.master_export') }}"><i class="bi bi-file-earmark-arrow-down"></i><span>Master Export</span></a>
+  <a class="{{ 'is-active' if active == 'export' }}" href="{{ url_for('csc.master_export') }}"><i class="bi bi-file-earmark-arrow-down"></i><span>Master Data Export</span></a>
+  <a class="{{ 'is-active' if active == 'dossiers' }}" href="{{ url_for('csc.dossier_download') }}"><i class="bi bi-folder-symlink"></i><span>Dossier Download</span></a>
   <a class="{{ 'is-active' if active == 'msds' }}" href="{{ url_for('csc.msds_page') }}"><i class="bi bi-file-earmark-pdf"></i><span>MSDS Center</span></a>
+  <a class="{{ 'is-active' if active == 'review' }}" href="{{ url_for('csc.management_review') }}"><i class="bi bi-easel2"></i><span>Management Review</span></a>
+  <a class="{{ 'is-active' if active == 'analytics' }}" href="{{ url_for('csc.management_analytics') }}"><i class="bi bi-bar-chart-line"></i><span>Management Analytics</span></a>
+  <a class="{{ 'is-active' if active == 'administration' }}" href="{{ url_for('csc.administration') }}"><i class="bi bi-sliders"></i><span>Administration</span></a>
 </nav>
 {% endmacro %}

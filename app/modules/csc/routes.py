@@ -253,10 +253,17 @@ def export_register_workbook():
 @login_required
 @module_access_required("csc")
 def export_master_document():
+    """The specifications themselves: an index, then a sheet per chemical.
+
+    Nothing from the dossier is printed here — the issue register, the impact
+    assessment and the narrative are a separate controlled document with its own
+    download, so this one stays the register of requirements.
+    """
     from app.core.services.corporate_specifications import export_bundles
     from app.core.services.csc_export import build_master_spec_document
 
     selected = (request.args.get("category") or "").strip().upper()
+    include_type_labels = request.args.get("labels", "1") == "1"
     try:
         bundles = export_bundles(selected or None)
         if not bundles:
@@ -264,21 +271,205 @@ def export_master_document():
             return redirect(url_for("csc.master_export"))
         document = build_master_spec_document(
             bundles,
-            include_draft_note=request.args.get("dossier") == "1",
-            include_metadata=request.args.get("metadata") == "1",
+            include_draft_note=False,
+            include_metadata=False,
+            include_type_labels=include_type_labels,
+            group_by_subgroup=True,
         )
     except Exception:
         logger.exception("Corporate specification master document export failed")
         flash("The master specification document could not be generated.", "danger")
         return redirect(url_for("csc.master_export"))
     filename = (
-        f"ONGC_Corporate_Specifications_{selected or 'ALL'}_{datetime.now().strftime('%Y%m%d_%H%M')}.docx"
+        f"ONGC_Corporate_Specifications_{selected or 'ALL'}"
+        f"{'' if include_type_labels else '_unlabelled'}"
+        f"_{datetime.now().strftime('%Y%m%d_%H%M')}.docx"
     )
     return send_file(
         io.BytesIO(document),
         as_attachment=True,
         download_name=filename,
         mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        max_age=0,
+    )
+
+
+# ── Dossier downloads ────────────────────────────────────────────────────────
+
+
+@csc_bp.route("/dossiers")
+@login_required
+@module_access_required("csc")
+def dossier_download():
+    """Pick chemicals from their sub-groups and take their dossiers away."""
+    from app.core.services.corporate_specifications import dossier_selection
+
+    groups = dossier_selection()
+    return render_template(
+        "csc/dossier_download.html",
+        groups=groups,
+        chemical_total=sum(len(group["chemicals"]) for group in groups),
+        subgroup_total=len(groups),
+    )
+
+
+@csc_bp.route("/dossiers/download", methods=["POST"])
+@login_required
+@module_access_required("csc")
+def download_dossiers():
+    """One chemical downloads its dossier; several download as a zip of dossiers.
+
+    A dossier is a controlled document per specification, so a multi-chemical
+    request is a folder of them rather than one merged file.
+    """
+    from app.core.services.corporate_specifications import build_dossier_bundle
+
+    refs = [
+        ref
+        for ref in (request.form.getlist("refs[]") or request.form.getlist("refs"))
+        if ref.strip()
+    ]
+    if not refs:
+        flash("Select at least one chemical to download a dossier for.", "warning")
+        return redirect(url_for("csc.dossier_download"))
+    try:
+        stream, filename, mimetype, skipped = build_dossier_bundle(refs)
+    except ValueError as exc:
+        flash(str(exc), "warning")
+        return redirect(url_for("csc.dossier_download"))
+    except Exception:
+        logger.exception("Dossier bundle export failed for %s references", len(refs))
+        flash("The dossiers could not be generated.", "danger")
+        return redirect(url_for("csc.dossier_download"))
+    if skipped:
+        flash(
+            f"{len(skipped)} selected chemical(s) have no specification record yet and "
+            "were left out: " + ", ".join(skipped[:5]) + ("…" if len(skipped) > 5 else ""),
+            "info",
+        )
+    return send_file(stream, as_attachment=True, download_name=filename, mimetype=mimetype, max_age=0)
+
+
+# ── Administration ───────────────────────────────────────────────────────────
+
+
+@csc_bp.route("/administration", methods=["GET", "POST"])
+@login_required
+@module_access_required("csc")
+def administration():
+    """The data held against a specification: authorised labs and testing time.
+
+    Everyone with module access reads it — these are the terms people work
+    under. Changing it is for a superuser or the module admin, and every change
+    is written to the module's administration trail.
+    """
+    from app.core.services.administration import administration_trail, record_admin_change
+    from app.core.services.csc_administration import (
+        AdministrationError, administration_rows, laboratory_options,
+        save_entry_administration,
+    )
+
+    can_edit = _can_administer()
+    if request.method == "POST":
+        if not can_edit:
+            abort(403)
+        ref = (request.form.get("ref") or "").strip()
+        try:
+            summary = save_entry_administration(
+                ref,
+                request.form.getlist("lab_codes[]") or request.form.getlist("lab_codes"),
+                request.form.get("standard_days", ""),
+                request.form.get("remarks", ""),
+                current_user.id,
+            )
+            if summary:
+                record_admin_change(
+                    "csc", summary, entity_id=ref, ip_address=request.remote_addr or ""
+                )
+                db.session.commit()
+                flash("Administration updated.", "success")
+            else:
+                db.session.rollback()
+                flash("Nothing changed, so nothing was recorded.", "info")
+        except AdministrationError as exc:
+            db.session.rollback()
+            flash(str(exc), "warning")
+        except Exception:
+            db.session.rollback()
+            logger.exception("Could not save CSC administration for ref=%s", ref)
+            flash("The change could not be saved.", "danger")
+        return redirect(
+            url_for(
+                "csc.administration",
+                category=request.form.get("category", ""),
+                q=request.form.get("q", ""),
+            )
+        )
+
+    selected = (request.args.get("category") or "").strip()
+    query = (request.args.get("q") or "").strip()
+    rows, summary = administration_rows(selected, query)
+    return render_template(
+        "csc/administration.html",
+        rows=rows,
+        summary=summary,
+        laboratories=laboratory_options(),
+        selected_category=selected,
+        query=query,
+        can_edit=can_edit,
+        admin_trail=administration_trail("csc"),
+    )
+
+
+def _can_administer() -> bool:
+    from app.core.services.administration import can_edit_administration
+
+    return can_edit_administration() or current_user.is_module_admin("csc")
+
+
+# ── Management review and analytics ──────────────────────────────────────────
+
+
+@csc_bp.route("/management-review")
+@login_required
+@module_access_required("csc")
+def management_review():
+    from app.core.services.csc_management import management_review_data
+
+    return render_template("csc/management_review.html", **management_review_data())
+
+
+@csc_bp.route("/management-analytics")
+@login_required
+@module_access_required("csc")
+def management_analytics():
+    from app.core.services.csc_management import management_analytics_data
+
+    return render_template("csc/management_analytics.html", **management_analytics_data())
+
+
+@csc_bp.route("/management-analytics/authorised-laboratories.pdf")
+@login_required
+@module_access_required("csc")
+def download_authorised_laboratory_list():
+    """Download the controlled chemical-to-laboratory authorisation directory."""
+    from app.core.services.csc_management import build_authorised_laboratory_list_pdf
+
+    try:
+        document = build_authorised_laboratory_list_pdf()
+    except Exception:
+        logger.exception("Could not build authorised laboratory list PDF")
+        flash("The authorised laboratory list could not be generated.", "danger")
+        return redirect(url_for("csc.management_analytics"))
+    filename = (
+        "ONGC_Corporate_Chemistry_Authorised_Laboratory_List_"
+        f"{datetime.utcnow():%Y%m%d}.pdf"
+    )
+    return send_file(
+        io.BytesIO(document),
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/pdf",
         max_age=0,
     )
 

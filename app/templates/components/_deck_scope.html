@@ -1,0 +1,43 @@
+{# Shared presentation-scope chooser — the dialog a review opens when its deck
+   is asked for. Every module that exports a management deck asks the same
+   question in the same shape: the whole of ONGC, or the things ticked.
+
+   Usage — see inventory/portfolio.html and quality_control/portfolio_management_review.html:
+
+     {% from "components/_deck_scope.html" import deck_scope %}
+     <button type="button" class="btn btn-primary" data-deck-open="deckScope">Download presentation</button>
+     {% call deck_scope('deckScope', url_for('…'), title='…', intro='…',
+                        all_label='All ONGC', all_hint='…',
+                        set_label='A set of assets', set_hint='…',
+                        set_value='assets', summary='All ONGC — 34 work centres.',
+                        hidden={'reporting_date': '2026-08-24'}) %}
+       … the tickable items, each a label.mod-scope-item carrying
+         <input type="checkbox" name="…" data-deck-scope-item> …
+     {% endcall %}
+
+   Items may be grouped in <details class="mod-scope-group"> whose summary
+   carries a [data-deck-scope-group] checkbox; ticking the group ticks its
+   items. Behaviour lives in static/js/deck_scope.js, loaded for both modules.
+   The form is a plain GET form, so it still submits without that script. #}
+
+{% macro deck_scope(id, action, title, intro, all_label, all_hint, set_label, set_hint, summary, set_value='selection', hidden={}) %}
+<div class="mod-modal" id="{{ id }}" hidden>
+  <div class="mod-modal-backdrop" data-deck-close></div>
+  <section class="mod-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="{{ id }}Title">
+    <button class="mod-modal-close" type="button" aria-label="Close" data-deck-close>&times;</button>
+    <form method="get" action="{{ action }}" data-deck-scope>
+      {% for name, value in hidden.items() %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
+      <div class="mod-section-heading"><div><span>Download presentation</span><h2 id="{{ id }}Title">{{ title }}</h2><p>{{ intro }}</p></div></div>
+      <div class="mod-scope-choices">
+        <label class="mod-scope-choice"><input type="radio" name="scope" value="all" checked data-deck-scope-all><span><strong>{{ all_label }}</strong><small>{{ all_hint }}</small></span></label>
+        <label class="mod-scope-choice"><input type="radio" name="scope" value="{{ set_value }}" data-deck-scope-set><span><strong>{{ set_label }}</strong><small>{{ set_hint }}</small></span></label>
+      </div>
+      <div class="mod-scope-list">{{ caller() }}</div>
+      <div class="mod-scope-actions">
+        <span class="mod-scope-summary" data-deck-scope-summary>{{ summary }}</span>
+        <span class="mod-scope-buttons"><button class="btn btn-secondary" type="button" data-deck-close>Cancel</button><button class="btn btn-primary"><i class="bi bi-file-earmark-ppt"></i> Download presentation</button></span>
+      </div>
+    </form>
+  </section>
+</div>
+{% endmacro %}

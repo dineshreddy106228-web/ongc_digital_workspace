@@ -22,6 +22,7 @@ from app.models.core.user import User
 ADMIN_ACTIONS = {
     "inventory": "INVENTORY_ADMIN_UPDATED",
     "quality_control": "QC_ADMIN_UPDATED",
+    "csc": "CSC_ADMIN_UPDATED",
 }
 
 

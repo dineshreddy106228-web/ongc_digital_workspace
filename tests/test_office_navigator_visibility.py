@@ -177,7 +177,7 @@ def test_a_superuser_may_open_every_location(task_app):
 
 def test_the_navigator_wording_is_the_same_for_everyone(task_app):
     superuser, reader = _seed()
-    sentence = "The map includes every ONGC location that reports to Corporate Chemistry."
+    sentence = "Task status across locations"
 
     assert sentence in _dashboard(task_app, reader)
     assert sentence in _dashboard(task_app, superuser)

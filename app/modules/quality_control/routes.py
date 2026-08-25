@@ -25,9 +25,15 @@ def landing():
         current_monitoring_week, laboratory_landing_data, laboratory_navigator_data,
     )
     laboratories = laboratory_landing_data()
+    designated_laboratories = [
+        laboratory for laboratory in laboratories
+        if laboratory.get("is_additional_designated")
+    ]
     return render_template(
         "quality_control/landing.html",
         laboratories=laboratories,
+        designated_laboratories=designated_laboratories,
+        mapped_laboratory_total=len(laboratories) - len(designated_laboratories),
         map_laboratories=laboratory_navigator_data(laboratories),
         monitoring_week=current_monitoring_week(),
     )
@@ -110,16 +116,20 @@ def laboratory_dashboard(lab_code: str):
 @login_required
 @module_access_required("quality_control")
 def sample_history():
-    from app.core.services.quality_control import history_filter_options, search_samples
+    from app.core.services.quality_control import SAMPLE_VIEWS, history_filter_options, search_samples
     lab_code = (request.args.get("lab") or "").strip()
     chemical_name = (request.args.get("chemical") or "").strip()
     specification_no = (request.args.get("specification") or "").strip()
     status = (request.args.get("status") or "").strip()
+    # A headline number on the analytics page opens the register on the samples
+    # behind it; the view is what carries that question through.
+    view = (request.args.get("view") or "").strip()
     try:
         return render_template(
             "quality_control/samples.html",
-            samples=search_samples(lab_code, chemical_name, specification_no, status),
-            filters={"lab": lab_code, "chemical": chemical_name, "specification": specification_no, "status": status},
+            samples=search_samples(lab_code, chemical_name, specification_no, status, view),
+            filters={"lab": lab_code, "chemical": chemical_name, "specification": specification_no, "status": status, "view": view},
+            view_label=(SAMPLE_VIEWS.get(view) or {}).get("label"),
             **history_filter_options(lab_code),
         )
     except ValueError:
@@ -149,8 +159,15 @@ def download_portfolio_management_presentation():
         reporting_week_end = date.fromisoformat(request.args["week_end"]) if request.args.get("week_end") else None
     except ValueError:
         reporting_week_end = None
+    lab_codes = None
+    if request.args.get("scope") == "labs":
+        from app.core.services.quality_control import LABORATORIES
+        lab_codes = {code for code in request.args.getlist("lab") if code in LABORATORIES}
+        if not lab_codes:
+            flash("Select at least one laboratory, or choose the all-ONGC deck.", "warning")
+            return redirect(url_for("quality_control.portfolio_management_review", week_end=request.args.get("week_end")))
     try:
-        output, filename = build_portfolio_management_presentation(current_app.static_folder, reporting_week_end)
+        output, filename = build_portfolio_management_presentation(current_app.static_folder, reporting_week_end, lab_codes)
     except ValueError as exc:
         flash(str(exc), "warning")
     except Exception:

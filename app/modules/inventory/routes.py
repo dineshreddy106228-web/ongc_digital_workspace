@@ -1,6 +1,7 @@
 """Routes for Inventory Monitoring."""
 from __future__ import annotations
 
+import json
 import logging
 from datetime import date
 
@@ -35,7 +36,7 @@ def landing():
 @login_required
 @module_access_required("inventory")
 def portfolio():
-    from app.core.services.inventory_monitoring import portfolio_data
+    from app.core.services.inventory_monitoring import portfolio_data, scope_directory
     selected = compare = None
     try:
         selected = _reporting_date(request.args.get("reporting_date"))
@@ -45,13 +46,18 @@ def portfolio():
     data = portfolio_data(selected, compare)
     if compare and data["previous_date"] != compare:
         flash("That comparison period is not published or is not earlier than the selected date; the closest earlier period is shown.", "warning")
-    return render_template("inventory/portfolio.html", **data)
+    return render_template("inventory/portfolio.html", scope_directory=scope_directory(data["reporting_date"]), **data)
 
 
 @inventory_bp.route("/management-review/presentation.pptx")
 @login_required
 @module_access_required("inventory")
 def download_management_presentation():
+    """The management deck for the whole of ONGC, or for a chosen set of assets.
+
+    ``scope=assets`` builds the deck from the assets ticked in the chooser, which
+    is how a zone or a single asset is exported; anything else is all of ONGC.
+    """
     from app.core.services.inventory_presentation import build_management_review_presentation
     selected = compare = None
     try:
@@ -59,8 +65,14 @@ def download_management_presentation():
         compare = _reporting_date(request.args.get("compare_date"))
     except ValueError:
         flash("The requested reporting date was not recognised; the latest published period is used.", "warning")
+    centre_ids = None
+    if request.args.get("scope") == "assets":
+        centre_ids = {int(value) for value in request.args.getlist("centre") if value.isdigit()}
+        if not centre_ids:
+            flash("Select at least one asset, or choose the all-ONGC deck.", "warning")
+            return redirect(url_for("inventory.portfolio", reporting_date=selected.isoformat() if selected else None, compare_date=compare.isoformat() if compare else None))
     try:
-        output, filename = build_management_review_presentation(current_app.static_folder, selected, compare)
+        output, filename = build_management_review_presentation(current_app.static_folder, selected, compare, centre_ids)
     except ValueError as exc:
         flash(str(exc), "warning")
     except Exception:
@@ -98,9 +110,22 @@ def imports():
                 batch = import_workbook(source, pending["filename"], pending["source_group"], selected_date or _reporting_date(pending.get("reporting_date")), current_user.id)
                 db.session.commit(); discard_staged_workbook(token); session.pop("inventory_monitoring_pending_import", None)
                 flash(f"{batch.source_group} workbook imported with {batch.accepted_count} accepted rows.", "success")
+                alerts = (json.loads(batch.validation_json or "{}") or {}).get("new_plant_alerts") or 0
+                if alerts:
+                    flash(
+                        f"{alerts} plant code{'' if alerts == 1 else 's'} in this workbook match no asset. "
+                        "The module admin has been alerted in Administration, where they can attach each one "
+                        "to an asset or open a new asset for it.",
+                        "warning",
+                    )
                 return redirect(url_for("inventory.import_history"))
             workbook = request.files.get("workbook")
             source_group = request.form.get("source_group", "")
+            if source_group not in {"09", "10"}:
+                # Work centres do not change, so the directory is not re-uploaded.
+                # An unfamiliar plant arriving inside an inventory workbook is
+                # raised for the module admin instead.
+                raise ValueError("Select Group 09 or Group 10. The work-centre directory is no longer uploaded.")
             if not workbook or not workbook.filename:
                 raise ValueError("Select a workbook to validate.")
             if not workbook.filename.lower().endswith((".xlsx", ".xls")):
@@ -216,9 +241,10 @@ def materials():
 @module_access_required("inventory")
 def material(material_id: int):
     from app.models.inventory.monitoring import InventoryMonitoringException, InventoryMonitoringMaterial, InventoryMonitoringRecord, InventoryMonitoringWorkCenter, InventoryMonitoringWorkCenterMaterial
+    from app.core.services.inventory_monitoring import _thresholds
     item = db.session.get(InventoryMonitoringMaterial, material_id)
     if item is None: abort(404)
-    return render_template("inventory/material.html", material=item, records=InventoryMonitoringRecord.query.filter_by(material_id=item.id).order_by(InventoryMonitoringRecord.id.desc()).limit(300).all(), exceptions=InventoryMonitoringException.query.filter_by(material_id=item.id).order_by(InventoryMonitoringException.id.desc()).limit(100).all(), mappings=InventoryMonitoringWorkCenterMaterial.query.filter_by(material_id=item.id, is_current=True).join(InventoryMonitoringWorkCenter).order_by(InventoryMonitoringWorkCenter.zone, InventoryMonitoringWorkCenter.name).all())
+    return render_template("inventory/material.html", material=item, thresholds=_thresholds(), records=InventoryMonitoringRecord.query.filter_by(material_id=item.id).order_by(InventoryMonitoringRecord.id.desc()).limit(300).all(), exceptions=InventoryMonitoringException.query.filter_by(material_id=item.id).order_by(InventoryMonitoringException.id.desc()).limit(100).all(), mappings=InventoryMonitoringWorkCenterMaterial.query.filter_by(material_id=item.id, is_current=True).join(InventoryMonitoringWorkCenter).order_by(InventoryMonitoringWorkCenter.zone, InventoryMonitoringWorkCenter.name).all())
 
 
 @inventory_bp.route("/administration", methods=["GET", "POST"])
@@ -260,10 +286,102 @@ def administration():
         except Exception:
             db.session.rollback(); flash("Thresholds must be valid numbers.", "danger")
     thresholds = {item.key: item for item in InventoryMonitoringThreshold.query.all()}
+    from app.core.services.inventory_monitoring import asset_administration_data
     return render_template(
         "inventory/administration.html", thresholds=thresholds,
         can_edit=can_edit, admin_trail=administration_trail("inventory"),
+        **asset_administration_data(),
     )
+
+
+@inventory_bp.route("/administration/fill-consumption", methods=["POST"])
+@login_required
+@module_access_required("inventory")
+def fill_material_consumption():
+    """Read consumption out of workbooks imported before it was being stored."""
+    from app.core.services.administration import can_edit_administration, record_admin_change
+    from app.core.services.inventory_monitoring import audit_imported_plants, backfill_material_summaries
+    if not can_edit_administration():
+        abort(403)
+    try:
+        raised = audit_imported_plants()
+        if raised:
+            flash(
+                f"{raised} plant{'' if raised == 1 else 's'} already in the register match no asset. They are listed above for you to settle.",
+                "warning",
+            )
+        added = backfill_material_summaries()
+        if added:
+            record_admin_change(
+                "inventory", f"Twelve-month consumption read for {added:,} material lines from retained workbooks.",
+                entity_id="consumption-backfill", ip_address=request.remote_addr or "",
+            )
+        db.session.commit()
+        flash(
+            f"Consumption read for {added:,} material lines from the retained workbooks."
+            if added else "Every imported workbook has already had its consumption read.",
+            "success" if added else "info",
+        )
+    except Exception:
+        db.session.rollback(); logger.exception("Inventory consumption backfill failed")
+        flash("Consumption could not be read from the retained workbooks. Please try again or contact an administrator with the server log reference.", "danger")
+    return redirect(url_for("inventory.administration"))
+
+
+@inventory_bp.route("/administration/assets", methods=["POST"])
+@login_required
+@module_access_required("inventory")
+def save_assets():
+    """Record which SAP plant codes report into which asset, and which assets merged.
+
+    SAP keeps a plant code per legacy asset, so a merger such as N&H and B&S into
+    NH-BS leaves 12A1 and 13A1 in the data long after the assets became one. Both
+    codes sit on the surviving asset here, and the absorbed asset points at it, so
+    every register shows one line without anything being renamed in SAP.
+    """
+    from app.core.services.administration import can_edit_administration, record_admin_change
+    from app.core.services.inventory_monitoring import save_asset_plant_codes
+    if not can_edit_administration():
+        abort(403)
+    try:
+        changes = save_asset_plant_codes(request.form)
+        if changes:
+            record_admin_change(
+                "inventory", "Assets updated — " + "; ".join(changes),
+                entity_id="assets", ip_address=request.remote_addr or "",
+            )
+        db.session.commit()
+        flash(f"{len(changes)} asset change{'' if len(changes) == 1 else 's'} saved." if changes else "No asset changes to save.", "success" if changes else "info")
+    except ValueError as exc:
+        db.session.rollback(); flash(str(exc), "warning")
+    except Exception:
+        db.session.rollback(); logger.exception("Inventory asset plant-code update failed")
+        flash("The asset register could not be saved. Please try again or contact an administrator with the server log reference.", "danger")
+    return redirect(url_for("inventory.administration"))
+
+
+@inventory_bp.route("/administration/plant-alerts/<int:alert_id>", methods=["POST"])
+@login_required
+@module_access_required("inventory")
+def resolve_plant_alert_route(alert_id: int):
+    """Close one unrecognised-plant alert: attach it to an asset, open a new asset, or dismiss it."""
+    from app.core.services.administration import can_edit_administration, record_admin_change
+    from app.core.services.inventory_monitoring import resolve_plant_alert
+    if not can_edit_administration():
+        abort(403)
+    try:
+        summary = resolve_plant_alert(alert_id, request.form.get("action", ""), request.form, current_user.id)
+        record_admin_change(
+            "inventory", f"Plant alert resolved — {summary}",
+            entity_id=f"plant-alert-{alert_id}", ip_address=request.remote_addr or "",
+        )
+        db.session.commit(); flash(summary.capitalize() + ".", "success")
+    except ValueError as exc:
+        db.session.rollback(); flash(str(exc), "warning")
+    except Exception:
+        db.session.rollback(); logger.exception("Inventory plant alert resolution failed for alert=%s", alert_id)
+        flash("The plant alert could not be resolved. Please try again or contact an administrator with the server log reference.", "danger")
+    return redirect(url_for("inventory.administration"))
 
 
 @inventory_bp.route("/administration/fill-units", methods=["POST"])

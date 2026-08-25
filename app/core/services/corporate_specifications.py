@@ -1390,3 +1390,117 @@ def export_categories() -> list[dict[str, Any]]:
         for code in SPEC_SUBSET_ORDER + sorted(set(counts) - set(SPEC_SUBSET_ORDER))
         if counts.get(code)
     ]
+
+
+# ── Dossier selection and bundling ───────────────────────────────────────────
+
+
+def dossier_selection() -> list[dict[str, Any]]:
+    """The catalogue as a drill-down: chemical sub-group, then its chemicals.
+
+    A dossier is built from a specification record, so a register chemical whose
+    record has not been opened yet is listed but not selectable — dropping it
+    silently would read as the chemical having been removed.
+    """
+    groups: dict[str, dict[str, Any]] = {}
+    for entry in catalogue():
+        group = groups.setdefault(
+            entry["category"],
+            {
+                "code": entry["category"],
+                "label": entry["category_label"],
+                "icon": CATEGORY_ICONS.get(entry["category"], "bi-clipboard-data"),
+                "is_unspecified": entry["category"] == UNCATEGORISED_KEY,
+                "chemicals": [],
+            },
+        )
+        group["chemicals"].append(
+            {
+                "ref": entry["ref"],
+                "chemical_name": entry["chemical_name"],
+                "spec_number": entry["spec_number"],
+                "material_code": entry["material_code"],
+                "version": entry["version"],
+                "available": entry["record_id"] is not None,
+                "has_parameters": entry["has_parameters"],
+            }
+        )
+    ordered = SPEC_SUBSET_ORDER + sorted(set(groups) - set(SPEC_SUBSET_ORDER))
+    result = []
+    for code in ordered:
+        group = groups.get(code)
+        if group is None:
+            continue
+        group["available"] = sum(1 for item in group["chemicals"] if item["available"])
+        group["total"] = len(group["chemicals"])
+        result.append(group)
+    return result
+
+
+def _dossier_filename(entry: dict[str, Any]) -> str:
+    stem = (entry["spec_number"] or entry["chemical_name"] or "specification").strip()
+    stem = re.sub(r"[^A-Za-z0-9]+", "_", stem).strip("_") or "specification"
+    return f"{stem}_v{entry['version']}_dossier.docx"
+
+
+def build_dossier_bundle(refs: list[str]) -> tuple[BytesIO, str, str, list[str]]:
+    """Build the dossiers for the selected chemicals.
+
+    Returns the stream, its download name, its media type and the names of any
+    selections that had no specification record to build from.
+    """
+    import zipfile
+
+    from app.core.services.csc_dossier_export import build_enterprise_dossier
+
+    wanted = list(dict.fromkeys(refs))
+    entries = {entry["ref"]: entry for entry in catalogue()}
+    selected = [entries[ref] for ref in wanted if ref in entries]
+    if not selected:
+        raise ValueError("None of the selected chemicals are on the register any more.")
+
+    skipped = [entry["chemical_name"] for entry in selected if entry["record_id"] is None]
+    buildable = [entry for entry in selected if entry["record_id"] is not None]
+    if not buildable:
+        raise ValueError(
+            "None of the selected chemicals have a specification record to build a dossier from."
+        )
+
+    documents: list[tuple[str, bytes]] = []
+    used: set[str] = set()
+    for entry in buildable:
+        data = specification_data(entry["ref"])
+        if data is None or data["record"] is None:
+            skipped.append(entry["chemical_name"])
+            continue
+        name = _dossier_filename(entry)
+        if name in used:
+            # Two register chemicals can share one specification record, and so its
+            # dossier's name; the zip must still hold both.
+            stem, _, suffix = name.rpartition(".")
+            index = 2
+            while f"{stem}_{index}.{suffix}" in used:
+                index += 1
+            name = f"{stem}_{index}.{suffix}"
+        used.add(name)
+        documents.append((name, build_enterprise_dossier(dossier_context(data))))
+
+    if not documents:
+        raise ValueError("The selected chemicals produced no dossier.")
+
+    if len(documents) == 1:
+        name, payload = documents[0]
+        return (
+            BytesIO(payload),
+            name,
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            skipped,
+        )
+
+    archive = BytesIO()
+    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as bundle:
+        for name, payload in documents:
+            bundle.writestr(name, payload)
+    archive.seek(0)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M")
+    return archive, f"ONGC_Specification_Dossiers_{len(documents)}_{stamp}.zip", "application/zip", skipped

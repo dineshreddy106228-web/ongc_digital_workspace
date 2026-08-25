@@ -14,3 +14,229 @@
 .qc-review-insights{ display:grid; grid-template-columns:minmax(235px,.9fr) 2.1fr; gap:1rem; margin-top:1rem; padding:1.35rem; border:1px solid var(--border); border-radius:16px; background:linear-gradient(115deg,var(--surface-alt),var(--surface)); }.qc-review-insight-lead h2{ margin:.35rem 0 .4rem; color:var(--text); font-size:1.2rem; letter-spacing:-.03em; }.qc-review-insight-lead p{ max-width:340px; margin:0; color:var(--muted); font-size:.8rem; line-height:1.5; }.qc-review-insight-grid{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.75rem; }.qc-review-section-heading{ display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; margin-bottom:1rem; }.qc-review-section-heading h2{ margin:.3rem 0; color:var(--text); font-size:1.15rem; letter-spacing:-.025em; }.qc-review-section-heading p{ margin:0; color:var(--color-text-muted); font-size:.8rem; }[data-theme="dark"] .qc-review-insights{ border-color:#315170; background:linear-gradient(115deg,#172b43,#14263c); }[data-theme="dark"] .qc-review-insight-lead h2{ color:#e7f1fb; }[data-theme="dark"] .qc-review-insight-lead p{ color:#adc0d3; }
 @media (max-width: 1100px) {.qc-review-insights{ grid-template-columns:1fr; }.qc-review-insight-lead p{ max-width:none; }}
 @media (max-width: 760px) {.qc-review-section-heading{ align-items:flex-start; flex-direction:column; }.qc-review-insight-grid{ grid-template-columns:1fr; }.qc-review-insights{ padding:1.1rem; }}
+
+/* ── Sample remarks ────────────────────────────────────────────────────
+   Free text a laboratory typed, up to several hundred characters. The cell
+   carries an excerpt on one line and hands the whole remark to a dialog, so
+   the register keeps its dated columns in view. */
+.qc-remark-cell { max-width: 240px; }
+
+.qc-remark-chip {
+    display: inline-flex;
+    gap: .4rem;
+    align-items: center;
+    max-width: 100%;
+    padding: .3rem .55rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface-alt);
+    color: var(--text);
+    font-size: .76rem;
+    line-height: 1.25;
+    text-align: left;
+    cursor: pointer;
+}
+
+.qc-remark-chip:hover { border-color: var(--mod-accent); color: var(--mod-accent); }
+.qc-remark-chip i { flex: 0 0 auto; color: var(--muted); }
+.qc-remark-chip:hover i { color: var(--mod-accent); }
+
+.qc-remark-chip span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.qc-remark-empty { color: var(--muted); }
+
+.qc-remark-dialog { width: min(560px, 100%); }
+.qc-remark-dialog .mod-card-title { margin: .35rem 0 .75rem; }
+
+.qc-remark-body {
+    margin: 0;
+    padding: 1rem 1.1rem;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface-alt);
+    color: var(--text);
+    font-size: .88rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+}
+
+.qc-remark-actions { display: flex; justify-content: flex-end; margin-top: 1rem; }
+
+/* ── Head of Corporate Chemistry dashboard ─────────────────────────────
+   The page's lead. Every count is a link into the sample register, so the
+   tiles are anchors and read as such — the static ones are ratios and
+   averages, which have no register to open. */
+.qc-head-dashboard { margin-top: 1rem; }
+
+.qc-head-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: .75rem;
+    margin: 1.1rem 0 1.25rem;
+}
+
+.qc-head-tile {
+    position: relative;
+    display: block;
+    padding: 1rem 1.1rem;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--mod-accent);
+    border-radius: 12px;
+    background: var(--surface);
+    color: inherit;
+    text-decoration: none;
+    transition: .18s box-shadow, .18s transform, .18s border-color;
+}
+
+a.qc-head-tile:hover {
+    transform: translateY(-1px);
+    border-color: var(--mod-accent);
+    box-shadow: 0 8px 18px rgba(14, 40, 74, .1);
+}
+
+.qc-head-tile.is-static { border-left-color: var(--border); }
+.qc-head-tile-risk { border-left-color: var(--tone-bad-fg); }
+.qc-head-tile-warning { border-left-color: var(--tone-warn-fg); }
+
+.qc-head-tile-label {
+    display: block;
+    color: var(--muted);
+    font-size: .73rem;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+}
+
+.qc-head-tile strong {
+    display: block;
+    margin: .35rem 0 .3rem;
+    color: var(--text);
+    font-family: "JetBrains Mono", monospace;
+    font-size: 1.85rem;
+    line-height: 1;
+    letter-spacing: -.04em;
+}
+
+.qc-head-tile strong em { font-size: .95rem; font-style: normal; letter-spacing: 0; }
+.qc-head-tile small { display: block; color: var(--muted); font-size: .75rem; line-height: 1.4; }
+
+.qc-head-tile > .bi {
+    position: absolute;
+    top: .85rem;
+    right: .75rem;
+    color: var(--muted);
+    font-size: 1.1rem;
+}
+
+a.qc-head-tile:hover > .bi { color: var(--mod-accent); }
+
+.qc-head-panels {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 1.1rem;
+}
+
+.qc-head-panel {
+    padding: 1.1rem 1.15rem;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface-alt);
+}
+
+.qc-head-panel h3 { margin: 0 0 .2rem; color: var(--text); font-size: 1rem; }
+.qc-head-panel .mod-card-sub { margin-bottom: .85rem; }
+
+.qc-head-panel-note {
+    margin: .85rem 0 0;
+    color: var(--muted);
+    font-size: .78rem;
+    line-height: 1.55;
+}
+
+.qc-head-panel-note strong { color: var(--text); }
+
+.qc-head-standard {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: .6rem;
+}
+
+.qc-head-standard-item {
+    display: block;
+    padding: .75rem .8rem;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    color: inherit;
+    text-decoration: none;
+}
+
+a.qc-head-standard-item:hover { border-color: var(--mod-accent); }
+
+.qc-head-standard-item strong {
+    display: block;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 1.35rem;
+    line-height: 1;
+    letter-spacing: -.03em;
+}
+
+.qc-head-standard-item strong em { font-size: .8rem; font-style: normal; }
+.qc-head-standard-item span { display: block; margin-top: .3rem; color: var(--muted); font-size: .74rem; }
+
+/* The ageing bands are links now, so they need the anchor reset. */
+a.qc-age-distribution-item { text-decoration: none; }
+a.qc-age-distribution-item:hover { filter: brightness(.97); }
+
+/* One laboratory table, with its columns grouped by the question they answer. */
+.qc-scorecard-group-row th {
+    border-bottom: 0;
+    color: var(--muted);
+    font-size: .68rem;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}
+
+.qc-scorecard-group {
+    border-left: 1px solid var(--border);
+    text-align: center;
+}
+
+.qc-scorecard-table td .mod-cell-meta { margin-top: .15rem; }
+
+.qc-lab-selector {
+    display: grid;
+    grid-template-columns: 1fr;
+    align-content: start;
+    gap: 1rem;
+}
+
+.qc-lab-selector-group + .qc-lab-selector-group {
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+}
+
+.qc-lab-selector-group h3 {
+    margin: 0 0 .28rem;
+    color: var(--text);
+    font-size: .88rem;
+}
+
+.qc-lab-selector-group p {
+    margin: 0 0 .65rem;
+    color: var(--muted);
+    font-size: .74rem;
+    line-height: 1.45;
+}
+
+.qc-lab-selector .mod-geo-list {
+    display: grid;
+    grid-template-columns: 1fr;
+    max-height: none;
+    overflow: visible;
+    padding: 0;
+}

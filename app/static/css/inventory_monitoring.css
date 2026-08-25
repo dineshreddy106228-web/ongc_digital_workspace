@@ -36,3 +36,199 @@
   font-size: .81rem;
   font-weight: 700;
 }
+
+/* ── Row tones ─────────────────────────────────────────────────────────
+   A shaded row is a claim about the row, so each shade is named in a legend
+   beside its table and is a light wash of the tone already used for that
+   condition — never a colour of its own. */
+.im-row-critical > td { background: color-mix(in srgb, var(--tone-bad-bg) 55%, transparent); }
+.im-row-critical > td:first-child { box-shadow: inset 4px 0 var(--tone-bad-fg); }
+.im-row-excess > td { background: color-mix(in srgb, var(--tone-alt-bg, var(--tone-info-bg)) 55%, transparent); }
+.im-row-excess > td:first-child { box-shadow: inset 4px 0 var(--tone-alt-fg, var(--tone-info-fg)); }
+.im-row-confirmed > td { background: color-mix(in srgb, var(--tone-warn-bg) 42%, transparent); }
+.im-row-confirmed > td:first-child { box-shadow: inset 4px 0 color-mix(in srgb, var(--tone-warn-fg) 70%, transparent); }
+.im-row-merged > td { background: var(--surface-alt); color: var(--muted); }
+
+.im-confirmed-note {
+  display: block;
+  margin-top: 3px;
+  color: var(--tone-warn-fg);
+  font-size: .72rem;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.im-row-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: .76rem;
+}
+
+.im-row-legend span { display: inline-flex; align-items: center; gap: 6px; }
+
+.im-row-legend i {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background: var(--surface-alt);
+}
+
+.im-row-legend .im-row-critical i { background: color-mix(in srgb, var(--tone-bad-bg) 80%, var(--tone-bad-fg)); }
+.im-row-legend .im-row-excess i { background: color-mix(in srgb, var(--tone-alt-bg, var(--tone-info-bg)) 80%, var(--tone-alt-fg, var(--tone-info-fg))); }
+.im-row-legend .im-row-confirmed i { background: color-mix(in srgb, var(--tone-warn-bg) 80%, var(--tone-warn-fg)); }
+
+/* ── Liquids and solids ────────────────────────────────────────────────
+   Volume and weight are separate league tables, so they never share a ranking.
+   Each takes the full width rather than sitting in a column: a movement table
+   carries a description and two period values, and half a page cut them off. */
+.im-mover-split {
+  display: grid;
+  gap: 26px;
+  margin-top: 18px;
+}
+
+.im-phase-heading {
+  margin: 0 0 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.im-phase-heading small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: .74rem;
+  font-weight: 500;
+}
+
+.im-phase-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--surface-alt);
+  color: var(--muted);
+  font-size: .72rem;
+  font-weight: 700;
+}
+
+.im-phase-badge.im-phase-liquid { background: var(--tone-info-bg); color: var(--tone-info-fg); }
+.im-phase-badge.im-phase-solid { background: var(--tone-ok-bg); color: var(--tone-ok-fg); }
+
+.im-plant-code {
+  display: inline-block;
+  margin: 0 4px 4px 0;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-alt);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .76rem;
+  font-weight: 700;
+}
+
+.im-asset-table input, .im-asset-table select { min-width: 150px; }
+
+/* ── Unrecognised-plant alerts ─────────────────────────────────────────
+   Raised by an import, settled in Administration. Warn-toned, because nothing
+   is broken: a decision is outstanding. */
+.im-alert-panel {
+  margin: 20px 0;
+  padding: 18px 20px;
+  border: 1px solid var(--tone-warn-border, var(--border));
+  border-left: 4px solid var(--tone-warn-fg);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--tone-warn-bg) 45%, var(--surface));
+}
+
+.im-alert-head > span {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--tone-warn-fg);
+  font-size: .95rem;
+  font-weight: 700;
+}
+
+.im-alert-head p { margin: 6px 0 0; color: var(--muted); font-size: .84rem; }
+
+.im-alert-list { display: grid; gap: 12px; margin-top: 16px; }
+
+.im-alert-item {
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.im-alert-item header strong { font-size: .95rem; }
+.im-alert-item header small { display: block; margin-top: 2px; color: var(--muted); font-size: .78rem; }
+
+.im-alert-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: end;
+  margin-top: 12px;
+}
+
+.im-alert-actions label { display: grid; gap: 5px; font-size: .78rem; font-weight: 600; color: var(--muted); }
+.im-alert-new { display: flex; flex-wrap: wrap; gap: 6px; }
+.im-alert-new input { min-width: 130px; }
+
+/* ── Unit of measure ───────────────────────────────────────────────────
+   Every table states the unit immediately after the material code, read from
+   the workbook's material summary sheet. It is a fixed narrow column so the
+   columns that carry sentences keep the space they need. */
+.im-col-uom { width: 62px; }
+.im-uom-col { white-space: nowrap; }
+
+.im-uom {
+  display: inline-block;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-alt);
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .74rem;
+  font-weight: 700;
+}
+
+/* Where a workbook register's lines sit in the coverage bands — the headline
+   count itself is the link to the table where its rows are actually shaded. */
+.im-source-grid .im-source-count {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin: 6px 0;
+}
+
+.im-source-count a,
+.im-source-count span {
+  color: var(--mod-accent);
+  font-size: 1.1rem;
+  line-height: 1.25;
+  text-decoration: none;
+}
+
+.im-source-count a:hover { color: var(--tone-warn-fg); text-decoration: underline; }
+.im-source-count a + a::before,
+.im-source-count a + span::before,
+.im-source-count span + a::before,
+.im-source-count span + span::before { content: "·"; margin-right: 10px; color: var(--muted); }
+
+/* A register capped per specification category says so beside its count, so the
+   number in the heading and the number of rows on screen never disagree silently. */
+.im-card-heading > strong em {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: .72rem;
+  font-style: normal;
+  font-weight: 600;
+}

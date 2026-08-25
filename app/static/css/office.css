@@ -1435,6 +1435,20 @@ a.om-count:hover{ filter: brightness(.96); }
 .om-page .mod-geo-legend .is-overdue{ color: var(--tone-bad-fg); }
 .om-page .mod-geo-legend .is-overdue i{ background: var(--tone-bad-fg); }
 
+/* Corporate Chemistry stays dark whatever its own status: it is the office every
+   location reports to, so its overdue state is carried by a red ring rather than
+   by recolouring the marker and losing the hierarchy. */
+.om-page .mod-geo-dot.is-hero{ fill: var(--mod-ink-strong); }
+.om-page .mod-geo-dot.is-hero.is-overdue{ stroke: var(--tone-bad-fg); stroke-width: 3; }
+.om-page .mod-geo-legend .is-hero{ color: var(--mod-ink-strong); }
+.om-page .mod-geo-legend .is-hero i{ background: var(--mod-ink-strong); }
+
+/* Corporate Chemistry is a named office, not a third, central location. Its
+   two real seats keep the dark office dots while the floating heading merely
+   connects them with dotted ties. */
+.om-page .mod-geo-dot.is-corporate-seat{ fill: var(--mod-ink-strong); stroke: var(--surface); stroke-width: 2.25; }
+.om-page .mod-geo-dot.is-corporate-seat.is-overdue{ stroke: var(--tone-bad-fg); stroke-width: 3; }
+
 .om-geo-empty{
     display: flex;
     align-items: center;

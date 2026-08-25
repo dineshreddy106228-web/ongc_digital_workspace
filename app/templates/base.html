@@ -462,6 +462,10 @@
     {% if request.endpoint and request.endpoint.startswith('inventory.') %}
     <script defer src="{{ url_for('static', filename='js/inventory_monitoring.js') }}"></script>
     {% endif %}
+    {# The deck-scope chooser is shared by the modules whose reviews export one. #}
+    {% if request.endpoint and (request.endpoint.startswith('inventory.') or request.endpoint.startswith('quality_control.')) %}
+    <script defer src="{{ url_for('static', filename='js/deck_scope.js') }}"></script>
+    {% endif %}
     {% block scripts_extra %}{% endblock %}
 </body>
 </html>

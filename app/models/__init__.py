@@ -30,6 +30,7 @@ from app.models.inventory.material_master import MaterialMaster              # n
 from app.models.inventory.msds_file import MSDSFile                          # noqa: F401
 from app.models.inventory.monitoring import (  # noqa: F401
     InventoryMonitoringException, InventoryMonitoringMaterial,
+    InventoryMonitoringMaterialSummary, InventoryMonitoringPlantAlert,
     InventoryMonitoringRecord, InventoryMonitoringSnapshot,
     InventoryMonitoringThreshold, InventoryMonitoringUploadBatch,
     InventoryMonitoringWorkCenter, InventoryMonitoringWorkCenterMaterial,
@@ -45,6 +46,7 @@ from app.models.csc.impact_analysis import CSCImpactAnalysis                 # n
 from app.models.csc.audit import CSCAudit                                    # noqa: F401
 from app.models.csc.revision import CSCRevision                              # noqa: F401
 from app.models.csc.spec_version import CSCSpecVersion                       # noqa: F401
+from app.models.csc.authorized_lab import CSCAuthorizedLab                    # noqa: F401
 from app.models.committee.committee_task import CommitteeTask                # noqa: F401
 from app.models.committee.committee_task_member import CommitteeTaskMember   # noqa: F401
 from app.models.committee.task_comment import TaskComment                    # noqa: F401

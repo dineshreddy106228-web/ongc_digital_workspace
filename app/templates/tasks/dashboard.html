@@ -107,13 +107,12 @@
       <div>
         <span>Location navigator</span>
         <h2>Task status across locations</h2>
-        <p>Select a location on the map to open its Task Register. The map includes every ONGC location that reports to Corporate Chemistry. Global tasks aren't tied to any single location, so they're listed separately from the workspace.</p>
       </div>
       {% if office_navigator %}
-      {# An office working from two places contributes two locations, matching
-         the pins the map draws for it. #}
+      {# One count per geographic office dot. Corporate Chemistry has two dots:
+         one in Mumbai and one in Dehradun; its heading is only a connector. #}
       {% set counter = namespace(n=0) %}
-      {% for office in office_navigator %}{% set counter.n = counter.n + (office.locations|length or 1) %}{% endfor %}
+      {% for office in office_navigator %}{% set counter.n = counter.n + ((office.locations|length or 2) if office.office_code == 'CORP_CHEM' else (office.locations|length or 1)) %}{% endfor %}
       <span><i class="bi bi-geo-alt-fill"></i> {{ counter.n }} location{{ '' if counter.n == 1 else 's' }}</span>
       {% endif %}
     </div>
@@ -169,7 +168,7 @@
         {% endfor %}
       </aside>
     </div>
-    <p class="mod-geo-legend"><span class="is-ready"><i></i> Nothing overdue</span><span class="is-overdue"><i></i> Has overdue tasks</span></p>
+    <p class="mod-geo-legend"><span class="is-hero"><i></i> Corporate Chemistry — every location reports here</span><span class="is-ready"><i></i> Nothing overdue</span><span class="is-overdue"><i></i> Has overdue tasks</span></p>
     {% else %}
     <p class="om-geo-empty"><i class="bi bi-geo-alt"></i> No open tasks are mapped to {{ navigator_scope }} at this time.</p>
     {% endif %}
@@ -201,6 +200,27 @@ const GEO={
 const LABEL_NUDGE={
 "CORP_CHEM_2":{dx:62,dy:-16}
 };
+/* Corporate Chemistry is one office with two real seats. Its label sits clear
+   of the markers as an explanatory heading only: the dots belong in Mumbai and
+   Dehradun, and dotted ties leave the heading for those two dots. The fallback
+   coordinates keep that truthful layout until both office points are saved. */
+const HERO_CODE="CORP_CHEM",HERO_HEADING=[26.5,79.5],HERO_LABEL={dx:80,dy:-20};
+const CORPORATE_SEATS=[
+  /* Mumbai is close to the RGL Panvel marker, so its city label is placed
+     lower-left to remain readable instead of sitting underneath Panvel. */
+  {label:"Mumbai",ll:[19.08,72.88],dx:-76,dy:18},
+  {label:"Dehradun",ll:[30.32,78.03],dx:62,dy:-18}
+];
+const corporateSeatLabel=(point,index)=>{
+  const stored=(point.label||'').trim();
+  if(/mumbai/i.test(stored)){return 'Mumbai'}
+  if(/dehradun/i.test(stored)){return 'Dehradun'}
+  return CORPORATE_SEATS[index]?.label||stored||('Location '+(index+1));
+};
+const corporateSeatPosition=(label,index)=>{
+  return CORPORATE_SEATS.find(seat=>seat.label===label)
+    || (index?LABEL_NUDGE[HERO_CODE+'_2']||{}:{});
+};
 const REGISTER_URL={{ url_for('tasks.list_tasks', office=999999)|tojson }};
 /* Only a location this reader may open actually navigates. The rest are on the
    map so the workspace reads whole, but clicking them would promise a register
@@ -224,6 +244,25 @@ const entries=offices.flatMap(office=>{
     can_open:office.can_open,
     state:office.overdue_count?'overdue':'ready'};
   const points=office.points||[];
+  if(office.office_code===HERO_CODE){
+    /* The actual seats use their stored positions once both exist. Until then,
+       Mumbai and Dehradun remain visible rather than becoming a false central
+       office dot. The heading has no dot of its own. */
+    const seats=points.length>=2
+      ?points.map((point,index)=>{
+        const label=corporateSeatLabel(point,index);
+        const position=corporateSeatPosition(label,index);
+        return {label,ll:[point.lat,point.lng],dx:position.dx,dy:position.dy};
+      })
+      :CORPORATE_SEATS;
+    const where=seats.map(seat=>seat.label).filter(Boolean);
+    const title=office.office_name+' \u00b7 '+where.join(' and ')+' \u00b7 '+counts(office);
+    return [
+      {...base,kind:'hero',ll:HERO_HEADING,...HERO_LABEL,hide_dot:true,links_from_label:true,
+        links:seats.map(seat=>seat.ll),title},
+      ...seats.map(seat=>({...base,label:seat.label,kind:'corporate-seat',ll:seat.ll,dx:seat.dx,dy:seat.dy,title}))
+    ];
+  }
   if(!points.length){
     /* No stored coordinates: fall back to the table, or drop off the map. */
     if(!base.ll){return []}

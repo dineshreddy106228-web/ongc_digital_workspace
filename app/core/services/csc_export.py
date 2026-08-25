@@ -707,6 +707,8 @@ def build_master_spec_document(
     changelog: list[dict[str, Any]] | None = None,
     include_metadata: bool = False,
     logo_path: str | Path | None = None,
+    include_type_labels: bool = True,
+    group_by_subgroup: bool = True,
 ) -> bytes:
     """Build a single Word document containing multiple ONGC spec sheets.
 
@@ -717,10 +719,16 @@ def build_master_spec_document(
         flags      – list of issue flags
         impact_analysis – optional impact analysis dict
 
-    Each spec gets its own ONGC spec sheet page (Part A).
-    If include_draft_note=True, a CSC Draft Note section (Part B) follows each spec.
-    If changelog is provided, a final Change Log page is appended after all specs.
-    Specs are separated by page breaks.
+    The document opens with the master index and then walks the specifications in
+    register order. With ``group_by_subgroup`` each chemical sub-group is opened
+    by its own header page, so the reader lands on "Drilling Fluid Chemicals"
+    before the first drilling-fluid sheet rather than having to infer the break
+    from the spec numbers.
+
+    ``include_type_labels=False`` prints the sheets without the Vital / Essential
+    / Desirable classification. ``include_draft_note=True`` adds the CSC Draft
+    Note (Part B) after each sheet; the Master Export leaves it off, because the
+    dossier is a separate document with its own download.
     """
     doc = Document()
     _configure_page(doc)
@@ -734,15 +742,18 @@ def build_master_spec_document(
             str(item.get("draft", {}).get("spec_number", "") or "")
         ),
     )
+    groups = _subgroup_sequence(ordered_specs) if group_by_subgroup else []
+    plan = _index_plan(
+        ordered_specs,
+        groups,
+        include_draft_note=include_draft_note,
+    )
 
     if ordered_specs:
-        _build_master_index_page(
-            doc,
-            ordered_specs,
-            include_draft_note=include_draft_note,
-            logo_path=logo_path,
-        )
+        _build_master_index_page(doc, plan, logo_path=logo_path)
         doc.add_page_break()
+
+    group_starts = {group["first_position"]: group for group in groups}
 
     for i, item in enumerate(ordered_specs):
         draft      = item["draft"]
@@ -761,13 +772,25 @@ def build_master_spec_document(
                 for s in (sections or [])
             }
 
-        if i > 0:
+        group = group_starts.get(i + 1)
+        if group is not None:
+            if i > 0:
+                doc.add_page_break()
+            _build_subgroup_header_page(doc, group, logo_path=logo_path)
+            doc.add_page_break()
+        elif i > 0:
             doc.add_page_break()
 
-        spec_bookmark_name = _master_index_bookmark_name(draft, i + 1)
+        spec_bookmark_name = plan["bookmarks"][i]
 
         # Part A — ONGC Spec Sheet
-        _build_spec_sheet(doc, draft, parameters, spec_bookmark_name=spec_bookmark_name)
+        _build_spec_sheet(
+            doc,
+            draft,
+            parameters,
+            spec_bookmark_name=spec_bookmark_name,
+            include_type_labels=include_type_labels,
+        )
 
         if include_draft_note:
             doc.add_page_break()
@@ -802,6 +825,7 @@ def _build_spec_sheet(
     draft: dict[str, Any],
     parameters: list[dict[str, Any]],
     spec_bookmark_name: str | None = None,
+    include_type_labels: bool = True,
 ) -> None:
     """Build the ONGC Corporate Specification sheet page."""
 
@@ -815,7 +839,7 @@ def _build_spec_sheet(
     _add_spec_info_table(doc, draft)
 
     # ── Parameter table (4-col: S.No | Parameter(Type) | : | Value) ──────
-    _add_spec_parameters(doc, parameters)
+    _add_spec_parameters(doc, parameters, include_type_labels=include_type_labels)
 
 
 def _add_page_border(doc: Document, anchor_paragraph=None) -> None:
@@ -933,8 +957,17 @@ def _add_spec_info_table(doc: Document, draft: dict[str, Any]) -> None:
     sp.paragraph_format.space_after  = Pt(4)
 
 
-def _add_spec_parameters(doc: Document, parameters: list[dict[str, Any]]) -> None:
+def _add_spec_parameters(
+    doc: Document,
+    parameters: list[dict[str, Any]],
+    include_type_labels: bool = True,
+) -> None:
     """Parameter table: 4 cols — S.No | Parameter Name (Type) | : | Required Value
+
+    ``include_type_labels`` prints the Vital / Essential / Desirable classification
+    after the parameter name. A specification issued to a vendor is often wanted
+    without it, because the classification is ONGC's internal weighting of the
+    requirement rather than part of the requirement itself.
 
     Matches Format A Table 3:
       Col 0 (S.No.)     : 0.56"  (805 dxa)
@@ -1028,7 +1061,7 @@ def _add_spec_parameters(doc: Document, parameters: list[dict[str, Any]]) -> Non
 
             # Col 1 — Parameter Name (Type)
             # Append (type) in brackets if type is set
-            type_suffix = f"  ({ptype})" if ptype else ""
+            type_suffix = f"  ({ptype})" if ptype and include_type_labels else ""
             nm_p = cells[1].paragraphs[0]
             nm_p.paragraph_format.left_indent = Inches(0.05)
             nm_run = nm_p.add_run(name)
@@ -1082,13 +1115,211 @@ def _add_spec_parameters(doc: Document, parameters: list[dict[str, Any]]) -> Non
 # MASTER INDEX PAGE
 # ===========================================================================
 
-def _build_master_index_page(
-    doc: Document,
-    all_specs: list[dict[str, Any]],
+# The index quotes a page number twice: as a PAGEREF field, which Word resolves
+# exactly once fields are refreshed, and as that field's cached result, which is
+# what a reader sees before any refresh and what non-Word viewers show. The cached
+# result used to be the constant "1" for every row, so an unrefreshed index mapped
+# every specification to page 1. These constants drive the estimate that now fills
+# it: how many table rows the A4 body fits at 11pt, first page and continuation.
+_INDEX_ROWS_FIRST_PAGE = 26
+_INDEX_ROWS_PER_PAGE = 36
+_SHEET_ROWS_FIRST_PAGE = 22
+_SHEET_ROWS_PER_PAGE = 34
+_DOSSIER_PAGES = 4
+
+
+def _subgroup_of(item: dict[str, Any]) -> tuple[str, str]:
+    """The chemical sub-group a specification belongs to, and its printed name."""
+    spec_no = str((item.get("draft") or {}).get("spec_number", "") or "")
+    code, _sequence, _year = parse_spec_number(spec_no)
+    if code and code in SPEC_SUBSET_LABELS:
+        return code, SPEC_SUBSET_LABELS[code]
+    if code:
+        return code, f"{code} chemicals"
+    return "OTHER", "Other specifications"
+
+
+def _subgroup_sequence(ordered_specs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Walk the ordered specifications and cut them into sub-groups.
+
+    The order is already the register order, which ranks by sub-group first, so a
+    sub-group is a contiguous run and no re-sorting is needed here.
+    """
+    groups: list[dict[str, Any]] = []
+    for position, item in enumerate(ordered_specs, start=1):
+        code, label = _subgroup_of(item)
+        if not groups or groups[-1]["code"] != code:
+            groups.append(
+                {"code": code, "label": label, "first_position": position, "specs": []}
+            )
+        groups[-1]["specs"].append(item)
+    for index, group in enumerate(groups, start=1):
+        group["count"] = len(group["specs"])
+        group["bookmark"] = f"CSCGRP_{index}_{_sanitize_bookmark_name(group['code'], 'GRP')}"
+    return groups
+
+
+def _sheet_rows(item: dict[str, Any]) -> int:
+    """Table rows one spec sheet prints, counting its parameter group headings."""
+    parameters = item.get("parameters") or []
+    # 4 identity rows, the parameter table header, then one row per parameter.
+    rows = 5 + len(parameters)
+    headings = {
+        match.group(1)
+        for match in (
+            re.match(r"^\[(.+?)\]", str(parameter.get("parameter_name", "") or ""))
+            for parameter in parameters
+        )
+        if match
+    }
+    # Each heading breaks the table and costs about two rows of vertical space.
+    return rows + 2 * len(headings)
+
+
+def _pages_for_rows(rows: int, first: int, rest: int) -> int:
+    if rows <= first:
+        return 1
+    return 1 + -(-(rows - first) // rest)
+
+
+def _index_plan(
+    ordered_specs: list[dict[str, Any]],
+    groups: list[dict[str, Any]],
     include_draft_note: bool = False,
+) -> dict[str, Any]:
+    """Index rows, bookmark names and estimated start pages for the whole document.
+
+    Bookmarks are keyed by position, not by spec number: two register chemicals
+    can carry the same spec number, and a name-derived bookmark then pointed every
+    duplicate row at whichever page happened to claim the name first.
+    """
+    bookmarks = [f"CSCSPEC_{position}" for position in range(1, len(ordered_specs) + 1)]
+    index_rows = len(ordered_specs) + len(groups)
+    index_pages = _pages_for_rows(index_rows, _INDEX_ROWS_FIRST_PAGE, _INDEX_ROWS_PER_PAGE)
+
+    rows: list[dict[str, Any]] = []
+    page = index_pages + 1
+    position = 0
+    sequence = groups or [{"specs": ordered_specs, "label": "", "code": "", "bookmark": ""}]
+
+    for group in sequence:
+        if group.get("bookmark"):
+            group["page"] = page
+            rows.append(
+                {
+                    "kind": "group",
+                    "label": group["label"],
+                    "code": group["code"],
+                    "count": len(group["specs"]),
+                    "bookmark": group["bookmark"],
+                    "page": page,
+                }
+            )
+            page += 1
+        for item in group["specs"]:
+            position += 1
+            draft = item.get("draft") or {}
+            rows.append(
+                {
+                    "kind": "spec",
+                    "serial": position,
+                    "spec_number": str(draft.get("spec_number", "") or "—"),
+                    "chemical_name": str(draft.get("chemical_name", "") or "—"),
+                    "material_code": str(draft.get("material_code", "") or "—"),
+                    "bookmark": bookmarks[position - 1],
+                    "page": page,
+                }
+            )
+            page += _pages_for_rows(
+                _sheet_rows(item), _SHEET_ROWS_FIRST_PAGE, _SHEET_ROWS_PER_PAGE
+            )
+            if include_draft_note:
+                page += _DOSSIER_PAGES
+
+    return {"rows": rows, "bookmarks": bookmarks, "index_pages": index_pages}
+
+
+def _build_subgroup_header_page(
+    doc: Document,
+    group: dict[str, Any],
     logo_path: str | Path | None = None,
 ) -> None:
-    """Build index page with spec order and dynamic starting page references."""
+    """The page that opens one chemical sub-group."""
+    logo_path = _find_logo(logo_path)
+
+    spacer = doc.add_paragraph()
+    spacer.paragraph_format.space_after = Pt(120)
+    _append_bookmark(spacer, group["bookmark"])
+
+    if logo_path and logo_path.exists():
+        logo_para = doc.add_paragraph()
+        logo_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        logo_para.add_run().add_picture(str(logo_path), width=Inches(0.9))
+
+    kicker = doc.add_paragraph()
+    kicker.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    kicker.paragraph_format.space_before = Pt(18)
+    kicker.paragraph_format.space_after = Pt(6)
+    kicker_run = kicker.add_run("ONGC CORPORATE SPECIFICATIONS")
+    kicker_run.bold = True
+    kicker_run.font.name = _FONT_MAIN
+    kicker_run.font.size = Pt(11)
+    kicker_run.font.color.rgb = RGBColor(0x6B, 0x72, 0x80)
+
+    code_para = doc.add_paragraph()
+    code_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    code_para.paragraph_format.space_after = Pt(4)
+    code_run = code_para.add_run(group["code"])
+    code_run.bold = True
+    code_run.font.name = _FONT_TITLE
+    code_run.font.size = Pt(30)
+    code_run.font.color.rgb = _COPPER
+
+    title = doc.add_paragraph()
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    title.paragraph_format.space_after = Pt(10)
+    title_run = title.add_run(group["label"])
+    title_run.bold = True
+    title_run.font.name = _FONT_TITLE
+    title_run.font.size = Pt(20)
+    title_run.font.color.rgb = _BLACK
+
+    count = len(group["specs"])
+    caption = doc.add_paragraph()
+    caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    caption_run = caption.add_run(
+        f"{count} specification{'' if count == 1 else 's'} in this sub-group"
+    )
+    caption_run.italic = True
+    caption_run.font.name = _FONT_MAIN
+    caption_run.font.size = Pt(11)
+    caption_run.font.color.rgb = RGBColor(0x6B, 0x72, 0x80)
+
+    listing = doc.add_paragraph()
+    listing.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    listing.paragraph_format.space_before = Pt(14)
+    names = ", ".join(
+        str((item.get("draft") or {}).get("chemical_name", "") or "").strip()
+        for item in group["specs"]
+    )
+    listing_run = listing.add_run(names)
+    listing_run.font.name = _FONT_MAIN
+    listing_run.font.size = Pt(10)
+    listing_run.font.color.rgb = _DARK_GRAY
+
+
+def _build_master_index_page(
+    doc: Document,
+    plan: dict[str, Any],
+    logo_path: str | Path | None = None,
+) -> None:
+    """Build the index: sub-group headings, then every specification under them.
+
+    Each row's page number is a PAGEREF field pointing at that page's bookmark, so
+    Word prints the true page once fields refresh. The field's cached result is the
+    estimate computed in :func:`_index_plan`, which is what a reader sees before a
+    refresh and in viewers that never refresh fields.
+    """
     logo_path = _find_logo(logo_path)
 
     hdr_tbl = doc.add_table(rows=1, cols=2)
@@ -1117,28 +1348,13 @@ def _build_master_index_page(
     sp = doc.add_paragraph()
     sp.paragraph_format.space_after = Pt(4)
 
-    subset_line = ", ".join(SPEC_SUBSET_ORDER)
-    subset_desc = "; ".join(
-        f"{code}: {SPEC_SUBSET_LABELS.get(code, code)}" for code in SPEC_SUBSET_ORDER
-    )
-
-    order_note = doc.add_paragraph(
-        f"Order: {subset_line}"
-    )
-    order_note.paragraph_format.space_after = Pt(1)
+    order_note = doc.add_paragraph(f"Order: {', '.join(SPEC_SUBSET_ORDER)}")
+    order_note.paragraph_format.space_after = Pt(6)
     nr = order_note.runs[0]
     nr.font.name = _FONT_MAIN
     nr.font.size = Pt(9)
     nr.italic = True
     nr.font.color.rgb = RGBColor(0x6B, 0x72, 0x80)
-
-    order_desc = doc.add_paragraph(subset_desc)
-    order_desc.paragraph_format.space_after = Pt(6)
-    dr = order_desc.runs[0]
-    dr.font.name = _FONT_MAIN
-    dr.font.size = Pt(8)
-    dr.italic = True
-    dr.font.color.rgb = RGBColor(0x6B, 0x72, 0x80)
 
     col_headers = ["S. No.", "Spec No.", "Name of Chemical", "Material Code", "Page No."]
     col_widths = [0.45, 1.65, 2.35, 1.35, 0.65]
@@ -1160,39 +1376,52 @@ def _build_master_index_page(
         hr.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
     _set_cell_widths(hdr_cells, col_widths)
 
-    for idx, item in enumerate(all_specs, start=1):
-        draft = item.get("draft", {}) or {}
-        spec_no = str(draft.get("spec_number", "") or "—")
-        chem_name = str(draft.get("chemical_name", "") or "—")
-        material_code = str(draft.get("material_code", "") or "—")
-        subset_code, _, _ = parse_spec_number(spec_no)
-        if subset_code in SPEC_SUBSET_LABELS:
-            chem_name = f"{chem_name} [{subset_code}]"
-
+    for row in plan["rows"]:
         row_cells = tbl.add_row().cells
-        row_data = [str(idx), spec_no, chem_name, material_code]
-        for ci, value in enumerate(row_data):
-            rp = row_cells[ci].paragraphs[0]
-            if ci == 0:
-                rp.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            rr = rp.add_run(value)
-            rr.font.name = _FONT_MAIN
-            rr.font.size = Pt(10)
-            rr.font.color.rgb = _BLACK
-        page_paragraph = row_cells[4].paragraphs[0]
+        # Held before any merge: merging rewrites the row's cell list.
+        page_cell = row_cells[-1]
+        if row["kind"] == "group":
+            # One shaded band opening the sub-group, with its own page reference.
+            for cell in row_cells:
+                _shade_cell(cell, "E8EEF5")
+            label_paragraph = row_cells[0].paragraphs[0]
+            label_run = label_paragraph.add_run(
+                f"{row['code']} — {row['label']}  ({row['count']})"
+            )
+            label_run.bold = True
+            label_run.font.name = _FONT_MAIN
+            label_run.font.size = Pt(10)
+            label_run.font.color.rgb = _BLACK
+            row_cells[0].merge(row_cells[3])
+        else:
+            for ci, value in enumerate(
+                [
+                    str(row["serial"]),
+                    row["spec_number"],
+                    row["chemical_name"],
+                    row["material_code"],
+                ]
+            ):
+                rp = row_cells[ci].paragraphs[0]
+                if ci == 0:
+                    rp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                rr = rp.add_run(value)
+                rr.font.name = _FONT_MAIN
+                rr.font.size = Pt(10)
+                rr.font.color.rgb = _BLACK
+
+        page_paragraph = page_cell.paragraphs[0]
         page_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        _append_pageref_field(
-            page_paragraph,
-            _master_index_bookmark_name(draft, idx),
-        )
-        _set_cell_widths(row_cells, col_widths)
+        _append_pageref_field(page_paragraph, row["bookmark"], str(row["page"]))
+        if row["kind"] == "spec":
+            _set_cell_widths(row_cells, col_widths)
 
     sp2 = doc.add_paragraph()
     sp2.paragraph_format.space_after = Pt(6)
 
     note = doc.add_paragraph(
-        "Page numbers update automatically in Word after fields are refreshed. "
-        "If manual formatting changes pagination, press Ctrl+A then F9 in Word."
+        "Page numbers are shown as calculated and refresh to the exact printed page "
+        "in Word: press Ctrl+A then F9."
     )
     note.paragraph_format.space_before = Pt(4)
     nr = note.runs[0]
@@ -1962,11 +2191,6 @@ def _add_master_footer(doc: Document, spec_count: int) -> None:
     _set_footer_page_number(section.footer)
 
 
-def _master_index_bookmark_name(draft: dict[str, Any], position: int) -> str:
-    spec_number = str(draft.get("spec_number", "") or "").strip()
-    return _sanitize_bookmark_name(spec_number, f"MASTER_SPEC_{position}")
-
-
 def _append_bookmark(paragraph, bookmark_name: str) -> None:
     bookmark_id = str(_next_bookmark_id())
     start = OxmlElement("w:bookmarkStart")
@@ -2006,8 +2230,9 @@ def _append_field(paragraph, instruction: str, fallback_text: str = "") -> None:
     _append_fld_char("end")
 
 
-def _append_pageref_field(paragraph, bookmark_name: str) -> None:
-    _append_field(paragraph, f'PAGEREF {bookmark_name} \\h', "1")
+def _append_pageref_field(paragraph, bookmark_name: str, fallback: str = "1") -> None:
+    """A page reference whose cached result is the calculated page, not a constant."""
+    _append_field(paragraph, f'PAGEREF {bookmark_name} \\h', fallback)
 
 
 def _enable_update_fields_on_open(doc: Document) -> None:

@@ -16,9 +16,13 @@
      {{ geo_map_script() }}
      ModGeoMap.render(document.getElementById('imMap'), entries, onSelect);
    where each entry is
-     {ll:[lat,lng], label, meta, title, kind, state, dx, dy}
+     {ll:[lat,lng], label, meta, title, kind, state, dx, dy, links}
    meta  — optional second line, shown on the list button beside the map
-   kind  — onshore (default) | offshore | region, the marker's own nature
+   kind  — onshore (default) | offshore | region | hero, the marker's own nature;
+           hero is the one place the others report to, drawn dark and larger
+   links — [[lat,lng],…] drawn as dotted ties from this marker to the places that
+           report to it; set links_from_label to begin those ties at the label
+   hide_dot — keep a named heading on the map without pretending it is a place
    state — optional extra modifier, e.g. ready | pending
    dx/dy — viewBox-unit offsets that move the label pill off its dot; a leader
            line is drawn automatically once the label sits far enough away. #}
@@ -62,14 +66,21 @@ function button(entry,klass,onSelect,meta){const el=document.createElement('butt
   if(entry.title)el.title=entry.title;el.addEventListener('click',()=>onSelect(entry));return el}
 /* Draws one dot per entry at its true position, one label pill at the requested
    offset, and a leader line whenever the two are far enough apart to need one.
+   An entry may also carry links:[[lat,lng],…] — the places that report to it —
+   which are drawn as dotted ties from its dot, or from its label when requested.
    Entries without coordinates are skipped here and stay reachable from the list. */
 function render(map,entries,onSelect){
   const leaders=map.querySelector('[data-geo-leaders]'),markers=map.querySelector('[data-geo-markers]'),pins=map.querySelector('[data-geo-pins]');
+  entries.forEach(entry=>{if(!entry.ll||!entry.links)return;
+    const [x,y]=project(entry.ll[0],entry.ll[1]),sx=x+(entry.links_from_label?(entry.dx||0):0),sy=y+(entry.links_from_label?(entry.dy===undefined?-18:entry.dy):0);
+    entry.links.forEach(point=>{const [tx,ty]=project(point[0],point[1]);
+      const tie=document.createElementNS(SVG_NS,'line');tie.setAttribute('x1',sx.toFixed(1));tie.setAttribute('y1',sy.toFixed(1));
+      tie.setAttribute('x2',tx.toFixed(1));tie.setAttribute('y2',ty.toFixed(1));tie.setAttribute('class','mod-geo-link');leaders.append(tie)})});
   entries.forEach(entry=>{if(!entry.ll)return;
     const [x,y]=project(entry.ll[0],entry.ll[1]),lx=x+(entry.dx||0),ly=y+(entry.dy===undefined?-18:entry.dy);
-    if(Math.hypot(lx-x,ly-y)>24){const line=document.createElementNS(SVG_NS,'line');line.setAttribute('x1',x.toFixed(1));line.setAttribute('y1',y.toFixed(1));line.setAttribute('x2',lx.toFixed(1));line.setAttribute('y2',ly.toFixed(1));line.setAttribute('class','mod-geo-leader');leaders.append(line)}
-    const dot=document.createElementNS(SVG_NS,'circle');dot.setAttribute('cx',x.toFixed(1));dot.setAttribute('cy',y.toFixed(1));dot.setAttribute('r',entry.kind==='region'?6:4.5);dot.setAttribute('class','mod-geo-dot '+modifiers(entry));markers.append(dot);
-    const pin=button(entry,'mod-geo-pin '+modifiers(entry),onSelect);pin.style.left=(lx/VB_W*100).toFixed(2)+'%';pin.style.top=(ly/VB_H*100).toFixed(2)+'%';pins.append(pin)})}
+    if(!entry.hide_dot&&Math.hypot(lx-x,ly-y)>24){const line=document.createElementNS(SVG_NS,'line');line.setAttribute('x1',x.toFixed(1));line.setAttribute('y1',y.toFixed(1));line.setAttribute('x2',lx.toFixed(1));line.setAttribute('y2',ly.toFixed(1));line.setAttribute('class','mod-geo-leader');leaders.append(line)}
+    if(!entry.hide_dot){const dot=document.createElementNS(SVG_NS,'circle');dot.setAttribute('cx',x.toFixed(1));dot.setAttribute('cy',y.toFixed(1));dot.setAttribute('r',entry.kind==='hero'?8:(entry.kind==='region'||entry.kind==='corporate-seat'?6:4.5));dot.setAttribute('class','mod-geo-dot '+modifiers(entry));markers.append(dot)}
+    if(!entry.hide_label){const pin=button(entry,'mod-geo-pin '+modifiers(entry),onSelect);pin.style.left=(lx/VB_W*100).toFixed(2)+'%';pin.style.top=(ly/VB_H*100).toFixed(2)+'%';pins.append(pin)}})}
 /* The list beside the map is the accessible route to every entry, including any
    that carry no coordinates yet. */
 function renderList(list,entries,onSelect){const meta=entries.some(entry=>entry.meta);if(meta)list.classList.add('is-detailed');

@@ -12,12 +12,13 @@ BAND_TONES = {
     "critical_low_stock": RED, "low_stock": AMBER, "healthy_stock": TEAL,
     "slow_moving_stock": AMBER, "excess_stock": PURPLE, "unclassified": GREY,
 }
-REGISTER_HEADERS = ["Material", "Description", "Grp", "Work centre", "Zone", "Stock qty", "Value", "Months"]
-REGISTER_WIDTHS = [1.35, 3.3, .5, 2.4, 1.6, 1.2, 1.3, .8]
-SUPPORTING_HEADERS = ["Material", "Description", "Grp", "Work centre", "Zone", "Value"]
-SUPPORTING_WIDTHS = [1.4, 4.0, .6, 2.6, 1.85, 2.0]
-CENTRE_REGISTER_HEADERS = ["Material", "Description", "Grp", "Stock qty", "Inventory value", "Months of cover"]
-CENTRE_REGISTER_WIDTHS = [1.5, 5.15, .6, 1.7, 1.9, 1.6]
+# The unit follows the material code in every register, as it does on the pages.
+REGISTER_HEADERS = ["Material", "UoM", "Description", "Grp", "Work centre", "Zone", "Stock qty", "Value", "Months"]
+REGISTER_WIDTHS = [1.35, .55, 2.75, .5, 2.4, 1.6, 1.2, 1.3, .8]
+SUPPORTING_HEADERS = ["Material", "UoM", "Description", "Grp", "Work centre", "Zone", "Value"]
+SUPPORTING_WIDTHS = [1.4, .55, 3.45, .6, 2.6, 1.85, 2.0]
+CENTRE_REGISTER_HEADERS = ["Material", "UoM", "Description", "Grp", "Stock qty", "Inventory value", "Months of cover"]
+CENTRE_REGISTER_WIDTHS = [1.5, .55, 4.6, .6, 1.7, 1.9, 1.6]
 KICKER = "ONGC CORPORATE CHEMISTRY · INVENTORY MONITORING · GROUPS 09 AND 10"
 
 
@@ -203,16 +204,41 @@ class _Deck:
         return output, filename
 
 
-def build_management_review_presentation(static_folder: str, reporting_date: date | None = None, compare_date: date | None = None) -> tuple[BytesIO, str]:
-    """Build the all-ONGC management-review deck for one published reporting date."""
+def _scope_labels(data: dict[str, Any], centre_ids: set[int] | None) -> tuple[str, str, str]:
+    """How a deck names its own scope: heading, one-line description, filename stem."""
+    if centre_ids is None:
+        return "all ONGC", "all ONGC", "ONGC"
+    names = [centre["name"] for centre in data.get("scope_centres") or []]
+    zones = sorted({centre["zone"] for centre in data.get("scope_centres") or [] if centre["zone"]})
+    if not names:
+        return "selected assets", "the selected assets", "Selected assets"
+    if len(names) == 1:
+        return names[0], names[0], names[0]
+    listed = ", ".join(names[:4]) + (f" and {len(names) - 4} more" if len(names) > 4 else "")
+    heading = zones[0] if len(zones) == 1 else f"{len(names)} assets"
+    return heading, f"{len(names)} assets — {listed}", heading
+
+
+def build_management_review_presentation(static_folder: str, reporting_date: date | None = None, compare_date: date | None = None, centre_ids: set[int] | None = None) -> tuple[BytesIO, str]:
+    """Build the management-review deck for one published reporting date.
+
+    ``centre_ids`` builds it for a chosen set of assets — a zone, a group of
+    assets, or one — instead of the whole of ONGC. Every figure in the deck then
+    counts only those assets, and the deck says so on its cover.
+    """
     from app.core.services.inventory_monitoring import management_review_data
 
-    data = management_review_data(reporting_date, compare_date)
+    data = management_review_data(reporting_date, compare_date, centre_ids)
     if data["reporting_date"] is None or data["kpis"] is None:
-        raise ValueError("Publish Group 09 and Group 10 workbooks for a reporting date before downloading the presentation.")
+        raise ValueError(
+            "No published Group 09 and Group 10 stock was found for the selected assets."
+            if centre_ids is not None else
+            "Publish Group 09 and Group 10 workbooks for a reporting date before downloading the presentation."
+        )
     kpis, selected, previous, thresholds = data["kpis"], data["reporting_date"], data["previous_date"], data["thresholds"]
     period_label = selected.strftime("%d %B %Y")
-    deck = _Deck(static_folder, f"Source: Published Group 09 and Group 10 inventory snapshots as on {period_label}")
+    scope_heading, scope_note, scope_stem = _scope_labels(data, centre_ids)
+    deck = _Deck(static_folder, f"Source: Published Group 09 and Group 10 inventory snapshots as on {period_label} · Scope: {scope_note}")
 
     def delta_note(current, prior, positive_is_bad=True):
         if prior is None:
@@ -226,8 +252,8 @@ def build_management_review_presentation(static_folder: str, reporting_date: dat
 
     def register_rows(register):
         return [
-            [row["code"], _concise(row["description"], 46), row["group"], _concise(row["centre"], 30), _concise(row["zone"], 20),
-             _quantity(row["qty"], row["uom"]), _crore(row["value"]), _months(row["months"])]
+            [row["code"], row.get("uom") or "—", _concise(row["description"], 40), row["group"], _concise(row["centre"], 30), _concise(row["zone"], 20),
+             _quantity(row["qty"], None), _crore(row["value"]), _months(row["months"])]
             for row in register["rows"]
         ]
 
@@ -238,8 +264,8 @@ def build_management_review_presentation(static_folder: str, reporting_date: dat
         return note
 
     deck.cover(
-        "INVENTORY MONITORING · GROUPS 09 AND 10", "Inventory Management Review", f"Position as on {period_label}",
-        f"{_crore(kpis['total_value'])} of monitored chemicals — Groups 09 and 10 counted together — across {kpis['centre_count']:,} work centres and {kpis['material_count']:,} materials, all ONGC",
+        f"INVENTORY MONITORING · GROUPS 09 AND 10 · {scope_heading.upper()}", "Inventory Management Review", f"Position as on {period_label}",
+        f"{_crore(kpis['total_value'])} of monitored chemicals — Groups 09 and 10 counted together — across {kpis['centre_count']:,} work centres and {kpis['material_count']:,} materials, {scope_note}",
     )
 
     slide = deck.new_slide("Executive summary")
@@ -316,11 +342,11 @@ def build_management_review_presentation(static_folder: str, reporting_date: dat
 
     deck.paginated_table(
         "Materials above ₹ 1 Cr of inventory value",
-        ["Material", "Description", "Grp", "Inventory value", "Share", "Work centres", "Coverage range"],
-        [[item["code"], _concise(item["description"], 62), item["group"], _crore(item["value"]), f"{item['share']}%", f"{item['centres']:,}",
+        ["Material", "UoM", "Description", "Grp", "Inventory value", "Share", "Work centres", "Coverage range"],
+        [[item["code"], item.get("uom") or "—", _concise(item["description"], 54), item["group"], _crore(item["value"]), f"{item['share']}%", f"{item['centres']:,}",
           "—" if item["months_low"] is None else f"{_months(item['months_low'])} – {_months(item['months_high'])} months"]
          for item in data["high_value_materials"]],
-        [1.4, 4.5, .6, 1.6, .9, 1.1, 2.35],
+        [1.4, .55, 3.95, .6, 1.6, .9, 1.1, 2.35],
         sections=[item["section"] for item in data["high_value_materials"]],
         subtitle=f"All-ONGC holdings for every material whose total value crosses ₹ 1 Cr, in corporate specification order · {_crore(data['high_value_total'])} across {len(data['high_value_materials']):,} materials.",
         empty_note="No single material crosses ₹ 1 Cr of inventory value at this reporting date.",
@@ -334,7 +360,7 @@ def build_management_review_presentation(static_folder: str, reporting_date: dat
     for register in data["supporting_registers"]:
         deck.paginated_table(
             register["label"], SUPPORTING_HEADERS,
-            [[row["code"], _concise(row["description"], 56), row["group"] or "—", _concise(row["centre"], 32), _concise(row["zone"], 22), _crore(row["value"])] for row in register["rows"]],
+            [[row["code"], row.get("uom") or "—", _concise(row["description"], 48), row["group"] or "—", _concise(row["centre"], 32), _concise(row["zone"], 22), _crore(row["value"])] for row in register["rows"]],
             SUPPORTING_WIDTHS,
             sections=[row["section"] for row in register["rows"]],
             subtitle=register_subtitle(register).replace("stock lines", "material lines"),
@@ -363,7 +389,7 @@ def build_management_review_presentation(static_folder: str, reporting_date: dat
         deck.add_text(slide, f"{index + 1}", .8, 4.15 + index * .48, .25, .25, 15, TEAL, True)
         deck.add_text(slide, question, 1.2, 4.15 + index * .48, 11.4, .3, 13, INK, wrap=True)
 
-    return deck.save(f"ONGC Inventory Management Review {selected:%d %b %Y}.pptx")
+    return deck.save(f"{scope_stem} Inventory Management Review {selected:%d %b %Y}.pptx")
 
 
 CENTRE_BAND_SLIDES = (
@@ -402,8 +428,10 @@ def build_work_centre_review_presentation(static_folder: str, work_center_id: in
         for group in data["spec_groups"][key]:
             for record in group["rows"]:
                 rows.append([
-                    record.material_code, _concise(record.material_description, 68), record.material_group,
-                    _quantity(record.stock_qty, record.uom), _crore(record.inventory_value_inr), _months(record.stock_months),
+                    record.material_code,
+                    (record.material.uom if record.material and record.material.uom else record.uom) or "—",
+                    _concise(record.material_description, 60), record.material_group,
+                    _quantity(record.stock_qty, None), _crore(record.inventory_value_inr), _months(record.stock_months),
                 ])
                 sections.append(group["label"])
         return rows, sections
@@ -469,11 +497,11 @@ def build_work_centre_review_presentation(static_folder: str, work_center_id: in
         deck.add_text(slide, "Only one reporting date is available for this work centre. Movement analysis begins from the next import.", .8, 2.1, 11.2, .4, 17, GREY, wrap=True)
 
     deck.paginated_table(
-        "Materials held", ["Material", "Description", "Grp", "Stock qty", "Inventory value", "Share of centre"],
-        [[item["code"], _concise(item["description"], 62), item["group"], _quantity(quantities.get(item["code"], (None, None))[0], quantities.get(item["code"], (None, None))[1]),
-          _crore(item["value"]), f"{item['share']}%"]
+        "Materials held", ["Material", "UoM", "Description", "Grp", "Stock qty", "Inventory value", "Share of centre"],
+        [[item["code"], quantities.get(item["code"], (None, None))[1] or "—", _concise(item["description"], 54), item["group"],
+          _quantity(quantities.get(item["code"], (None, None))[0], None), _crore(item["value"]), f"{item['share']}%"]
          for item in data["top_materials"]],
-        [1.5, 4.6, .6, 1.85, 1.95, 1.95],
+        [1.5, .55, 4.05, .6, 1.85, 1.95, 1.95],
         sections=[item["section"] for item in data["top_materials"]],
         subtitle=f"Every mapped material held at {centre.name}, in corporate specification order.",
         empty_note="No mapped material is held at this work centre.",
@@ -493,14 +521,15 @@ def build_work_centre_review_presentation(static_folder: str, work_center_id: in
             source_rows.append([
                 item.exception_type.replace("_", " ").title(),
                 item.material.material_code if item.material else "—",
-                _concise(item.material.description if item.material else None, 52),
+                (item.material.uom if item.material else None) or "—",
+                _concise(item.material.description if item.material else None, 46),
                 _concise(item.details, 62),
             ])
             source_sections.append(group["label"])
     deck.paginated_table(
         "Non-moving, aged, surplus and transit cases",
-        ["Condition", "Material", "Chemical / material name", "Source evidence"],
-        source_rows, [2.2, 1.5, 4.35, 4.4], sections=source_sections,
+        ["Condition", "Material", "UoM", "Chemical / material name", "Source evidence"],
+        source_rows, [2.2, 1.5, .55, 3.8, 4.4], sections=source_sections,
         subtitle="Reported directly by the source inventory workbook for this work centre, not inferred from stock months.",
         empty_note=f"The source workbook reports no non-moving, aged, surplus or transit case at {centre.name}.",
     )

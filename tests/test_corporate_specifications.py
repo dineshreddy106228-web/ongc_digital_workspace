@@ -2,6 +2,7 @@ from datetime import datetime
 from types import SimpleNamespace
 
 from app.core.services import corporate_specifications as cs
+from app.core.services import csc_export
 
 
 def _record(record_id, spec_number, chemical_name, material_code="", version=0):
@@ -308,3 +309,64 @@ def test_narrative_sections_cover_the_full_dossier_set():
     assert [key for key, _label in cs.NARRATIVE_SECTIONS] == [
         "background", "existing_spec", "proposed_changes", "justification", "recommendation",
     ]
+
+
+def _master_spec(spec_number, chemical_name, parameters=None):
+    return {
+        "draft": {
+            "spec_number": spec_number,
+            "chemical_name": chemical_name,
+            "material_code": "",
+        },
+        "parameters": parameters or [{"parameter_name": "Appearance"}],
+    }
+
+
+def test_master_index_plan_uses_unique_position_bookmarks_and_group_page_breaks():
+    specs = [
+        _master_spec("ONGC/DFC/01/2026", "Alpha"),
+        _master_spec("ONGC/DFC/01/2026", "Alpha duplicate"),
+        _master_spec("ONGC/PC/02/2026", "Beta"),
+    ]
+    groups = csc_export._subgroup_sequence(specs)
+
+    plan = csc_export._index_plan(specs, groups)
+
+    assert plan["bookmarks"] == ["CSCSPEC_1", "CSCSPEC_2", "CSCSPEC_3"]
+    assert len(set(plan["bookmarks"])) == len(plan["bookmarks"])
+    assert [(row["kind"], row["page"]) for row in plan["rows"]] == [
+        ("group", 2), ("spec", 3), ("spec", 4), ("group", 5), ("spec", 6),
+    ]
+    assert groups[0]["bookmark"] != groups[1]["bookmark"]
+
+
+def test_dossier_bundle_returns_one_docx_or_a_zip_of_dossiers(monkeypatch):
+    entries = [
+        {"ref": "r-1", "record_id": 1, "spec_number": "ONGC/DFC/01/2026", "chemical_name": "Alpha", "version": 2},
+        {"ref": "r-2", "record_id": 2, "spec_number": "ONGC/PC/02/2026", "chemical_name": "Beta", "version": 4},
+        {"ref": "r-3", "record_id": None, "spec_number": "ONGC/PC/03/2026", "chemical_name": "Awaiting", "version": 0},
+    ]
+    monkeypatch.setattr(cs, "catalogue", lambda: entries)
+    monkeypatch.setattr(cs, "specification_data", lambda ref: {"record": object(), "ref": ref})
+    monkeypatch.setattr(cs, "dossier_context", lambda data: data)
+    monkeypatch.setattr(
+        "app.core.services.csc_dossier_export.build_enterprise_dossier",
+        lambda data: f"dossier:{data['ref']}".encode(),
+    )
+
+    stream, filename, mimetype, skipped = cs.build_dossier_bundle(["r-1"])
+    assert filename == "ONGC_DFC_01_2026_v2_dossier.docx"
+    assert mimetype.endswith("wordprocessingml.document")
+    assert stream.read() == b"dossier:r-1"
+    assert skipped == []
+
+    stream, filename, mimetype, skipped = cs.build_dossier_bundle(["r-1", "r-2", "r-3"])
+    assert filename.startswith("ONGC_Specification_Dossiers_2_")
+    assert mimetype == "application/zip"
+    assert skipped == ["Awaiting"]
+    from zipfile import ZipFile
+    with ZipFile(stream) as archive:
+        assert sorted(archive.namelist()) == [
+            "ONGC_DFC_01_2026_v2_dossier.docx",
+            "ONGC_PC_02_2026_v4_dossier.docx",
+        ]

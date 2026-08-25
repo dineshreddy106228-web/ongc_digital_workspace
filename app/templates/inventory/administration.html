@@ -26,7 +26,77 @@
   <small>The Group 09 and 10 workbooks carry no unit column. This fills the missing units from retained consumption history; add a UoM column to the export to cover every material.</small>
   {% if can_edit %}<button class="btn btn-secondary btn-sm" type="submit"><i class="bi bi-rulers"></i> Fill missing units</button>{% endif %}
 </form>
+<form method="post" action="{{ url_for('inventory.fill_material_consumption') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <strong>Twelve-month consumption</strong>
+  <small>Consumption per material is read from the workbook's material summary sheets at import. This reads it out of workbooks that were imported before it was being stored, and checks the stock already imported for plants no asset claims — nothing needs re-uploading, because every import keeps its workbook.</small>
+  {% if can_edit %}<button class="btn btn-secondary btn-sm" type="submit"><i class="bi bi-graph-up"></i> Read consumption and check plants</button>{% endif %}
+</form>
 </aside></section>
+
+{% if plant_alerts %}
+{# Raised by an import, resolved here: a plant nothing claims is a decision, not
+   a silent addition to the registers. #}
+<section class="im-alert-panel" id="plant-alerts"><div class="im-alert-head"><span><i class="bi bi-exclamation-triangle-fill"></i> {{ plant_alerts|length }} plant{{ '' if plant_alerts|length == 1 else 's' }} reported by an import that no asset claims</span><p>Attach each one to the asset it reports into — which is how one asset comes to carry two SAP plant codes after a merger — or open a new asset for it. Its stock is already imported and is counted under the name the workbook used until this is settled.</p></div>
+<div class="im-alert-list">
+  {% for alert in plant_alerts %}
+  <article class="im-alert-item">
+    <header><strong>{{ alert.plant_code or alert.work_center_name }}</strong><small>{% if alert.plant_code %}{{ alert.work_center_name }} · {% endif %}{{ '{:,}'.format(alert.line_count) }} stock line{{ '' if alert.line_count == 1 else 's' }} · ₹ {{ '{:,.2f}'.format((alert.inventory_value_inr or 0) / 10000000) }} Cr{% if alert.batch %} · {{ alert.batch.source_filename }}{% endif %}</small></header>
+    {% if can_edit %}
+    <form method="post" action="{{ url_for('inventory.resolve_plant_alert_route', alert_id=alert.id) }}" class="im-alert-actions">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>Attach to an existing asset
+        <select name="work_center_id" class="form-select form-select-sm">
+          <option value="">Select an asset…</option>
+          {% for centre in merge_options %}<option value="{{ centre.id }}">{{ centre.name }}{% if centre.zone %} · {{ centre.zone }}{% endif %}{% if centre.plant_codes %} ({{ centre.plant_codes|join(', ') }}){% endif %}</option>{% endfor %}
+        </select>
+      </label>
+      <button class="btn btn-primary btn-sm" name="action" value="attach"><i class="bi bi-link-45deg"></i> Attach</button>
+      <label>Or open it as a new asset
+        <span class="im-alert-new"><input class="form-control form-control-sm" name="name" value="{{ alert.work_center_name }}" aria-label="New asset name"><input class="form-control form-control-sm" name="zone" placeholder="Zone" aria-label="Zone"><input class="form-control form-control-sm" name="work_center_type" placeholder="Unit, e.g. DFS" aria-label="Unit"></span>
+      </label>
+      <button class="btn btn-secondary btn-sm" name="action" value="create"><i class="bi bi-plus-lg"></i> Add asset</button>
+      <button class="btn btn-secondary btn-sm" name="action" value="dismiss"><i class="bi bi-x-lg"></i> Not monitored</button>
+    </form>
+    {% else %}
+    <p class="im-pf-muted">Only a superuser can settle this. It is shown here so the reason a plant is unclaimed is visible to everyone using the module.</p>
+    {% endif %}
+  </article>
+  {% endfor %}
+</div></section>
+{% endif %}
+
+<section class="card" style="margin-top:1rem"><div class="card-body">
+  <div class="im-card-heading"><div><span class="im-kicker">Asset register</span><h2>Assets and their SAP plant codes</h2><p>SAP keeps a plant code per legacy asset, so a merger leaves two codes reporting into one place — N&amp;H and B&amp;S merged into NH-BS while 12A1 and 13A1 stayed apart. Put every code that reports into an asset on that asset's row, and point a merged asset at the one that absorbed it: the registers then read as one asset without anything being renamed in SAP.</p></div>{% if reporting_date %}<strong>Values as on {{ reporting_date.strftime('%d %b %Y') }}</strong>{% endif %}</div>
+  <form method="post" action="{{ url_for('inventory.save_assets') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="im-table-wrap"><table class="table im-health-table im-asset-table">
+      <thead><tr><th scope="col">Asset</th><th scope="col">Zone</th><th scope="col">Unit</th><th scope="col">SAP plant codes</th><th scope="col">Merged into</th><th scope="col" class="im-number-col">Inventory value</th></tr></thead>
+      <tbody>
+        {% for row in assets %}
+        <tr class="{{ 'im-row-merged' if row.merged_into }}">
+          <td><strong>{{ row.centre.name }}</strong>{% if row.merged_into %}<small>Reported stock is counted under {{ row.merged_into.name }}</small>{% endif %}</td>
+          <td>{{ row.centre.zone or '—' }}</td>
+          <td>{{ row.centre.work_center_type or '—' }}</td>
+          <td>{% if can_edit %}<input class="form-control form-control-sm" name="plant_codes-{{ row.centre.id }}" value="{{ row.plant_codes|join(', ') }}" placeholder="e.g. 12A1, 13A1" aria-label="SAP plant codes for {{ row.centre.name }}">{% else %}{% for code in row.plant_codes %}<span class="im-plant-code">{{ code }}</span>{% else %}<span class="im-status im-status-muted">None recorded</span>{% endfor %}{% endif %}</td>
+          <td>{% if can_edit %}<select class="form-select form-select-sm" name="merged_into-{{ row.centre.id }}" aria-label="Asset {{ row.centre.name }} merged into"><option value="">Not merged</option>{% for centre in merge_options %}{% if centre.id != row.centre.id %}<option value="{{ centre.id }}" {{ 'selected' if row.merged_into and row.merged_into.id == centre.id }}>{{ centre.name }}</option>{% endif %}{% endfor %}</select>{% else %}{{ row.merged_into.name if row.merged_into else '—' }}{% endif %}</td>
+          <td class="im-number-col">₹ {{ '{:,.2f}'.format((row.value or 0) / 10000000) }} Cr</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6">No assets have been imported yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table></div>
+    {% if can_edit %}<div class="im-settings-actions"><button class="btn btn-primary"><i class="bi bi-check2-circle"></i> Save asset register</button></div>{% endif %}
+  </form>
+</div></section>
+
+{% if resolved_alerts %}
+<section class="card" style="margin-top:1rem"><div class="card-body">
+  <h2 class="mod-card-title"><i class="bi bi-check2-square"></i> Plants already settled</h2>
+  <p class="mod-card-sub">The last {{ resolved_alerts|length }} unrecognised plants and what was decided about each.</p>
+  <div class="mod-table-wrap"><table class="mod-table"><thead><tr><th scope="col">Plant</th><th scope="col">Decision</th><th scope="col">When</th></tr></thead><tbody>{% for alert in resolved_alerts %}<tr><td>{{ alert.plant_code or alert.work_center_name }}</td><td>{{ alert.resolution }}</td><td>{{ alert.resolved_at|datetime_ist('%d %b %Y · %I:%M %p') if alert.resolved_at else '—' }}</td></tr>{% endfor %}</tbody></table></div>
+</div></section>
+{% endif %}
 
 <section class="card" style="margin-top:1rem"><div class="card-body">
   <h2 class="mod-card-title"><i class="bi bi-clock-history"></i> Administration audit trail</h2>

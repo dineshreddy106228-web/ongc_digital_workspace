@@ -1,11 +1,13 @@
 {% extends "base.html" %}
 {% from "quality_control/_qc_nav.html" import qc_nav with context %}
+{% from "components/_deck_scope.html" import deck_scope %}
+{% from "quality_control/_remarks.html" import remark_cell, remark_dialog %}
 {% block title %}QC Portfolio Management Review{% endblock %}
 {% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/quality_control.css') }}"><script defer src="{{ url_for('static', filename='js/quality_control.js') }}"></script><style>@media print {.workspace-sidebar,.workspace-flyout,.workspace-backdrop,.workspace-header-band,.mod-page-actions,.qc-review-controls-card,.site-footer{display:none!important}.workspace-shell,.workspace-main,.page-wrapper{display:block!important;margin:0!important;padding:0!important}.mod-page-head{color:#172b4d!important;background:#fff!important;border:0!important;box-shadow:none!important}.mod-page-head *{color:inherit!important}.card{break-inside:avoid}.qc-overdue-card,.qc-review-table-card{break-inside:auto!important;page-break-inside:auto!important;overflow:visible!important;border:none!important;box-shadow:none!important}.qc-overdue-card .card-body,.qc-review-table-card .card-body,.qc-overdue-card .mod-table-wrap,.qc-review-table-card .mod-table-wrap{display:block!important;overflow:visible!important}.qc-overdue-card thead,.qc-review-table-card thead{display:table-header-group}.qc-overdue-card tr,.qc-review-table-card tr{break-inside:avoid;page-break-inside:avoid}}</style>{% endblock %}
 {% block content %}
 <div class="page-wrapper mod-page qc-review-page">
 {{ qc_nav('review') }}
-  <div class="mod-page-head">
+  <div class="mod-page-head is-stacked-actions">
     <div>
       <div class="qc-lab-eyebrow"><span class="qc-live-dot"></span> Corporate Chemistry · weekly operating review</div>
       <h1 class="mod-page-title"><i class="bi bi-easel2"></i> QC Laboratory Management Review</h1>
@@ -13,7 +15,7 @@
     </div>
     <div class="mod-page-actions">
       <a class="btn btn-secondary" href="{{ url_for('quality_control.landing') }}"><i class="bi bi-grid"></i> Laboratories</a>
-      <a class="btn btn-primary" href="{{ url_for('quality_control.download_portfolio_management_presentation', week_end=selected_week_end.isoformat() if selected_week_end else none) }}"><i class="bi bi-file-earmark-ppt"></i> Download presentation</a>
+      <button type="button" class="btn btn-primary" data-deck-open="deckScope"><i class="bi bi-file-earmark-ppt"></i> Download presentation</button>
     </div>
   </div>
 
@@ -55,6 +57,8 @@
     <div class="mod-table-wrap"><table class="mod-table qc-review-table"><thead><tr><th scope="col">Laboratory</th><th scope="col">Latest reporting period</th><th scope="col">Sample load</th><th scope="col">Open workload</th><th scope="col">Aged &gt;9 days</th><th scope="col">Quality outcome</th><th scope="col">Average TAT</th></tr></thead><tbody>{% for review in laboratory_reviews %}<tr><td class="qc-management-lab-name"><span class="qc-review-lab-mark">{{ review.laboratory.name[:1] }}</span>{{ review.laboratory.name }}</td><td>{% if review.batch %}<span class="qc-review-date">{{ review.batch.week_start.strftime('%d %b') }} – {{ review.batch.week_end.strftime('%d %b %Y') }}</span>{% else %}<span class="text-muted">No data imported</span>{% endif %}</td><td><strong>{{ review.summary.total }}</strong></td><td>{{ review.summary.under_testing }}</td><td>{% if review.summary.delayed_open %}<span class="qc-review-risk-number">{{ review.summary.delayed_open }}</span>{% else %}<span class="qc-review-muted-number">0</span>{% endif %}</td><td><span class="qc-review-outcome"><b>{{ review.summary.passed }}</b> pass <i></i><b>{{ review.summary.failed }}</b> fail</span></td><td>{{ review.summary.average_turnaround if review.summary.average_turnaround is not none else '—' }}{% if review.summary.average_turnaround is not none %} days{% endif %}</td></tr>{% endfor %}</tbody></table></div>
   </div></section>
 
+  <section id="attention-register" class="qc-overdue-card card qc-review-attention"><div class="card-body"><div class="qc-section-title"><div><span class="qc-section-eyebrow">Leadership attention required</span><h2 class="mod-card-title">Samples under testing beyond 9 days</h2><p class="mod-card-sub">A complete register of the open samples that have exceeded the management review threshold.</p></div><span class="qc-overdue-count">{{ overdue_samples|length }} aged open</span></div>{% if overdue_samples %}<div class="mod-table-wrap"><table class="mod-table qc-review-table"><thead><tr><th scope="col">Laboratory</th><th scope="col">Material</th><th scope="col">Receipt date</th><th scope="col">Age</th><th scope="col">Remarks</th></tr></thead><tbody>{% for sample in overdue_samples %}<tr><td><span class="qc-lab-table-label">{{ laboratories_by_code[sample.lab_code].name }}</span></td><td class="qc-management-lab-name">{{ sample.chemical_name }}</td><td>{{ sample.sample_receipt_date.strftime('%d %b %Y') if sample.sample_receipt_date else '—' }}</td><td><span class="qc-age-badge {{ 'qc-age-critical' if sample.days_open > 14 else 'qc-age-warning' }}">{{ sample.days_open }} days</span></td><td class="qc-remark-cell">{{ remark_cell(sample.delay_reason, sample.chemical_name) }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="qc-clear-state"><i class="bi bi-check-circle-fill"></i> No samples are currently open beyond the 9-day review threshold.</p>{% endif %}</div></section>
+
   <section class="card qc-review-table-card"><div class="card-body">
     <div class="qc-review-section-heading"><div><span class="qc-section-label"><i class="bi bi-check2-circle"></i> Delivery discipline</span><h2>Completed testing this reporting week</h2><p>Actual testing time compared with the approved chemical standard.</p></div></div>
     <div class="mod-table-wrap"><table class="mod-table qc-review-table"><thead><tr><th scope="col">Laboratory</th><th scope="col">Chemical</th><th scope="col">Outcome</th><th scope="col">Actual time</th><th scope="col">Standard time</th><th scope="col">Variance</th></tr></thead><tbody>{% for item in completed_testing %}<tr><td>{{ laboratories_by_code[item.sample.lab_code].name }}</td><td class="qc-management-lab-name">{{ item.sample.chemical_name }}</td><td><span class="qc-review-result qc-review-result-{{ item.sample.result_status }}">{{ item.sample.result_status.title() }}</span></td><td>{{ item.sample.turnaround_days if item.sample.turnaround_days is not none else '—' }}{% if item.sample.turnaround_days is not none %} days{% endif %}</td><td>{{ item.standard_days if item.standard_days is not none else 'Not defined' }}{% if item.standard_days is not none %} days{% endif %}</td><td>{% if item.variance_days is not none %}<span class="{{ 'qc-review-variance-late' if item.variance_days > 0 else 'qc-review-variance-on-time' }}">{{ '+' if item.variance_days > 0 else '' }}{{ item.variance_days }} days</span>{% else %}—{% endif %}</td></tr>{% else %}<tr><td colspan="6" class="qc-review-empty">No completed samples were reported in the selected week.</td></tr>{% endfor %}</tbody></table></div>
@@ -65,6 +69,30 @@
     <div class="mod-table-wrap"><table class="mod-table qc-review-table"><thead><tr><th scope="col">Chemical</th><th scope="col">Laboratories</th><th scope="col">Samples</th><th scope="col">Pass</th><th scope="col">Fail</th><th scope="col">Open</th><th scope="col">Average actual</th><th scope="col">Standard</th><th scope="col">Variance</th></tr></thead><tbody>{% for metric in weekly_chemical_metrics %}<tr><td class="qc-management-lab-name">{{ metric.chemical_name }}</td><td>{% for laboratory in metric.laboratories %}<span class="qc-lab-table-label">{{ laboratory }}</span>{% endfor %}</td><td>{{ metric.total }}</td><td>{{ metric.passed }}</td><td>{{ metric.failed }}</td><td>{{ metric.under_testing }}</td><td>{{ metric.average_actual if metric.average_actual is not none else '—' }}{% if metric.average_actual is not none %} days{% endif %}</td><td>{{ metric.standard_days if metric.standard_days is not none else 'Not defined' }}{% if metric.standard_days is not none %} days{% endif %}</td><td>{% if metric.variance_days is not none %}<span class="{{ 'qc-review-variance-late' if metric.variance_days > 0 else 'qc-review-variance-on-time' }}">{{ '+' if metric.variance_days > 0 else '' }}{{ metric.variance_days }} days</span>{% else %}—{% endif %}</td></tr>{% else %}<tr><td colspan="9" class="qc-review-empty">No weekly chemical performance records are available.</td></tr>{% endfor %}</tbody></table></div>
   </div></section>
 
-  <section id="attention-register" class="qc-overdue-card card qc-review-attention"><div class="card-body"><div class="qc-section-title"><div><span class="qc-section-eyebrow">Leadership attention required</span><h2 class="mod-card-title">Samples under testing beyond 9 days</h2><p class="mod-card-sub">A complete register of the open samples that have exceeded the management review threshold.</p></div><span class="qc-overdue-count">{{ overdue_samples|length }} aged open</span></div>{% if overdue_samples %}<div class="mod-table-wrap"><table class="mod-table qc-review-table"><thead><tr><th scope="col">Laboratory</th><th scope="col">Material</th><th scope="col">Receipt date</th><th scope="col">Age</th><th scope="col">Remarks</th></tr></thead><tbody>{% for sample in overdue_samples %}<tr><td><span class="qc-lab-table-label">{{ laboratories_by_code[sample.lab_code].name }}</span></td><td class="qc-management-lab-name">{{ sample.chemical_name }}</td><td>{{ sample.sample_receipt_date.strftime('%d %b %Y') if sample.sample_receipt_date else '—' }}</td><td><span class="qc-age-badge {{ 'qc-age-critical' if sample.days_open > 14 else 'qc-age-warning' }}">{{ sample.days_open }} days</span></td><td>{{ sample.delay_reason or 'No delay remark recorded' }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="qc-clear-state"><i class="bi bi-check-circle-fill"></i> No samples are currently open beyond the 9-day review threshold.</p>{% endif %}</div></section>
+  {{ remark_dialog() }}
+
+  {# Asked for, not assumed: the whole network, or the laboratories ticked. #}
+  {% call deck_scope(
+      'deckScope', url_for('quality_control.download_portfolio_management_presentation'),
+      title='Which laboratories should the deck cover?',
+      intro='The deck is built on ' ~ ('week ending ' ~ selected_week_end.strftime('%d %b %Y') if selected_week_end else 'the latest available reporting week') ~ '. Every figure in it counts only the laboratories chosen here.',
+      all_label='All ONGC laboratories', all_hint='Every laboratory in the network — ' ~ laboratory_reviews|length ~ ' of them, ' ~ reporting_labs ~ ' reporting this week.',
+      set_label='A set of laboratories', set_hint='Pick an establishment or individual laboratories below. Ticking any laboratory selects this option.',
+      set_value='labs',
+      summary='All ONGC laboratories — ' ~ laboratory_reviews|length ~ ' in the network.',
+      hidden={'week_end': selected_week_end.isoformat() if selected_week_end else ''}) %}
+    {% for group in scope_laboratories %}
+    <details class="mod-scope-group">
+      <summary><label class="mod-scope-group-tick"><input type="checkbox" data-deck-scope-group> <strong>{{ group.establishment }}</strong></label><span>{{ group.laboratories|length }} laborator{{ 'y' if group.laboratories|length == 1 else 'ies' }} · {{ group.submitted }} reporting</span></summary>
+      <div class="mod-scope-items">
+        {% for lab in group.laboratories %}
+        <label class="mod-scope-item"><input type="checkbox" name="lab" value="{{ lab.code }}" data-deck-scope-item><span><strong>{{ lab.name }}</strong><small>{{ lab.location }} · {% if lab.submitted %}{{ lab.samples }} sample{{ '' if lab.samples == 1 else 's' }} this week{% else %}no submission this week{% endif %}</small></span></label>
+        {% endfor %}
+      </div>
+    </details>
+    {% else %}
+    <p class="mod-card-sub">No laboratory is configured, so only the all-ONGC deck can be built.</p>
+    {% endfor %}
+  {% endcall %}
 </div>
 {% endblock %}
