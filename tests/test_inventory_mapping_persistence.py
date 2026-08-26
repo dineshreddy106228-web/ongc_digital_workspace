@@ -89,7 +89,7 @@ def test_every_imported_stock_line_maps_its_work_centre(inventory_app):
     assert _current_mapping_pairs() == {(centre.id, codes["090001043"]), (centre.id, codes["090002222"])}
 
 
-def test_only_stock_carrying_value_is_monitored(inventory_app):
+def test_every_positive_quantity_or_value_holding_is_monitored(inventory_app):
     from app.core.services.inventory_monitoring import _current_mapping_pairs, import_workbook
     from app.models.inventory.monitoring import InventoryMonitoringRecord
 
@@ -98,14 +98,17 @@ def test_only_stock_carrying_value_is_monitored(inventory_app):
             ["090001043", "OIL WELL CEMENT CLASS G", "Ankleshwar DFS", 120, "MT", 30000000, 4],
             ["090002222", "MUD CHEMICAL BARYTES", "Ankleshwar DFS", 0, "MT", 0, 9],
             ["090003333", "CEMENT RETARDER", "Ankleshwar DFS", 40, "MT", None, 2],
+            ["090004444", "VALUE-ONLY HOLDING", "Ankleshwar DFS", None, "MT", 500000, 2],
         ]),
         "09_All_Tables_20260731_110000.xlsx", "09", date(2026, 7, 31), 1,
     )
     db.session.commit()
 
-    assert batch.accepted_count == 1 and batch.rejected_count == 2
-    assert [item.material_code for item in InventoryMonitoringRecord.query.all()] == ["090001043"]
-    assert len(_current_mapping_pairs()) == 1
+    assert batch.accepted_count == 3 and batch.rejected_count == 1
+    assert {item.material_code for item in InventoryMonitoringRecord.query.all()} == {
+        "090001043", "090003333", "090004444",
+    }
+    assert len(_current_mapping_pairs()) == 3
 
 
 def test_material_register_maps_from_the_uploaded_inventory(inventory_app):
@@ -130,6 +133,22 @@ def test_material_register_maps_from_the_uploaded_inventory(inventory_app):
     }
     assert centres["090002222"] == ["Mehsana ST"]
     assert centres["100203400"] == ["Mehsana ST"]
+
+
+def test_material_register_does_not_hide_rows_after_the_first_five_hundred(inventory_app):
+    from app.core.services.inventory_monitoring import material_mapping_register_data
+    from app.models.inventory.monitoring import InventoryMonitoringMaterial
+
+    db.session.add_all([
+        InventoryMonitoringMaterial(material_code=f"1{index:08d}", description=f"Material {index}")
+        for index in range(501)
+    ])
+    db.session.commit()
+
+    data = material_mapping_register_data()
+    assert data["total_count"] == 501
+    assert len(data["materials"]) == 501
+    assert data["materials"][-1].material_code == "100000500"
 
 
 def test_specification_category_reads_the_specification_number():

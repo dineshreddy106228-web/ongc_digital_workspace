@@ -170,14 +170,21 @@ def _read_inventory(source: bytes, source_group: str) -> tuple[str, list[dict[st
         if not code or not centre:
             warnings.append(f"Row {index + 3}: missing material code or work centre.")
             continue
+        stock_qty = _decimal(raw[canonical["stockqty"]])
         value = _decimal(raw[canonical["inventoryvalueinr"]])
-        if value is None or value <= 0:
-            # Monitoring covers stock that carries value; a nil-value line is not held stock.
-            warnings.append(f"Row {index + 3}: inventory value is nil, so the line is not monitored.")
+        # SAP sometimes carries a physical balance before it has an inventory
+        # value against it. A positive quantity is still a holding and must be
+        # monitored; conversely, retain a positive-value holding if quantity is
+        # absent or zero. Only a line with neither signal is not held stock.
+        if not ((stock_qty is not None and stock_qty > 0) or (value is not None and value > 0)):
+            warnings.append(
+                f"Row {index + 3}: stock quantity and inventory value are both nil or non-positive, "
+                "so the line is not monitored."
+            )
             continue
         rows.append({
             "material_code": code, "material_description": _text(raw[canonical["materialdescription"]]) or None,
-            "work_center_name": centre, "stock_qty": _decimal(raw[canonical["stockqty"]]),
+            "work_center_name": centre, "stock_qty": stock_qty,
             "plant_code": (_text(raw[plant_column]).upper() or None) if plant_column else None,
             "uom": (_text(raw[uom_column]).upper() or None) if uom_column else None,
             "inventory_value_inr": value,
@@ -814,7 +821,10 @@ def material_mapping_register_data(term: str = "", category: str = "") -> dict[s
         )
     else:
         query = query.order_by(InventoryMonitoringMaterial.material_code)
-    materials = query.limit(500).all()
+    # The register is the complete monitoring catalogue. A fixed first-500
+    # slice made correctly imported higher-numbered SAP materials invisible
+    # unless someone already knew to search for them.
+    materials = query.all()
     material_ids = [item.id for item in materials]
     inventory_values_by_material: dict[int, Decimal] = {}
     if inventory_values is not None and material_ids:
