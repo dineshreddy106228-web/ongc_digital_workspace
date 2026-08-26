@@ -121,6 +121,58 @@
 
     <section class="card">
       <div class="card-body">
+        <h2 class="backup-section-title">Automatic Daily Backups</h2>
+        <p class="backup-copy">
+          The system saves one full backup bundle each calendar day and keeps a rolling window of the latest
+          <strong>{{ retained_backup_retention_days }} days</strong>. These are the same complete database and
+          attachment bundles as the manual export, kept in application backup storage for administrators to
+          download when needed.
+        </p>
+        {% if not retained_backups_available %}
+        <div class="backup-note backup-note-warning" style="margin-top: 0;">
+          The retained-backup storage cannot be read right now. Check the configured backup storage directory and
+          its write permission.
+        </div>
+        {% elif retained_backups %}
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th scope="col">Backup Date</th>
+                <th scope="col">Saved At</th>
+                <th scope="col">Size</th>
+                <th scope="col">Download</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for backup in retained_backups %}
+              <tr>
+                <td><strong>{{ backup.backup_date.strftime('%d %b %Y') }}</strong></td>
+                <td>{{ backup.created_at|datetime_ist('%d %b %Y %H:%M') }}</td>
+                <td>{{ '%.1f'|format(backup.size_bytes / 1024 / 1024) }} MB</td>
+                <td>
+                  <a class="btn btn-secondary btn-sm" href="{{ url_for('admin.download_retained_backup', filename=backup.filename) }}">
+                    <i class="bi bi-download"></i> Download
+                  </a>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p class="text-muted" style="margin: 0;">The first retained daily backup will appear here after a successful automatic run.</p>
+        {% endif %}
+        <div class="backup-note backup-note-warning">
+          <strong>Storage note:</strong> retained files are kept on the application server, not in browser memory.
+          On Railway, mount the backup storage directory on a persistent volume if the 15-day history must survive
+          redeployments or service replacement. Download important backups outside the server as well.
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-body">
         <h2 class="backup-section-title">MSDS Document Archive</h2>
         <p class="backup-copy">
           Download every safety data sheet held in the system as a single <code>.zip</code> of PDFs. Each file is
@@ -406,6 +458,10 @@
                   <td>
                     {% if event.action == "DATABASE_BACKUP_IMPORTED" %}
                     <strong>Ingested</strong>
+                    {% elif event.action == "DATABASE_DAILY_BACKUP_CREATED" %}
+                    <strong>Automatic daily backup saved</strong>
+                    {% elif event.action == "DATABASE_RETAINED_BACKUP_DOWNLOADED" %}
+                    <strong>Retained backup downloaded</strong>
                     {% else %}
                     <strong>Downloaded</strong>
                     {% endif %}

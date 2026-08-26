@@ -77,8 +77,10 @@ from app.core.services.backups import (
     BackupError,
     build_backup_filename,
     create_full_backup_bundle,
+    get_retained_backup,
     restore_database_backup,
     get_runtime_environment_name,
+    list_retained_backups,
     validate_backup_file,
 )
 from app.core.services.msds_service import (
@@ -1935,7 +1937,9 @@ def activity_history():
 def backup_center():
     snapshots = []
     backup_events = []
+    retained_backups = []
     history_available = True
+    retained_backups_available = True
     try:
         snapshots = (
             BackupSnapshot.query
@@ -1949,6 +1953,8 @@ def backup_center():
                 AuditLog.action.in_([
                     "DATABASE_BACKUP_EXPORTED",
                     "DATABASE_BACKUP_IMPORTED",
+                    "DATABASE_DAILY_BACKUP_CREATED",
+                    "DATABASE_RETAINED_BACKUP_DOWNLOADED",
                 ])
             )
             .order_by(AuditLog.created_at.desc())
@@ -1958,6 +1964,11 @@ def backup_center():
     except SQLAlchemyError:
         db.session.rollback()
         history_available = False
+
+    try:
+        retained_backups = list_retained_backups()
+    except BackupError:
+        retained_backups_available = False
 
     try:
         msds_document_count = count_msds_files()
@@ -1970,6 +1981,11 @@ def backup_center():
         snapshots=snapshots,
         backup_events=backup_events,
         history_available=history_available,
+        retained_backups=retained_backups,
+        retained_backups_available=retained_backups_available,
+        retained_backup_retention_days=max(
+            int(current_app.config.get("AUTO_BACKUP_RETENTION_DAYS", 15)), 1
+        ),
         msds_document_count=msds_document_count,
         environment_name=get_runtime_environment_name(),
         next_backup_filename=build_backup_filename(),
@@ -2030,6 +2046,46 @@ def export_backup():
     )
     response.call_on_close(artifact.cleanup)
     return response
+
+
+@admin_bp.route("/backups/retained/<filename>")
+@login_required
+@roles_required(ADMIN_ROLE)
+def download_retained_backup(filename: str):
+    """Download one of the full bundles retained by the automatic daily run."""
+
+    try:
+        backup = get_retained_backup(filename)
+    except BackupError:
+        flash("That retained daily backup is no longer available.", "warning")
+        return redirect(url_for("admin.backup_center"))
+
+    try:
+        db.session.add(
+            AuditLog(
+                action="DATABASE_RETAINED_BACKUP_DOWNLOADED",
+                user_id=current_user.id,
+                entity_type="RetainedBackup",
+                entity_id=backup.filename,
+                details=(
+                    f"Admin '{current_user.username}' downloaded retained daily backup "
+                    f"'{backup.filename}'."
+                ),
+                ip_address=AuditLog._normalize_ip(_client_ip()),
+                user_agent=AuditLog._normalize_user_agent(get_user_agent()),
+            )
+        )
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+
+    return send_file(
+        backup.path,
+        as_attachment=True,
+        download_name=backup.filename,
+        mimetype="application/x-tar",
+        max_age=0,
+    )
 
 
 @admin_bp.route("/backups/msds", methods=["POST"])

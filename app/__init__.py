@@ -71,6 +71,21 @@ def create_app(config_class=Config):
 
         register_cli(app)
 
+    # A platform cron can run ``flask create-daily-backup`` explicitly.  The
+    # web-process scheduler is a safety net for normal single-worker operation
+    # so the day is still backed up when no external scheduler is configured.
+    # Never start it in CLI commands, tests, or Flask's debug reloader parent.
+    is_reloader_parent = app.debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true"
+    if (
+        app.config.get("AUTO_BACKUP_ENABLED", True)
+        and not app.config.get("TESTING", False)
+        and os.environ.get("FLASK_RUN_FROM_CLI") != "true"
+        and not is_reloader_parent
+    ):
+        from app.core.services.backups import start_retained_backup_scheduler
+
+        start_retained_backup_scheduler(app)
+
     app.jinja_env.filters["datetime_ist"] = format_datetime_ist
     app.jinja_env.filters["richtext"] = render_rich_text
 

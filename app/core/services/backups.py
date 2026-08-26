@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import gzip
 import io
 import json
 import logging
 import os
 from pathlib import Path
+import re
 import shutil
 import stat
 import subprocess
@@ -40,6 +41,10 @@ EXCLUDED_TABLE_INVENTORY = {
 }
 BUNDLE_DATABASE_MEMBER = "database.sql.gz"
 BUNDLE_COMMITTEE_UPLOADS_DIR = "committee_uploads"
+RETAINED_BACKUP_FILENAME_PREFIX = "ongc_workspace_daily_backup_"
+RETAINED_BACKUP_FILENAME_PATTERN = re.compile(
+    rf"^{RETAINED_BACKUP_FILENAME_PREFIX}(\d{{4}}-\d{{2}}-\d{{2}})\.tar\.gz$"
+)
 # These labels make the bundle manifest easier to audit.  The SQL export itself
 # contains every application table except rows from BACKUP_EXCLUDE_TABLE_DATA.
 DATABASE_BACKED_MODULES = (
@@ -89,6 +94,17 @@ class BackupArtifact:
                 self.temp_path,
                 exc_info=True,
             )
+
+
+@dataclass(frozen=True)
+class RetainedBackup:
+    """A completed daily backup retained on application storage."""
+
+    filename: str
+    path: Path
+    backup_date: date
+    size_bytes: int
+    created_at: datetime
 
 
 def _clean_value(value: str | None) -> str | None:
@@ -648,6 +664,280 @@ def create_full_backup_bundle() -> BackupArtifact:
         temp_path=bundle_path,
         download_name=build_backup_filename(),
     )
+
+
+def get_retained_backup_directory() -> Path:
+    """Return the configured application-storage directory for daily bundles.
+
+    Relative paths are deliberately rooted beside the Flask application, rather
+    than in the process working directory, so a Gunicorn or CLI launch cannot
+    silently split the retained-backup store.
+    """
+
+    configured = str(current_app.config.get("AUTO_BACKUP_DIR") or "").strip()
+    base_dir = Path(current_app.root_path).resolve().parent
+    directory = Path(configured) if configured else (base_dir / "storage" / "backups")
+    if not directory.is_absolute():
+        directory = base_dir / directory
+    return directory.expanduser().resolve()
+
+
+def _retained_backup_filename(backup_date: date) -> str:
+    return f"{RETAINED_BACKUP_FILENAME_PREFIX}{backup_date.isoformat()}.tar.gz"
+
+
+def _retained_backup_date(filename: str) -> date | None:
+    match = RETAINED_BACKUP_FILENAME_PATTERN.fullmatch(filename)
+    if match is None:
+        return None
+    try:
+        return date.fromisoformat(match.group(1))
+    except ValueError:
+        return None
+
+
+def _retained_backup_from_path(path: Path) -> RetainedBackup | None:
+    backup_date = _retained_backup_date(path.name)
+    if backup_date is None or path.is_symlink() or not path.is_file():
+        return None
+    try:
+        stats = path.stat()
+    except OSError:
+        return None
+    if stats.st_size <= 0:
+        return None
+    return RetainedBackup(
+        filename=path.name,
+        path=path,
+        backup_date=backup_date,
+        size_bytes=stats.st_size,
+        created_at=datetime.fromtimestamp(stats.st_mtime, tz=timezone.utc),
+    )
+
+
+def list_retained_backups() -> list[RetainedBackup]:
+    """List readable daily backups, newest day first.
+
+    This is intentionally filesystem-backed rather than a database BLOB: a
+    database backup must not make the database itself grow by another complete
+    copy every day.
+    """
+
+    directory = get_retained_backup_directory()
+    if not directory.exists():
+        return []
+    if not directory.is_dir():
+        raise BackupError("The configured daily-backup storage path is not a directory.")
+    try:
+        backups = [
+            backup
+            for path in directory.iterdir()
+            if (backup := _retained_backup_from_path(path)) is not None
+        ]
+    except OSError as exc:
+        raise BackupError(f"Daily-backup storage could not be read: {exc}") from exc
+    return sorted(backups, key=lambda backup: backup.backup_date, reverse=True)
+
+
+def get_retained_backup(filename: str) -> RetainedBackup:
+    """Resolve one retained backup without allowing path traversal or symlinks."""
+
+    if Path(filename).name != filename or _retained_backup_date(filename) is None:
+        raise BackupError("The requested daily backup was not found.")
+    backup = _retained_backup_from_path(get_retained_backup_directory() / filename)
+    if backup is None:
+        raise BackupError("The requested daily backup was not found.")
+    return backup
+
+
+def _backup_local_date(now: datetime | None = None) -> date:
+    """Return the configured calendar day for the once-per-day backup cadence."""
+
+    current_time = now or datetime.now(timezone.utc)
+    if current_time.tzinfo is None:
+        current_time = current_time.replace(tzinfo=timezone.utc)
+    timezone_name = str(current_app.config.get("AUTO_BACKUP_TIMEZONE") or "Asia/Kolkata")
+    try:
+        from zoneinfo import ZoneInfo
+
+        return current_time.astimezone(ZoneInfo(timezone_name)).date()
+    except Exception:  # noqa: BLE001 - an invalid optional timezone must not stop backups
+        logger.warning(
+            "Invalid AUTO_BACKUP_TIMEZONE %r; using UTC for the daily backup schedule.",
+            timezone_name,
+        )
+        return current_time.astimezone(timezone.utc).date()
+
+
+def _retention_days() -> int:
+    try:
+        value = int(current_app.config.get("AUTO_BACKUP_RETENTION_DAYS", 15))
+    except (TypeError, ValueError):
+        value = 15
+    return max(value, 1)
+
+
+def prune_retained_backups(*, reference_date: date | None = None) -> list[str]:
+    """Delete daily bundles outside the rolling retention window.
+
+    A date cutoff handles gaps in scheduled runs, and the count guard keeps no
+    more than the configured number of retained daily files even if an operator
+    has copied duplicate-day files into the directory.
+    """
+
+    reference = reference_date or _backup_local_date()
+    retention_days = _retention_days()
+    cutoff = reference - timedelta(days=retention_days - 1)
+    retained = list_retained_backups()
+    expired = [
+        backup
+        for index, backup in enumerate(retained)
+        if backup.backup_date < cutoff or index >= retention_days
+    ]
+    removed: list[str] = []
+    for backup in expired:
+        try:
+            backup.path.unlink()
+        except OSError as exc:
+            logger.warning("Could not prune retained backup %s: %s", backup.path, exc)
+        else:
+            removed.append(backup.filename)
+    return removed
+
+
+def create_retained_daily_backup(*, backup_date: date | None = None) -> tuple[RetainedBackup, bool]:
+    """Create one full bundle for a calendar day and retain it on local storage.
+
+    The returned flag is ``True`` only if a new bundle was written.  Existing
+    completed files make this operation idempotent, which lets an external cron,
+    the in-process safety-net scheduler, and a manual CLI run coexist safely.
+    """
+
+    scheduled_date = backup_date or _backup_local_date()
+    directory = get_retained_backup_directory()
+    try:
+        directory.mkdir(parents=True, exist_ok=True, mode=stat.S_IRWXU)
+        os.chmod(directory, stat.S_IRWXU)
+    except OSError as exc:
+        raise BackupError(f"Daily-backup storage could not be created: {exc}") from exc
+    if not directory.is_dir():
+        raise BackupError("The configured daily-backup storage path is not a directory.")
+
+    filename = _retained_backup_filename(scheduled_date)
+    destination = directory / filename
+    existing = _retained_backup_from_path(destination)
+    if existing is not None:
+        prune_retained_backups(reference_date=scheduled_date)
+        return existing, False
+
+    artifact = create_full_backup_bundle()
+    staged_path: Path | None = None
+    try:
+        file_descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{filename}.", suffix=".tmp", dir=directory
+        )
+        staged_path = Path(temporary_name)
+        with os.fdopen(file_descriptor, "wb") as staged_file, artifact.temp_path.open("rb") as source:
+            shutil.copyfileobj(source, staged_file)
+            staged_file.flush()
+            os.fsync(staged_file.fileno())
+        os.chmod(staged_path, stat.S_IRUSR | stat.S_IWUSR)
+        os.replace(staged_path, destination)
+        staged_path = None
+    except OSError as exc:
+        raise BackupError(f"Daily backup could not be saved to application storage: {exc}") from exc
+    finally:
+        artifact.cleanup()
+        if staged_path is not None:
+            staged_path.unlink(missing_ok=True)
+
+    stored = _retained_backup_from_path(destination)
+    if stored is None:
+        raise BackupError("Daily backup was saved but could not be verified.")
+    prune_retained_backups(reference_date=scheduled_date)
+    return stored, True
+
+
+def run_retained_daily_backup() -> tuple[RetainedBackup, bool]:
+    """Run today's retained backup and record the successful automatic run."""
+
+    backup, created = create_retained_daily_backup()
+    if not created:
+        return backup, False
+
+    # The file is already safely stored.  An audit logging failure must not
+    # discard it or turn a successful daily backup into a failed one.
+    try:
+        from app.extensions import db
+        from app.models.core.audit_log import AuditLog
+
+        db.session.add(
+            AuditLog(
+                action="DATABASE_DAILY_BACKUP_CREATED",
+                entity_type="RetainedBackup",
+                entity_id=backup.filename,
+                details=(
+                    "Automatic daily full backup stored in application backup storage; "
+                    f"rolling retention is {_retention_days()} days."
+                ),
+            )
+        )
+        db.session.commit()
+    except Exception:  # noqa: BLE001 - preserve the backup if audit persistence is unavailable
+        try:
+            from app.extensions import db
+
+            db.session.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        logger.exception("Daily backup %s was stored but could not be added to the audit trail", backup.filename)
+    return backup, True
+
+
+def start_retained_backup_scheduler(app) -> None:
+    """Start the web-process safety-net that ensures one backup per day.
+
+    A scheduled ``flask create-daily-backup`` command remains suitable for a
+    platform cron.  This loop means a normally running single-worker deployment
+    still creates the day's bundle if no separate scheduler is configured.
+    """
+
+    if getattr(app, "_retained_backup_scheduler_started", False):
+        return
+    app._retained_backup_scheduler_started = True
+
+    try:
+        interval_seconds = int(app.config.get("AUTO_BACKUP_CHECK_INTERVAL_SECONDS", 3600))
+    except (TypeError, ValueError):
+        interval_seconds = 3600
+    interval_seconds = max(interval_seconds, 60)
+
+    def _run() -> None:
+        import threading
+
+        stop_event = getattr(app, "_retained_backup_scheduler_stop", None)
+        if stop_event is None:
+            stop_event = threading.Event()
+            app._retained_backup_scheduler_stop = stop_event
+        while not stop_event.is_set():
+            with app.app_context():
+                try:
+                    backup, created = run_retained_daily_backup()
+                    if created:
+                        app.logger.info("Retained daily backup created: %s", backup.filename)
+                except Exception:  # noqa: BLE001 - retry on the next scheduled check
+                    app.logger.exception("Automatic daily backup failed")
+            stop_event.wait(interval_seconds)
+
+    import threading
+
+    thread = threading.Thread(
+        target=_run,
+        name="ongc-retained-backup-scheduler",
+        daemon=True,
+    )
+    app._retained_backup_scheduler_thread = thread
+    thread.start()
 
 
 def _validate_sql_backup_file(path: Path) -> dict:

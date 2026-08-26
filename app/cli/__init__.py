@@ -8,7 +8,7 @@ not import command-only dependency trees during startup.
 
 def register_cli(app):
     """Attach custom CLI commands to the Flask app."""
-    from app.cli.backups import restore_db, validate_backup
+    from app.cli.backups import create_daily_backup, restore_db, validate_backup
     from app.cli.cache import clear_cache
     from app.cli.csc import (
         backfill_csc_material_codes_command,
@@ -29,6 +29,7 @@ def register_cli(app):
 
     app.cli.add_command(restore_db)
     app.cli.add_command(validate_backup)
+    app.cli.add_command(create_daily_backup)
     app.cli.add_command(clear_cache)
     app.cli.add_command(import_csc_legacy)
     app.cli.add_command(backfill_csc_material_codes_command)

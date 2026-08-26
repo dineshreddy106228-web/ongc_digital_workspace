@@ -12,6 +12,7 @@ from app.core.services.backups import (
     BackupError,
     resolve_database_connection_settings,
     restore_database_backup,
+    run_retained_daily_backup,
     validate_backup_file,
 )
 
@@ -95,3 +96,22 @@ def validate_backup(backup_file: Path) -> None:
     click.echo("Preview:")
     for line in result["preview_lines"]:
         click.echo(f"  {line}")
+
+
+@click.command("create-daily-backup")
+@with_appcontext
+def create_daily_backup() -> None:
+    """Create today's retained backup, if one has not already been saved."""
+
+    try:
+        backup, created = run_retained_daily_backup()
+    except BackupError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if created:
+        click.echo(
+            f"Created retained daily backup '{backup.filename}' "
+            f"({backup.size_bytes} bytes)."
+        )
+    else:
+        click.echo(f"Today's retained daily backup already exists: '{backup.filename}'.")

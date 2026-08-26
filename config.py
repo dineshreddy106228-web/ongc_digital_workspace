@@ -94,6 +94,17 @@ class Config:
     MYSQL_BIN = os.environ.get("MYSQL_BIN", "mysql")
     MYSQLDUMP_BIN = os.environ.get("MYSQLDUMP_BIN", "mysqldump")
 
+    # ── Retained daily backups ───────────────────────────────────
+    # Backups remain in application storage, so deploy this directory on a
+    # persistent volume when the hosting platform has ephemeral local disks.
+    AUTO_BACKUP_ENABLED = _as_bool(os.environ.get("AUTO_BACKUP_ENABLED"), default=True)
+    AUTO_BACKUP_DIR = os.environ.get("AUTO_BACKUP_DIR", "storage/backups")
+    AUTO_BACKUP_RETENTION_DAYS = int(os.environ.get("AUTO_BACKUP_RETENTION_DAYS", "15"))
+    AUTO_BACKUP_TIMEZONE = os.environ.get("AUTO_BACKUP_TIMEZONE", "Asia/Kolkata")
+    AUTO_BACKUP_CHECK_INTERVAL_SECONDS = int(
+        os.environ.get("AUTO_BACKUP_CHECK_INTERVAL_SECONDS", "3600")
+    )
+
     # ── Login hardening ──────────────────────────────────────────
     LOGIN_RATE_LIMIT_ENABLED = _as_bool(os.environ.get("LOGIN_RATE_LIMIT_ENABLED"), default=True)
     LOGIN_RATE_LIMIT_MAX_ATTEMPTS = int(os.environ.get("LOGIN_RATE_LIMIT_MAX_ATTEMPTS", "8"))

@@ -66,6 +66,56 @@
 
 .qc-remark-actions { display: flex; justify-content: flex-end; margin-top: 1rem; }
 
+/* ── Laboratory management summary ─────────────────────────────────── */
+.qc-management-summary { margin: 1.5rem 0; }
+.qc-management-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .75rem; }
+.qc-management-kpi { position: relative; display: block; min-height: 130px; padding: 1rem 1.05rem; border: 1px solid var(--border); border-left: 3px solid var(--mod-accent); border-radius: 12px; background: var(--surface); color: inherit; text-decoration: none; }
+.qc-management-kpi > span { display: block; color: var(--muted); font-size: .72rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.qc-management-kpi strong { display: block; margin: .42rem 0 .3rem; color: var(--text); font-family: "JetBrains Mono", monospace; font-size: 1.75rem; line-height: 1; letter-spacing: -.05em; }
+.qc-management-kpi strong em, .qc-queue-health strong em { font-family: inherit; font-size: .82rem; font-style: normal; letter-spacing: 0; }
+.qc-management-kpi small { display: block; max-width: 180px; color: var(--muted); font-size: .73rem; line-height: 1.4; }
+.qc-management-kpi > .bi { position: absolute; top: .85rem; right: .8rem; color: var(--muted); }
+a.qc-management-kpi:hover { color: inherit; border-color: var(--mod-accent); box-shadow: 0 7px 18px rgba(14, 40, 74, .09); transform: translateY(-1px); }
+a.qc-management-kpi:hover > .bi { color: var(--mod-accent); }
+.qc-management-kpi-critical { border-left-color: var(--tone-bad-fg); }
+.qc-management-panels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-top: 1rem; }
+.qc-management-panel { padding: 1.1rem 1.15rem; border: 1px solid var(--border); border-radius: 14px; background: var(--surface-alt); }
+.qc-management-panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: .9rem; }
+.qc-management-panel-head span, .qc-queue-health > div > span { display: block; color: var(--muted); font-size: .7rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.qc-management-panel-head h3 { margin: .2rem 0 0; color: var(--text); font-size: 1rem; }
+.qc-management-panel-head h3 b { color: var(--muted); font-weight: 600; }
+.qc-management-panel-head > .bi { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; color: var(--mod-accent); background: var(--surface); }
+.qc-management-distribution { display: grid; gap: .45rem; }
+.qc-management-band { display: grid; grid-template-columns: minmax(0, 1fr) auto 42px; gap: .75rem; align-items: center; padding: .58rem .65rem; border: 1px solid transparent; border-left: 3px solid var(--border); border-radius: 8px; color: inherit; text-decoration: none; background: var(--surface); }
+.qc-management-band:hover { color: inherit; border-color: var(--border); filter: brightness(.98); }
+.qc-management-band span { overflow: hidden; color: var(--text); font-size: .8rem; text-overflow: ellipsis; white-space: nowrap; }
+.qc-management-band strong { color: var(--text); font-family: "JetBrains Mono", monospace; font-size: .92rem; }
+.qc-management-band small { color: var(--muted); font-size: .72rem; text-align: right; }
+.qc-management-band.is-within_standard { border-left-color: var(--tone-ok-fg); }
+.qc-management-band.is-approaching_standard { border-left-color: var(--tone-warn-fg); }
+.qc-management-band.is-delayed { border-left-color: #e77817; }
+.qc-management-band.is-critical { border-left-color: var(--tone-bad-fg); }
+.qc-management-data-note { margin: .8rem 0 0; padding: .58rem .65rem; border: 1px solid var(--tone-warn-border); border-radius: 8px; color: var(--tone-warn-fg); background: var(--tone-warn-bg); font-size: .74rem; line-height: 1.45; }
+.qc-management-data-note i { margin-right: .32rem; }
+.qc-management-detail-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; margin: .9rem 0 0; padding-top: .9rem; border-top: 1px solid var(--border); }
+.qc-management-detail-list div { min-width: 0; }
+.qc-management-detail-list dt { color: var(--muted); font-size: .68rem; line-height: 1.35; }
+.qc-management-detail-list dd { margin: .23rem 0 0; color: var(--text); font-family: "JetBrains Mono", monospace; font-size: .9rem; font-weight: 700; white-space: nowrap; }
+.qc-queue-health { display: flex; align-items: center; justify-content: space-between; gap: 1.25rem; margin-top: 1rem; padding: 1rem 1.15rem; border: 1px solid var(--border); border-left: 4px solid var(--tone-ok-fg); border-radius: 14px; background: linear-gradient(115deg, var(--surface-alt), var(--surface)); }
+.qc-queue-health h3 { margin: .26rem 0; color: var(--text); font-size: 1.05rem; }
+.qc-queue-health p { margin: 0; color: var(--muted); font-size: .79rem; line-height: 1.4; }
+.qc-queue-health > strong { flex: 0 0 auto; color: var(--text); font-family: "JetBrains Mono", monospace; font-size: 1.35rem; text-align: right; }
+.qc-queue-health > strong em { display: block; margin-top: .15rem; color: var(--muted); font-size: .68rem; font-weight: 600; }
+.qc-queue-health.is-watch { border-left-color: var(--tone-warn-fg); }
+.qc-queue-health.is-stressed { border-left-color: #e77817; }
+.qc-queue-health.is-critical { border-left-color: var(--tone-bad-fg); }
+.qc-queue-health.is-insufficient_data { border-left-color: var(--muted); }
+[data-theme="dark"] .qc-management-kpi, [data-theme="dark"] .qc-management-band { background: #172b43; }
+[data-theme="dark"] .qc-management-panel { border-color: #315170; background: #14263c; }
+
+@media (max-width: 1000px) { .qc-management-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .qc-management-panels { grid-template-columns: 1fr; } }
+@media (max-width: 620px) { .qc-management-kpis, .qc-management-detail-list { grid-template-columns: 1fr; } .qc-management-kpi { min-height: auto; } .qc-queue-health { align-items: flex-start; flex-direction: column; } .qc-queue-health > strong { text-align: left; } }
+
 /* ── Head of Corporate Chemistry dashboard ─────────────────────────────
    The page's lead. Every count is a link into the sample register, so the
    tiles are anchors and read as such — the static ones are ratios and

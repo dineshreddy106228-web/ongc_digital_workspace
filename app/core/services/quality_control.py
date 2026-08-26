@@ -29,6 +29,22 @@ XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 _WEEK_PATTERN = re.compile(r"(\d{2}[./-]\d{2}[./-]\d{4}).*?(\d{2}[./-]\d{2}[./-]\d{4})")
 IMPORT_STAGING_DIRECTORY = Path(tempfile.gettempdir()) / "ongc_qc_import_staging"
 CLOSED_SAMPLE_REVIEW_STT_DAYS = 9
+COMPLETED_STATUSES = {"pass", "fail", "report_issued"}
+
+# Queue-health thresholds are deliberately centralised here so the management
+# policy can be adjusted without changing either the calculation or template.
+QUEUE_HEALTH_THRESHOLDS = (
+    ("healthy", 10),
+    ("watch", 25),
+    ("stressed", 40),
+)
+PENDING_MANAGEMENT_STATUSES = (
+    "within_standard",
+    "approaching_standard",
+    "delayed",
+    "critical",
+)
+COMPLETED_MANAGEMENT_STATUSES = ("within_standard", "delayed", "critical")
 LABORATORIES = {
     "rgl_panvel": {"code": "rgl_panvel", "name": "RGL Panvel", "location": "Panvel", "description": "Regional Geoscience Laboratory"},
     "rgl_vadodara": {"code": "rgl_vadodara", "name": "RGL Vadodara", "location": "Vadodara", "description": "Regional Geoscience Laboratory"},
@@ -67,6 +83,16 @@ class QCWorkbookPayload:
     week_start: date
     week_end: date
     rows: list[dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class ManagementSampleAssessment:
+    """A date-only comparison of one sample with its approved testing time."""
+
+    classification: str
+    duration_days: int
+    standard_days: int
+    excess_days: int
 
 
 def _text(value: Any) -> str:
@@ -302,6 +328,219 @@ def build_summary(rows: list[QCSample] | list[dict[str, Any]], as_of: date | Non
     }
 
 
+def _sample_value(sample: QCSample | dict[str, Any], name: str) -> Any:
+    return sample.get(name) if isinstance(sample, dict) else getattr(sample, name, None)
+
+
+def _standard_days_for(sample: QCSample | dict[str, Any], standards: dict[str, Any]) -> int | None:
+    """Resolve the existing Standard Testing Time for a sample, if usable.
+
+    The standards table is the sole source of the value. Unlike older detailed
+    views, the management card never substitutes the legacy 9-day review value
+    when a material has no registered Standard Testing Time.
+    """
+    standard = standards.get(_normalized_chemical(_sample_value(sample, "chemical_name")))
+    standard_days = getattr(standard, "standard_days", standard)
+    return standard_days if isinstance(standard_days, int) and standard_days >= 0 else None
+
+
+def assess_pending_sample(
+    sample: QCSample | dict[str, Any], standard_days: int | None, as_of: date,
+) -> ManagementSampleAssessment | None:
+    """Classify an open sample using receipt date and Standard Testing Time."""
+    receipt_date = _sample_value(sample, "sample_receipt_date")
+    if standard_days is None or receipt_date is None or receipt_date > as_of:
+        return None
+    current_age = (as_of - receipt_date).days
+    excess_age = current_age - standard_days
+    if current_age < standard_days - 1:
+        classification = "within_standard"
+    elif current_age <= standard_days:
+        # The bands are intentionally disjoint: exactly at Standard Testing
+        # Time is approaching, and one day beyond is delayed.
+        classification = "approaching_standard"
+    elif excess_age <= 3:
+        classification = "delayed"
+    else:
+        classification = "critical"
+    return ManagementSampleAssessment(
+        classification=classification,
+        duration_days=current_age,
+        standard_days=standard_days,
+        excess_days=excess_age,
+    )
+
+
+def assess_completed_sample(
+    sample: QCSample | dict[str, Any], standard_days: int | None,
+) -> ManagementSampleAssessment | None:
+    """Classify a closed sample from the two available business dates only."""
+    receipt_date = _sample_value(sample, "sample_receipt_date")
+    report_issue_date = _sample_value(sample, "report_issue_date")
+    if standard_days is None or receipt_date is None or report_issue_date is None or report_issue_date < receipt_date:
+        return None
+    actual_tat = (report_issue_date - receipt_date).days
+    excess_tat = actual_tat - standard_days
+    if actual_tat <= standard_days:
+        classification = "within_standard"
+    elif excess_tat <= 3:
+        classification = "delayed"
+    else:
+        classification = "critical"
+    return ManagementSampleAssessment(
+        classification=classification,
+        duration_days=actual_tat,
+        standard_days=standard_days,
+        excess_days=excess_tat,
+    )
+
+
+def _management_distribution(statuses: tuple[str, ...], assessments: list[ManagementSampleAssessment], total: int) -> list[dict[str, Any]]:
+    labels = {
+        "within_standard": "Within Standard",
+        "approaching_standard": "Approaching Standard",
+        "delayed": "Delayed (1–3 days)",
+        "critical": "Critical (>3 days)",
+    }
+    return [
+        {
+            "key": status,
+            "label": labels[status],
+            "count": sum(assessment.classification == status for assessment in assessments),
+            "percentage": round(sum(assessment.classification == status for assessment in assessments) / total * 100)
+            if total
+            else 0,
+        }
+        for status in statuses
+    ]
+
+
+def _queue_health(overdue_percentage: float) -> tuple[str, str]:
+    for key, limit in QUEUE_HEALTH_THRESHOLDS:
+        if overdue_percentage <= limit:
+            return key, key.title()
+    return "critical", "Critical"
+
+
+def calculate_management_metrics(
+    samples: list[QCSample] | list[dict[str, Any]],
+    standards: dict[str, Any],
+    period_start: date,
+    period_end: date,
+    as_of: date | None = None,
+) -> dict[str, Any]:
+    """Calculate the laboratory management card from canonical sample dates.
+
+    ``period_start`` and ``period_end`` select closed and received samples for
+    the weekly performance metrics. Pending workload always represents the
+    current canonical open queue as of ``as_of`` (today by default).
+    """
+    as_of = as_of or date.today()
+    pending_samples = [sample for sample in samples if _sample_value(sample, "result_status") == "under_testing"]
+    pending_assessments: list[ManagementSampleAssessment] = []
+    pending_missing_standard = 0
+    for sample in pending_samples:
+        standard_days = _standard_days_for(sample, standards)
+        if standard_days is None:
+            pending_missing_standard += 1
+        assessment = assess_pending_sample(sample, standard_days, as_of)
+        if assessment is not None:
+            pending_assessments.append(assessment)
+
+    pending_total = len(pending_samples)
+    pending_unresolved = pending_total - len(pending_assessments)
+    pending_distribution = _management_distribution(
+        PENDING_MANAGEMENT_STATUSES, pending_assessments, pending_total,
+    )
+    pending_counts = {item["key"]: item["count"] for item in pending_distribution}
+    pending_overdue = pending_counts["delayed"] + pending_counts["critical"]
+    if not pending_total:
+        queue_health_key, queue_health_label, overdue_percentage = "healthy", "Healthy", 0.0
+    elif pending_unresolved:
+        queue_health_key, queue_health_label, overdue_percentage = "insufficient_data", "Insufficient Data", None
+    else:
+        overdue_percentage = round(pending_overdue / pending_total * 100, 1)
+        queue_health_key, queue_health_label = _queue_health(overdue_percentage)
+
+    completed_samples = [
+        sample
+        for sample in samples
+        if _sample_value(sample, "result_status") in COMPLETED_STATUSES
+        and (report_issue_date := _sample_value(sample, "report_issue_date")) is not None
+        and period_start <= report_issue_date <= period_end
+    ]
+    completed_assessments: list[ManagementSampleAssessment] = []
+    completed_missing_standard = 0
+    for sample in completed_samples:
+        standard_days = _standard_days_for(sample, standards)
+        if standard_days is None:
+            completed_missing_standard += 1
+        assessment = assess_completed_sample(sample, standard_days)
+        if assessment is not None:
+            completed_assessments.append(assessment)
+
+    completed_total = len(completed_samples)
+    completed_unresolved = completed_total - len(completed_assessments)
+    completed_distribution = _management_distribution(
+        COMPLETED_MANAGEMENT_STATUSES, completed_assessments, completed_total,
+    )
+    completed_counts = {item["key"]: item["count"] for item in completed_distribution}
+    received_total = sum(
+        _sample_value(sample, "sample_receipt_date") is not None
+        and period_start <= _sample_value(sample, "sample_receipt_date") <= period_end
+        for sample in samples
+    )
+
+    return {
+        "period_start": period_start,
+        "period_end": period_end,
+        "pending": {
+            "total": pending_total,
+            "distribution": pending_distribution,
+            "unresolved": pending_unresolved,
+            "missing_standard": pending_missing_standard,
+            "average_delay": (
+                round(sum(max(assessment.excess_days, 0) for assessment in pending_assessments) / pending_total, 1)
+                if pending_total and not pending_unresolved
+                else None
+            ),
+            "oldest_delay": (
+                max(max(assessment.excess_days, 0) for assessment in pending_assessments)
+                if pending_total and not pending_unresolved
+                else None
+            ),
+        },
+        "completed": {
+            "total": completed_total,
+            "distribution": completed_distribution,
+            "unresolved": completed_unresolved,
+            "missing_standard": completed_missing_standard,
+            "within_standard": completed_counts["within_standard"],
+            "standard_compliance": (
+                round(completed_counts["within_standard"] / completed_total * 100, 1)
+                if completed_total and not completed_unresolved
+                else None
+            ),
+            "average_delay": (
+                round(sum(max(assessment.excess_days, 0) for assessment in completed_assessments) / completed_total, 1)
+                if completed_total and not completed_unresolved
+                else None
+            ),
+        },
+        "clearance": {
+            "received": received_total,
+            "completed": completed_total,
+            "ratio": round(completed_total / received_total * 100, 1) if received_total else None,
+        },
+        "queue_health": {
+            "key": queue_health_key,
+            "label": queue_health_label,
+            "overdue_count": pending_overdue,
+            "overdue_percentage": overdue_percentage,
+        },
+    }
+
+
 def sanity_check_weekly_qc_workbook(
     source: bytes, lab_code: str, filename: str | None = None,
 ) -> tuple[QCWorkbookPayload, dict[str, Any]]:
@@ -525,6 +764,13 @@ def latest_dashboard_data(lab_code: str) -> dict[str, Any]:
     samples = QCSample.query.filter_by(last_seen_batch_id=batch.id).order_by(QCSample.sample_receipt_date.asc(), QCSample.chemical_name.asc()).all()
     summary = build_summary(samples, date.today())
     standards = {item.normalized_name: item for item in QCTestingStandard.query.all()}
+    canonical_samples = QCSample.query.filter_by(lab_code=lab_code).order_by(QCSample.sample_receipt_date.asc(), QCSample.id.asc()).all()
+    management_metrics = calculate_management_metrics(
+        canonical_samples,
+        standards,
+        period_start=batch.week_start,
+        period_end=batch.week_end,
+    )
 
     def stt_performance(rows: list[QCSample]) -> dict[str, Any]:
         closed = [sample for sample in rows if sample.result_status in {"pass", "fail", "report_issued"}]
@@ -599,6 +845,7 @@ def latest_dashboard_data(lab_code: str) -> dict[str, Any]:
         "month_label": batch.week_end.strftime("%B %Y"),
         "materials": sorted(materials.items(), key=lambda item: (-item[1], item[0]))[:8],
         "history": history,
+        "management_metrics": management_metrics,
     }
 
 
@@ -1197,11 +1444,37 @@ SAMPLE_VIEWS: dict[str, dict[str, Any]] = {
     "within_standard": {"label": "Completed within the approved standard", "completed": True, "standard": "within"},
     "no_standard": {"label": "Completed with no approved standard to compare against", "completed": True, "standard": "none"},
     "failed": {"label": "Failed samples", "status": "fail"},
+    "management_pending_all": {"label": "Pending Samples", "status": "under_testing"},
+    "management_pending_within_standard": {
+        "label": "Pending Samples — Within Standard", "status": "under_testing", "management_pending": "within_standard",
+    },
+    "management_pending_approaching_standard": {
+        "label": "Pending Samples — Approaching Standard", "status": "under_testing", "management_pending": "approaching_standard",
+    },
+    "management_pending_delayed": {
+        "label": "Pending Samples — Delayed", "status": "under_testing", "management_pending": "delayed",
+    },
+    "management_pending_critical": {
+        "label": "Pending Samples — Critical", "status": "under_testing", "management_pending": "critical",
+    },
+    "management_completed_within_standard": {
+        "label": "Completed Samples — Within Standard", "management_completed": "within_standard", "reporting_period": True,
+    },
+    "management_completed_delayed": {
+        "label": "Completed Samples — Delayed", "management_completed": "delayed", "reporting_period": True,
+    },
+    "management_completed_critical": {
+        "label": "Completed Samples — Critical", "management_completed": "critical", "reporting_period": True,
+    },
 }
-COMPLETED_STATUSES = {"pass", "fail", "report_issued"}
 
 
-def _matches_view(sample: QCSample, view: dict[str, Any], standards: dict[str, Any]) -> bool:
+def _matches_view(
+    sample: QCSample,
+    view: dict[str, Any],
+    standards: dict[str, Any],
+    as_of: date | None = None,
+) -> bool:
     """Whether one sample belongs in a named view."""
     if view.get("status") and sample.result_status != view["status"]:
         return False
@@ -1220,11 +1493,18 @@ def _matches_view(sample: QCSample, view: dict[str, Any], standards: dict[str, A
             return False
         late = sample.turnaround_days > standard_days
         return late if view["standard"] == "late" else not late
+    if "management_pending" in view:
+        assessment = assess_pending_sample(sample, _standard_days_for(sample, standards), as_of or date.today())
+        return assessment is not None and assessment.classification == view["management_pending"]
+    if "management_completed" in view:
+        assessment = assess_completed_sample(sample, _standard_days_for(sample, standards))
+        return assessment is not None and assessment.classification == view["management_completed"]
     return True
 
 
 def search_samples(
     lab_code: str = "", chemical_name: str = "", specification_no: str = "", status: str = "", view: str = "",
+    period_start: date | None = None, period_end: date | None = None, as_of: date | None = None,
 ) -> list[QCSample]:
     statement = QCSample.query
     if lab_code:
@@ -1236,12 +1516,20 @@ def search_samples(
         statement = statement.filter(QCSample.specification_no.ilike(f"%{specification_no.strip()}%"))
     if status in {"pass", "fail", "under_testing", "report_issued"}:
         statement = statement.filter(QCSample.result_status == status)
-    ordered = statement.order_by(QCSample.sample_receipt_date.desc(), QCSample.id.desc())
     selected = SAMPLE_VIEWS.get(view)
+    if selected and selected.get("reporting_period") and period_start and period_end:
+        statement = statement.filter(
+            QCSample.report_issue_date >= period_start,
+            QCSample.report_issue_date <= period_end,
+        )
+    ordered = statement.order_by(QCSample.sample_receipt_date.desc(), QCSample.id.desc())
     if selected is None:
         return ordered.limit(500).all()
     standards = {item.normalized_name: item for item in QCTestingStandard.query.all()}
-    return [sample for sample in ordered.limit(2000).all() if _matches_view(sample, selected, standards)][:500]
+    return [
+        sample for sample in ordered.limit(2000).all()
+        if _matches_view(sample, selected, standards, as_of=as_of)
+    ][:500]
 
 
 def history_filter_options(lab_code: str = "") -> dict[str, list]:

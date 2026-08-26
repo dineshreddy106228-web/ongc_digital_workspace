@@ -124,11 +124,29 @@ def sample_history():
     # A headline number on the analytics page opens the register on the samples
     # behind it; the view is what carries that question through.
     view = (request.args.get("view") or "").strip()
+    period_start_value = (request.args.get("period_start") or "").strip()
+    period_end_value = (request.args.get("period_end") or "").strip()
+    try:
+        period_start = date.fromisoformat(period_start_value) if period_start_value else None
+        period_end = date.fromisoformat(period_end_value) if period_end_value else None
+        if (period_start is None) != (period_end is None) or (period_start and period_end and period_end < period_start):
+            raise ValueError
+    except ValueError:
+        period_start = period_end = None
+        period_start_value = period_end_value = ""
+        flash("The requested reporting period was not recognised; the full sample register is shown.", "warning")
     try:
         return render_template(
             "quality_control/samples.html",
-            samples=search_samples(lab_code, chemical_name, specification_no, status, view),
-            filters={"lab": lab_code, "chemical": chemical_name, "specification": specification_no, "status": status, "view": view},
+            samples=search_samples(
+                lab_code, chemical_name, specification_no, status, view,
+                period_start=period_start, period_end=period_end,
+            ),
+            filters={
+                "lab": lab_code, "chemical": chemical_name, "specification": specification_no,
+                "status": status, "view": view, "period_start": period_start_value,
+                "period_end": period_end_value,
+            },
             view_label=(SAMPLE_VIEWS.get(view) or {}).get("label"),
             **history_filter_options(lab_code),
         )

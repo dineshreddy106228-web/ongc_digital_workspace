@@ -154,6 +154,22 @@ flask db current
 flask db upgrade
 ```
 
+### Retained Daily Backups
+
+The Backup Center creates one retained full bundle per calendar day (Asia/Kolkata by default) and shows each
+available file to admin users for download. The rolling window is 15 days by default. The web process checks once
+an hour and a platform scheduler can also invoke the idempotent command below:
+
+```bash
+flask create-daily-backup
+```
+
+Optional environment settings are `AUTO_BACKUP_DIR` (default: `storage/backups`),
+`AUTO_BACKUP_RETENTION_DAYS` (default: `15`), `AUTO_BACKUP_TIMEZONE` (default: `Asia/Kolkata`), and
+`AUTO_BACKUP_ENABLED` (default: `true`). Retained bundles contain sensitive database data; the directory is
+created owner-readable only and is excluded from Git. On Railway, set `AUTO_BACKUP_DIR` to a mounted persistent
+volume path—local container storage is cleared when a deployment is replaced.
+
 ---
 
 ## Changelog
