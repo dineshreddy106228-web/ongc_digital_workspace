@@ -1,4 +1,4 @@
-"""Import, persistence, and management metrics for QC weekly workbooks."""
+"""Import, persistence, and management metrics for QC local reporting workbooks."""
 
 from __future__ import annotations
 
@@ -571,7 +571,7 @@ def sanity_check_weekly_qc_workbook(
     if missing_issue_date:
         warnings.append(f"{missing_issue_date} issued sample(s) have no test-report issue date.")
     if not any(row["result_status"] == "under_testing" for row in payload.rows):
-        warnings.append("No samples are marked under testing in this reporting week.")
+        warnings.append("No samples are marked under testing in this reporting period.")
 
     return payload, {
         "laboratory": laboratory,
@@ -636,48 +636,68 @@ def import_weekly_qc_workbook(source: bytes, filename: str, uploaded_by: int | N
     return batch, action
 
 
+def current_monitoring_day(reference_date: date | None = None) -> dict[str, Any]:
+    """Return the Monday–Friday operating day for the daily QC control cycle.
+
+    Saturdays and Sundays do not create an expected SAP upload.  On a weekend,
+    the workspace carries Friday's monitoring day forward until the next
+    working day.  Public-holiday rules can be added later when Corporate
+    Chemistry provides the approved calendar.
+    """
+    calendar_date = reference_date or date.today()
+    monitoring_date = calendar_date
+    while monitoring_date.weekday() >= 5:
+        monitoring_date -= timedelta(days=1)
+    return {
+        "date": monitoring_date,
+        "label": monitoring_date.strftime("%A, %d %b %Y"),
+        "is_carried_forward": monitoring_date != calendar_date,
+        "calendar_date": calendar_date,
+    }
+
+
 def laboratory_landing_data() -> list[dict[str, Any]]:
+    """Build the navigator from daily SAP snapshots, not historic workbook weeks."""
+    from app.core.services.sap_quality_control import SAP_REPORTING_LAB_CODES
+    from app.models.quality_control.qc_sap_monitoring import QCSAPUploadBatch
+
     laboratories = []
     for lab in LABORATORIES.values():
         if lab["code"] in IDWE_WORKSTREAM_CODES:
             continue
-        latest = QCUploadBatch.query.filter_by(lab_code=lab["code"]).order_by(QCUploadBatch.week_end.desc()).first()
-        laboratories.append({**lab, "latest_batch": latest})
-    laboratories.sort(key=lambda lab: lab["location"].casefold())
-    workstreams = []
-    for code in IDWE_WORKSTREAM_CODES:
-        lab = LABORATORIES[code]
-        latest = QCUploadBatch.query.filter_by(lab_code=code).order_by(QCUploadBatch.week_end.desc()).first()
-        workstreams.append({**lab, "latest_batch": latest})
-    latest_batches = [workstream["latest_batch"] for workstream in workstreams if workstream["latest_batch"]]
+        local_batch = QCUploadBatch.query.filter_by(lab_code=lab["code"]).order_by(QCUploadBatch.week_end.desc()).first()
+        is_sap_monitoring = lab["code"] in SAP_REPORTING_LAB_CODES
+        sap_batch = (
+            QCSAPUploadBatch.query.filter_by(lab_code=lab["code"]).order_by(
+                QCSAPUploadBatch.as_of_date.desc(), QCSAPUploadBatch.id.desc(),
+            ).first()
+            if is_sap_monitoring else None
+        )
+        laboratories.append({
+            **lab,
+            "latest_batch": local_batch,
+            "latest_sap_batch": sap_batch,
+            "is_sap_monitoring": is_sap_monitoring,
+            "monitoring_date": sap_batch.as_of_date if sap_batch else (local_batch.week_end if local_batch else None),
+            "monitoring_source": "SAP" if is_sap_monitoring else "Local workbook",
+        })
+
+    idwe_sap_batch = QCSAPUploadBatch.query.filter_by(lab_code="idwe_dehradun").order_by(
+        QCSAPUploadBatch.as_of_date.desc(), QCSAPUploadBatch.id.desc(),
+    ).first()
     laboratories.append({
         "code": "idwe_dehradun",
         "name": "IDWE Dehradun",
         "location": "Dehradun",
         "description": "Institute of Drilling and Well Engineering",
-        "is_group": True,
-        "workstreams": workstreams,
-        "latest_batch": max(latest_batches, key=lambda batch: batch.week_end) if latest_batches else None,
+        "latest_batch": None,
+        "latest_sap_batch": idwe_sap_batch,
+        "is_sap_monitoring": True,
+        "monitoring_date": idwe_sap_batch.as_of_date if idwe_sap_batch else None,
+        "monitoring_source": "SAP",
     })
+    laboratories.sort(key=lambda lab: lab["location"].casefold())
     return laboratories
-
-
-def current_monitoring_week() -> dict[str, Any] | None:
-    """The reporting week the workspace is currently monitoring.
-
-    Taken from the most recent weekly workbook any laboratory has imported —
-    never from today's date, so the navigator states what the system actually
-    holds rather than what the calendar suggests it should.
-    """
-    batch = QCUploadBatch.query.order_by(QCUploadBatch.week_end.desc()).first()
-    if batch is None:
-        return None
-    return {
-        "week_start": batch.week_start,
-        "week_end": batch.week_end,
-        "lab_code": batch.lab_code,
-        "label": _format_week_range(batch.week_start, batch.week_end),
-    }
 
 
 def _format_week_range(start: date, end: date) -> str:
@@ -694,31 +714,25 @@ def _format_week_range(start: date, end: date) -> str:
 
 
 def laboratory_import_targets() -> list[dict[str, Any]]:
-    """Every laboratory that can receive a weekly workbook, flattened.
-
-    The landing data nests the two IDWE workstreams under one grouped entry
-    because they share a location; imports are per workstream, so the group is
-    unfolded here into the units that actually accept a file.
-    """
-    targets = []
-    for lab in laboratory_landing_data():
-        if lab.get("is_group"):
-            targets.extend(lab["workstreams"])
-        else:
-            targets.append(lab)
-    return targets
+    """Laboratories still using the separate local-workbook fallback route."""
+    return [lab for lab in laboratory_landing_data() if not lab.get("is_sap_monitoring")]
 
 
-def laboratory_navigator_data(laboratories: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def laboratory_navigator_data(
+    laboratories: list[dict[str, Any]], monitoring_day: date | None = None,
+) -> list[dict[str, Any]]:
     """Lab navigator markers: one entry per laboratory.
 
-    A laboratory opens its own dashboard on click. IDWE Dehradun is the one
-    grouped entry — a single location running two workstreams with separate
-    dashboards — so it alone keeps a chooser of destinations.
+    SAP laboratories are marked current only when their latest snapshot is for
+    the active working day.  Local-workbook fallback laboratories retain their
+    most recent reported status without being represented as a daily SAP feed.
     """
+    active_day = monitoring_day or current_monitoring_day()["date"]
     entries = []
     for lab in laboratories:
-        batch = lab["latest_batch"]
+        batch = lab.get("latest_batch")
+        latest_sap_batch = lab.get("latest_sap_batch")
+        monitoring_date = lab.get("monitoring_date")
         if lab.get("is_group"):
             choices = [{
                 "label": "SAP Control Tower",
@@ -727,7 +741,7 @@ def laboratory_navigator_data(laboratories: list[dict[str, Any]]) -> list[dict[s
                 "combined": True,
             }] + [{
                 "label": workstream["name"],
-                "hint": "Weekly testing dashboard"
+                "hint": "Local reporting dashboard"
                         + ("" if workstream["latest_batch"] else " · awaiting first import"),
                 "href": url_for("quality_control.laboratory_dashboard", lab_code=workstream["code"]),
             } for workstream in lab["workstreams"]]
@@ -743,8 +757,14 @@ def laboratory_navigator_data(laboratories: list[dict[str, Any]]) -> list[dict[s
             "is_group": bool(lab.get("is_group")),
             "is_additional_designated": bool(lab.get("is_additional_designated")),
             "workstream_count": len(lab.get("workstreams", [])),
-            "is_reporting": batch is not None,
-            "reporting_period": batch.week_end.strftime("%d %b %Y") if batch else None,
+            "is_sap_monitoring": bool(lab.get("is_sap_monitoring")),
+            "is_reporting": (
+                monitoring_date == active_day if lab.get("is_sap_monitoring")
+                else batch is not None
+            ),
+            "monitoring_date": monitoring_date.strftime("%d %b %Y") if monitoring_date else None,
+            "monitoring_source": lab.get("monitoring_source"),
+            "sap_record_count": latest_sap_batch.record_count if latest_sap_batch else None,
             # Where a click lands. A grouped entry has no single dashboard of its
             # own, so it keeps the chooser its workstreams need.
             "dashboard_href": (
@@ -1028,7 +1048,7 @@ def portfolio_management_data(reporting_week_end: date | None = None, lab_codes:
         "missing_submissions": missing_submissions,
         "selected_week_end": selected_week_end,
         "reporting_week_options": [
-            {"week_end": week_end, "label": week_end.strftime("Week ending %d %b %Y"), "submission_count": submission_counts[week_end]}
+            {"week_end": week_end, "label": week_end.strftime("Period ending %d %b %Y"), "submission_count": submission_counts[week_end]}
             for week_end in available_week_ends
         ],
         "laboratories_by_code": LABORATORIES,

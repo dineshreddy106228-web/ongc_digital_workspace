@@ -163,7 +163,7 @@ MODULES = [
         "dashboard_visible": True,
         "roles_allowed": [ADMIN_ROLE, SUPERUSER_ROLE, USER_ROLE],
         "status": "active",
-        "description": "Weekly quality-control sample monitoring, turnaround review, and management reporting",
+        "description": "Daily quality-control monitoring, turnaround review, and management reporting",
         "nav_label": "QC Laboratory Monitoring",
         "icon": "⚗️",
     },

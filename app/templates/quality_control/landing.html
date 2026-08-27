@@ -10,7 +10,7 @@
         <div>
             <span class="mod-kicker"><i class="bi bi-flask"></i> Corporate Chemistry · Quality Control</span>
             <h1>QC Laboratory<br><em>Monitoring</em></h1>
-            <p>One view of weekly testing, quality outcomes, aged samples, and management intelligence across ONGC laboratories.</p>
+            <p>One working-day view of SAP status, quality outcomes, aged samples, and management intelligence across ONGC laboratories.</p>
             <div class="mod-hero-actions">
                 <a class="mod-hero-primary" href="{{ url_for('quality_control.portfolio_management_review') }}"><i class="bi bi-easel2"></i> Open management review</a>
                 <a class="mod-hero-secondary" href="{{ url_for('quality_control.sample_history') }}"><i class="bi bi-search"></i> Search sample register</a>
@@ -31,8 +31,8 @@
     <section class="qc-workbench" aria-label="Portfolio actions">
         <div class="mod-tiles">
             <a class="mod-tile" href="{{ url_for('quality_control.sample_history') }}"><i class="bi bi-database"></i><strong>Combined Sample History</strong><small>Search samples across every laboratory.</small></a>
-            <a class="mod-tile" href="{{ url_for('quality_control.portfolio_management_review') }}"><i class="bi bi-easel2"></i><strong>Management Review</strong><small>Current workload, quality outcomes and aged samples.</small></a>
-            <a class="mod-tile" href="{{ url_for('quality_control.management_analytics') }}"><i class="bi bi-bar-chart-line"></i><strong>Management Analytics</strong><small>Laboratory performance and pass/fail patterns.</small></a>
+            <a class="mod-tile" href="{{ url_for('quality_control.portfolio_management_review') }}"><i class="bi bi-easel2"></i><strong>Management Review</strong><small>Official SAP position, open notifications and laboratory follow-up.</small></a>
+            <a class="mod-tile" href="{{ url_for('quality_control.management_analytics') }}"><i class="bi bi-bar-chart-line"></i><strong>Management Analytics</strong><small>SAP workload, usage decisions and work-center exposure.</small></a>
             <a class="mod-tile" href="{{ url_for('quality_control.data_import') }}"><i class="bi bi-shield-check"></i><strong>SAP Control Tower</strong><small>Upload daily SAP exports; use workbook fallback where SAP is unavailable.</small></a>
             <a class="mod-tile" href="{{ url_for('quality_control.testing_standards') }}"><i class="bi bi-sliders"></i><strong>Administration</strong><small>Standard Testing Time (STT) — approved chemical testing times and revisions.</small></a>
         </div>
@@ -44,11 +44,8 @@
                 <span>Lab navigator</span>
                 <h2>QC laboratories across India</h2>
                 <p class="qc-monitoring-week">
-                    {% if monitoring_week %}
-                    <i class="bi bi-calendar-week"></i> Current monitoring week <b>{{ monitoring_week.label }}</b>
-                    {% else %}
-                    <i class="bi bi-calendar-week"></i> <b>Awaiting first import</b>
-                    {% endif %}
+                    <i class="bi bi-calendar-day"></i> Daily monitoring day <b>{{ monitoring_day.label }}</b>
+                    {% if monitoring_day.is_carried_forward %}<small>Weekend carry-forward from the previous working day.</small>{% endif %}
                 </p>
                 <p>The map shows RGLs and IDWE Dehradun. Other designated laboratories are listed separately alongside it.</p>
             </div>
@@ -100,8 +97,8 @@ function open(lab){
    designations in their own selector next to it. */
 const entries=labs.map(lab=>({...(GEO[lab.code]||{}),...lab,label:lab.name,
   state:lab.is_reporting?'ready':'pending',
-  meta:(lab.workstream_count?lab.workstream_count+' workstreams \u00b7 ':'')+(lab.is_reporting?'Reporting to '+lab.reporting_period:'Awaiting first import'),
-  title:lab.location+' \u00b7 '+(lab.is_reporting?'reporting to '+lab.reporting_period:'awaiting first import')}));
+  meta:(lab.workstream_count?lab.workstream_count+' workstreams \u00b7 ':'')+(lab.is_sap_monitoring?(lab.monitoring_date?'SAP snapshot as of '+lab.monitoring_date:'Awaiting first SAP snapshot'):(lab.monitoring_date?'Local workbook update '+lab.monitoring_date:'Awaiting first local workbook')),
+  title:lab.location+' \u00b7 '+(lab.is_sap_monitoring?(lab.monitoring_date?'SAP as of '+lab.monitoring_date:'awaiting first SAP snapshot'):(lab.monitoring_date?'local update '+lab.monitoring_date:'awaiting first local workbook'))}));
 const mapEntries=entries.filter(lab=>!lab.is_additional_designated);
 const otherEntries=entries.filter(lab=>lab.is_additional_designated);
 ModGeoMap.renderList(list,mapEntries,open);

@@ -40,8 +40,9 @@ def quality_control_admin_required(view):
 @module_access_required("quality_control")
 def landing():
     from app.core.services.quality_control import (
-        current_monitoring_week, laboratory_landing_data, laboratory_navigator_data,
+        current_monitoring_day, laboratory_landing_data, laboratory_navigator_data,
     )
+    monitoring_day = current_monitoring_day()
     laboratories = laboratory_landing_data()
     designated_laboratories = [
         laboratory for laboratory in laboratories
@@ -52,8 +53,8 @@ def landing():
         laboratories=laboratories,
         designated_laboratories=designated_laboratories,
         mapped_laboratory_total=len(laboratories) - len(designated_laboratories),
-        map_laboratories=laboratory_navigator_data(laboratories),
-        monitoring_week=current_monitoring_week(),
+        map_laboratories=laboratory_navigator_data(laboratories, monitoring_day["date"]),
+        monitoring_day=monitoring_day,
     )
 
 
@@ -62,19 +63,20 @@ def landing():
 @module_access_required("quality_control")
 def data_import():
     """SAP control-tower entry point plus workbook fallback laboratories."""
-    from app.core.services.quality_control import current_monitoring_week, laboratory_import_targets
-    from app.core.services.sap_quality_control import SAP_REPORTING_LAB_CODES, sap_control_data
+    from app.core.services.quality_control import current_monitoring_day, laboratory_import_targets
+    from app.core.services.sap_quality_control import SAP_REPLACED_WEEKLY_LAB_CODES, sap_control_data
     sap_data = sap_control_data()
-    weekly_laboratories = [
+    workbook_fallback_laboratories = [
         laboratory for laboratory in laboratory_import_targets()
-        if laboratory["code"] not in SAP_REPORTING_LAB_CODES
+        if laboratory["code"] not in SAP_REPLACED_WEEKLY_LAB_CODES
     ]
     return render_template(
         "quality_control/data_import.html",
-        laboratories=weekly_laboratories,
-        monitoring_week=current_monitoring_week(),
+        laboratories=workbook_fallback_laboratories,
+        monitoring_day=current_monitoring_day(),
         sap_control_cards=sap_data["control_cards"],
         sap_laboratories=sap_data["sap_laboratories"],
+        sap_plant_mappings=sap_data["sap_plant_mappings"],
         can_control=_can_control_quality_monitoring(),
     )
 
@@ -92,7 +94,7 @@ def idwe_imports():
 @module_access_required("quality_control")
 def laboratory_dashboard(lab_code: str):
     # RGL and IDWE views are driven by their native SAP daily exports. Historic
-    # weekly records remain available as the fallback source for other labs.
+    # local records remain available as the fallback source for other labs.
     from app.core.services.sap_quality_control import SAP_REPORTING_LAB_CODES
     if lab_code in SAP_REPORTING_LAB_CODES:
         return redirect(url_for("quality_control.sap_lab_dashboard", lab_code=lab_code))
@@ -111,11 +113,11 @@ def laboratory_dashboard(lab_code: str):
                 db.session.commit()
                 discard_staged_workbook(pending["token"])
                 session.pop("qc_pending_import", None)
-                flash(f"{batch.lab_name}: weekly QC data {action}. {batch.imported_count} new and {batch.updated_count} existing samples processed.", "success")
+                flash(f"{batch.lab_name}: local workbook data {action}. {batch.imported_count} new and {batch.updated_count} existing samples processed.", "success")
                 return redirect(url_for("quality_control.laboratory_dashboard", lab_code=lab_code))
             workbook = request.files.get("qc_workbook")
             if not workbook or not workbook.filename:
-                flash("Select the completed weekly QC workbook before importing.", "warning")
+                flash("Select the completed local status workbook before importing.", "warning")
                 return redirect(url_for("quality_control.laboratory_dashboard", lab_code=lab_code))
             if not workbook.filename.lower().endswith((".xlsx", ".xls")):
                 flash("Upload an Excel workbook (.xlsx or .xls).", "warning")
@@ -190,7 +192,11 @@ def sap_lab_dashboard(lab_code: str):
 
 
 def _import_sap_snapshot(lab_code: str):
-    from app.core.services.sap_quality_control import import_sap_lab_exports
+    from app.core.services.sap_quality_control import (
+        SAP_CENTRAL_UPLOAD_CODE,
+        import_central_sap_exports,
+        import_sap_lab_exports,
+    )
     inspection = request.files.get("inspection_workbook")
     notifications = request.files.get("notification_workbook")
     if not inspection or not inspection.filename or not notifications or not notifications.filename:
@@ -198,8 +204,14 @@ def _import_sap_snapshot(lab_code: str):
     supported = (".xlsx", ".xls")
     if not inspection.filename.lower().endswith(supported) or not notifications.filename.lower().endswith(supported):
         raise ValueError("Upload the native SAP Excel exports (.xlsx or .xls).")
+    inspection_source = inspection.read()
+    notification_source = notifications.read()
+    if lab_code == SAP_CENTRAL_UPLOAD_CODE:
+        return import_central_sap_exports(
+            inspection_source, inspection.filename, notification_source, notifications.filename, current_user.id,
+        )
     return import_sap_lab_exports(
-        lab_code, inspection.read(), inspection.filename, notifications.read(), notifications.filename, current_user.id,
+        lab_code, inspection_source, inspection.filename, notification_source, notifications.filename, current_user.id,
     )
 
 
@@ -208,10 +220,24 @@ def _import_sap_snapshot(lab_code: str):
 @module_access_required("quality_control")
 @quality_control_admin_required
 def import_sap_control_exports():
-    lab_code = (request.form.get("lab_code") or "").strip()
+    from app.core.services.sap_quality_control import SAP_CENTRAL_UPLOAD_CODE
+
+    lab_code = (request.form.get("lab_code") or SAP_CENTRAL_UPLOAD_CODE).strip()
     try:
-        batch = _import_sap_snapshot(lab_code)
+        snapshot = _import_sap_snapshot(lab_code)
         db.session.commit()
+        if lab_code == SAP_CENTRAL_UPLOAD_CODE:
+            batches = snapshot
+            laboratory_count = len(batches)
+            record_count = sum(batch.record_count for batch in batches)
+            as_of_date = max(batch.as_of_date for batch in batches)
+            flash(
+                f"Central SAP snapshot for {as_of_date:%d %b %Y} is now live: "
+                f"{laboratory_count} laboratories and {record_count} monitoring records refreshed.",
+                "success sap-import-completed",
+            )
+            return redirect(url_for("quality_control.sap_control"))
+        batch = snapshot
         flash(
             f"{batch.lab_code.replace('_', ' ').title()} SAP snapshot for {batch.as_of_date:%d %b %Y} is now live: "
             f"{batch.record_count} monitoring records refreshed.", "success sap-import-completed",
@@ -451,34 +477,24 @@ def sample_history():
 @login_required
 @module_access_required("quality_control")
 def portfolio_management_review():
-    from app.core.services.quality_control import portfolio_management_data
-    requested_week = request.args.get("week_end", "")
-    try:
-        reporting_week_end = date.fromisoformat(requested_week) if requested_week else None
-    except ValueError:
-        reporting_week_end = None
-        flash("The requested reporting week was not recognised; the latest available week is shown.", "warning")
-    return render_template("quality_control/portfolio_management_review.html", **portfolio_management_data(reporting_week_end))
+    from app.core.services.sap_quality_control import sap_management_data
+    return render_template("quality_control/portfolio_management_review.html", **sap_management_data())
 
 
 @quality_control_bp.route("/management-review/presentation.pptx")
 @login_required
 @module_access_required("quality_control")
 def download_portfolio_management_presentation():
-    from app.core.services.qc_presentation import build_portfolio_management_presentation
-    try:
-        reporting_week_end = date.fromisoformat(request.args["week_end"]) if request.args.get("week_end") else None
-    except ValueError:
-        reporting_week_end = None
+    from app.core.services.qc_presentation import build_sap_portfolio_management_presentation
+    from app.core.services.sap_quality_control import SAP_REPORTING_LAB_CODES
     lab_codes = None
     if request.args.get("scope") == "labs":
-        from app.core.services.quality_control import LABORATORIES
-        lab_codes = {code for code in request.args.getlist("lab") if code in LABORATORIES}
+        lab_codes = {code for code in request.args.getlist("lab") if code in SAP_REPORTING_LAB_CODES}
         if not lab_codes:
-            flash("Select at least one laboratory, or choose the all-ONGC deck.", "warning")
-            return redirect(url_for("quality_control.portfolio_management_review", week_end=request.args.get("week_end")))
+            flash("Select at least one SAP laboratory, or choose the all-SAP deck.", "warning")
+            return redirect(url_for("quality_control.portfolio_management_review"))
     try:
-        output, filename = build_portfolio_management_presentation(current_app.static_folder, reporting_week_end, lab_codes)
+        output, filename = build_sap_portfolio_management_presentation(current_app.static_folder, lab_codes)
     except ValueError as exc:
         flash(str(exc), "warning")
     except Exception:
@@ -493,8 +509,8 @@ def download_portfolio_management_presentation():
 @login_required
 @module_access_required("quality_control")
 def management_analytics():
-    from app.core.services.quality_control import management_analytics_data
-    return render_template("quality_control/management_analytics.html", **management_analytics_data())
+    from app.core.services.sap_quality_control import sap_management_data
+    return render_template("quality_control/management_analytics.html", **sap_management_data())
 
 
 @quality_control_bp.route("/management-report.pdf")
@@ -503,7 +519,7 @@ def management_analytics():
 def download_management_report():
     root = Path(current_app.root_path).parent
     generator = root / "tmp" / "pdfs" / "generate_qc_weekly_management_report.py"
-    output = root / "output" / "pdf" / "QC Portfolio Weekly Management Report.pdf"
+    output = root / "output" / "pdf" / "QC Portfolio Monitoring Report.pdf"
     try:
         environment = {**__import__("os").environ, "PYTHONPATH": str(root)}
         subprocess.run([sys.executable, str(generator)], cwd=root, env=environment, check=True, timeout=120, capture_output=True)
@@ -513,7 +529,7 @@ def download_management_report():
         logger.exception("QC management PDF generation failed")
         flash("The management PDF could not be generated. Please try again.", "danger")
         return redirect(url_for("quality_control.portfolio_management_review"))
-    return send_file(output, mimetype="application/pdf", as_attachment=True, download_name="QC Portfolio Weekly Management Report.pdf", max_age=0)
+    return send_file(output, mimetype="application/pdf", as_attachment=True, download_name="QC Portfolio Monitoring Report.pdf", max_age=0)
 
 
 @quality_control_bp.route("/testing-standards", methods=["GET", "POST"])
@@ -638,6 +654,6 @@ def download_source(batch_id: int):
     from app.core.services.quality_control import get_upload_batch
     batch = get_upload_batch(batch_id, include_source=True)
     if batch is None:
-        flash("The requested weekly source workbook is no longer available.", "warning")
+        flash("The requested source workbook is no longer available.", "warning")
         return redirect(url_for("quality_control.landing"))
     return send_file(BytesIO(batch.source_data), mimetype=batch.source_content_type, as_attachment=True, download_name=batch.source_filename, max_age=0)

@@ -11,8 +11,8 @@
     <div class="qc-lab-eyebrow">{{ laboratory.location }} · Laboratory register</div>
     <h1 class="mod-page-title"><i class="bi bi-database"></i> {{ laboratory.name }} Sample History</h1>
     <p class="mod-page-sub">
-      Every sample this laboratory has reported across all imported weeks.
-      {% if batch %}Latest reporting week ended {{ batch.week_end.strftime('%d %b %Y') }}.{% endif %}
+      Every sample this laboratory has reported across all imported records.
+      {% if batch %}Latest local reporting period ended {{ batch.week_end.strftime('%d %b %Y') }}.{% endif %}
     </p>
   </div>
   <div class="mod-page-actions">

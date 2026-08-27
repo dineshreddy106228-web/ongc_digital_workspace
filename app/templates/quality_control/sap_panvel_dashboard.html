@@ -116,11 +116,14 @@
           <td><span class="qc-sap-work-center">{{ record.work_center or 'Not assigned in SAP' }}</span></td>
           <td>
             <span class="qc-sap-status is-open">Open in SAP</span>
+            {% if record.start_inspection_date %}<div class="mod-cell-meta">SAP receipt {{ record.start_inspection_date.strftime('%d %b %Y') }}</div>{% endif %}
             {% if record.planned_end_date %}<div class="mod-cell-meta {{ 'text-danger' if item.planned_overdue else '' }}">Planned end {{ record.planned_end_date.strftime('%d %b %Y') }}{% if item.planned_overdue %} · overdue{% endif %}</div>{% endif %}
           </td>
           <td>
             <span class="qc-sap-status is-{{ item.reconciliation_key }}">{{ item.reconciliation_label }}</span>
             {% if item.lab_update %}<div class="mod-cell-meta">{{ item.lab_update.created_at.strftime('%d %b %H:%M') }}{% if item.lab_update.action_owner %} · {{ item.lab_update.action_owner }}{% endif %}</div>{% endif %}
+            {% if item.lab_update and item.lab_update.sampling_date %}<div class="mod-cell-meta">Lab sampling {{ item.lab_update.sampling_date.strftime('%d %b %Y') }}{% if item.sampling_to_sap_receipt_days is not none %} · {{ item.sampling_to_sap_receipt_days }} day{{ '' if item.sampling_to_sap_receipt_days == 1 else 's' }} to SAP receipt{% endif %}</div>{% endif %}
+            {% if item.lab_update and item.lab_update.actual_start_date %}<div class="mod-cell-meta">Lab actual start {{ item.lab_update.actual_start_date.strftime('%d %b %Y') }}</div>{% endif %}
           </td>
           <td class="qc-sap-record-action-cell">
             {% if can_control %}
@@ -187,6 +190,8 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="qc-sap-update-form-grid">
         <label>Status<select name="activity_status" class="form-select" required>{% for value, label in lab_update_statuses %}<option value="{{ value }}" {% if item.lab_update and item.lab_update.activity_status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+        <label>Date of sampling<input class="form-control" name="sampling_date" type="date" value="{{ item.lab_update.sampling_date.isoformat() if item.lab_update and item.lab_update.sampling_date else '' }}"></label>
+        <label>Lab testing start date<input class="form-control" name="actual_start_date" type="date" value="{{ item.lab_update.actual_start_date.isoformat() if item.lab_update and item.lab_update.actual_start_date else '' }}"></label>
         <label>Expected completion<input class="form-control" name="expected_completion_date" type="date" value="{{ item.lab_update.expected_completion_date.isoformat() if item.lab_update and item.lab_update.expected_completion_date else '' }}"></label>
         <label>Action owner<input class="form-control" name="action_owner" maxlength="160" value="{{ item.lab_update.action_owner if item.lab_update and item.lab_update.action_owner else '' }}"></label>
         <label>Delay / constraint<textarea class="form-control" name="delay_reason" rows="3">{{ item.lab_update.delay_reason if item.lab_update and item.lab_update.delay_reason else '' }}</textarea></label>

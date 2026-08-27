@@ -8,8 +8,8 @@
 <div class="mod-page-head">
   <div>
     <div class="qc-lab-eyebrow">ONGC Laboratories · {{ laboratory.name }}{% if laboratory.location %} · {{ laboratory.location }}{% endif %}</div>
-    <h1 class="mod-page-title"><i class="bi bi-easel2"></i> Weekly Management Brief</h1>
-    <p class="mod-page-sub">{{ batch.report_label if batch else 'No reporting week has been imported' }}</p>
+    <h1 class="mod-page-title"><i class="bi bi-easel2"></i> Management Brief</h1>
+    <p class="mod-page-sub">{{ batch.report_label if batch else 'No local reporting record has been imported' }}</p>
   </div>
   <div class="mod-page-actions">
     <a class="btn btn-secondary" href="{{ url_for('quality_control.laboratory_dashboard', lab_code=laboratory.code) }}"><i class="bi bi-arrow-left"></i> Back to dashboard</a>
@@ -22,7 +22,7 @@
 {% if batch %}
 <div class="mod-kpi-grid">
   <div class="mod-kpi">
-    <span class="mod-kpi-label">Weekly sample load</span>
+    <span class="mod-kpi-label">Reported sample load</span>
     <strong class="mod-kpi-value">{{ summary.total }}</strong>
     <span>samples in review</span>
   </div>
@@ -50,7 +50,7 @@
       <div>
         <span class="qc-section-eyebrow"><i class="bi bi-exclamation-triangle"></i> Management attention required</span>
         <h2 class="mod-card-title">Open samples carrying a recorded remark</h2>
-        <p class="mod-card-sub">Each entry is a sample still under testing with a reason recorded against it in the weekly workbook.</p>
+        <p class="mod-card-sub">Each entry is a sample still under testing with a reason recorded against it in the local status workbook.</p>
       </div>
       <span class="qc-overdue-count">{{ attention|length }} open</span>
     </div>
@@ -71,7 +71,7 @@
             <td>{{ sample.delay_reason }}</td>
           </tr>
           {% else %}
-          <tr><td colspan="3" class="qc-clear-state"><i class="bi bi-check-circle-fill"></i> No open sample has a recorded delay remark for this week.</td></tr>
+          <tr><td colspan="3" class="qc-clear-state"><i class="bi bi-check-circle-fill"></i> No open sample has a recorded delay remark in this reporting record.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -85,7 +85,7 @@
     <div class="qc-history-result-heading">
       <div>
         <h2 class="mod-card-title">Issued reports</h2>
-        <p class="mod-card-sub">Reports released in this reporting week.</p>
+        <p class="mod-card-sub">Reports released in this reporting record.</p>
       </div>
       <span class="qc-lab-count">{{ issued|length }} issued</span>
     </div>
@@ -108,7 +108,7 @@
             <td>{{ sample.turnaround_days ~ ' days' if sample.turnaround_days is not none else '—' }}</td>
           </tr>
           {% else %}
-          <tr><td colspan="4">No reports were issued in this weekly review.</td></tr>
+          <tr><td colspan="4">No reports were issued in this reporting record.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -117,7 +117,7 @@
 </section>
 {% else %}
 <section class="card"><div class="card-body">
-  <div class="qc-clear-state"><i class="bi bi-cloud-arrow-up"></i> Import a weekly workbook to generate the management brief.</div>
+  <div class="qc-clear-state"><i class="bi bi-cloud-arrow-up"></i> Import a local status workbook to generate the management brief.</div>
 </div></section>
 {% endif %}
 </div>{% endblock %}

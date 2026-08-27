@@ -33,10 +33,44 @@ from app.models.quality_control.qc_testing_standard import QCTestingStandard
 PANVEL_LAB_CODE = "rgl_panvel"
 PANVEL_PLANT_CODE = "10R2"
 SAP_XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-SAP_REPORTING_LAB_CODES = (
-    "rgl_panvel", "rgl_vadodara", "rgl_jorhat", "rgl_rajahmundry", "rgl_chennai",
+# Corporate Chemistry's approved SAP QM routing.  A central SAP export may
+# contain many plants, but rows are never assigned to a laboratory by a name,
+# work centre, or user choice: the plant code below is the sole authority.
+SAP_PLANT_LAB_CODES = {
+    "10R2": "rgl_panvel",
+    "23R2": "rgl_vadodara",
+    "42R2": "rgl_chennai",
+    "41B1": "rgl_rajahmundry",
+    "50R2": "rgl_jorhat_sivasagar",
+    "51R2": "rgl_jorhat",
+    "70T1": "idwe_dehradun",
+}
+SAP_REPORTING_LAB_CODES = tuple(dict.fromkeys(SAP_PLANT_LAB_CODES.values()))
+SAP_CENTRAL_UPLOAD_CODE = "central_sap_upload"
+# IDWE's historic workstream screens remain readable, but their weekly uploads
+# are no longer an operational input now that plant 70T1 is centrally sourced.
+SAP_REPLACED_WEEKLY_LAB_CODES = frozenset({
+    "rgl_panvel", "rgl_vadodara", "rgl_chennai", "rgl_rajahmundry", "rgl_jorhat",
     "idwe_cementing", "idwe_df_cf",
-)
+})
+
+# These reporting units are controlled through SAP only.  They intentionally
+# stay out of the weekly-workbook laboratory catalogue, which keeps the
+# existing IDWE weekly workstream screens unchanged.
+SAP_REPORTING_LABORATORY_OVERRIDES = {
+    "rgl_jorhat_sivasagar": {
+        "code": "rgl_jorhat_sivasagar",
+        "name": "RGL Jorhat in Sivasagar",
+        "location": "Sivasagar",
+        "description": "Regional Geoscience Laboratory · Sivasagar",
+    },
+    "idwe_dehradun": {
+        "code": "idwe_dehradun",
+        "name": "IDWE Dehradun",
+        "location": "Dehradun",
+        "description": "Institute of Drilling and Well Engineering",
+    },
+}
 
 LAB_UPDATE_STATUSES = (
     ("awaiting_sample", "Awaiting sample / inputs"),
@@ -175,6 +209,24 @@ def _column_positions(header: list[Any], aliases: dict[str, tuple[str, ...]]) ->
     return positions
 
 
+def _matching_sap_export_kind(
+    worksheets: dict[str, pd.DataFrame], *, excluded_kind: str,
+) -> str | None:
+    """Identify a correctly structured SAP export that was placed in the wrong upload field."""
+    export_types = (
+        ("inspection-lot", _INSPECTION_COLUMNS, {"inspection_lot_number", "material_code", "plant_code"}),
+        ("notification", _NOTIFICATION_COLUMNS, {"notification_no", "material_code", "plant_code"}),
+    )
+    for kind, aliases, required in export_types:
+        if kind == excluded_kind:
+            continue
+        for raw in worksheets.values():
+            for index in range(len(raw)):
+                if required.issubset(_column_positions(raw.iloc[index].tolist(), aliases)):
+                    return kind
+    return None
+
+
 def _read_sap_export(
     source: bytes,
     filename: str,
@@ -201,6 +253,17 @@ def _read_sap_export(
         if selected:
             break
     if selected is None:
+        other_kind = _matching_sap_export_kind(worksheets, excluded_kind=kind)
+        if kind == "inspection-lot" and other_kind == "notification":
+            raise ValueError(
+                "The selected Inspection Lots file is a SAP Notifications / ZLABIMS export. "
+                "Upload the native SAP Inspection Lots export in the Inspection Lots field."
+            )
+        if kind == "notification" and other_kind == "inspection-lot":
+            raise ValueError(
+                "The selected Notifications file is a SAP Inspection Lots export. "
+                "Upload the native SAP Notifications / ZLABIMS export in the Notifications field."
+            )
         required_labels = ", ".join(sorted(required)).replace("_", " ")
         raise ValueError(f"Could not find SAP {kind} headings. Required fields: {required_labels}.")
 
@@ -217,7 +280,11 @@ def _read_sap_export(
 
 
 def parse_sap_inspection_workbook(
-    source: bytes, filename: str, *, expected_plant: str | None = PANVEL_PLANT_CODE,
+    source: bytes,
+    filename: str,
+    *,
+    expected_plant: str | None = PANVEL_PLANT_CODE,
+    allow_multiple_plants: bool = False,
 ) -> SAPExportPayload:
     payload = _read_sap_export(
         source, filename, kind="inspection-lot", aliases=_INSPECTION_COLUMNS,
@@ -239,12 +306,17 @@ def parse_sap_inspection_workbook(
         })
     if not rows:
         raise ValueError("The SAP inspection-lot workbook contains no usable inspection-lot numbers.")
-    _validate_sap_plants(rows, "inspection-lot", expected_plant)
+    if not allow_multiple_plants:
+        _validate_sap_plants(rows, "inspection-lot", expected_plant)
     return SAPExportPayload(rows=rows, as_of_date=payload.as_of_date)
 
 
 def parse_sap_notification_workbook(
-    source: bytes, filename: str, *, expected_plant: str | None = PANVEL_PLANT_CODE,
+    source: bytes,
+    filename: str,
+    *,
+    expected_plant: str | None = PANVEL_PLANT_CODE,
+    allow_multiple_plants: bool = False,
 ) -> SAPExportPayload:
     payload = _read_sap_export(
         source, filename, kind="notification", aliases=_NOTIFICATION_COLUMNS,
@@ -273,7 +345,8 @@ def parse_sap_notification_workbook(
         })
     if not rows:
         raise ValueError("The SAP notification workbook contains no usable notification numbers.")
-    _validate_sap_plants(rows, "notification", expected_plant)
+    if not allow_multiple_plants:
+        _validate_sap_plants(rows, "notification", expected_plant)
     return SAPExportPayload(rows=rows, as_of_date=payload.as_of_date)
 
 
@@ -300,7 +373,7 @@ def _validate_sap_plants(
     plant = next(iter(plants))
     if expected_plant and plant != expected_plant:
         raise ValueError(
-            f"This RGL Panvel view accepts plant {expected_plant} only; the workbook reports {plant}."
+            f"This SAP import accepts plant {expected_plant} only; the workbook reports {plant}."
         )
     return plant
 
@@ -397,13 +470,22 @@ def _summary(rows: list[dict[str, Any]], as_of_date: date) -> dict[str, Any]:
 
 def _laboratories_by_code() -> dict[str, dict[str, Any]]:
     # Imported lazily to avoid a circular dependency during Flask model setup.
-    from app.core.services.quality_control import LABORATORIES
-    return LABORATORIES
+    from app.core.services.quality_control import CSC_DESIGNATION_ONLY_LABORATORIES, LABORATORIES
+    return {**LABORATORIES, **CSC_DESIGNATION_ONLY_LABORATORIES, **SAP_REPORTING_LABORATORY_OVERRIDES}
 
 
 def sap_reporting_laboratories() -> list[dict[str, Any]]:
     laboratories = _laboratories_by_code()
     return [laboratories[code] for code in SAP_REPORTING_LAB_CODES if code in laboratories]
+
+
+def sap_plant_mappings() -> list[dict[str, Any]]:
+    """Return the approved, visible plant-to-laboratory routing table."""
+    laboratories = _laboratories_by_code()
+    return [
+        {"plant_code": plant_code, "laboratory": laboratories[lab_code]}
+        for plant_code, lab_code in SAP_PLANT_LAB_CODES.items()
+    ]
 
 
 def get_sap_reporting_laboratory(lab_code: str) -> dict[str, Any]:
@@ -420,42 +502,68 @@ def usage_decision_outcome(value: Any) -> str | None:
     return USAGE_DECISION_OUTCOMES.get(match.group(1)) if match else None
 
 
-def import_sap_lab_exports(
+def _paired_sap_as_of_date(inspections: SAPExportPayload, notifications: SAPExportPayload) -> date:
+    as_of_date = notifications.as_of_date or inspections.as_of_date
+    if as_of_date is None:
+        raise ValueError("Could not determine the SAP as-of date. Include it in the export or filename as YYYYMMDD.")
+    if inspections.as_of_date and notifications.as_of_date and inspections.as_of_date != notifications.as_of_date:
+        raise ValueError("The two SAP exports have different as-of dates. Upload reports from the same daily run.")
+    return as_of_date
+
+
+def _rows_by_plant(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        plant_code = row.get("plant_code") or ""
+        grouped.setdefault(plant_code, []).append(row)
+    return grouped
+
+
+def _validate_central_sap_plants(
+    inspections: list[dict[str, Any]], notifications: list[dict[str, Any]],
+) -> None:
+    """Reject a central upload before any snapshot can be persisted incorrectly."""
+    problems: list[str] = []
+    for source_name, rows in (("Inspection Lots", inspections), ("Notifications", notifications)):
+        missing = sum(1 for row in rows if not row.get("plant_code"))
+        if missing:
+            problems.append(f"{source_name} has {missing} row(s) without a plant code")
+        unmapped = Counter(
+            row["plant_code"] for row in rows
+            if row.get("plant_code") and row["plant_code"] not in SAP_PLANT_LAB_CODES
+        )
+        if unmapped:
+            labels = ", ".join(f"{plant} ({count})" for plant, count in sorted(unmapped.items()))
+            problems.append(f"{source_name} has unmapped plant row(s): {labels}")
+    if problems:
+        raise ValueError(
+            "Central SAP upload stopped: " + "; ".join(problems) + ". "
+            "Correct the SAP export or obtain an approved plant mapping before importing."
+        )
+
+
+def _persist_sap_lab_snapshot(
+    *,
     lab_code: str,
+    plant_code: str,
+    inspection_rows: list[dict[str, Any]],
+    notification_rows: list[dict[str, Any]],
+    as_of_date: date,
     inspection_source: bytes,
     inspection_filename: str,
     notification_source: bytes,
     notification_filename: str,
     uploaded_by: int | None,
 ) -> QCSAPUploadBatch:
-    """Persist a laboratory's paired SAP exports and refresh its current view."""
-    get_sap_reporting_laboratory(lab_code)
-    expected_plant = PANVEL_PLANT_CODE if lab_code == PANVEL_LAB_CODE else None
-    inspections = parse_sap_inspection_workbook(
-        inspection_source, inspection_filename, expected_plant=expected_plant,
-    )
-    notifications = parse_sap_notification_workbook(
-        notification_source, notification_filename, expected_plant=expected_plant,
-    )
-    inspection_plant = _validate_sap_plants(inspections.rows, "inspection-lot", expected_plant)
-    notification_plant = _validate_sap_plants(notifications.rows, "notification", expected_plant)
-    if inspection_plant != notification_plant:
-        raise ValueError(
-            "The two SAP exports report different plants. Upload paired reports from the same laboratory run."
-        )
-    as_of_date = notifications.as_of_date or inspections.as_of_date
-    if as_of_date is None:
-        raise ValueError("Could not determine the SAP as-of date. Include it in the export or filename as YYYYMMDD.")
-    if inspections.as_of_date and notifications.as_of_date and inspections.as_of_date != notifications.as_of_date:
-        raise ValueError("The two SAP exports have different as-of dates. Upload reports from the same daily run.")
-    rows, reconciliation = merge_sap_exports(inspections.rows, notifications.rows, lab_code=lab_code)
+    """Store one laboratory's mapped portion of a paired SAP export."""
+    rows, reconciliation = merge_sap_exports(inspection_rows, notification_rows, lab_code=lab_code)
     if not rows:
-        raise ValueError("The SAP exports did not yield any monitoring records.")
+        raise ValueError(f"The SAP exports did not yield any monitoring records for plant {plant_code}.")
 
     summary = _summary(rows, as_of_date)
     batch = QCSAPUploadBatch(
         lab_code=lab_code,
-        plant_code=inspection_plant,
+        plant_code=plant_code,
         as_of_date=as_of_date,
         inspection_filename=inspection_filename,
         inspection_content_type=SAP_XLSX_MIME,
@@ -465,8 +573,8 @@ def import_sap_lab_exports(
         notification_content_type=SAP_XLSX_MIME,
         notification_file_size=len(notification_source),
         notification_source_data=notification_source,
-        inspection_lot_count=len(inspections.rows),
-        notification_count=len(notifications.rows),
+        inspection_lot_count=len(inspection_rows),
+        notification_count=len(notification_rows),
         record_count=len(rows),
         unmatched_inspection_count=reconciliation["unmatched_inspection_count"],
         unmatched_notification_count=reconciliation["unmatched_notification_count"],
@@ -491,6 +599,87 @@ def import_sap_lab_exports(
             setattr(record, field, value)
         record.last_seen_batch_id = batch.id
     return batch
+
+
+def import_sap_lab_exports(
+    lab_code: str,
+    inspection_source: bytes,
+    inspection_filename: str,
+    notification_source: bytes,
+    notification_filename: str,
+    uploaded_by: int | None,
+) -> QCSAPUploadBatch:
+    """Persist a laboratory's paired SAP exports and refresh its current view."""
+    get_sap_reporting_laboratory(lab_code)
+    expected_plants = [
+        plant_code for plant_code, mapped_lab_code in SAP_PLANT_LAB_CODES.items()
+        if mapped_lab_code == lab_code
+    ]
+    if len(expected_plants) != 1:
+        raise ValueError(f"No single approved SAP plant is configured for {lab_code}.")
+    expected_plant = expected_plants[0]
+    inspections = parse_sap_inspection_workbook(
+        inspection_source, inspection_filename, expected_plant=expected_plant,
+    )
+    notifications = parse_sap_notification_workbook(
+        notification_source, notification_filename, expected_plant=expected_plant,
+    )
+    inspection_plant = _validate_sap_plants(inspections.rows, "inspection-lot", expected_plant)
+    notification_plant = _validate_sap_plants(notifications.rows, "notification", expected_plant)
+    if inspection_plant != notification_plant:
+        raise ValueError(
+            "The two SAP exports report different plants. Upload paired reports from the same laboratory run."
+        )
+    return _persist_sap_lab_snapshot(
+        lab_code=lab_code,
+        plant_code=inspection_plant,
+        inspection_rows=inspections.rows,
+        notification_rows=notifications.rows,
+        as_of_date=_paired_sap_as_of_date(inspections, notifications),
+        inspection_source=inspection_source,
+        inspection_filename=inspection_filename,
+        notification_source=notification_source,
+        notification_filename=notification_filename,
+        uploaded_by=uploaded_by,
+    )
+
+
+def import_central_sap_exports(
+    inspection_source: bytes,
+    inspection_filename: str,
+    notification_source: bytes,
+    notification_filename: str,
+    uploaded_by: int | None,
+) -> list[QCSAPUploadBatch]:
+    """Split Corporate Chemistry's all-laboratory SAP pair by the approved plant map."""
+    inspections = parse_sap_inspection_workbook(
+        inspection_source, inspection_filename, expected_plant=None, allow_multiple_plants=True,
+    )
+    notifications = parse_sap_notification_workbook(
+        notification_source, notification_filename, expected_plant=None, allow_multiple_plants=True,
+    )
+    _validate_central_sap_plants(inspections.rows, notifications.rows)
+    as_of_date = _paired_sap_as_of_date(inspections, notifications)
+    inspections_by_plant = _rows_by_plant(inspections.rows)
+    notifications_by_plant = _rows_by_plant(notifications.rows)
+
+    batches = []
+    for plant_code in sorted(set(inspections_by_plant) | set(notifications_by_plant)):
+        lab_code = SAP_PLANT_LAB_CODES[plant_code]
+        get_sap_reporting_laboratory(lab_code)
+        batches.append(_persist_sap_lab_snapshot(
+            lab_code=lab_code,
+            plant_code=plant_code,
+            inspection_rows=inspections_by_plant.get(plant_code, []),
+            notification_rows=notifications_by_plant.get(plant_code, []),
+            as_of_date=as_of_date,
+            inspection_source=inspection_source,
+            inspection_filename=inspection_filename,
+            notification_source=notification_source,
+            notification_filename=notification_filename,
+            uploaded_by=uploaded_by,
+        ))
+    return batches
 
 
 def import_sap_panvel_exports(
@@ -584,6 +773,15 @@ def _reconciliation_state(record: QCSAPRecord, update: QCSAPLabUpdate | None) ->
     return "lab_updated", "Lab update received"
 
 
+def _sampling_to_sap_receipt_days(
+    record: QCSAPRecord, update: QCSAPLabUpdate | None,
+) -> int | None:
+    """Return the laboratory-to-SAP receipt lag when both dates are recorded."""
+    if not update or not update.sampling_date or not record.start_inspection_date:
+        return None
+    return (record.start_inspection_date - update.sampling_date).days
+
+
 def _latest_non_sap_updates(samples: list[QCNonSAPSample]) -> dict[int, QCNonSAPSampleUpdate]:
     if not samples:
         return {}
@@ -670,6 +868,7 @@ def sap_lab_dashboard_data(lab_code: str) -> dict[str, Any]:
             "reconciliation_label": reconciliation_label,
             "planned_overdue": is_planned_overdue,
             "standard_days": standards.get(_material_key(record.material_code)),
+            "sampling_to_sap_receipt_days": _sampling_to_sap_receipt_days(record, update),
         })
 
     open_entries = [
@@ -778,16 +977,219 @@ def sap_control_data() -> dict[str, Any]:
             non_sap_entries.append({**entry, "laboratory": laboratory})
     fallback_laboratories = [
         laboratory for code, laboratory in laboratories.items()
-        if code not in SAP_REPORTING_LAB_CODES
+        if code not in SAP_REPLACED_WEEKLY_LAB_CODES
     ]
     return {
         "sap_laboratories": sap_reporting_laboratories(),
+        "sap_plant_mappings": sap_plant_mappings(),
         "all_laboratories": sorted(laboratories.values(), key=lambda item: item["name"]),
         "control_cards": cards,
         "non_sap_entries": non_sap_entries,
         "non_sap_statuses": NON_SAP_STATUSES,
         "non_sap_status_labels": NON_SAP_STATUS_LABELS,
         "workbook_fallback_laboratories": fallback_laboratories,
+    }
+
+
+def _batch_summary(batch: QCSAPUploadBatch | None) -> dict[str, Any]:
+    """Read a retained SAP snapshot summary without treating it as local data."""
+    if batch is None:
+        return {}
+    try:
+        value = json.loads(batch.summary_json or "{}")
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def sap_management_data(lab_codes: set[str] | None = None) -> dict[str, Any]:
+    """Build the management view exclusively from each laboratory's latest SAP snapshot.
+
+    A row enters this view only when it was present in the most recent SAP
+    upload for its plant.  Historical local-workbook samples and declared
+    non-SAP rows are intentionally excluded: they must never influence the
+    official SAP position.
+    """
+    laboratories = [
+        laboratory for laboratory in sap_reporting_laboratories()
+        if lab_codes is None or laboratory["code"] in lab_codes
+    ]
+    laboratory_reviews: list[dict[str, Any]] = []
+    action_entries: list[dict[str, Any]] = []
+    all_records: list[QCSAPRecord] = []
+
+    for laboratory in laboratories:
+        batch = latest_sap_batch(laboratory["code"])
+        if batch is None:
+            laboratory_reviews.append({
+                "laboratory": laboratory,
+                "batch": None,
+                "records": [],
+                "summary": {},
+                "previous_summary": None,
+                "previous_batch": None,
+                "kpis": {
+                    "total": 0, "official_open": 0, "actionable_open": 0,
+                    "completed": 0, "accepted": 0, "rejected": 0,
+                    "planned_overdue": 0, "awaiting_lab": 0,
+                    "awaiting_sap_confirmation": 0, "excluded": 0,
+                    "exclusion_review": 0,
+                },
+            })
+            continue
+
+        records = QCSAPRecord.query.filter_by(
+            lab_code=laboratory["code"], last_seen_batch_id=batch.id,
+        ).order_by(QCSAPRecord.id.asc()).all()
+        updates = _latest_lab_updates(records)
+        dispositions = _latest_monitoring_dispositions(records)
+        kpis = {
+            "total": len(records), "official_open": 0, "actionable_open": 0,
+            "completed": 0, "accepted": 0, "rejected": 0,
+            "planned_overdue": 0, "awaiting_lab": 0,
+            "awaiting_sap_confirmation": 0, "excluded": 0,
+            "exclusion_review": 0,
+        }
+        entries: list[dict[str, Any]] = []
+        for record in records:
+            update = updates.get(record.id)
+            disposition_state = _monitoring_disposition_state(
+                record, dispositions.get(record.id),
+            )
+            reconciliation_key, reconciliation_label = _reconciliation_state(record, update)
+            is_open = record.official_status == "open"
+            is_actionable = is_open and not disposition_state["is_excluded"] and not disposition_state["requires_review"]
+            planned_overdue = bool(
+                is_actionable and record.planned_end_date and record.planned_end_date < batch.as_of_date
+            )
+            outcome = usage_decision_outcome(record.usage_decision_code)
+            kpis["official_open"] += int(is_open)
+            kpis["actionable_open"] += int(is_actionable)
+            kpis["completed"] += int(record.official_status == "completed")
+            kpis["accepted"] += int(outcome == "accepted")
+            kpis["rejected"] += int(outcome == "rejected")
+            kpis["planned_overdue"] += int(planned_overdue)
+            kpis["excluded"] += int(disposition_state["is_excluded"])
+            kpis["exclusion_review"] += int(disposition_state["requires_review"])
+            if is_actionable:
+                kpis["awaiting_lab"] += int(reconciliation_key == "awaiting_lab")
+                kpis["awaiting_sap_confirmation"] += int(reconciliation_key == "awaiting_sap_confirmation")
+            entry = {
+                "laboratory": laboratory,
+                "batch": batch,
+                "record": record,
+                "lab_update": update,
+                "is_actionable": is_actionable,
+                "planned_overdue": planned_overdue,
+                "reconciliation_key": reconciliation_key,
+                "reconciliation_label": reconciliation_label,
+                "is_excluded": disposition_state["is_excluded"],
+                "exclusion_requires_review": disposition_state["requires_review"],
+            }
+            entries.append(entry)
+            if is_actionable:
+                action_entries.append(entry)
+        previous_batch = QCSAPUploadBatch.query.filter_by(lab_code=laboratory["code"]).order_by(
+            QCSAPUploadBatch.as_of_date.desc(), QCSAPUploadBatch.id.desc(),
+        ).offset(1).first()
+        laboratory_reviews.append({
+            "laboratory": laboratory,
+            "batch": batch,
+            "records": entries,
+            "summary": _batch_summary(batch),
+            "previous_summary": _batch_summary(previous_batch) if previous_batch else None,
+            "previous_batch": previous_batch,
+            "kpis": kpis,
+        })
+        all_records.extend(records)
+
+    action_entries.sort(key=lambda item: (
+        not item["planned_overdue"],
+        item["record"].planned_end_date or date.max,
+        not bool(item["record"].work_center),
+        item["laboratory"]["name"].casefold(),
+        item["record"].notification_no or "",
+        item["record"].id,
+    ))
+    work_centers: dict[str, dict[str, Any]] = {}
+    materials: dict[tuple[str, str], dict[str, Any]] = {}
+    for entry in action_entries:
+        record = entry["record"]
+        centre_name = record.work_center or "Not assigned in SAP"
+        centre = work_centers.setdefault(centre_name, {
+            "name": centre_name, "open": 0, "planned_overdue": 0,
+            "awaiting_lab": 0, "laboratories": set(),
+        })
+        centre["open"] += 1
+        centre["planned_overdue"] += int(entry["planned_overdue"])
+        centre["awaiting_lab"] += int(entry["reconciliation_key"] == "awaiting_lab")
+        centre["laboratories"].add(entry["laboratory"]["name"])
+        material_name = record.material_description or "Material not stated in SAP"
+        key = ((record.material_code or "—"), material_name)
+        material = materials.setdefault(key, {
+            "material_code": record.material_code or "—",
+            "material_description": material_name,
+            "open": 0, "planned_overdue": 0, "awaiting_lab": 0,
+            "laboratories": set(), "work_centers": set(),
+        })
+        material["open"] += 1
+        material["planned_overdue"] += int(entry["planned_overdue"])
+        material["awaiting_lab"] += int(entry["reconciliation_key"] == "awaiting_lab")
+        material["laboratories"].add(entry["laboratory"]["name"])
+        material["work_centers"].add(centre_name)
+
+    kpis = {
+        key: sum(review["kpis"][key] for review in laboratory_reviews)
+        for key in (
+            "total", "official_open", "actionable_open", "completed", "accepted", "rejected",
+            "planned_overdue", "awaiting_lab", "awaiting_sap_confirmation", "excluded", "exclusion_review",
+        )
+    }
+    kpis["usage_not_recorded"] = kpis["total"] - kpis["accepted"] - kpis["rejected"]
+    snapshot_dates = sorted({review["batch"].as_of_date for review in laboratory_reviews if review["batch"]})
+    source_as_of_label = (
+        f"SAP position as at {snapshot_dates[0]:%d %B %Y}"
+        if len(snapshot_dates) == 1 else
+        "Latest SAP snapshot by laboratory"
+    )
+    trend = []
+    for review in laboratory_reviews:
+        batch, previous = review["batch"], review["previous_batch"]
+        if batch is None:
+            continue
+        current_open = int(review["summary"].get("open_records", 0) or 0)
+        previous_open = int(review["previous_summary"].get("open_records", 0) or 0) if review["previous_summary"] else None
+        trend.append({
+            "laboratory": review["laboratory"], "batch": batch, "previous_batch": previous,
+            "current_open": current_open, "previous_open": previous_open,
+            "open_change": current_open - previous_open if previous_open is not None else None,
+            "current_total": int(review["summary"].get("total_records", review["kpis"]["total"]) or 0),
+        })
+
+    return {
+        "laboratory_reviews": laboratory_reviews,
+        "reporting_labs": sum(review["batch"] is not None for review in laboratory_reviews),
+        "configured_labs": len(laboratories),
+        "missing_snapshots": [review for review in laboratory_reviews if review["batch"] is None],
+        "kpis": kpis,
+        "action_entries": action_entries,
+        "work_centers": sorted(({
+            **item, "laboratories": sorted(item["laboratories"]),
+        } for item in work_centers.values()), key=lambda item: (-item["planned_overdue"], -item["open"], item["name"])),
+        "materials": sorted(({
+            **item,
+            "laboratories": sorted(item["laboratories"]),
+            "work_centers": sorted(item["work_centers"]),
+        } for item in materials.values()), key=lambda item: (-item["planned_overdue"], -item["open"], item["material_description"].casefold())),
+        "usage_decisions": [
+            {"label": "UD A · Accepted", "count": kpis["accepted"], "tone": "success"},
+            {"label": "UD R · Rejected", "count": kpis["rejected"], "tone": "danger"},
+            {"label": "Usage decision not recorded", "count": kpis["usage_not_recorded"], "tone": "muted"},
+        ],
+        "trend": trend,
+        "source_as_of_label": source_as_of_label,
+        "source_dates": snapshot_dates,
+        "scope_laboratories": laboratories,
     }
 
 
@@ -801,10 +1203,18 @@ def create_sap_lab_update(
     activity_status = _text(form.get("activity_status"))
     if activity_status not in LAB_UPDATE_STATUS_LABELS:
         raise ValueError("Choose a valid laboratory activity status.")
+    sampling_date = _date(form.get("sampling_date"))
+    actual_start_date = _date(form.get("actual_start_date"))
     expected = _date(form.get("expected_completion_date"))
+    if sampling_date and actual_start_date and actual_start_date < sampling_date:
+        raise ValueError("The laboratory actual start date cannot be earlier than the sampling date.")
+    if sampling_date and record.start_inspection_date and sampling_date > record.start_inspection_date:
+        raise ValueError("The sampling date cannot be later than the SAP receipt date.")
     update = QCSAPLabUpdate(
         record_id=record.id,
         activity_status=activity_status,
+        sampling_date=sampling_date,
+        actual_start_date=actual_start_date,
         expected_completion_date=expected,
         action_owner=_text(form.get("action_owner")) or None,
         delay_reason=_text(form.get("delay_reason")) or None,

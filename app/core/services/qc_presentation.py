@@ -126,7 +126,7 @@ def build_lab_performance_presentation(lab_code: str, static_folder: str) -> tup
     data = latest_dashboard_data(lab_code)
     batch = data["batch"]
     if batch is None:
-        raise ValueError("Import a weekly QC workbook before downloading a presentation.")
+        raise ValueError("Import a local status workbook before downloading a presentation.")
     standards = {item.normalized_name: item.standard_days for item in QCTestingStandard.query.all()}
     month_start = batch.week_end.replace(day=1)
     next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
@@ -189,14 +189,14 @@ def build_lab_performance_presentation(lab_code: str, static_folder: str) -> tup
     add_text(slide, data["laboratory"]["name"], .76, 1.82, 10.9, .7, 50, navy, True)
     rectangle(slide, .76, 2.75, 1.15, .045, blue)
     add_text(slide, f"Performance Review · {month_start:%B %Y}", .76, 3.08, 8.5, .36, 24, navy, True)
-    add_text(slide, "Weekly quality-control performance, Service Level Agreement compliance and exception review", .76, 3.68, 9.9, .36, 16, grey)
+    add_text(slide, "Current quality-control performance, Service Level Agreement compliance and exception review", .76, 3.68, 9.9, .36, 16, grey)
     chrome.add_cover_branding(slide)
     add_text(slide, "Office of Head Corporate Chemistry | Mumbai / Dehradun", .76, 6.45, 7.2, .2, 11, grey)
 
     slide=prs.slides.add_slide(blank); header(slide, f"{data['laboratory']['name']} | Performance metrics", 2); month=data['month_stt']
     for i,(v,l,t) in enumerate([(data['month_intake'],"Monthly intake",blue),(month['closed'],"Closed reports",navy),(month['within_standard'],"Within STT",green),(month['late'],"Late closures",red),(f"{month['compliance_rate']}%","STT achieved",blue),(f"{month['average_turnaround']} d","Average TAT",navy)]): metric(slide,.6+(i%3)*4.2,1.7+(i//3)*2.0,v,l,t)
-    slide=prs.slides.add_slide(blank); header(slide,"Current-week workload and STT exceptions",3); week=data['week_stt']
-    for i,(v,l,t) in enumerate([(data['summary']['total'],"Samples in review",blue),(data['summary']['under_testing'],"Open workload",navy),(week['closed'],"Closed reports",navy),(week['late'],"Closed above STT",red),(f"{week['compliance_rate']}%","Weekly STT",blue),(len(data['overdue_samples']),"Aged open samples",red)]): metric(slide,.6+(i%3)*4.2,1.7+(i//3)*2.0,v,l,t)
+    slide=prs.slides.add_slide(blank); header(slide,"Current workload and STT exceptions",3); week=data['week_stt']
+    for i,(v,l,t) in enumerate([(data['summary']['total'],"Samples in review",blue),(data['summary']['under_testing'],"Open workload",navy),(week['closed'],"Closed reports",navy),(week['late'],"Closed above STT",red),(f"{week['compliance_rate']}%","Period STT",blue),(len(data['overdue_samples']),"Aged open samples",red)]): metric(slide,.6+(i%3)*4.2,1.7+(i//3)*2.0,v,l,t)
     slide=prs.slides.add_slide(blank); header(slide,"Monthly STT and delay analytics",4)
     metric(slide,.8,1.7,month['within_standard'],"Within applicable STT",green); metric(slide,4.5,1.7,month['late'],"Late closures",red); metric(slide,8.2,1.7,f"{month['compliance_rate']}%","STT achieved",blue)
     reasons={}
@@ -220,7 +220,7 @@ def build_lab_performance_presentation(lab_code: str, static_folder: str) -> tup
 
 
 def build_lab_brief_presentation(lab_code: str, static_folder: str) -> tuple[BytesIO, str]:
-    """The weekly management brief as a deck, mirroring the page section for section.
+    """The local-reporting management brief as a deck, mirroring the page section for section.
 
     Deliberately narrower than the performance review: this is the one reporting
     week the brief covers, in the same order the page presents it, so a reader
@@ -233,33 +233,33 @@ def build_lab_brief_presentation(lab_code: str, static_folder: str) -> tuple[Byt
     data = latest_dashboard_data(lab_code)
     batch = data["batch"]
     if batch is None:
-        raise ValueError("Import a weekly QC workbook before downloading the management brief.")
+        raise ValueError("Import a local status workbook before downloading the management brief.")
 
     laboratory, summary, samples = data["laboratory"], data["summary"], data["samples"]
     prs = Presentation()
     prs.slide_width, prs.slide_height = Inches(13.333), Inches(7.5)
     chrome = _DeckChrome(
         prs, static_folder,
-        f"Source: {laboratory['name']} weekly QC workbook \u00b7 {batch.report_label}",
+        f"Source: {laboratory['name']} local status workbook \u00b7 {batch.report_label}",
     )
     navy, blue, red, green, grey = chrome.NAVY, chrome.BLUE, chrome.RED, chrome.GREEN, chrome.GREY
 
     # 01 · Cover
-    slide = chrome.new_slide("Quality Control Laboratory — Weekly Management Brief", 1)
+    slide = chrome.new_slide("Quality Control Laboratory — Management Brief", 1)
     chrome.add_text(slide, laboratory["name"], .42, 1.85, 9.0, .6, 34, navy, True)
     chrome.add_text(slide, laboratory["location"], .42, 2.55, 9.0, .35, 16, grey)
     chrome.add_text(slide, batch.report_label, .42, 3.05, 11.0, .4, 20, blue, True)
     chrome.rectangle(slide, .42, 3.62, 3.2, .05, blue)
 
     # 02 · The four figures the brief leads with
-    slide = chrome.new_slide("Weekly position", 2)
+    slide = chrome.new_slide("Current reporting position", 2)
     turnaround = f"{summary['average_turnaround']} d" if summary["average_turnaround"] is not None else "—"
-    chrome.metric(slide, .8, 1.9, summary["total"], "Weekly sample load", blue)
+    chrome.metric(slide, .8, 1.9, summary["total"], "Reported sample load", blue)
     chrome.metric(slide, 4.3, 1.9, summary["under_testing"], "Open workload", red if summary["under_testing"] else navy)
     chrome.metric(slide, 7.8, 1.9, f"{summary['passed']}/{summary['failed']}", "Pass / fail reports issued", green)
     chrome.metric(slide, .8, 3.9, turnaround, "Average turnaround, issued", navy)
     chrome.metric(slide, 4.3, 3.9, summary["delayed_open"], "Aged beyond target", red if summary["delayed_open"] else green)
-    chrome.metric(slide, 7.8, 3.9, summary["issued"], "Reports issued this week", navy)
+    chrome.metric(slide, 7.8, 3.9, summary["issued"], "Reports issued in this period", navy)
 
     # 03 · Management attention required
     attention = [s for s in samples if s.result_status == "under_testing" and s.delay_reason]
@@ -276,7 +276,7 @@ def build_lab_brief_presentation(lab_code: str, static_folder: str) -> tuple[Byt
         if len(attention) > 8:
             chrome.add_text(slide, f"+ {len(attention) - 8} further open samples with recorded remarks", .8, y + .05, 8.0, .3, 12, grey)
     else:
-        chrome.add_text(slide, "No open sample has a recorded delay remark for this week.", .8, 2.0, 10.5, .35, 18, green, True)
+        chrome.add_text(slide, "No open sample has a recorded delay remark in this reporting period.", .8, 2.0, 10.5, .35, 18, green, True)
 
     # 04 · Issued reports
     issued = [s for s in samples if s.result_status != "under_testing"]
@@ -310,7 +310,7 @@ def build_lab_brief_presentation(lab_code: str, static_folder: str) -> tuple[Byt
         if len(issued) > 14:
             chrome.add_text(slide, f"+ {len(issued) - 14} further issued reports in the full register", .8, 1.75 + .34 * len(rows), 8.0, .3, 12, grey)
     else:
-        chrome.add_text(slide, "No reports were issued in this weekly review.", .8, 2.0, 10.5, .35, 18, grey, True)
+        chrome.add_text(slide, "No reports were issued in this reporting period.", .8, 2.0, 10.5, .35, 18, grey, True)
 
     output = BytesIO()
     prs.save(output)
@@ -401,8 +401,8 @@ def build_sap_lab_presentation(lab_code: str, static_folder: str) -> tuple[Bytes
         chrome.metric(slide, .7 + (index % 3) * 4.2, 1.65 + (index // 3) * 2.0, value, label, tone)
     chrome.add_text(
         slide,
-        f"SAP usage decisions: {kpis['accepted']} accepted (UD A), {kpis['rejected']} rejected (UD R), and {kpis['excluded_from_monitoring']} QC-admin exclusion(s). A returned lab action alone never changes SAP.",
-        .75, 5.85, 11.7, .35, 14, grey,
+        f"Usage decisions: {kpis['accepted']} accepted (UD A), {kpis['rejected']} rejected (UD R), {kpis['excluded_from_monitoring']} QC-admin exclusion(s). Returned laboratory follow-up does not alter SAP status.",
+        .75, 5.78, 11.15, .52, 12, grey,
     )
 
     # 03 · Work-centre capacity and exposure
@@ -418,29 +418,41 @@ def build_sap_lab_presentation(lab_code: str, static_folder: str) -> tuple[Bytes
     # 04+ · Management exception register. The deck is a laboratory handoff,
     # so every SAP-open item must be visible: continue the table instead of
     # reducing the operational register to a top-ten sample.
-    open_pages = _paginated_rows(data["open_records"], 11)
+    open_pages = _paginated_rows(data["open_records"], 9)
     for page_index, entries in enumerate(open_pages, start=4):
-        first = (page_index - 4) * 11 + 1
+        first = (page_index - 4) * 9 + 1
         last = first + len(entries) - 1
         suffix = f" ({first}–{last} of {len(data['open_records'])})" if data["open_records"] else ""
-        slide = chrome.new_slide(f"Open items requiring follow-up{suffix}", page_index)
+        slide = chrome.new_slide(f"SAP-open action items{suffix}", page_index)
         exception_rows = []
         for item in entries:
-            record, update = item["record"], item["lab_update"]
-            plan = record.planned_end_date.strftime("%d %b") if record.planned_end_date else "—"
-            if item["planned_overdue"]:
-                plan += " overdue"
-            update_text = item["reconciliation_label"]
-            if update and update.expected_completion_date:
-                update_text += f" · ETA {update.expected_completion_date:%d %b}"
+            record = item["record"]
+            sap_receipt = record.start_inspection_date.strftime("%d %b %Y") if record.start_inspection_date else "Not stated"
+            reference = "\n".join(filter(None, [
+                f"Lot {record.inspection_lot_number}" if record.inspection_lot_number else None,
+                f"Notification {record.notification_no}" if record.notification_no else None,
+            ])) or "No SAP reference"
             exception_rows.append([
-                record.inspection_lot_number or "No lot",
-                record.notification_no or "—",
-                concise(record.work_center or "Not assigned", 24),
-                plan,
-                concise(update_text, 42),
+                reference,
+                concise(record.material_description or record.material_code or "Not recorded", 34),
+                concise(record.work_center or "Not assigned", 18),
+                sap_receipt,
+                "________________",
+                "________________",
+                "________________________________",
             ])
-        table(slide, ["Inspection lot", "Notification", "Work center", "SAP plan", "Lab follow-up"], exception_rows, [2.1, 2.0, 2.2, 1.8, 4.35], y=1.55, font_size=9)
+        table(
+            slide,
+            ["Inspection lot / notification", "Material", "Work center", "SAP receipt date", "Date of sampling", "Lab testing start date", "Lab follow-up"],
+            exception_rows,
+            [2.25, 2.45, 1.3, 1.4, 1.55, 1.65, 1.85],
+            y=1.48, font_size=8,
+        )
+        chrome.add_wrapped_text(
+            slide,
+            "SAP receipt date is the SAP Start of Inspection date. Fill only Sampling date, Lab testing start date and Lab follow-up. Sampling date monitors courier time; testing start monitors the laboratory queue.",
+            .65, 5.25, 11.8, .55, 9, grey,
+        )
 
     next_page = 4 + len(open_pages)
     non_sap_entries = data["non_sap_entries"]
@@ -524,9 +536,9 @@ def build_portfolio_management_presentation(static_folder: str, reporting_week_e
     data = portfolio_management_data(reporting_week_end, lab_codes)
     if not data["reporting_labs"]:
         raise ValueError(
-            "None of the selected laboratories submitted a workbook for this reporting week."
+            "None of the selected laboratories submitted a workbook for this reporting period."
             if lab_codes is not None else
-            "Import a weekly QC workbook for at least one laboratory before downloading a presentation."
+            "Import a local status workbook for at least one laboratory before downloading a presentation."
         )
     names = [review["laboratory"]["name"] for review in data["laboratory_reviews"]]
     if lab_codes is None:
@@ -554,7 +566,7 @@ def build_portfolio_management_presentation(static_folder: str, reporting_week_e
     corporate_chemistry_logo = Path(static_folder) / "images" / "ongc-corporate-chemistry-logo.png"
     ongc_logo = Path(static_folder) / "images" / "ongc-official-logo.png"
     period = data["reporting_period"]
-    period_label = f"{period['start']:%d %b} – {period['end']:%d %b %Y}" if period else "Latest reporting weeks"
+    period_label = f"{period['start']:%d %b} – {period['end']:%d %b %Y}" if period else "Latest reporting period"
     def background(slide):
         slide.background.fill.solid(); slide.background.fill.fore_color.rgb = color("FFFFFF")
         rectangle(slide, 0, 0, 13.333, .08, navy); rectangle(slide, .42, 1.26, 12.45, .015, border); rectangle(slide, .42, 6.93, 12.45, .015, border)
@@ -562,7 +574,7 @@ def build_portfolio_management_presentation(static_folder: str, reporting_week_e
         background(slide); add_text(slide, "ONGC CORPORATE CHEMISTRY · QC LABORATORY MONITORING", .42, .27, 7.6, .24, 11, blue, True); add_text(slide, title, .42, .7, 11.35, .46, 27, navy, True)
         if ongc_logo.exists(): slide.shapes.add_picture(str(ongc_logo), Inches(11.15), Inches(.21), width=Inches(.9), height=Inches(.51))
         if corporate_chemistry_logo.exists(): slide.shapes.add_picture(str(corporate_chemistry_logo), Inches(12.24), Inches(.16), width=Inches(.55), height=Inches(.55))
-        add_text(slide, f"Source: Selected reporting week · {period_label} · Scope: {scope_note}", .42, 7.08, 9.6, .16, 8, grey); add_text(slide, f"{page:02d}", 12.5, 7.08, .25, .16, 8, grey)
+        add_text(slide, f"Source: Selected reporting period · {period_label} · Scope: {scope_note}", .42, 7.08, 9.6, .16, 8, grey); add_text(slide, f"{page:02d}", 12.5, 7.08, .25, .16, 8, grey)
     def metric(slide, x, y, value, label, tone=navy):
         card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(x-.18), Inches(y-.18), Inches(3.45), Inches(1.35)); card.fill.solid(); card.fill.fore_color.rgb = color("EAF4FF" if tone == blue else "FCEBEC" if tone == red else "EAF7F0" if tone == green else "F2F4F7"); card.line.color.rgb = color(border)
         add_text(slide, value, x, y, 2.8, .4, 27, tone, True); add_text(slide, label, x, y+.52, 3.0, .25, 13, navy, True)
@@ -613,9 +625,9 @@ def build_portfolio_management_presentation(static_folder: str, reporting_week_e
         metric(slide, .6 + (index % 3) * 4.2, 1.7 + (index // 3) * 2.0, item[0], item[1], item[2])
     if data["missing_submissions"]:
         missing_names = ", ".join(review["laboratory"]["name"] for review in data["missing_submissions"])
-        add_text(slide, f"Excluded from this reporting week (no submission): {missing_names}", .8, 5.0, 11.2, .3, 13, red, True)
+        add_text(slide, f"Excluded from this reporting period (no submission): {missing_names}", .8, 5.0, 11.2, .3, 13, red, True)
     else:
-        add_text(slide, "All configured laboratories submitted data for the selected reporting week.", .8, 5.0, 11.2, .3, 13, green, True)
+        add_text(slide, "All configured laboratories submitted data for the selected reporting period.", .8, 5.0, 11.2, .3, 13, green, True)
 
     slide = prs.slides.add_slide(blank); header(slide, "Laboratory performance at a glance", 3)
     rows = []
@@ -641,7 +653,160 @@ def build_portfolio_management_presentation(static_folder: str, reporting_week_e
     paginated_table("Open samples above 9-day threshold", ["Laboratory", "Material", "Notification", "Received", "Age", "Remarks"], open_rows, [1.85, 2.4, 1.35, 1.15, .7, 4.85])
 
     chemical_rows = [[item["chemical_name"], ", ".join(item["laboratories"]), item["total"], item["passed"], item["failed"], item["under_testing"], f"{item['average_actual']} d" if item["average_actual"] is not None else "—", f"{item['standard_days']} d" if item["standard_days"] is not None else "—"] for item in data["weekly_chemical_metrics"]]
-    paginated_table("Weekly chemical performance", ["Chemical", "Laboratories", "Samples", "Pass", "Fail", "Open", "Average time", "Standard"], chemical_rows, [2.35, 3.35, .75, .65, .65, .65, 1.15, 1.15])
+    paginated_table("Reporting-period chemical performance", ["Chemical", "Laboratories", "Samples", "Pass", "Fail", "Open", "Average time", "Standard"], chemical_rows, [2.35, 3.35, .75, .65, .65, .65, 1.15, 1.15])
 
     output = BytesIO(); prs.save(output); output.seek(0)
     return output, f"{scope_stem} Management Review {period['end']:%b %Y}.pptx"
+
+
+def build_sap_portfolio_management_presentation(
+    static_folder: str, lab_codes: set[str] | None = None,
+) -> tuple[BytesIO, str]:
+    """Create the senior-management deck from the current SAP snapshots only."""
+    from pptx import Presentation
+    from pptx.util import Inches, Pt
+    from app.core.services.sap_quality_control import sap_management_data
+
+    data = sap_management_data(lab_codes)
+    if not data["reporting_labs"]:
+        raise ValueError("Import paired SAP exports for at least one laboratory before downloading the management presentation.")
+
+    prs = Presentation()
+    prs.slide_width, prs.slide_height = Inches(13.333), Inches(7.5)
+    scope_labs = data["scope_laboratories"]
+    scope_label = "All SAP laboratories" if lab_codes is None else ", ".join(lab["name"] for lab in scope_labs)
+    chrome = _DeckChrome(
+        prs, static_folder,
+        f"Source: latest paired SAP Inspection Lots and Notifications exports · {data['source_as_of_label']}",
+    )
+    navy, blue, red, green, grey = chrome.NAVY, chrome.BLUE, chrome.RED, chrome.GREEN, chrome.GREY
+
+    def concise(value, limit=36):
+        text = " ".join(str(value or "—").split())
+        return text if len(text) <= limit else f"{text[:limit].rsplit(' ', 1)[0]}…"
+
+    def table(slide, headers, rows, widths, *, y=1.5, font_size=9):
+        if not rows:
+            chrome.add_text(slide, "No SAP records are available for this view.", .8, 2.1, 10.5, .35, 18, green, True)
+            return
+        height = min(5.15, .34 * (len(rows) + 1))
+        shape = slide.shapes.add_table(len(rows) + 1, len(headers), Inches(.42), Inches(y), Inches(12.45), Inches(height))
+        table_shape = shape.table
+        for index, width in enumerate(widths):
+            table_shape.columns[index].width = Inches(width)
+        for column, label in enumerate(headers):
+            cell = table_shape.cell(0, column)
+            cell.text = label
+            cell.fill.solid()
+            cell.fill.fore_color.rgb = chrome.color(navy)
+        for row_index, values in enumerate(rows, 1):
+            for column, value in enumerate(values):
+                cell = table_shape.cell(row_index, column)
+                cell.text = str(value)
+                cell.fill.solid()
+                cell.fill.fore_color.rgb = chrome.color("F8FBFE" if row_index % 2 == 0 else "FFFFFF")
+        for row in table_shape.rows:
+            for cell in row.cells:
+                for paragraph in cell.text_frame.paragraphs:
+                    paragraph.font.size = Pt(font_size)
+                    paragraph.font.name = "Arial"
+                    paragraph.font.color.rgb = chrome.color(navy)
+        for cell in table_shape.rows[0].cells:
+            for paragraph in cell.text_frame.paragraphs:
+                paragraph.font.bold = True
+                paragraph.font.color.rgb = chrome.color("FFFFFF")
+
+    # 01 · Cover
+    slide = prs.slides.add_slide(chrome.blank)
+    chrome.canvas_background(slide)
+    slide.background.fill.solid()
+    slide.background.fill.fore_color.rgb = chrome.color("EAF4FF")
+    chrome.rectangle(slide, 12.48, .08, .85, 6.85, "D7EAFB")
+    chrome.add_text(slide, "QC LABORATORY MONITORING · SAP QM", .76, 1.28, 8.6, .28, 14, blue, True)
+    chrome.add_text(slide, "Management Review", .76, 1.82, 10.5, .7, 50, navy, True)
+    chrome.rectangle(slide, .76, 2.75, 1.15, .045, blue)
+    chrome.add_text(slide, data["source_as_of_label"], .76, 3.08, 8.6, .36, 24, navy, True)
+    chrome.add_wrapped_text(slide, f"Scope: {scope_label}. All figures and action registers are derived from the latest paired SAP exports; local workbook data is excluded.", .76, 3.68, 8.7, .7, 16, grey)
+    chrome.add_cover_branding(slide)
+    chrome.add_text(slide, "Office of Head Corporate Chemistry | Mumbai / Dehradun", .76, 6.45, 7.2, .2, 11, grey)
+
+    # 02 · Position
+    kpis = data["kpis"]
+    slide = chrome.new_slide("Official SAP position", 2)
+    cards = [
+        (kpis["total"], "SAP monitoring records", blue),
+        (kpis["actionable_open"], "Actionable SAP-open", red if kpis["actionable_open"] else green),
+        (kpis["planned_overdue"], "Past SAP planned end", red if kpis["planned_overdue"] else green),
+        (kpis["awaiting_lab"], "Awaiting lab follow-up", blue),
+        (f"{kpis['accepted']} / {kpis['rejected']}", "UD A / UD R", green),
+        (kpis["completed"], "Officially complete", green),
+    ]
+    for index, (value, label, tone) in enumerate(cards):
+        chrome.metric(slide, .7 + (index % 3) * 4.2, 1.65 + (index // 3) * 2.0, value, label, tone)
+    chrome.add_text(slide, f"Snapshot coverage: {data['reporting_labs']} of {data['configured_labs']} configured SAP laboratories. QC-admin exclusions: {kpis['excluded']}; exclusions requiring renewed review: {kpis['exclusion_review']}.", .75, 5.9, 11.6, .3, 13, grey)
+
+    # 03 · Laboratory overview
+    slide = chrome.new_slide("Laboratory SAP snapshot coverage", 3)
+    lab_rows = []
+    for review in data["laboratory_reviews"]:
+        if review["batch"] is None:
+            lab_rows.append([review["laboratory"]["name"], "—", "Awaiting snapshot", "—", "—", "—", "—"])
+            continue
+        item = review["kpis"]
+        lab_rows.append([
+            review["laboratory"]["name"], review["batch"].plant_code,
+            review["batch"].as_of_date.strftime("%d %b %Y"), item["total"],
+            item["actionable_open"], item["planned_overdue"], item["awaiting_lab"],
+        ])
+    table(slide, ["Laboratory", "Plant", "SAP as of", "Records", "Actionable open", "Past plan", "Awaiting lab"], lab_rows, [2.8, 1.0, 1.45, 1.15, 1.65, 1.25, 1.15], y=1.55, font_size=9)
+
+    # 04 · Work-centre exposure
+    slide = chrome.new_slide("Open workload by SAP work center", 4)
+    centre_rows = [[
+        item["name"], ", ".join(item["laboratories"]), item["open"],
+        item["planned_overdue"], item["awaiting_lab"],
+    ] for item in data["work_centers"][:14]]
+    table(slide, ["SAP work center", "Laboratories", "Open", "Past plan", "No lab update"], centre_rows, [3.7, 3.65, 1.35, 1.65, 2.1], y=1.55, font_size=10)
+
+    # 05+ · Complete current action register, never a top-ten subset.
+    action_entries = data["action_entries"]
+    for page_index, entries in enumerate(_paginated_rows(action_entries, 10), start=5):
+        first = (page_index - 5) * 10 + 1
+        last = first + len(entries) - 1
+        suffix = f" ({first}–{last} of {len(action_entries)})" if action_entries else ""
+        slide = chrome.new_slide(f"All actionable SAP-open items{suffix}", page_index)
+        rows = []
+        for item in entries:
+            record, update = item["record"], item["lab_update"]
+            planned = record.planned_end_date.strftime("%d %b %Y") if record.planned_end_date else "Not stated"
+            if item["planned_overdue"]:
+                planned += " · past plan"
+            follow_up = item["reconciliation_label"]
+            if update and update.expected_completion_date:
+                follow_up += f" · ETA {update.expected_completion_date:%d %b}"
+            rows.append([
+                concise(item["laboratory"]["name"], 18),
+                record.inspection_lot_number or "—", record.notification_no or "—",
+                concise(record.material_description, 31), concise(record.work_center or "Not assigned", 24),
+                planned, concise(follow_up, 34),
+            ])
+        table(slide, ["Laboratory", "Inspection lot", "Notification", "Material", "Work center", "SAP plan", "Lab follow-up"], rows, [1.55, 1.45, 1.45, 2.45, 1.65, 1.45, 2.45], y=1.48, font_size=8)
+
+    next_page = 5 + len(_paginated_rows(action_entries, 10))
+    slide = chrome.new_slide("SAP usage decisions and daily movement", next_page)
+    for index, item in enumerate(data["usage_decisions"]):
+        tone = green if item["tone"] == "success" else red if item["tone"] == "danger" else navy
+        chrome.metric(slide, .8 + index * 3.7, 1.7, item["count"], item["label"], tone)
+    movement_rows = [[
+        item["laboratory"]["name"], item["batch"].as_of_date.strftime("%d %b"),
+        item["current_open"], item["previous_open"] if item["previous_open"] is not None else "—",
+        f"{item['open_change']:+d}" if item["open_change"] is not None else "First snapshot",
+    ] for item in data["trend"]]
+    chrome.add_text(slide, "Change from the previous SAP snapshot", .8, 3.55, 5.6, .3, 18, navy, True)
+    table(slide, ["Laboratory", "Current", "SAP-open", "Previous open", "Change"], movement_rows, [3.4, 2.0, 2.0, 2.35, 2.7], y=4.0, font_size=10)
+
+    output = BytesIO()
+    prs.save(output)
+    output.seek(0)
+    filename_date = data["source_dates"][0].strftime("%d %b %Y") if len(data["source_dates"]) == 1 else "Latest"
+    return output, f"QC SAP Management Review {filename_date}.pptx"

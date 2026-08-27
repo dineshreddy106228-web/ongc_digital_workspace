@@ -122,6 +122,8 @@ class QCSAPLabUpdate(db.Model):
     id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
     record_id = db.Column(db.BigInteger, db.ForeignKey("qc_sap_records.id", ondelete="CASCADE"), nullable=False)
     activity_status = db.Column(db.String(48), nullable=False)
+    sampling_date = db.Column(db.Date, nullable=True)
+    actual_start_date = db.Column(db.Date, nullable=True)
     expected_completion_date = db.Column(db.Date, nullable=True)
     action_owner = db.Column(db.String(160), nullable=True)
     delay_reason = db.Column(db.Text, nullable=True)
