@@ -213,8 +213,8 @@ def import_sap_control_exports():
         batch = _import_sap_snapshot(lab_code)
         db.session.commit()
         flash(
-            f"{batch.lab_code.replace('_', ' ').title()} SAP snapshot for {batch.as_of_date:%d %b %Y} imported: "
-            f"{batch.record_count} monitoring records refreshed.", "success",
+            f"{batch.lab_code.replace('_', ' ').title()} SAP snapshot for {batch.as_of_date:%d %b %Y} is now live: "
+            f"{batch.record_count} monitoring records refreshed.", "success sap-import-completed",
         )
         return redirect(url_for("quality_control.sap_lab_dashboard", lab_code=lab_code))
     except ValueError as exc:
@@ -235,7 +235,7 @@ def import_sap_panvel_exports():
     try:
         _import_sap_snapshot("rgl_panvel")
         db.session.commit()
-        flash("RGL Panvel SAP snapshot imported.", "success")
+        flash("RGL Panvel SAP snapshot is now live.", "success sap-import-completed")
     except ValueError as exc:
         db.session.rollback(); flash(str(exc), "danger")
     except Exception:
@@ -270,6 +270,49 @@ def save_sap_lab_update(lab_code: str, record_id: int):
 @quality_control_admin_required
 def save_sap_panvel_lab_update(record_id: int):
     return save_sap_lab_update("rgl_panvel", record_id)
+
+
+@quality_control_bp.route("/sap-control/labs/<lab_code>/records/<int:record_id>/exclude", methods=["POST"])
+@login_required
+@module_access_required("quality_control")
+@quality_control_admin_required
+def exclude_sap_record_from_monitoring(lab_code: str, record_id: int):
+    from app.core.services.sap_quality_control import exclude_sap_record_from_monitoring as exclude_record
+    try:
+        disposition = exclude_record(record_id, request.form, current_user.id, lab_code=lab_code)
+        db.session.commit()
+        flash(
+            "SAP notification excluded from the active monitoring list. The SAP record and the QC-admin decision remain in the audit register.",
+            "success",
+        )
+    except ValueError as exc:
+        db.session.rollback()
+        flash(str(exc), "danger")
+    except Exception:
+        db.session.rollback()
+        logger.exception("SAP monitoring exclusion failed for lab=%s record=%s", lab_code, record_id)
+        flash("The SAP notification could not be excluded from monitoring. Please try again.", "danger")
+    return redirect(url_for("quality_control.sap_lab_dashboard", lab_code=lab_code) + "#excluded-sap-records")
+
+
+@quality_control_bp.route("/sap-control/labs/<lab_code>/records/<int:record_id>/reinstate", methods=["POST"])
+@login_required
+@module_access_required("quality_control")
+@quality_control_admin_required
+def reinstate_sap_record_for_monitoring(lab_code: str, record_id: int):
+    from app.core.services.sap_quality_control import reinstate_sap_record_for_monitoring as reinstate_record
+    try:
+        reinstate_record(record_id, current_user.id, lab_code=lab_code)
+        db.session.commit()
+        flash("SAP notification reinstated to the active monitoring list.", "success")
+    except ValueError as exc:
+        db.session.rollback()
+        flash(str(exc), "danger")
+    except Exception:
+        db.session.rollback()
+        logger.exception("SAP monitoring reinstatement failed for lab=%s record=%s", lab_code, record_id)
+        flash("The SAP notification could not be reinstated. Please try again.", "danger")
+    return redirect(url_for("quality_control.sap_lab_dashboard", lab_code=lab_code) + f"#sap-record-{record_id}")
 
 
 @quality_control_bp.route("/sap-control/labs/<lab_code>/presentation.pptx")

@@ -322,9 +322,10 @@ def build_sap_lab_presentation(lab_code: str, static_folder: str) -> tuple[Bytes
     """Create a complete daily action pack from one lab's SAP snapshot.
 
     The operational register is deliberately paginated rather than shortened:
-    every SAP-open record is supplied to the laboratory.  Non-SAP work is a
-    separate declared-exception section with a blank return table, never a
-    substitute for an SAP status.
+    every actionable SAP-open record is supplied to the laboratory. QC-admin
+    exclusions remain in the Corporate Chemistry audit register, and non-SAP
+    work remains a separate declared-exception section with a blank return
+    table, never a substitute for an SAP status.
     """
     from pptx import Presentation
     from pptx.util import Inches
@@ -391,7 +392,7 @@ def build_sap_lab_presentation(lab_code: str, static_folder: str) -> tuple[Bytes
     cards = [
         (kpis["total"], "SAP monitoring records", navy),
         (kpis["completed"], "Officially complete", green),
-        (kpis["open"], "Officially open", red if kpis["open"] else green),
+        (kpis["open"], "Actionable SAP-open", red if kpis["open"] else green),
         (kpis["planned_overdue"], "Open past planned end", red if kpis["planned_overdue"] else green),
         (kpis["awaiting_lab"], "Awaiting laboratory update", blue),
         (kpis["awaiting_sap_confirmation"], "Lab complete; SAP pending", red if kpis["awaiting_sap_confirmation"] else green),
@@ -400,7 +401,7 @@ def build_sap_lab_presentation(lab_code: str, static_folder: str) -> tuple[Bytes
         chrome.metric(slide, .7 + (index % 3) * 4.2, 1.65 + (index // 3) * 2.0, value, label, tone)
     chrome.add_text(
         slide,
-        f"SAP usage decisions in this snapshot: {kpis['accepted']} accepted (UD A) and {kpis['rejected']} rejected (UD R). A returned lab action alone never changes the official SAP count.",
+        f"SAP usage decisions: {kpis['accepted']} accepted (UD A), {kpis['rejected']} rejected (UD R), and {kpis['excluded_from_monitoring']} QC-admin exclusion(s). A returned lab action alone never changes SAP.",
         .75, 5.85, 11.7, .35, 14, grey,
     )
 
@@ -488,7 +489,7 @@ def build_sap_lab_presentation(lab_code: str, static_folder: str) -> tuple[Bytes
     chrome.add_text(slide, "Daily operating discipline", .8, 3.55, 5.2, .3, 19, navy, True)
     asks = [
         "Import both SAP exports from one daily run and retain the source files.",
-        "Return a status for every SAP-open record; Corporate Chemistry records the response against the action pack.",
+        "Return a status for every action-pack item; QC-admin exclusions remain separately auditable and are not sent to the laboratory.",
         "Use the non-SAP return table only for samples not present in SAP; SAP-open records close only after the next SAP export confirms them.",
     ]
     for index, ask in enumerate(asks):

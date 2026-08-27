@@ -23,6 +23,7 @@ from app.models.quality_control.qc_sap_monitoring import (
     QCNonSAPSample,
     QCNonSAPSampleUpdate,
     QCSAPLabUpdate,
+    QCSAPMonitoringDisposition,
     QCSAPRecord,
     QCSAPUploadBatch,
 )
@@ -52,6 +53,14 @@ NON_SAP_STATUSES = LAB_UPDATE_STATUSES + (
 NON_SAP_STATUS_LABELS = dict(NON_SAP_STATUSES)
 NON_SAP_CLOSED_STATUSES = {"closed_pass", "closed_fail"}
 USAGE_DECISION_OUTCOMES = {"A": "accepted", "R": "rejected"}
+SAP_EXCLUSION_REASONS = (
+    ("junk_notification", "Junk / test notification"),
+    ("duplicate_notification", "Duplicate SAP notification"),
+    ("wrongly_raised", "Wrongly raised / wrong scope"),
+    ("no_lab_work_required", "No laboratory work required"),
+    ("other", "Other non-actionable notification"),
+)
+SAP_EXCLUSION_REASON_LABELS = dict(SAP_EXCLUSION_REASONS)
 
 
 @dataclass(frozen=True)
@@ -521,6 +530,50 @@ def _latest_lab_updates(records: list[QCSAPRecord]) -> dict[int, QCSAPLabUpdate]
     return latest
 
 
+def _latest_monitoring_dispositions(records: list[QCSAPRecord]) -> dict[int, QCSAPMonitoringDisposition]:
+    """Return the latest immutable QC-admin decision for each SAP record."""
+    if not records:
+        return {}
+    decisions = QCSAPMonitoringDisposition.query.filter(
+        QCSAPMonitoringDisposition.record_id.in_([record.id for record in records])
+    ).order_by(
+        QCSAPMonitoringDisposition.record_id,
+        QCSAPMonitoringDisposition.created_at.desc(),
+        QCSAPMonitoringDisposition.id.desc(),
+    ).all()
+    latest: dict[int, QCSAPMonitoringDisposition] = {}
+    for decision in decisions:
+        latest.setdefault(decision.record_id, decision)
+    return latest
+
+
+def _work_center_snapshot(value: str | None) -> str | None:
+    return _text(value) or None
+
+
+def _monitoring_disposition_state(
+    record: QCSAPRecord,
+    disposition: QCSAPMonitoringDisposition | None,
+) -> dict[str, bool]:
+    """Determine whether an active exclusion still matches the SAP position.
+
+    The decision survives a daily upload only while SAP's official status and
+    work-centre assignment are unchanged.  A change returns it to the
+    Corporate Chemistry review queue rather than silently hiding it.
+    """
+    active_exclusion = bool(disposition and disposition.decision == "exclude_non_actionable")
+    if not active_exclusion or record.official_status != "open":
+        return {"is_excluded": False, "requires_review": False}
+    changed_since_decision = (
+        record.official_status != disposition.official_status_at_decision
+        or _work_center_snapshot(record.work_center) != disposition.work_center_at_decision
+    )
+    return {
+        "is_excluded": not changed_since_decision,
+        "requires_review": changed_since_decision,
+    }
+
+
 def _reconciliation_state(record: QCSAPRecord, update: QCSAPLabUpdate | None) -> tuple[str, str]:
     if record.official_status == "completed":
         return "sap_confirmed", "SAP complete"
@@ -584,6 +637,7 @@ def sap_lab_dashboard_data(lab_code: str) -> dict[str, Any]:
         QCSAPRecord.official_status.asc(), QCSAPRecord.planned_end_date.asc(), QCSAPRecord.id.asc(),
     ).all()
     updates = _latest_lab_updates(records)
+    dispositions = _latest_monitoring_dispositions(records)
     standards = {
         _material_key(item.material_code): item.standard_days
         for item in QCTestingStandard.query.filter(QCTestingStandard.material_code.isnot(None)).all()
@@ -593,22 +647,45 @@ def sap_lab_dashboard_data(lab_code: str) -> dict[str, Any]:
     states = Counter()
     for record in records:
         update = updates.get(record.id)
+        disposition = dispositions.get(record.id)
+        disposition_state = _monitoring_disposition_state(record, disposition)
         reconciliation_key, reconciliation_label = _reconciliation_state(record, update)
+        if disposition_state["requires_review"]:
+            reconciliation_key, reconciliation_label = "exclusion_review", "Exclusion review required"
         is_planned_overdue = bool(
             record.official_status == "open" and record.planned_end_date and record.planned_end_date < batch.as_of_date
         )
-        if record.official_status == "open":
+        if record.official_status == "open" and not disposition_state["is_excluded"] and not disposition_state["requires_review"]:
             states[reconciliation_key] += 1
         entries.append({
             "record": record,
             "lab_update": update,
+            "disposition": disposition,
+            "is_excluded": disposition_state["is_excluded"],
+            "exclusion_requires_review": disposition_state["requires_review"],
+            "exclusion_reason_label": SAP_EXCLUSION_REASON_LABELS.get(
+                disposition.reason_code if disposition else "", "Excluded from monitoring",
+            ),
             "reconciliation_key": reconciliation_key,
             "reconciliation_label": reconciliation_label,
             "planned_overdue": is_planned_overdue,
             "standard_days": standards.get(_material_key(record.material_code)),
         })
 
-    open_entries = [entry for entry in entries if entry["record"].official_status == "open"]
+    open_entries = [
+        entry for entry in entries
+        if entry["record"].official_status == "open"
+        and not entry["is_excluded"]
+        and not entry["exclusion_requires_review"]
+    ]
+    excluded_entries = [
+        entry for entry in entries
+        if entry["record"].official_status == "open" and entry["is_excluded"]
+    ]
+    exclusion_review_entries = [
+        entry for entry in entries
+        if entry["record"].official_status == "open" and entry["exclusion_requires_review"]
+    ]
     work_centers: dict[str, dict[str, Any]] = {}
     for entry in open_entries:
         name = entry["record"].work_center or "Not assigned in SAP"
@@ -626,6 +703,8 @@ def sap_lab_dashboard_data(lab_code: str) -> dict[str, Any]:
         "planned_overdue": sum(1 for entry in open_entries if entry["planned_overdue"]),
         "awaiting_lab": states["awaiting_lab"],
         "awaiting_sap_confirmation": states["awaiting_sap_confirmation"],
+        "excluded_from_monitoring": len(excluded_entries),
+        "exclusion_review": len(exclusion_review_entries),
         "material_standard_coverage": sum(1 for entry in entries if entry["standard_days"] is not None),
         "unmatched_inspection": batch.unmatched_inspection_count,
         "unmatched_notification": batch.unmatched_notification_count,
@@ -639,6 +718,10 @@ def sap_lab_dashboard_data(lab_code: str) -> dict[str, Any]:
         "batch": batch,
         "records": entries,
         "open_records": [entry for entry in open_entries if entry["planned_overdue"] or entry["reconciliation_key"] != "sap_confirmed"],
+        "excluded_entries": excluded_entries,
+        "exclusion_review_entries": exclusion_review_entries,
+        "sap_exclusion_reasons": SAP_EXCLUSION_REASONS,
+        "sap_exclusion_reason_labels": SAP_EXCLUSION_REASON_LABELS,
         "kpis": kpis,
         "work_centers": sorted(work_centers.values(), key=lambda item: (-item["planned_overdue"], -item["open"], item["name"])),
         "usage_decisions": sorted(({"label": label, "count": count} for label, count in usage_decisions.items()), key=lambda item: (-item["count"], item["label"])),
@@ -665,10 +748,18 @@ def sap_control_data() -> dict[str, Any]:
         lab_code = laboratory["code"]
         batch = latest_sap_batch(lab_code)
         sap_open = 0
+        excluded_from_monitoring = 0
+        exclusion_review = 0
         if batch:
-            sap_open = QCSAPRecord.query.filter_by(
+            current_records = QCSAPRecord.query.filter_by(
                 lab_code=lab_code, last_seen_batch_id=batch.id, official_status="open",
-            ).count()
+            ).all()
+            latest_dispositions = _latest_monitoring_dispositions(current_records)
+            for record in current_records:
+                state = _monitoring_disposition_state(record, latest_dispositions.get(record.id))
+                excluded_from_monitoring += int(state["is_excluded"])
+                exclusion_review += int(state["requires_review"])
+                sap_open += int(not state["is_excluded"] and not state["requires_review"])
         non_sap_pending = QCNonSAPSample.query.filter_by(lab_code=lab_code).filter(
             ~QCNonSAPSample.current_status.in_(NON_SAP_CLOSED_STATUSES)
         ).count()
@@ -676,6 +767,8 @@ def sap_control_data() -> dict[str, Any]:
             "laboratory": laboratory,
             "batch": batch,
             "sap_open": sap_open,
+            "excluded_from_monitoring": excluded_from_monitoring,
+            "exclusion_review": exclusion_review,
             "non_sap_pending": non_sap_pending,
             "combined_pending": sap_open + non_sap_pending,
         })
@@ -720,6 +813,59 @@ def create_sap_lab_update(
     )
     db.session.add(update)
     return update
+
+
+def exclude_sap_record_from_monitoring(
+    record_id: int, form: dict[str, Any], recorded_by: int | None, *, lab_code: str = PANVEL_LAB_CODE,
+) -> QCSAPMonitoringDisposition:
+    """Exclude a non-actionable SAP notification without removing SAP evidence."""
+    get_sap_reporting_laboratory(lab_code)
+    record = QCSAPRecord.query.filter_by(id=record_id, lab_code=lab_code).first()
+    if record is None:
+        raise ValueError("The requested SAP monitoring record is no longer available.")
+    if record.official_status != "open":
+        raise ValueError("Only SAP-open notifications can be excluded from current monitoring.")
+    if not record.notification_no:
+        raise ValueError("Only notification-backed SAP rows can be excluded. Inspection-lot-only rows remain monitored.")
+    reason_code = _text(form.get("exclusion_reason"))
+    if reason_code not in SAP_EXCLUSION_REASON_LABELS:
+        raise ValueError("Choose why this SAP notification is non-actionable.")
+    note = _text(form.get("exclusion_note"))
+    if reason_code == "other" and not note:
+        raise ValueError("Explain why this notification is non-actionable when choosing Other.")
+    disposition = QCSAPMonitoringDisposition(
+        record_id=record.id,
+        decision="exclude_non_actionable",
+        reason_code=reason_code,
+        note=note or None,
+        official_status_at_decision=record.official_status,
+        work_center_at_decision=_work_center_snapshot(record.work_center),
+        recorded_by=recorded_by,
+    )
+    db.session.add(disposition)
+    return disposition
+
+
+def reinstate_sap_record_for_monitoring(
+    record_id: int, recorded_by: int | None, *, lab_code: str = PANVEL_LAB_CODE,
+) -> QCSAPMonitoringDisposition:
+    """Record a QC-admin reinstatement; the SAP row returns to the action list."""
+    get_sap_reporting_laboratory(lab_code)
+    record = QCSAPRecord.query.filter_by(id=record_id, lab_code=lab_code).first()
+    if record is None:
+        raise ValueError("The requested SAP monitoring record is no longer available.")
+    latest = _latest_monitoring_dispositions([record]).get(record.id)
+    if latest is None or latest.decision != "exclude_non_actionable":
+        raise ValueError("This SAP notification is not currently excluded from monitoring.")
+    disposition = QCSAPMonitoringDisposition(
+        record_id=record.id,
+        decision="reinstate",
+        official_status_at_decision=record.official_status,
+        work_center_at_decision=_work_center_snapshot(record.work_center),
+        recorded_by=recorded_by,
+    )
+    db.session.add(disposition)
+    return disposition
 
 
 def _non_sap_outcome(status: str, value: Any) -> str | None:

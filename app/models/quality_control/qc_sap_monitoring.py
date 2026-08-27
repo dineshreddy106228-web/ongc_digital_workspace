@@ -106,6 +106,9 @@ class QCSAPRecord(db.Model):
     first_seen_batch = db.relationship("QCSAPUploadBatch", foreign_keys=[first_seen_batch_id])
     last_seen_batch = db.relationship("QCSAPUploadBatch", foreign_keys=[last_seen_batch_id])
     lab_updates = db.relationship("QCSAPLabUpdate", back_populates="record", cascade="all, delete-orphan")
+    monitoring_dispositions = db.relationship(
+        "QCSAPMonitoringDisposition", back_populates="record", cascade="all, delete-orphan",
+    )
 
 
 class QCSAPLabUpdate(db.Model):
@@ -128,6 +131,33 @@ class QCSAPLabUpdate(db.Model):
 
     record = db.relationship("QCSAPRecord", back_populates="lab_updates")
     updater = db.relationship("User", foreign_keys=[updated_by])
+
+
+class QCSAPMonitoringDisposition(db.Model):
+    """Immutable QC-admin decisions that exclude or reinstate SAP records.
+
+    The underlying SAP notification is never deleted.  An exclusion records
+    the SAP status and work centre that were reviewed, so a later SAP change
+    can be returned to Corporate Chemistry for a fresh decision.
+    """
+
+    __tablename__ = "qc_sap_monitoring_dispositions"
+    __table_args__ = (
+        db.Index("ix_qc_sap_monitoring_dispositions_record_created", "record_id", "created_at"),
+    )
+
+    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    record_id = db.Column(db.BigInteger, db.ForeignKey("qc_sap_records.id", ondelete="CASCADE"), nullable=False)
+    decision = db.Column(db.String(24), nullable=False)  # exclude_non_actionable | reinstate
+    reason_code = db.Column(db.String(64), nullable=True)
+    note = db.Column(db.Text, nullable=True)
+    official_status_at_decision = db.Column(db.String(32), nullable=False)
+    work_center_at_decision = db.Column(db.String(160), nullable=True)
+    recorded_by = db.Column(db.BigInteger, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    record = db.relationship("QCSAPRecord", back_populates="monitoring_dispositions")
+    recorder = db.relationship("User", foreign_keys=[recorded_by])
 
 
 class QCNonSAPSample(db.Model):

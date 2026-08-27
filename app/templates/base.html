@@ -276,7 +276,7 @@
             {% if messages %}
             <div class="flash-area">
                 {% for category, message in messages %}
-                <div class="flash flash-{{ category }}">
+                <div class="flash flash-{{ category }}"{% if 'sap-import-completed' in category %} data-dialog-title="SAP import completed"{% endif %}>
                     {{ message }}
                     <button class="flash-close js-flash-close" type="button" aria-label="Dismiss alert">&times;</button>
                 </div>
@@ -452,7 +452,11 @@
                     });
                     var message = clone.textContent.trim();
                     if (message) {
-                        window.showAppDialog({ tone: tone, message: message });
+                        window.showAppDialog({
+                            tone: tone,
+                            title: flashNode.dataset.dialogTitle || undefined,
+                            message: message
+                        });
                     }
                 });
                 area.hidden = true;

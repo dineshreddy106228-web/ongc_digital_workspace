@@ -37,9 +37,9 @@ def _inspection_export(*, plant: str = "10R2") -> bytes:
     ]))
 
 
-def _notification_export(*, plant: str = "10R2") -> bytes:
+def _notification_export(*, plant: str = "10R2", first_work_center: str = "MUDLAB") -> bytes:
     return _xlsx(pd.DataFrame([
-        ["7001", "OPEN", "45000001", "10", "00001234", "Barytes", "MUDLAB", plant, "5001", "REL CALC", "01.08.2026", "20.08.2026", "", "6"],
+        ["7001", "OPEN", "45000001", "10", "00001234", "Barytes", first_work_center, plant, "5001", "REL CALC", "01.08.2026", "20.08.2026", "", "6"],
         ["7002", "COMP", "45000002", "10", "00005678", "Calcium carbonate", "OILLAB", plant, "5002", "UD ICCO", "02.08.2026", "24.08.2026", "25.08.2026", "1"],
         ["7003", "OPEN", "45000003", "10", "00007777", "Unlinked item", "WATERLAB", plant, "0", "", "04.08.2026", "21.08.2026", "", "5"],
     ], columns=[
@@ -59,12 +59,16 @@ def sap_app(tmp_path):
     app = create_app(_Config)
     with app.app_context():
         from app.models.quality_control.qc_sap_monitoring import (
-            QCNonSAPSample, QCNonSAPSampleUpdate, QCSAPLabUpdate, QCSAPRecord, QCSAPUploadBatch,
+            QCNonSAPSample, QCNonSAPSampleUpdate, QCSAPLabUpdate, QCSAPMonitoringDisposition, QCSAPRecord,
+            QCSAPUploadBatch,
         )
 
         # SQLite only auto-generates primary keys for an INTEGER column; the
         # production schema intentionally retains BIGINT primary keys for MySQL.
-        for model in (QCSAPUploadBatch, QCSAPRecord, QCSAPLabUpdate, QCNonSAPSample, QCNonSAPSampleUpdate):
+        for model in (
+            QCSAPUploadBatch, QCSAPRecord, QCSAPLabUpdate, QCSAPMonitoringDisposition,
+            QCNonSAPSample, QCNonSAPSampleUpdate,
+        ):
             model.__table__.c.id.type = Integer()
         db.create_all()
         yield app
@@ -177,6 +181,49 @@ def test_non_sap_register_is_separate_from_the_sap_position(sap_app):
     data = sap_panvel_dashboard_data()
     assert data["kpis"]["open"] == 3
     assert data["kpis"]["non_sap_pending"] == 0
+
+
+def test_qc_admin_exclusion_is_auditable_and_reopens_for_sap_assignment_change(sap_app):
+    from app.core.services.sap_quality_control import (
+        exclude_sap_record_from_monitoring, import_sap_panvel_exports,
+        reinstate_sap_record_for_monitoring, sap_panvel_dashboard_data,
+    )
+    from app.models.quality_control.qc_sap_monitoring import QCSAPRecord
+
+    import_sap_panvel_exports(
+        _inspection_export(), "SAP_INSPECTION_20260826.xlsx",
+        _notification_export(), "SAP_NOTIFICATIONS_20260826.xlsx", None,
+    )
+    db.session.commit()
+    record = QCSAPRecord.query.filter_by(notification_no="7001").one()
+    exclusion = exclude_sap_record_from_monitoring(record.id, {
+        "exclusion_reason": "junk_notification",
+        "exclusion_note": "Created in error; no laboratory work was requested.",
+    }, None)
+    db.session.commit()
+
+    data = sap_panvel_dashboard_data()
+    assert exclusion.decision == "exclude_non_actionable"
+    assert data["kpis"]["open"] == 2
+    assert data["kpis"]["excluded_from_monitoring"] == 1
+    assert all(item["record"].id != record.id for item in data["open_records"])
+    assert data["excluded_entries"][0]["exclusion_reason_label"] == "Junk / test notification"
+
+    import_sap_panvel_exports(
+        _inspection_export(), "SAP_INSPECTION_20260826.xlsx",
+        _notification_export(first_work_center="NEWLAB"), "SAP_NOTIFICATIONS_20260827.xlsx", None,
+    )
+    db.session.commit()
+    changed = sap_panvel_dashboard_data()
+    assert changed["kpis"]["excluded_from_monitoring"] == 0
+    assert changed["kpis"]["exclusion_review"] == 1
+    assert changed["exclusion_review_entries"][0]["record"].id == record.id
+
+    reinstate_sap_record_for_monitoring(record.id, None)
+    db.session.commit()
+    reinstated = sap_panvel_dashboard_data()
+    assert reinstated["kpis"]["open"] == 3
+    assert reinstated["kpis"]["exclusion_review"] == 0
 
 
 def test_sap_management_presentation_uses_the_current_snapshot(sap_app):
