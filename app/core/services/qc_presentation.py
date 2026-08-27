@@ -10,7 +10,8 @@ from app.models.quality_control.qc_testing_standard import QCTestingStandard
 
 
 # Deck chrome shared by every QC export: one navy rule at the top, a thin border
-# above and below the body, the ONGC mark, and a footer carrying the data source.
+# above and below the body, the ONGC and Corporate Chemistry marks, and a footer
+# carrying the data source.
 # Kept module-level so the lab decks cannot drift apart visually.
 class _DeckChrome:
     """Slide furniture for a QC deck, bound to one Presentation."""
@@ -23,7 +24,8 @@ class _DeckChrome:
         self.prs = prs
         self.blank = prs.slide_layouts[6]
         self.source_line = source_line
-        self.logo = Path(static_folder) / "images" / "ongc-corporate-chemistry-logo.png"
+        self.corporate_chemistry_logo = Path(static_folder) / "images" / "ongc-corporate-chemistry-logo.png"
+        self.ongc_logo = Path(static_folder) / "images" / "ongc-official-logo.png"
         self._Inches, self._Pt = Inches, Pt
 
     def color(self, value):
@@ -62,13 +64,27 @@ class _DeckChrome:
         self.rectangle(slide, .42, 1.26, 12.45, .015, self.BORDER)
         self.rectangle(slide, .42, 6.93, 12.45, .015, self.BORDER)
 
+    def add_header_branding(self, slide):
+        """Place both approved marks in the deck header without crowding it."""
+        if self.ongc_logo.exists():
+            slide.shapes.add_picture(str(self.ongc_logo), self._Inches(11.15), self._Inches(.21), width=self._Inches(.9), height=self._Inches(.51))
+        if self.corporate_chemistry_logo.exists():
+            slide.shapes.add_picture(str(self.corporate_chemistry_logo), self._Inches(12.24), self._Inches(.16), width=self._Inches(.55), height=self._Inches(.55))
+
+    def add_cover_branding(self, slide, background="FFFFFF"):
+        """Use the same ONGC + Corporate Chemistry pairing on title slides."""
+        self.rectangle(slide, 10.0, .46, 2.32, 1.2, background, self.BORDER)
+        if self.ongc_logo.exists():
+            slide.shapes.add_picture(str(self.ongc_logo), self._Inches(10.16), self._Inches(.68), width=self._Inches(.9), height=self._Inches(.51))
+        if self.corporate_chemistry_logo.exists():
+            slide.shapes.add_picture(str(self.corporate_chemistry_logo), self._Inches(11.16), self._Inches(.53), width=self._Inches(1.05), height=self._Inches(1.05))
+
     def header(self, slide, title, page):
         from pptx.util import Inches
         self.canvas_background(slide)
         self.add_text(slide, "ONGC CORPORATE CHEMISTRY \u00b7 QC LABORATORY MONITORING", .42, .27, 7.4, .24, 11, self.BLUE, True)
         self.add_text(slide, title, .42, .7, 11.5, .46, 27, self.NAVY, True)
-        if self.logo.exists():
-            slide.shapes.add_picture(str(self.logo), Inches(12.24), Inches(.16), width=Inches(.55), height=Inches(.55))
+        self.add_header_branding(slide)
         self.add_text(slide, self.source_line, .42, 7.08, 8.6, .16, 8, self.GREY)
         self.add_text(slide, f"{page:02d}", 12.5, 7.08, .25, .16, 8, self.GREY)
 
@@ -90,6 +106,13 @@ class _DeckChrome:
         slide = self.prs.slides.add_slide(self.blank)
         self.header(slide, title, page)
         return slide
+
+
+def _paginated_rows(rows, page_size: int):
+    """Split an operational register without ever dropping the final rows."""
+    if page_size < 1:
+        raise ValueError("A presentation page must contain at least one row.")
+    return [rows[index:index + page_size] for index in range(0, len(rows), page_size)] or [[]]
 
 
 def build_lab_performance_presentation(lab_code: str, static_folder: str) -> tuple[BytesIO, str]:
@@ -118,7 +141,7 @@ def build_lab_performance_presentation(lab_code: str, static_folder: str) -> tup
     border = chrome.BORDER
     color, add_text, add_wrapped_text = chrome.color, chrome.add_text, chrome.add_wrapped_text
     rectangle, header, metric = chrome.rectangle, chrome.header, chrome.metric
-    canvas_background, logo = chrome.canvas_background, chrome.logo
+    canvas_background = chrome.canvas_background
     def overview_text(value, limit=74):
         """Keep narrative spreadsheet remarks readable in overview slides."""
         text = " ".join(str(value or "Not recorded").split())
@@ -167,9 +190,7 @@ def build_lab_performance_presentation(lab_code: str, static_folder: str) -> tup
     rectangle(slide, .76, 2.75, 1.15, .045, blue)
     add_text(slide, f"Performance Review · {month_start:%B %Y}", .76, 3.08, 8.5, .36, 24, navy, True)
     add_text(slide, "Weekly quality-control performance, Service Level Agreement compliance and exception review", .76, 3.68, 9.9, .36, 16, grey)
-    if logo.exists():
-        rectangle(slide, 11.08, .46, 1.2, 1.2, "FFFFFF", border)
-        slide.shapes.add_picture(str(logo), Inches(11.15), Inches(.53), width=Inches(1.05), height=Inches(1.05))
+    chrome.add_cover_branding(slide)
     add_text(slide, "Office of Head Corporate Chemistry | Mumbai / Dehradun", .76, 6.45, 7.2, .2, 11, grey)
 
     slide=prs.slides.add_slide(blank); header(slide, f"{data['laboratory']['name']} | Performance metrics", 2); month=data['month_stt']
@@ -297,6 +318,195 @@ def build_lab_brief_presentation(lab_code: str, static_folder: str) -> tuple[Byt
     return output, f"{laboratory['name']} Management Brief {batch.week_end:%d %b %Y}.pptx"
 
 
+def build_sap_lab_presentation(lab_code: str, static_folder: str) -> tuple[BytesIO, str]:
+    """Create a complete daily action pack from one lab's SAP snapshot.
+
+    The operational register is deliberately paginated rather than shortened:
+    every SAP-open record is supplied to the laboratory.  Non-SAP work is a
+    separate declared-exception section with a blank return table, never a
+    substitute for an SAP status.
+    """
+    from pptx import Presentation
+    from pptx.util import Inches
+    from app.core.services.sap_quality_control import sap_lab_dashboard_data
+
+    data = sap_lab_dashboard_data(lab_code)
+    batch = data["batch"]
+    if batch is None:
+        raise ValueError(f"Import paired SAP exports for {data['laboratory']['name']} before downloading an action pack.")
+    laboratory = data["laboratory"]
+
+    prs = Presentation()
+    prs.slide_width, prs.slide_height = Inches(13.333), Inches(7.5)
+    chrome = _DeckChrome(
+        prs, static_folder,
+        f"Source: SAP QM exports · {laboratory['name']} · as at {batch.as_of_date:%d %b %Y}",
+    )
+    navy, blue, red, green, grey = chrome.NAVY, chrome.BLUE, chrome.RED, chrome.GREEN, chrome.GREY
+
+    def concise(value, limit=52):
+        text = " ".join(str(value or "—").split())
+        return text if len(text) <= limit else f"{text[:limit + 1].rsplit(' ', 1)[0]}…"
+
+    def table(slide, headers, rows, widths, y=1.6, font_size=9):
+        if not rows:
+            chrome.add_text(slide, "No records require management attention in this view.", .8, 2.15, 11, .35, 18, green, True)
+            return
+        height = min(4.95, .36 * (len(rows) + 1))
+        shape = slide.shapes.add_table(len(rows) + 1, len(headers), Inches(.42), Inches(y), Inches(12.45), Inches(height)).table
+        for column, width in enumerate(widths):
+            shape.columns[column].width = Inches(width)
+        for col, label in enumerate(headers):
+            cell = shape.cell(0, col)
+            cell.text = str(label)
+            cell.fill.solid(); cell.fill.fore_color.rgb = chrome.color(navy)
+        for row_index, values in enumerate(rows, 1):
+            for col, value in enumerate(values):
+                cell = shape.cell(row_index, col)
+                cell.text = str(value)
+                cell.fill.solid(); cell.fill.fore_color.rgb = chrome.color("F8FBFE" if row_index % 2 == 0 else "FFFFFF")
+        for row_index, row in enumerate(shape.rows):
+            for cell in row.cells:
+                for paragraph in cell.text_frame.paragraphs:
+                    paragraph.font.size = chrome._Pt(font_size)
+                    paragraph.font.name = "Arial"
+                    paragraph.font.bold = row_index == 0
+                    paragraph.font.color.rgb = chrome.color("FFFFFF" if row_index == 0 else navy)
+
+    # 01 · Cover
+    slide = chrome.new_slide("SAP Quality Monitoring — Daily Management Review", 1)
+    chrome.add_text(slide, laboratory["name"], .65, 1.8, 9.2, .55, 38, navy, True)
+    chrome.add_text(slide, f"SAP position as at {batch.as_of_date:%d %B %Y}", .65, 2.52, 9.4, .35, 20, blue, True)
+    chrome.rectangle(slide, .65, 3.06, 2.0, .05, blue)
+    chrome.add_wrapped_text(
+        slide,
+        "Corporate Chemistry generated this action pack from native SAP Inspection Lots and Notifications exports. The returned laboratory action is a follow-up commitment only; SAP remains the official status.",
+        .65, 3.48, 9.7, .8, 17, grey,
+    )
+    chrome.add_text(slide, f"Plant {batch.plant_code} · {batch.record_count} monitoring records", .65, 5.18, 8.8, .28, 15, navy, True)
+
+    # 02 · The official position
+    kpis = data["kpis"]
+    slide = chrome.new_slide("Official SAP position", 2)
+    cards = [
+        (kpis["total"], "SAP monitoring records", navy),
+        (kpis["completed"], "Officially complete", green),
+        (kpis["open"], "Officially open", red if kpis["open"] else green),
+        (kpis["planned_overdue"], "Open past planned end", red if kpis["planned_overdue"] else green),
+        (kpis["awaiting_lab"], "Awaiting laboratory update", blue),
+        (kpis["awaiting_sap_confirmation"], "Lab complete; SAP pending", red if kpis["awaiting_sap_confirmation"] else green),
+    ]
+    for index, (value, label, tone) in enumerate(cards):
+        chrome.metric(slide, .7 + (index % 3) * 4.2, 1.65 + (index // 3) * 2.0, value, label, tone)
+    chrome.add_text(
+        slide,
+        f"SAP usage decisions in this snapshot: {kpis['accepted']} accepted (UD A) and {kpis['rejected']} rejected (UD R). A returned lab action alone never changes the official SAP count.",
+        .75, 5.85, 11.7, .35, 14, grey,
+    )
+
+    # 03 · Work-centre capacity and exposure
+    slide = chrome.new_slide("Open workload by SAP work center", 3)
+    centre_rows = [
+        [item["name"], item["open"], item["planned_overdue"], item["awaiting_lab"]]
+        for item in data["work_centers"][:12]
+    ]
+    table(slide, ["SAP work center", "Open", "Past plan", "No lab update"], centre_rows, [6.1, 1.8, 2.0, 2.55], y=1.65, font_size=11)
+    if len(data["work_centers"]) > 12:
+        chrome.add_text(slide, f"+ {len(data['work_centers']) - 12} further work center(s) in the dashboard.", .65, 6.45, 8, .22, 10, grey)
+
+    # 04+ · Management exception register. The deck is a laboratory handoff,
+    # so every SAP-open item must be visible: continue the table instead of
+    # reducing the operational register to a top-ten sample.
+    open_pages = _paginated_rows(data["open_records"], 11)
+    for page_index, entries in enumerate(open_pages, start=4):
+        first = (page_index - 4) * 11 + 1
+        last = first + len(entries) - 1
+        suffix = f" ({first}–{last} of {len(data['open_records'])})" if data["open_records"] else ""
+        slide = chrome.new_slide(f"Open items requiring follow-up{suffix}", page_index)
+        exception_rows = []
+        for item in entries:
+            record, update = item["record"], item["lab_update"]
+            plan = record.planned_end_date.strftime("%d %b") if record.planned_end_date else "—"
+            if item["planned_overdue"]:
+                plan += " overdue"
+            update_text = item["reconciliation_label"]
+            if update and update.expected_completion_date:
+                update_text += f" · ETA {update.expected_completion_date:%d %b}"
+            exception_rows.append([
+                record.inspection_lot_number or "No lot",
+                record.notification_no or "—",
+                concise(record.work_center or "Not assigned", 24),
+                plan,
+                concise(update_text, 42),
+            ])
+        table(slide, ["Inspection lot", "Notification", "Work center", "SAP plan", "Lab follow-up"], exception_rows, [2.1, 2.0, 2.2, 1.8, 4.35], y=1.55, font_size=9)
+
+    next_page = 4 + len(open_pages)
+    non_sap_entries = data["non_sap_entries"]
+    if non_sap_entries:
+        for entries in _paginated_rows(non_sap_entries, 9):
+            slide = chrome.new_slide("Active non-SAP samples — separate declared register", next_page)
+            rows = []
+            for item in entries:
+                sample = item["sample"]
+                eta = sample.expected_completion_date.strftime("%d %b") if sample.expected_completion_date else "—"
+                stage = data["non_sap_status_labels"].get(sample.current_status, sample.current_status)
+                if sample.reported_outcome:
+                    stage += f" · declared {sample.reported_outcome}"
+                rows.append([
+                    concise(sample.sample_reference, 20),
+                    concise(sample.chemical_name, 28),
+                    concise(stage, 34),
+                    eta,
+                    concise(sample.action_owner or sample.delay_reason or "—", 28),
+                ])
+            table(slide, ["Local reference", "Material / sample", "Declared stage", "ETA", "Owner / constraint"], rows, [2.05, 3.1, 2.95, 1.15, 3.0], y=1.55, font_size=9)
+            chrome.add_text(slide, "These are not SAP records and are not included in the SAP-open total.", .65, 6.45, 8.8, .2, 10, grey)
+            next_page += 1
+
+    # The blank register turns the delivered deck into a standard return form
+    # for the rare samples which have no SAP record yet.
+    slide = chrome.new_slide("Laboratory return table — non-SAP samples only", next_page)
+    blank_rows = [["", "", "", "", "", ""] for _ in range(7)]
+    table(
+        slide,
+        ["Local reference", "Material / sample", "Receipt date", "Current stage", "Expected completion", "Owner / delay reason"],
+        blank_rows, [1.85, 2.4, 1.35, 2.0, 1.85, 3.0], y=1.55, font_size=9,
+    )
+    chrome.add_wrapped_text(
+        slide,
+        "Complete this page only for samples absent from SAP. Return it to Corporate Chemistry.",
+        .65, 5.25, 11.6, .55, 13, grey,
+    )
+    next_page += 1
+
+    # Final · Data quality and the next management ask
+    slide = chrome.new_slide("Data controls and daily management ask", next_page)
+    chrome.metric(slide, .8, 1.7, kpis["unmatched_inspection"], "Inspection-lot-only records", blue)
+    chrome.metric(slide, 4.5, 1.7, kpis["unmatched_notification"], "Notification-only records", blue)
+    chrome.metric(slide, 8.2, 1.7, kpis["material_standard_coverage"], "Material standards linked", navy)
+    chrome.add_text(slide, "Daily operating discipline", .8, 3.55, 5.2, .3, 19, navy, True)
+    asks = [
+        "Import both SAP exports from one daily run and retain the source files.",
+        "Return a status for every SAP-open record; Corporate Chemistry records the response against the action pack.",
+        "Use the non-SAP return table only for samples not present in SAP; SAP-open records close only after the next SAP export confirms them.",
+    ]
+    for index, ask in enumerate(asks):
+        chrome.rectangle(slide, .8, 4.05 + index * .58, .28, .28, blue)
+        chrome.add_text(slide, str(index + 1), .88, 4.09 + index * .58, .14, .14, 9, "FFFFFF", True)
+        chrome.add_text(slide, ask, 1.25, 4.05 + index * .58, 10.8, .3, 14, navy)
+
+    output = BytesIO()
+    prs.save(output)
+    output.seek(0)
+    return output, f"{laboratory['name']} SAP QC Action Pack {batch.as_of_date:%d %b %Y}.pptx"
+
+
+def build_sap_panvel_presentation(static_folder: str) -> tuple[BytesIO, str]:
+    """Compatibility wrapper for the former Panvel download route and tests."""
+    return build_sap_lab_presentation("rgl_panvel", static_folder)
+
+
 def build_portfolio_management_presentation(static_folder: str, reporting_week_end=None, lab_codes: set[str] | None = None) -> tuple[BytesIO, str]:
     """Create an on-demand, consolidated management-review presentation.
 
@@ -340,7 +550,8 @@ def build_portfolio_management_presentation(static_folder: str, reporting_week_e
     def concise(value, limit=55):
         text = " ".join(str(value or "Not recorded").split())
         return text if len(text) <= limit else f"{text[:limit + 1].rsplit(' ', 1)[0]}…"
-    logo = Path(static_folder) / "images" / "ongc-corporate-chemistry-logo.png"
+    corporate_chemistry_logo = Path(static_folder) / "images" / "ongc-corporate-chemistry-logo.png"
+    ongc_logo = Path(static_folder) / "images" / "ongc-official-logo.png"
     period = data["reporting_period"]
     period_label = f"{period['start']:%d %b} – {period['end']:%d %b %Y}" if period else "Latest reporting weeks"
     def background(slide):
@@ -348,7 +559,8 @@ def build_portfolio_management_presentation(static_folder: str, reporting_week_e
         rectangle(slide, 0, 0, 13.333, .08, navy); rectangle(slide, .42, 1.26, 12.45, .015, border); rectangle(slide, .42, 6.93, 12.45, .015, border)
     def header(slide, title, page):
         background(slide); add_text(slide, "ONGC CORPORATE CHEMISTRY · QC LABORATORY MONITORING", .42, .27, 7.6, .24, 11, blue, True); add_text(slide, title, .42, .7, 11.35, .46, 27, navy, True)
-        if logo.exists(): slide.shapes.add_picture(str(logo), Inches(12.24), Inches(.16), width=Inches(.55), height=Inches(.55))
+        if ongc_logo.exists(): slide.shapes.add_picture(str(ongc_logo), Inches(11.15), Inches(.21), width=Inches(.9), height=Inches(.51))
+        if corporate_chemistry_logo.exists(): slide.shapes.add_picture(str(corporate_chemistry_logo), Inches(12.24), Inches(.16), width=Inches(.55), height=Inches(.55))
         add_text(slide, f"Source: Selected reporting week · {period_label} · Scope: {scope_note}", .42, 7.08, 9.6, .16, 8, grey); add_text(slide, f"{page:02d}", 12.5, 7.08, .25, .16, 8, grey)
     def metric(slide, x, y, value, label, tone=navy):
         card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(x-.18), Inches(y-.18), Inches(3.45), Inches(1.35)); card.fill.solid(); card.fill.fore_color.rgb = color("EAF4FF" if tone == blue else "FCEBEC" if tone == red else "EAF7F0" if tone == green else "F2F4F7"); card.line.color.rgb = color(border)
@@ -389,7 +601,9 @@ def build_portfolio_management_presentation(static_folder: str, reporting_week_e
     slide = prs.slides.add_slide(blank); background(slide); slide.background.fill.solid(); slide.background.fill.fore_color.rgb = color("EAF4FF"); rectangle(slide, 12.48, .08, .85, 6.85, "D7EAFB")
     add_text(slide, f"QC LABORATORY MONITORING · {scope_heading}", .76, 1.28, 8.5, .28, 14, blue, True); add_text(slide, "Portfolio Management Review", .76, 1.82, 10.5, .7, 50, navy, True); rectangle(slide, .76, 2.75, 1.15, .045, blue)
     add_text(slide, period_label, .76, 3.08, 8.5, .36, 24, navy, True); add_text(slide, f"Consolidated position across {data['reporting_labs']} reporting laborator{'y' if data['reporting_labs'] == 1 else 'ies'} — {scope_note}", .76, 3.68, 10.5, .36, 16, grey, wrap=True)
-    if logo.exists(): rectangle(slide, 11.08, .46, 1.2, 1.2, "FFFFFF", border); slide.shapes.add_picture(str(logo), Inches(11.15), Inches(.53), width=Inches(1.05), height=Inches(1.05))
+    rectangle(slide, 10.0, .46, 2.32, 1.2, "FFFFFF", border)
+    if ongc_logo.exists(): slide.shapes.add_picture(str(ongc_logo), Inches(10.16), Inches(.68), width=Inches(.9), height=Inches(.51))
+    if corporate_chemistry_logo.exists(): slide.shapes.add_picture(str(corporate_chemistry_logo), Inches(11.16), Inches(.53), width=Inches(1.05), height=Inches(1.05))
     add_text(slide, "Office of Head Corporate Chemistry | Mumbai / Dehradun", .76, 6.45, 7.2, .2, 11, grey)
 
     summary = data["summary"]

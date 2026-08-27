@@ -10,7 +10,7 @@ import sys
 from flask import abort, current_app, flash, redirect, render_template, request, send_file, session, url_for
 from flask_login import current_user, login_required
 
-from app.core.utils.decorators import module_access_required
+from app.core.utils.decorators import module_access_required, module_admin_required
 from app.extensions import db
 from app.modules.quality_control import quality_control_bp
 
@@ -43,12 +43,15 @@ def landing():
 @login_required
 @module_access_required("quality_control")
 def data_import():
-    """The single route into QC: every laboratory's weekly workbook starts here."""
+    """QC import centre: the SAP control tower plus workbook fallback labs."""
     from app.core.services.quality_control import current_monitoring_week, laboratory_import_targets
+    from app.core.services.sap_quality_control import sap_control_data
+    sap_data = sap_control_data()
     return render_template(
         "quality_control/data_import.html",
         laboratories=laboratory_import_targets(),
         monitoring_week=current_monitoring_week(),
+        sap_control_cards=sap_data["control_cards"],
     )
 
 
@@ -64,6 +67,11 @@ def idwe_imports():
 @login_required
 @module_access_required("quality_control")
 def laboratory_dashboard(lab_code: str):
+    # RGL and IDWE views are driven by their native SAP daily exports. Historic
+    # weekly records remain available as the fallback source for other labs.
+    from app.core.services.sap_quality_control import SAP_REPORTING_LAB_CODES
+    if lab_code in SAP_REPORTING_LAB_CODES:
+        return redirect(url_for("quality_control.sap_lab_dashboard", lab_code=lab_code))
     from app.core.services.quality_control import (
         discard_staged_workbook, get_laboratory, import_weekly_qc_workbook, latest_dashboard_data,
         load_staged_workbook, sanity_check_weekly_qc_workbook, stage_validated_workbook,
@@ -110,6 +118,218 @@ def laboratory_dashboard(lab_code: str):
         logger.exception("QC workbook import/dashboard load failed for lab=%s", lab_code)
         flash("The laboratory dashboard could not be loaded. Please try again.", "danger")
     return redirect(url_for("quality_control.landing"))
+
+
+@quality_control_bp.route("/sap-panvel")
+@login_required
+@module_access_required("quality_control")
+def sap_panvel_dashboard():
+    """Retain the original Panvel URL while routing it to the control-tower view."""
+    return redirect(url_for("quality_control.sap_lab_dashboard", lab_code="rgl_panvel"))
+
+
+@quality_control_bp.route("/sap-control")
+@login_required
+@module_access_required("quality_control")
+def sap_control():
+    """Corporate Chemistry's central daily SAP and exception register."""
+    from app.core.services.sap_quality_control import sap_control_data
+    try:
+        return render_template(
+            "quality_control/sap_control.html",
+            can_control=current_user.is_module_admin("quality_control"),
+            **sap_control_data(),
+        )
+    except Exception:
+        logger.exception("SAP QC control tower could not be loaded")
+        flash("The SAP quality control view could not be loaded. Please try again.", "danger")
+        return redirect(url_for("quality_control.landing"))
+
+
+@quality_control_bp.route("/sap-control/labs/<lab_code>")
+@login_required
+@module_access_required("quality_control")
+def sap_lab_dashboard(lab_code: str):
+    from app.core.services.sap_quality_control import sap_lab_dashboard_data
+    try:
+        return render_template(
+            "quality_control/sap_panvel_dashboard.html",
+            can_control=current_user.is_module_admin("quality_control"),
+            **sap_lab_dashboard_data(lab_code),
+        )
+    except ValueError as exc:
+        flash(str(exc), "warning")
+    except Exception:
+        logger.exception("SAP QC dashboard load failed for lab=%s", lab_code)
+        flash("The SAP quality dashboard could not be loaded. Please try again.", "danger")
+    return redirect(url_for("quality_control.sap_control"))
+
+
+def _import_sap_snapshot(lab_code: str):
+    from app.core.services.sap_quality_control import import_sap_lab_exports
+    inspection = request.files.get("inspection_workbook")
+    notifications = request.files.get("notification_workbook")
+    if not inspection or not inspection.filename or not notifications or not notifications.filename:
+        raise ValueError("Select both native SAP exports: Inspection Lots and Notifications.")
+    supported = (".xlsx", ".xls")
+    if not inspection.filename.lower().endswith(supported) or not notifications.filename.lower().endswith(supported):
+        raise ValueError("Upload the native SAP Excel exports (.xlsx or .xls).")
+    return import_sap_lab_exports(
+        lab_code, inspection.read(), inspection.filename, notifications.read(), notifications.filename, current_user.id,
+    )
+
+
+@quality_control_bp.route("/sap-control/import", methods=["POST"])
+@login_required
+@module_admin_required("quality_control")
+def import_sap_control_exports():
+    lab_code = (request.form.get("lab_code") or "").strip()
+    try:
+        batch = _import_sap_snapshot(lab_code)
+        db.session.commit()
+        flash(
+            f"{batch.lab_code.replace('_', ' ').title()} SAP snapshot for {batch.as_of_date:%d %b %Y} imported: "
+            f"{batch.record_count} monitoring records refreshed.", "success",
+        )
+        return redirect(url_for("quality_control.sap_lab_dashboard", lab_code=lab_code))
+    except ValueError as exc:
+        db.session.rollback(); flash(str(exc), "danger")
+    except Exception:
+        db.session.rollback()
+        logger.exception("SAP QC import failed for lab=%s", lab_code)
+        flash("The SAP exports could not be imported. Confirm both files are from the same daily run.", "danger")
+    return redirect(url_for("quality_control.sap_control"))
+
+
+@quality_control_bp.route("/sap-panvel/import", methods=["POST"])
+@login_required
+@module_admin_required("quality_control")
+def import_sap_panvel_exports():
+    """Compatibility endpoint for the former Panvel-only upload form."""
+    try:
+        _import_sap_snapshot("rgl_panvel")
+        db.session.commit()
+        flash("RGL Panvel SAP snapshot imported.", "success")
+    except ValueError as exc:
+        db.session.rollback(); flash(str(exc), "danger")
+    except Exception:
+        db.session.rollback(); logger.exception("SAP QC import failed for RGL Panvel")
+        flash("The SAP exports could not be imported. Please confirm both reports are from the same daily run.", "danger")
+    return redirect(url_for("quality_control.sap_lab_dashboard", lab_code="rgl_panvel"))
+
+
+@quality_control_bp.route("/sap-control/labs/<lab_code>/records/<int:record_id>/lab-update", methods=["POST"])
+@login_required
+@module_admin_required("quality_control")
+def save_sap_lab_update(lab_code: str, record_id: int):
+    from app.core.services.sap_quality_control import create_sap_lab_update
+    try:
+        create_sap_lab_update(record_id, request.form, current_user.id, lab_code=lab_code)
+        db.session.commit()
+        flash("Returned laboratory follow-up saved. SAP status remains unchanged until the next SAP export confirms it.", "success")
+    except ValueError as exc:
+        db.session.rollback()
+        flash(str(exc), "danger")
+    except Exception:
+        db.session.rollback()
+        logger.exception("SAP QC lab update failed for lab=%s record=%s", lab_code, record_id)
+        flash("The laboratory follow-up could not be saved. Please try again.", "danger")
+    return redirect(url_for("quality_control.sap_lab_dashboard", lab_code=lab_code, focus=record_id) + f"#sap-record-{record_id}")
+
+
+@quality_control_bp.route("/sap-panvel/records/<int:record_id>/lab-update", methods=["POST"])
+@login_required
+@module_admin_required("quality_control")
+def save_sap_panvel_lab_update(record_id: int):
+    return save_sap_lab_update("rgl_panvel", record_id)
+
+
+@quality_control_bp.route("/sap-control/labs/<lab_code>/presentation.pptx")
+@login_required
+@module_access_required("quality_control")
+def download_sap_lab_presentation(lab_code: str):
+    from app.core.services.qc_presentation import build_sap_lab_presentation
+    try:
+        output, filename = build_sap_lab_presentation(lab_code, current_app.static_folder)
+    except ValueError as exc:
+        flash(str(exc), "warning")
+    except Exception:
+        logger.exception("SAP QC presentation export failed for lab=%s", lab_code)
+        flash("The SAP management presentation could not be generated. Please try again.", "danger")
+    else:
+        return send_file(output, mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation", as_attachment=True, download_name=filename, max_age=0)
+    return redirect(url_for("quality_control.sap_lab_dashboard", lab_code=lab_code))
+
+
+@quality_control_bp.route("/sap-panvel/presentation.pptx")
+@login_required
+@module_access_required("quality_control")
+def download_sap_panvel_presentation():
+    return download_sap_lab_presentation("rgl_panvel")
+
+
+@quality_control_bp.route("/sap-control/labs/<lab_code>/uploads/<int:batch_id>/<source_kind>")
+@login_required
+@module_access_required("quality_control")
+def download_sap_lab_source(lab_code: str, batch_id: int, source_kind: str):
+    from sqlalchemy.orm import undefer
+    from app.models.quality_control.qc_sap_monitoring import QCSAPUploadBatch
+
+    if source_kind not in {"inspection", "notifications"}:
+        abort(404)
+    column = (
+        QCSAPUploadBatch.inspection_source_data
+        if source_kind == "inspection" else QCSAPUploadBatch.notification_source_data
+    )
+    batch = QCSAPUploadBatch.query.options(undefer(column)).filter_by(id=batch_id, lab_code=lab_code).first()
+    if batch is None:
+        flash("The requested SAP source export is no longer available.", "warning")
+        return redirect(url_for("quality_control.sap_lab_dashboard", lab_code=lab_code))
+    data = batch.inspection_source_data if source_kind == "inspection" else batch.notification_source_data
+    filename = batch.inspection_filename if source_kind == "inspection" else batch.notification_filename
+    content_type = batch.inspection_content_type if source_kind == "inspection" else batch.notification_content_type
+    return send_file(BytesIO(data), mimetype=content_type, as_attachment=True, download_name=filename, max_age=0)
+
+
+@quality_control_bp.route("/sap-panvel/uploads/<int:batch_id>/<source_kind>")
+@login_required
+@module_access_required("quality_control")
+def download_sap_panvel_source(batch_id: int, source_kind: str):
+    return download_sap_lab_source("rgl_panvel", batch_id, source_kind)
+
+
+@quality_control_bp.route("/sap-control/non-sap", methods=["POST"])
+@login_required
+@module_admin_required("quality_control")
+def create_controlled_non_sap_sample():
+    from app.core.services.sap_quality_control import create_non_sap_sample
+    try:
+        sample = create_non_sap_sample(request.form, current_user.id)
+        db.session.commit()
+        flash(f"Non-SAP sample {sample.sample_reference} added to the controlled exception register.", "success")
+    except ValueError as exc:
+        db.session.rollback(); flash(str(exc), "danger")
+    except Exception:
+        db.session.rollback(); logger.exception("Non-SAP QC sample creation failed")
+        flash("The non-SAP sample could not be added. Please try again.", "danger")
+    return redirect(url_for("quality_control.sap_control") + "#non-sap-register")
+
+
+@quality_control_bp.route("/sap-control/non-sap/<int:sample_id>/update", methods=["POST"])
+@login_required
+@module_admin_required("quality_control")
+def update_controlled_non_sap_sample(sample_id: int):
+    from app.core.services.sap_quality_control import update_non_sap_sample
+    try:
+        update_non_sap_sample(sample_id, request.form, current_user.id)
+        db.session.commit()
+        flash("Non-SAP sample follow-up saved in the Corporate Chemistry register.", "success")
+    except ValueError as exc:
+        db.session.rollback(); flash(str(exc), "danger")
+    except Exception:
+        db.session.rollback(); logger.exception("Non-SAP QC sample update failed for id=%s", sample_id)
+        flash("The non-SAP sample update could not be saved. Please try again.", "danger")
+    return redirect(url_for("quality_control.sap_control") + "#non-sap-register")
 
 
 @quality_control_bp.route("/history")

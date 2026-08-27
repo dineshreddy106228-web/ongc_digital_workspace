@@ -10,7 +10,7 @@
     <div>
       <div class="qc-lab-eyebrow">Data operations · Import centre</div>
       <h1 class="mod-page-title"><i class="bi bi-database-add"></i> Data Import</h1>
-      <p class="mod-page-sub">The single route for QC weekly workbooks. Every laboratory imports here; each file is validated before it reaches the sample database, and confirmation opens that laboratory's dashboard.</p>
+      <p class="mod-page-sub">RGL and IDWE laboratories are monitored from centrally uploaded SAP daily exports. Weekly workbooks remain only for designated laboratories without an SAP source.</p>
     </div>
     <div class="mod-page-actions">
       <a class="btn btn-secondary" href="{{ url_for('quality_control.landing') }}"><i class="bi bi-grid"></i> Monitoring home</a>
@@ -31,8 +31,20 @@
     </div>
   </section>
 
+  <section class="card qc-sap-import-card">
+    <div class="card-body">
+      <div class="qc-sap-import-card-copy">
+        <span class="qc-lab-eyebrow"><i class="bi bi-shield-check"></i> SAP-first control tower · RGLs and IDWE</span>
+        <h2>Daily SAP quality monitoring</h2>
+        <p>Corporate Chemistry uploads the native <strong>Inspection Lots</strong> and <strong>Notifications</strong> exports from the same SAP run, generates the lab action pack, and records returned follow-up. SAP is the official source.</p>
+        {% set imported = sap_control_cards | selectattr('batch') | list %}{% if imported %}<small>{{ imported|length }} laboratory snapshot(s) currently available. Open the control tower to view their as-of dates and action packs.</small>{% else %}<small>No SAP snapshot imported yet.</small>{% endif %}
+      </div>
+      <a class="btn btn-primary" href="{{ url_for('quality_control.sap_control') }}"><i class="bi bi-cloud-arrow-up"></i> Open SAP control tower</a>
+    </div>
+  </section>
+
   <section class="qc-idwe-import-grid">
-    {% for laboratory in laboratories %}
+    {% for laboratory in laboratories if laboratory.code != 'rgl_panvel' %}
     <article class="card qc-idwe-import-card">
       <div class="card-body">
         <div class="qc-idwe-import-card-header">

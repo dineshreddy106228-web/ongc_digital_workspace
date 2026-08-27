@@ -53,7 +53,8 @@ class _Deck:
         self.prs.slide_width, self.prs.slide_height = Inches(13.333), Inches(7.5)
         self.blank = self.prs.slide_layouts[6]
         self.source_line = source_line
-        self.logo = Path(static_folder) / "images" / "ongc-corporate-chemistry-logo.png"
+        self.corporate_chemistry_logo = Path(static_folder) / "images" / "ongc-corporate-chemistry-logo.png"
+        self.ongc_logo = Path(static_folder) / "images" / "ongc-official-logo.png"
 
     def color(self, value: str) -> Any:
         return self._rgb.from_string(value)
@@ -81,12 +82,25 @@ class _Deck:
         self.rectangle(slide, .42, 1.26, 12.45, .015, BORDER)
         self.rectangle(slide, .42, 6.93, 12.45, .015, BORDER)
 
+    def add_header_branding(self, slide):
+        """Keep the ONGC and Corporate Chemistry marks together in every header."""
+        if self.ongc_logo.exists():
+            slide.shapes.add_picture(str(self.ongc_logo), self.inches(11.15), self.inches(.21), width=self.inches(.9), height=self.inches(.51))
+        if self.corporate_chemistry_logo.exists():
+            slide.shapes.add_picture(str(self.corporate_chemistry_logo), self.inches(12.24), self.inches(.16), width=self.inches(.55), height=self.inches(.55))
+
+    def add_cover_branding(self, slide):
+        self.rectangle(slide, 10.0, .46, 2.32, 1.2, "FFFFFF", BORDER)
+        if self.ongc_logo.exists():
+            slide.shapes.add_picture(str(self.ongc_logo), self.inches(10.16), self.inches(.68), width=self.inches(.9), height=self.inches(.51))
+        if self.corporate_chemistry_logo.exists():
+            slide.shapes.add_picture(str(self.corporate_chemistry_logo), self.inches(11.16), self.inches(.53), width=self.inches(1.05), height=self.inches(1.05))
+
     def header(self, slide, title):
         self.background(slide)
         self.add_text(slide, KICKER, .42, .27, 8.6, .24, 11, TEAL, True)
         self.add_text(slide, title, .42, .7, 11.35, .46, 26, INK, True)
-        if self.logo.exists():
-            slide.shapes.add_picture(str(self.logo), self.inches(12.24), self.inches(.16), width=self.inches(.55), height=self.inches(.55))
+        self.add_header_branding(slide)
         self.add_text(slide, self.source_line, .42, 7.08, 9.6, .16, 8, GREY)
         self.add_text(slide, f"{len(self.prs.slides._sldIdLst):02d}", 12.5, 7.08, .25, .16, 8, GREY)
 
@@ -106,9 +120,7 @@ class _Deck:
         self.rectangle(slide, .76, 2.82, 1.15, .045, TEAL)
         self.add_text(slide, period, .76, 3.14, 8.5, .36, 24, INK, True)
         self.add_text(slide, subtitle, .76, 3.74, 10.4, .6, 16, GREY, wrap=True)
-        if self.logo.exists():
-            self.rectangle(slide, 11.08, .46, 1.2, 1.2, "FFFFFF", BORDER)
-            slide.shapes.add_picture(str(self.logo), self.inches(11.15), self.inches(.53), width=self.inches(1.05), height=self.inches(1.05))
+        self.add_cover_branding(slide)
         self.add_text(slide, "Office of Head Corporate Chemistry | Mumbai / Dehradun", .76, 6.45, 7.2, .2, 11, GREY)
         return slide
 

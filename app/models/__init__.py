@@ -38,6 +38,9 @@ from app.models.inventory.monitoring import (  # noqa: F401
 from app.models.quality_control.qc_upload_batch import QCUploadBatch         # noqa: F401
 from app.models.quality_control.qc_sample import QCSample                    # noqa: F401
 from app.models.quality_control.qc_testing_standard import QCTestingStandard  # noqa: F401
+from app.models.quality_control.qc_sap_monitoring import (  # noqa: F401
+    QCNonSAPSample, QCNonSAPSampleUpdate, QCSAPLabUpdate, QCSAPRecord, QCSAPUploadBatch,
+)
 from app.models.csc.draft import CSCDraft                                    # noqa: F401
 from app.models.csc.parameter import CSCParameter                            # noqa: F401
 from app.models.csc.section import CSCSection                                # noqa: F401

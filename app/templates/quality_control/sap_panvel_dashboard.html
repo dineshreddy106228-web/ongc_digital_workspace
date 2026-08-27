@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% from "quality_control/_qc_nav.html" import qc_nav with context %}
+{% block title %}{{ laboratory.name }} · SAP QC Monitoring{% endblock %}
+{% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/quality_control.css') }}">{% endblock %}
+{% block content %}
+<div class="page-wrapper mod-page qc-sap-dashboard">
+{{ qc_nav('sap') }}
+
+  <div class="mod-page-head">
+    <div>
+      <div class="qc-lab-eyebrow"><span class="qc-live-dot"></span> SAP-authoritative daily operating view{% if batch %} · as at {{ batch.as_of_date.strftime('%d %b %Y') }}{% endif %}</div>
+      <h1 class="mod-page-title"><i class="bi bi-shield-check"></i> {{ laboratory.name }} · SAP QC Monitoring</h1>
+      <p class="mod-page-sub">Official inspection and notification status is read from SAP. Corporate Chemistry records the returned laboratory action; it never overwrites SAP.</p>
+    </div>
+    <div class="mod-page-actions">
+      <a class="btn btn-secondary" href="{{ url_for('quality_control.data_import') }}"><i class="bi bi-database-add"></i> Import centre</a>
+      <a class="btn btn-secondary" href="{{ url_for('quality_control.sap_control') }}"><i class="bi bi-diagram-3"></i> SAP control tower</a>
+      {% if batch %}<a class="btn btn-primary" href="{{ url_for('quality_control.download_sap_lab_presentation', lab_code=lab_code) }}"><i class="bi bi-file-earmark-ppt"></i> Lab action pack</a>{% endif %}
+    </div>
+  </div>
+
+  <section class="card qc-sap-upload-card">
+    <div class="card-body">
+      <div>
+        <span class="qc-section-label">Corporate-controlled daily refresh</span>
+        <h2 class="mod-card-title">Native SAP exports are uploaded centrally</h2>
+        <p class="mod-card-sub">Corporate Chemistry imports paired Inspection Lots and Notifications exports from the same SAP daily run. The export must contain one plant.</p>
+      </div>
+      {% if can_control %}<a class="btn btn-primary" href="{{ url_for('quality_control.sap_control') }}"><i class="bi bi-cloud-arrow-up"></i> Upload at control tower</a>{% else %}<span class="mod-cell-meta">Read-only view for this user.</span>{% endif %}
+    </div>
+  </section>
+
+  {% if batch %}
+  <section class="qc-sap-authority-note">
+    <i class="bi bi-shield-lock"></i>
+    <div><strong>SAP is the final word.</strong> Corporate Chemistry logs the returned action, owner, reason and expected completion below. An item is shown as officially complete only when the next SAP export confirms it.</div>
+    <span>Plant {{ batch.plant_code }} · imported {{ batch.uploaded_at.strftime('%d %b %Y %H:%M') }}</span>
+  </section>
+
+  <section class="mod-stats qc-sap-kpis" aria-label="SAP daily status">
+    <div class="mod-stat"><span>SAP monitoring records</span><strong>{{ kpis.total }}</strong><small>{{ batch.inspection_lot_count }} lots · {{ batch.notification_count }} notifications</small></div>
+    <div class="mod-stat mod-stat-success"><span>Officially complete</span><strong>{{ kpis.completed }}</strong><small>A: {{ kpis.accepted }} accepted · R: {{ kpis.rejected }} rejected</small></div>
+    <div class="mod-stat {{ 'mod-stat-danger' if kpis.open else '' }}"><span>Officially open</span><strong>{{ kpis.open }}</strong><small>Open in the latest SAP extract</small></div>
+    <div class="mod-stat {{ 'mod-stat-danger' if kpis.planned_overdue else '' }}"><span>Past SAP planned end</span><strong>{{ kpis.planned_overdue }}</strong><small>Open items with a prior planned end date</small></div>
+    <div class="mod-stat {{ 'mod-stat-danger' if kpis.awaiting_sap_confirmation else 'mod-stat-info' }}"><span>Awaiting SAP confirmation</span><strong>{{ kpis.awaiting_sap_confirmation }}</strong><small>Lab says action completed; SAP remains open</small></div>
+  </section>
+
+  <section class="qc-sap-panel-grid">
+    <article class="card"><div class="card-body">
+      <div class="qc-lab-section-heading"><div><span class="qc-section-label">Open workload by SAP work center</span><h2>Daily follow-up allocation</h2><p>Only SAP-open records are counted.</p></div></div>
+      <div class="mod-table-wrap"><table class="mod-table"><thead><tr><th>Work center</th><th>Open</th><th>Past planned end</th><th>Awaiting lab update</th></tr></thead><tbody>{% for item in work_centers %}<tr><td><strong>{{ item.name }}</strong></td><td>{{ item.open }}</td><td>{% if item.planned_overdue %}<span class="qc-variance-badge">{{ item.planned_overdue }}</span>{% else %}0{% endif %}</td><td>{{ item.awaiting_lab }}</td></tr>{% else %}<tr><td colspan="4" class="qc-clear-state"><i class="bi bi-check-circle-fill"></i> No open SAP records in this snapshot.</td></tr>{% endfor %}</tbody></table></div>
+    </div></article>
+    <article class="card"><div class="card-body">
+      <div class="qc-lab-section-heading"><div><span class="qc-section-label">SAP data integrity</span><h2>Reconciliation controls</h2><p>Unmatched rows remain visible for review; they are not excluded from monitoring.</p></div></div>
+      <dl class="qc-sap-integrity-list"><div><dt>Lot-only SAP records</dt><dd>{{ kpis.unmatched_inspection }}</dd><small>Inspection lot without a notification match</small></div><div><dt>Notification-only SAP records</dt><dd>{{ kpis.unmatched_notification }}</dd><small>Notification without a usable inspection-lot match</small></div><div><dt>Material standards linked</dt><dd>{{ kpis.material_standard_coverage }}</dd><small>Records matched to an approved material-code testing standard</small></div></dl>
+      <h3 class="qc-sap-minor-heading">Usage decisions recorded by SAP</h3>
+      <div class="qc-sap-decision-list">{% for item in usage_decisions %}<span><b>{{ item.count }}</b> {{ item.label }}</span>{% endfor %}</div>
+    </div></article>
+  </section>
+
+  <section class="card qc-sap-action-register">
+    <div class="card-body">
+      <div class="qc-section-title"><div><span class="qc-section-eyebrow"><i class="bi bi-person-check"></i> Daily laboratory action list</span><h2 class="mod-card-title">SAP-open items and returned laboratory follow-up</h2><p class="mod-card-sub">The SAP columns are read-only. Corporate Chemistry records each returned status; history is retained.</p></div><span class="qc-overdue-count">{{ kpis.open }} SAP-open</span></div>
+      <div class="mod-table-wrap"><table class="mod-table qc-sap-record-table"><thead><tr><th>Inspection lot / notification</th><th>Material</th><th>Work center</th><th>SAP position</th><th>Lab follow-up</th><th>Action</th></tr></thead><tbody>
+        {% for item in open_records %}
+        {% set record = item.record %}
+        <tr id="sap-record-{{ record.id }}" class="{{ 'qc-sap-record-overdue' if item.planned_overdue else '' }}">
+          <td><strong>{{ record.inspection_lot_number or 'No inspection lot' }}</strong><div class="mod-cell-meta">Notification {{ record.notification_no or 'not linked' }} · {{ record.source_completeness | replace('_', ' ') | title }}</div></td>
+          <td>{{ record.material_description or record.material_code or 'Not recorded' }}<div class="mod-cell-meta">{{ record.material_code or 'No material code' }}{% if item.standard_days is not none %} · Standard {{ item.standard_days }} d{% endif %}</div></td>
+          <td>{{ record.work_center or 'Not assigned in SAP' }}</td>
+          <td><span class="qc-sap-status is-open">Open in SAP</span>{% if record.planned_end_date %}<div class="mod-cell-meta {{ 'text-danger' if item.planned_overdue else '' }}">Planned end {{ record.planned_end_date.strftime('%d %b %Y') }}{% if item.planned_overdue %} · overdue{% endif %}</div>{% endif %}</td>
+          <td><span class="qc-sap-status is-{{ item.reconciliation_key }}">{{ item.reconciliation_label }}</span>{% if item.lab_update %}<div class="mod-cell-meta">{{ item.lab_update.created_at.strftime('%d %b %H:%M') }}{% if item.lab_update.action_owner %} · {{ item.lab_update.action_owner }}{% endif %}</div>{% endif %}</td>
+          <td>{% if can_control %}<details class="qc-sap-update"><summary>Record returned status</summary><form method="POST" action="{{ url_for('quality_control.save_sap_lab_update', lab_code=lab_code, record_id=record.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>Status<select name="activity_status" class="form-select" required>{% for value, label in lab_update_statuses %}<option value="{{ value }}" {% if item.lab_update and item.lab_update.activity_status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label><label>Expected completion<input class="form-control" name="expected_completion_date" type="date" value="{{ item.lab_update.expected_completion_date.isoformat() if item.lab_update and item.lab_update.expected_completion_date else '' }}"></label><label>Action owner<input class="form-control" name="action_owner" maxlength="160" value="{{ item.lab_update.action_owner if item.lab_update and item.lab_update.action_owner else '' }}"></label><label>Delay / constraint<textarea class="form-control" name="delay_reason" rows="2">{{ item.lab_update.delay_reason if item.lab_update and item.lab_update.delay_reason else '' }}</textarea></label><label>Returned update note<textarea class="form-control" name="update_note" rows="2">{{ item.lab_update.update_note if item.lab_update and item.lab_update.update_note else '' }}</textarea></label><button class="btn btn-primary btn-sm" type="submit">Save returned status</button></form></details>{% else %}<span class="mod-cell-meta">Corporate Chemistry records follow-up</span>{% endif %}</td>
+        </tr>
+        {% else %}<tr><td colspan="6" class="qc-clear-state"><i class="bi bi-check-circle-fill"></i> SAP shows no open inspection or notification records in this snapshot.</td></tr>{% endfor %}
+      </tbody></table></div>
+    </div>
+  </section>
+
+  <section class="card qc-sap-action-register"><div class="card-body"><div class="qc-section-title"><div><span class="qc-section-eyebrow"><i class="bi bi-clipboard-plus"></i> Separate controlled exception register</span><h2 class="mod-card-title">Active non-SAP samples</h2><p class="mod-card-sub">These items are not SAP records and are not included in the SAP-open count. Corporate Chemistry maintains them at the control tower.</p></div><span class="qc-overdue-count">{{ non_sap_entries|length }} non-SAP pending</span></div><div class="mod-table-wrap"><table class="mod-table"><thead><tr><th>Local reference</th><th>Sample</th><th>Declared current stage</th><th>Expected completion / owner</th></tr></thead><tbody>{% for item in non_sap_entries %}{% set sample = item.sample %}<tr><td><strong>{{ sample.sample_reference }}</strong></td><td>{{ sample.chemical_name }}<div class="mod-cell-meta">{{ sample.material_code or 'No material code' }}</div></td><td>{{ non_sap_status_labels.get(sample.current_status, sample.current_status|replace('_', ' ')|title) }}{% if sample.reported_outcome %}<div class="mod-cell-meta">Lab-declared {{ sample.reported_outcome|title }} · non-SAP</div>{% endif %}</td><td>{% if sample.expected_completion_date %}{{ sample.expected_completion_date.strftime('%d %b %Y') }}{% else %}No ETA{% endif %}{% if sample.action_owner %}<div class="mod-cell-meta">{{ sample.action_owner }}</div>{% endif %}</td></tr>{% else %}<tr><td colspan="4" class="qc-clear-state"><i class="bi bi-check-circle-fill"></i> No active non-SAP exceptions for this laboratory.</td></tr>{% endfor %}</tbody></table></div></div></section>
+
+  <section class="card"><div class="card-body"><div class="qc-lab-section-heading"><div><span class="qc-section-label">SAP source audit trail</span><h2>Imported daily snapshots</h2><p>Each native source export is preserved with the snapshot it created.</p></div></div><div class="mod-table-wrap"><table class="mod-table"><thead><tr><th>As at</th><th>Records</th><th>Lots / notifications</th><th>Unmatched rows</th><th>Imported</th><th>Native sources</th></tr></thead><tbody>{% for item in recent_batches %}<tr><td><strong>{{ item.as_of_date.strftime('%d %b %Y') }}</strong></td><td>{{ item.record_count }}</td><td>{{ item.inspection_lot_count }} / {{ item.notification_count }}</td><td>{{ item.unmatched_inspection_count }} lot-only · {{ item.unmatched_notification_count }} notification-only</td><td>{{ item.uploaded_at.strftime('%d %b %Y %H:%M') }}</td><td><a href="{{ url_for('quality_control.download_sap_lab_source', lab_code=lab_code, batch_id=item.id, source_kind='inspection') }}">Inspection Lots</a> · <a href="{{ url_for('quality_control.download_sap_lab_source', lab_code=lab_code, batch_id=item.id, source_kind='notifications') }}">Notifications</a></td></tr>{% endfor %}</tbody></table></div></div></section>
+  {% else %}
+  <section class="card"><div class="card-body mod-empty" style="display:block"><span class="mod-empty-icon"><i class="bi bi-cloud-arrow-up"></i></span><h2>Ready for {{ laboratory.name }}’s first SAP snapshot</h2><p>Corporate Chemistry should upload paired daily Inspection Lots and Notifications exports at the SAP control tower. The dashboard will reconcile them into an authoritative SAP action list.</p></div></section>
+  {% endif %}
+</div>
+{% endblock %}
