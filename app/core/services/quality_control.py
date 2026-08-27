@@ -721,8 +721,8 @@ def laboratory_navigator_data(laboratories: list[dict[str, Any]]) -> list[dict[s
         batch = lab["latest_batch"]
         if lab.get("is_group"):
             choices = [{
-                "label": "Data Import",
-                "hint": "Import a weekly workbook for either IDWE workstream",
+                "label": "SAP Control Tower",
+                "hint": "Upload the daily SAP snapshot and manage RGL / IDWE follow-up",
                 "href": url_for("quality_control.data_import"),
                 "combined": True,
             }] + [{

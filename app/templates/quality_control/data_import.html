@@ -1,15 +1,15 @@
 {% extends "base.html" %}
 {% from "quality_control/_qc_nav.html" import qc_nav with context %}
-{% block title %}Data Import · QC Laboratory Monitoring{% endblock %}
+{% block title %}SAP Control Tower · QC Laboratory Monitoring{% endblock %}
 {% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/quality_control.css') }}">{% endblock %}
 {% block content %}
 <div class="page-wrapper mod-page qc-idwe-import-page">
-{{ qc_nav('') }}
+{{ qc_nav('sap') }}
 
   <div class="mod-page-head">
     <div>
-      <div class="qc-lab-eyebrow">Data operations · Import centre</div>
-      <h1 class="mod-page-title"><i class="bi bi-database-add"></i> Data Import</h1>
+      <div class="qc-lab-eyebrow">Corporate Chemistry · SAP daily operations</div>
+      <h1 class="mod-page-title"><i class="bi bi-shield-check"></i> SAP Control Tower</h1>
       <p class="mod-page-sub">RGL and IDWE laboratories are monitored from centrally uploaded SAP daily exports. Weekly workbooks remain only for designated laboratories without an SAP source.</p>
     </div>
     <div class="mod-page-actions">
@@ -39,12 +39,20 @@
         <p>Corporate Chemistry uploads the native <strong>Inspection Lots</strong> and <strong>Notifications</strong> exports from the same SAP run, generates the lab action pack, and records returned follow-up. SAP is the official source.</p>
         {% set imported = sap_control_cards | selectattr('batch') | list %}{% if imported %}<small>{{ imported|length }} laboratory snapshot(s) currently available. Open the control tower to view their as-of dates and action packs.</small>{% else %}<small>No SAP snapshot imported yet.</small>{% endif %}
       </div>
-      <a class="btn btn-primary" href="{{ url_for('quality_control.sap_control') }}"><i class="bi bi-cloud-arrow-up"></i> Open SAP control tower</a>
+      {% if can_control %}
+      <form class="qc-sap-upload-form qc-sap-upload-form--four" method="POST" enctype="multipart/form-data" action="{{ url_for('quality_control.import_sap_control_exports') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label>SAP laboratory<select class="form-select" name="lab_code" required>{% for laboratory in sap_laboratories %}<option value="{{ laboratory.code }}" {% if laboratory.code == 'rgl_panvel' %}selected{% endif %}>{{ laboratory.name }}</option>{% endfor %}</select></label>
+        <label>Inspection Lots export<input class="form-control" name="inspection_workbook" type="file" accept=".xlsx,.xls" required></label>
+        <label>Notifications export<input class="form-control" name="notification_workbook" type="file" accept=".xlsx,.xls" required></label>
+        <button class="btn btn-primary" type="submit"><i class="bi bi-cloud-arrow-up"></i> Import SAP snapshot</button>
+      </form>
+      {% else %}<a class="btn btn-primary" href="{{ url_for('quality_control.sap_control') }}"><i class="bi bi-cloud-arrow-up"></i> Open SAP control tower</a>{% endif %}
     </div>
   </section>
 
   <section class="qc-idwe-import-grid">
-    {% for laboratory in laboratories if laboratory.code != 'rgl_panvel' %}
+    {% for laboratory in laboratories %}
     <article class="card qc-idwe-import-card">
       <div class="card-body">
         <div class="qc-idwe-import-card-header">

@@ -1,6 +1,7 @@
 """Routes for the QC Laboratory Monitoring module."""
 
 from datetime import date
+from functools import wraps
 from io import BytesIO
 import logging
 from pathlib import Path
@@ -10,11 +11,28 @@ import sys
 from flask import abort, current_app, flash, redirect, render_template, request, send_file, session, url_for
 from flask_login import current_user, login_required
 
-from app.core.utils.decorators import module_access_required, module_admin_required
+from app.core.utils.decorators import module_access_required
 from app.extensions import db
 from app.modules.quality_control import quality_control_bp
 
 logger = logging.getLogger(__name__)
+
+
+def _can_control_quality_monitoring() -> bool:
+    """Corporate Chemistry control actions are available to superusers and
+    explicitly assigned Quality Control module admins."""
+    return current_user.is_super_user() or current_user.is_module_admin("quality_control")
+
+
+def quality_control_admin_required(view):
+    """Guard central SAP imports and returned-status recording."""
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not _can_control_quality_monitoring():
+            flash("This action is restricted to Corporate Chemistry Quality Control admins.", "danger")
+            abort(403)
+        return view(*args, **kwargs)
+    return wrapped
 
 
 @quality_control_bp.route("/")
@@ -43,15 +61,21 @@ def landing():
 @login_required
 @module_access_required("quality_control")
 def data_import():
-    """QC import centre: the SAP control tower plus workbook fallback labs."""
+    """SAP control-tower entry point plus workbook fallback laboratories."""
     from app.core.services.quality_control import current_monitoring_week, laboratory_import_targets
-    from app.core.services.sap_quality_control import sap_control_data
+    from app.core.services.sap_quality_control import SAP_REPORTING_LAB_CODES, sap_control_data
     sap_data = sap_control_data()
+    weekly_laboratories = [
+        laboratory for laboratory in laboratory_import_targets()
+        if laboratory["code"] not in SAP_REPORTING_LAB_CODES
+    ]
     return render_template(
         "quality_control/data_import.html",
-        laboratories=laboratory_import_targets(),
+        laboratories=weekly_laboratories,
         monitoring_week=current_monitoring_week(),
         sap_control_cards=sap_data["control_cards"],
+        sap_laboratories=sap_data["sap_laboratories"],
+        can_control=_can_control_quality_monitoring(),
     )
 
 
@@ -137,7 +161,7 @@ def sap_control():
     try:
         return render_template(
             "quality_control/sap_control.html",
-            can_control=current_user.is_module_admin("quality_control"),
+            can_control=_can_control_quality_monitoring(),
             **sap_control_data(),
         )
     except Exception:
@@ -154,7 +178,7 @@ def sap_lab_dashboard(lab_code: str):
     try:
         return render_template(
             "quality_control/sap_panvel_dashboard.html",
-            can_control=current_user.is_module_admin("quality_control"),
+            can_control=_can_control_quality_monitoring(),
             **sap_lab_dashboard_data(lab_code),
         )
     except ValueError as exc:
@@ -181,7 +205,8 @@ def _import_sap_snapshot(lab_code: str):
 
 @quality_control_bp.route("/sap-control/import", methods=["POST"])
 @login_required
-@module_admin_required("quality_control")
+@module_access_required("quality_control")
+@quality_control_admin_required
 def import_sap_control_exports():
     lab_code = (request.form.get("lab_code") or "").strip()
     try:
@@ -203,7 +228,8 @@ def import_sap_control_exports():
 
 @quality_control_bp.route("/sap-panvel/import", methods=["POST"])
 @login_required
-@module_admin_required("quality_control")
+@module_access_required("quality_control")
+@quality_control_admin_required
 def import_sap_panvel_exports():
     """Compatibility endpoint for the former Panvel-only upload form."""
     try:
@@ -220,7 +246,8 @@ def import_sap_panvel_exports():
 
 @quality_control_bp.route("/sap-control/labs/<lab_code>/records/<int:record_id>/lab-update", methods=["POST"])
 @login_required
-@module_admin_required("quality_control")
+@module_access_required("quality_control")
+@quality_control_admin_required
 def save_sap_lab_update(lab_code: str, record_id: int):
     from app.core.services.sap_quality_control import create_sap_lab_update
     try:
@@ -239,7 +266,8 @@ def save_sap_lab_update(lab_code: str, record_id: int):
 
 @quality_control_bp.route("/sap-panvel/records/<int:record_id>/lab-update", methods=["POST"])
 @login_required
-@module_admin_required("quality_control")
+@module_access_required("quality_control")
+@quality_control_admin_required
 def save_sap_panvel_lab_update(record_id: int):
     return save_sap_lab_update("rgl_panvel", record_id)
 
@@ -300,7 +328,8 @@ def download_sap_panvel_source(batch_id: int, source_kind: str):
 
 @quality_control_bp.route("/sap-control/non-sap", methods=["POST"])
 @login_required
-@module_admin_required("quality_control")
+@module_access_required("quality_control")
+@quality_control_admin_required
 def create_controlled_non_sap_sample():
     from app.core.services.sap_quality_control import create_non_sap_sample
     try:
@@ -317,7 +346,8 @@ def create_controlled_non_sap_sample():
 
 @quality_control_bp.route("/sap-control/non-sap/<int:sample_id>/update", methods=["POST"])
 @login_required
-@module_admin_required("quality_control")
+@module_access_required("quality_control")
+@quality_control_admin_required
 def update_controlled_non_sap_sample(sample_id: int):
     from app.core.services.sap_quality_control import update_non_sap_sample
     try:
