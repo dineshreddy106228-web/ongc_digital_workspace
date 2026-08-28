@@ -414,7 +414,7 @@ def reinstate_sap_record_for_monitoring(lab_code: str, record_id: int):
 @quality_control_bp.route("/sap-control/labs/<lab_code>/presentation.pptx")
 @login_required
 @module_access_required("quality_control")
-@quality_control_admin_required
+@laboratory_view_required
 def download_sap_lab_presentation(lab_code: str):
     from app.core.services.qc_presentation import build_sap_lab_presentation
     try:
