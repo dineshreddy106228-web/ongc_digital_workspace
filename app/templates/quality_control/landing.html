@@ -92,15 +92,27 @@ const list=document.getElementById('qcLabList'),otherList=document.getElementByI
 /* A laboratory opens its dashboard directly. Only IDWE Dehradun still asks,
    because its one location runs two workstreams with separate dashboards. */
 function open(lab){
+  if(!lab.can_open){return}
   if(lab.is_group){modal.open({kicker:lab.location,title:lab.name,choices:lab.choices});return}
   window.location.href=lab.dashboard_href;
 }
 /* Keep the map focused on RGLs and IDWE Dehradun; show the chemical-specific
    designations in their own selector next to it. */
+/* A laboratory the reader does not belong to stays on the map so the portfolio
+   reads whole, but it reports one number — its actionable SAP-open count — and
+   nothing about its snapshots or workstreams. */
+const openLoad=lab=>lab.sap_open_count===null||lab.sap_open_count===undefined
+  ?'No access to this laboratory'
+  :(lab.sap_open_count?lab.sap_open_count+' SAP-open':'Nothing SAP-open')+' \u00b7 no access to this laboratory';
 const entries=labs.map(lab=>({...(GEO[lab.code]||{}),...lab,label:lab.name,
+  locked:!lab.can_open,
   state:lab.is_reporting?'ready':'pending',
-  meta:(lab.workstream_count?lab.workstream_count+' workstreams \u00b7 ':'')+(lab.is_sap_monitoring?(lab.monitoring_date?'SAP snapshot as of '+lab.monitoring_date:'Awaiting first SAP snapshot'):(lab.monitoring_date?'Local workbook update '+lab.monitoring_date:'Awaiting first local workbook')),
-  title:lab.location+' \u00b7 '+(lab.is_sap_monitoring?(lab.monitoring_date?'SAP as of '+lab.monitoring_date:'awaiting first SAP snapshot'):(lab.monitoring_date?'local update '+lab.monitoring_date:'awaiting first local workbook'))}));
+  meta:lab.can_open
+    ?(lab.workstream_count?lab.workstream_count+' workstreams \u00b7 ':'')+(lab.is_sap_monitoring?(lab.monitoring_date?'SAP snapshot as of '+lab.monitoring_date:'Awaiting first SAP snapshot'):(lab.monitoring_date?'Local workbook update '+lab.monitoring_date:'Awaiting first local workbook'))
+    :openLoad(lab),
+  title:lab.can_open
+    ?lab.location+' \u00b7 '+(lab.is_sap_monitoring?(lab.monitoring_date?'SAP as of '+lab.monitoring_date:'awaiting first SAP snapshot'):(lab.monitoring_date?'local update '+lab.monitoring_date:'awaiting first local workbook'))
+    :lab.location+' \u00b7 '+openLoad(lab)}));
 const mapEntries=entries.filter(lab=>!lab.is_additional_designated);
 const otherEntries=entries.filter(lab=>lab.is_additional_designated);
 ModGeoMap.renderList(list,mapEntries,open);

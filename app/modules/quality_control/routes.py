@@ -1,5 +1,7 @@
 """Routes for the QC Laboratory Monitoring module."""
 
+from __future__ import annotations
+
 from functools import wraps
 from io import BytesIO
 import logging
@@ -39,6 +41,37 @@ def _can_record_lab_follow_up(lab_code: str) -> bool:
     )
 
 
+def _user_lab_scope() -> str | None:
+    """The one laboratory this user works, or ``None`` for the full scope.
+
+    A superuser reads Corporate Chemistry's whole portfolio.  Everybody else
+    is scoped to the laboratory an admin assigned them; until that assignment
+    exists they have no laboratory scope at all, which is not the same as
+    having every laboratory.
+    """
+    if current_user.is_authenticated and current_user.is_super_user():
+        return None
+    return getattr(current_user, "quality_control_lab_code", None) or ""
+
+
+def _can_view_laboratory(lab_code: str) -> bool:
+    """Whether this user may open a laboratory's own monitoring screens."""
+    scope = _user_lab_scope()
+    return scope is None or scope == lab_code
+
+
+def laboratory_view_required(view):
+    """Guard a laboratory's screens against readers from another laboratory."""
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        lab_code = kwargs.get("lab_code") or (args[0] if args else None)
+        if not lab_code or not _can_view_laboratory(str(lab_code)):
+            flash("You may open only your own laboratory's monitoring views.", "danger")
+            abort(403)
+        return view(*args, **kwargs)
+    return wrapped
+
+
 def quality_control_admin_required(view):
     """Guard central SAP imports and QC-admin monitoring decisions."""
     @wraps(view)
@@ -69,18 +102,23 @@ def landing():
     from app.core.services.quality_control import (
         current_monitoring_day, laboratory_landing_data, laboratory_navigator_data,
     )
+    from app.core.services.sap_quality_control import sap_open_counts_by_lab
     monitoring_day = current_monitoring_day()
     laboratories = laboratory_landing_data()
     designated_laboratories = [
         laboratory for laboratory in laboratories
         if laboratory.get("is_additional_designated")
     ]
+    scope = _user_lab_scope()
     return render_template(
         "quality_control/landing.html",
         laboratories=laboratories,
         designated_laboratories=designated_laboratories,
         mapped_laboratory_total=len(laboratories) - len(designated_laboratories),
-        map_laboratories=laboratory_navigator_data(laboratories, monitoring_day["date"]),
+        map_laboratories=laboratory_navigator_data(
+            laboratories, monitoring_day["date"],
+            scope_lab_code=scope, sap_open_counts=sap_open_counts_by_lab(),
+        ),
         monitoring_day=monitoring_day,
         is_superuser=current_user.is_super_user(),
     )
@@ -121,6 +159,7 @@ def idwe_imports():
 @quality_control_bp.route("/labs/<lab_code>", methods=["GET", "POST"])
 @login_required
 @module_access_required("quality_control")
+@laboratory_view_required
 def laboratory_dashboard(lab_code: str):
     # RGL and IDWE views are driven by their native SAP daily exports. Historic
     # local records remain available as the fallback source for other labs.
@@ -205,6 +244,7 @@ def sap_control():
 @quality_control_bp.route("/sap-control/labs/<lab_code>")
 @login_required
 @module_access_required("quality_control")
+@laboratory_view_required
 def sap_lab_dashboard(lab_code: str):
     from app.core.services.sap_quality_control import sap_lab_dashboard_data
     try:
@@ -514,20 +554,39 @@ def update_lab_non_sap_sample(lab_code: str, sample_id: int):
 @login_required
 @module_access_required("quality_control")
 def sample_history():
-    """The module-wide register is the current SAP monitoring position."""
-    from app.core.services.sap_quality_control import sap_sample_register_data
+    """The SAP register, read at the scope the reader actually works.
 
-    lab_code = (request.args.get("lab") or "").strip()
+    Corporate Chemistry reads every reporting laboratory.  A laboratory user
+    reads their own, and the requested ``lab`` is ignored rather than being
+    honoured or rejected — the register is one screen at two scopes, not a
+    corporate screen with a filter a laboratory could widen.
+    """
+    from app.core.services.sap_quality_control import (
+        SAP_REGISTER_STATUS_FILTERS, sap_sample_register_data,
+    )
+
+    scope = _user_lab_scope()
+    lab_code = (request.args.get("lab") or "").strip() if scope is None else scope
     # Accept the former ``chemical`` key once so existing bookmarks still find
     # their material in the SAP register after the source migration.
     search = (request.args.get("search") or request.args.get("chemical") or "").strip()
     status = (request.args.get("status") or "").strip()
     subgroup = (request.args.get("subgroup") or "").strip()
+    if scope == "":
+        # No laboratory assigned yet is an empty scope, not the whole portfolio.
+        return render_template(
+            "quality_control/samples.html",
+            filters={"lab": "", "search": "", "status": "", "subgroup": ""},
+            entries=[], groups=[], laboratories=[], subgroup_filters=[],
+            status_filters=SAP_REGISTER_STATUS_FILTERS,
+            can_view_all_laboratories=False, has_lab_scope=False,
+        )
     try:
         register = sap_sample_register_data(lab_code, search, status, subgroup)
         return render_template(
             "quality_control/samples.html",
             filters={"lab": lab_code, "search": search, "status": status, "subgroup": subgroup},
+            can_view_all_laboratories=scope is None, has_lab_scope=True,
             **register,
         )
     except ValueError:

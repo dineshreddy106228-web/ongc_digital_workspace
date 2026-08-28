@@ -162,7 +162,7 @@ def test_a_reader_is_not_offered_a_register_they_cannot_open(task_app):
     assert 'href="/tasks/?office=1"' in body
     assert 'href="/tasks/?office=2"' not in body
     assert "RJY Surface Chemistry Team" in body, "the location is still shown"
-    assert "is-locked" in body
+    assert "has-meta is-locked" in body
 
 
 def test_a_superuser_may_open_every_location(task_app):
@@ -172,7 +172,7 @@ def test_a_superuser_may_open_every_location(task_app):
 
     assert 'href="/tasks/?office=1"' in body
     assert 'href="/tasks/?office=2"' in body
-    assert "is-locked" not in body
+    assert "has-meta is-locked" not in body
 
 
 def test_the_navigator_wording_is_the_same_for_everyone(task_app):

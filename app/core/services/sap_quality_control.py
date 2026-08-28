@@ -1243,6 +1243,40 @@ def sap_sample_register_data(
     }
 
 
+def _sap_monitoring_counts(
+    lab_code: str, batch: QCSAPUploadBatch | None,
+) -> dict[str, int]:
+    """Split a laboratory's SAP-open records into the three monitoring states."""
+    counts = {"sap_open": 0, "excluded_from_monitoring": 0, "exclusion_review": 0}
+    if batch is None:
+        return counts
+    current_records = QCSAPRecord.query.filter_by(
+        lab_code=lab_code, last_seen_batch_id=batch.id, official_status="open",
+    ).all()
+    latest_dispositions = _latest_monitoring_dispositions(current_records)
+    for record in current_records:
+        state = _monitoring_disposition_state(record, latest_dispositions.get(record.id))
+        counts["excluded_from_monitoring"] += int(state["is_excluded"])
+        counts["exclusion_review"] += int(state["requires_review"])
+        counts["sap_open"] += int(not state["is_excluded"] and not state["requires_review"])
+    return counts
+
+
+def sap_open_counts_by_lab() -> dict[str, int]:
+    """Actionable SAP-open items per reporting laboratory.
+
+    This is the one number the lab navigator shows for a laboratory the reader
+    does not belong to, so it must mean what the laboratory dashboard means:
+    excluded and review-pending records are not actionable and are left out.
+    """
+    return {
+        laboratory["code"]: _sap_monitoring_counts(
+            laboratory["code"], latest_sap_batch(laboratory["code"]),
+        )["sap_open"]
+        for laboratory in sap_reporting_laboratories()
+    }
+
+
 def sap_control_data() -> dict[str, Any]:
     """Corporate Chemistry's consolidated source and exception control view."""
     laboratories = _laboratories_by_code()
@@ -1250,19 +1284,8 @@ def sap_control_data() -> dict[str, Any]:
     for laboratory in sap_reporting_laboratories():
         lab_code = laboratory["code"]
         batch = latest_sap_batch(lab_code)
-        sap_open = 0
-        excluded_from_monitoring = 0
-        exclusion_review = 0
-        if batch:
-            current_records = QCSAPRecord.query.filter_by(
-                lab_code=lab_code, last_seen_batch_id=batch.id, official_status="open",
-            ).all()
-            latest_dispositions = _latest_monitoring_dispositions(current_records)
-            for record in current_records:
-                state = _monitoring_disposition_state(record, latest_dispositions.get(record.id))
-                excluded_from_monitoring += int(state["is_excluded"])
-                exclusion_review += int(state["requires_review"])
-                sap_open += int(not state["is_excluded"] and not state["requires_review"])
+        counts = _sap_monitoring_counts(lab_code, batch)
+        sap_open = counts["sap_open"]
         non_sap_pending = QCNonSAPSample.query.filter_by(lab_code=lab_code).filter(
             ~QCNonSAPSample.current_status.in_(NON_SAP_CLOSED_STATUSES)
         ).count()
@@ -1270,8 +1293,8 @@ def sap_control_data() -> dict[str, Any]:
             "laboratory": laboratory,
             "batch": batch,
             "sap_open": sap_open,
-            "excluded_from_monitoring": excluded_from_monitoring,
-            "exclusion_review": exclusion_review,
+            "excluded_from_monitoring": counts["excluded_from_monitoring"],
+            "exclusion_review": counts["exclusion_review"],
             "non_sap_pending": non_sap_pending,
             "combined_pending": sap_open + non_sap_pending,
         })

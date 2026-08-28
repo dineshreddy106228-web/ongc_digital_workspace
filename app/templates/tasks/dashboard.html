@@ -241,7 +241,7 @@ const counts=office=>(office.overdue_count?office.overdue_count+' overdue':'noth
    deployment still shows its pins while the records are being filled in. */
 const entries=offices.flatMap(office=>{
   const base={...(GEO[office.office_code]||{}),id:office.id,label:office.office_name,
-    can_open:office.can_open,
+    can_open:office.can_open,locked:!office.can_open,
     state:office.overdue_count?'overdue':'ready'};
   const points=office.points||[];
   if(office.office_code===HERO_CODE){

@@ -219,6 +219,49 @@ def test_lab_dashboard_hides_corporate_only_actions_from_a_reporting_laboratory(
     assert "imported" in lab_page
 
 
+def test_lab_navigator_dims_other_laboratories_and_reports_only_their_open_load(sap_app):
+    """A laboratory sees the whole portfolio exists, and one number about it.
+
+    Every location stays on the map so the reader knows the portfolio is
+    larger than their bench, but a location they do not belong to is closed
+    and carries only its actionable SAP-open count.
+    """
+    from app.core.services.quality_control import laboratory_landing_data, laboratory_navigator_data
+    from app.core.services.sap_quality_control import (
+        import_sap_panvel_exports, sap_open_counts_by_lab,
+    )
+
+    import_sap_panvel_exports(
+        _inspection_export(), "SAP_INSPECTION_20260826.xlsx",
+        _notification_export(), "SAP_NOTIFICATIONS_20260826.xlsx", None,
+    )
+    db.session.commit()
+
+    open_counts = sap_open_counts_by_lab()
+    assert open_counts["rgl_panvel"] == 3
+    assert open_counts["rgl_vadodara"] == 0
+
+    laboratories = laboratory_landing_data()
+    # The navigator builds dashboard links, so it needs a request context.
+    with sap_app.test_request_context("/quality-control/"):
+        scoped = laboratory_navigator_data(
+            laboratories, scope_lab_code="rgl_panvel", sap_open_counts=open_counts,
+        )
+        corporate = laboratory_navigator_data(
+            laboratories, scope_lab_code=None, sap_open_counts=open_counts,
+        )
+    by_code = {entry["code"]: entry for entry in scoped}
+    assert by_code["rgl_panvel"]["can_open"] is True
+    assert by_code["rgl_panvel"]["sap_open_count"] == 3
+    assert by_code["rgl_vadodara"]["can_open"] is False
+    assert by_code["rgl_vadodara"]["sap_open_count"] == 0
+    assert all(
+        entry["can_open"] is (entry["code"] == "rgl_panvel") for entry in scoped
+    ), "only the reader's own laboratory opens"
+
+    assert all(entry["can_open"] for entry in corporate)
+
+
 def test_panvel_import_rejects_a_non_panvel_plant():
     from app.core.services.sap_quality_control import parse_sap_notification_workbook
 

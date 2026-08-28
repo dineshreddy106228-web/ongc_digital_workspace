@@ -720,14 +720,22 @@ def laboratory_import_targets() -> list[dict[str, Any]]:
 
 def laboratory_navigator_data(
     laboratories: list[dict[str, Any]], monitoring_day: date | None = None,
+    *, scope_lab_code: str | None = None, sap_open_counts: dict[str, int] | None = None,
 ) -> list[dict[str, Any]]:
     """Lab navigator markers: one entry per laboratory.
 
     SAP laboratories are marked current only when their latest snapshot is for
     the active working day.  Local-workbook fallback laboratories retain their
     most recent reported status without being represented as a daily SAP feed.
+
+    ``scope_lab_code`` is the one laboratory the reader belongs to; pass
+    ``None`` for the corporate scope, which opens every laboratory.  The map
+    still shows every location — a laboratory should see that the portfolio
+    exists — but a location it does not belong to is marked closed and carries
+    only its actionable SAP-open count from ``sap_open_counts``.
     """
     active_day = monitoring_day or current_monitoring_day()["date"]
+    open_counts = sap_open_counts or {}
     entries = []
     for lab in laboratories:
         batch = lab.get("latest_batch")
@@ -765,6 +773,8 @@ def laboratory_navigator_data(
             "monitoring_date": monitoring_date.strftime("%d %b %Y") if monitoring_date else None,
             "monitoring_source": lab.get("monitoring_source"),
             "sap_record_count": latest_sap_batch.record_count if latest_sap_batch else None,
+            "can_open": scope_lab_code is None or scope_lab_code == lab["code"],
+            "sap_open_count": open_counts.get(lab["code"]),
             # Where a click lands. A grouped entry has no single dashboard of its
             # own, so it keeps the chooser its workstreams need.
             "dashboard_href": (

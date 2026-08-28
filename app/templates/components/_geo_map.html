@@ -16,7 +16,7 @@
      {{ geo_map_script() }}
      ModGeoMap.render(document.getElementById('imMap'), entries, onSelect);
    where each entry is
-     {ll:[lat,lng], label, meta, title, kind, state, dx, dy, links}
+     {ll:[lat,lng], label, meta, title, kind, state, locked, dx, dy, links}
    meta  — optional second line, shown on the list button beside the map
    kind  — onshore (default) | offshore | region | hero, the marker's own nature;
            hero is the one place the others report to, drawn dark and larger
@@ -24,6 +24,7 @@
            report to it; set links_from_label to begin those ties at the label
    hide_dot — keep a named heading on the map without pretending it is a place
    state — optional extra modifier, e.g. ready | pending
+   locked — the reader may not open this one: dimmed, not clickable
    dx/dy — viewBox-unit offsets that move the label pill off its dot; a leader
            line is drawn automatically once the label sits far enough away. #}
 
@@ -60,10 +61,12 @@
 <script nonce="{{ csp_nonce() }}">window.ModGeoMap=(()=>{
 const LON_MIN=66.5,LAT_MAX=37.5,DEG_Y=21.875,DEG_X=DEG_Y*Math.cos(21.5*Math.PI/180),VB_W=650,VB_H=700,SVG_NS='http://www.w3.org/2000/svg';
 const project=(lat,lng)=>[(lng-LON_MIN)*DEG_X,(LAT_MAX-lat)*DEG_Y];
-const modifiers=entry=>'is-'+(entry.kind||'onshore')+(entry.state?' is-'+entry.state:'');
+const modifiers=entry=>'is-'+(entry.kind||'onshore')+(entry.state?' is-'+entry.state:'')+(entry.locked?' is-locked':'');
 function button(entry,klass,onSelect,meta){const el=document.createElement('button');el.type='button';el.className=klass+(meta&&entry.meta?' has-meta':'');
   if(meta&&entry.meta){el.append(Object.assign(document.createElement('strong'),{textContent:entry.label}),Object.assign(document.createElement('small'),{textContent:entry.meta}))}else{el.textContent=entry.label}
-  if(entry.title)el.title=entry.title;el.addEventListener('click',()=>onSelect(entry));return el}
+  if(entry.title)el.title=entry.title;
+  if(entry.locked){el.disabled=true;el.setAttribute('aria-disabled','true')}else{el.addEventListener('click',()=>onSelect(entry))}
+  return el}
 /* Draws one dot per entry at its true position, one label pill at the requested
    offset, and a leader line whenever the two are far enough apart to need one.
    An entry may also carry links:[[lat,lng],…] — the places that report to it —
@@ -84,7 +87,7 @@ function render(map,entries,onSelect){
 /* The list beside the map is the accessible route to every entry, including any
    that carry no coordinates yet. */
 function renderList(list,entries,onSelect){const meta=entries.some(entry=>entry.meta);if(meta)list.classList.add('is-detailed');
-  entries.forEach(entry=>list.append(button(entry,'mod-geo-list-button'+(entry.state?' is-'+entry.state:''),onSelect,meta)))}
+  entries.forEach(entry=>list.append(button(entry,'mod-geo-list-button'+(entry.state?' is-'+entry.state:'')+(entry.locked?' is-locked':''),onSelect,meta)))}
 /* Destination chooser: same dismissal behaviour for every module — backdrop,
    close button, Escape. */
 function modal(el){

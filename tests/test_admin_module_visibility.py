@@ -267,6 +267,82 @@ def test_corporate_qc_screens_are_not_reachable_by_a_reporting_laboratory(admin_
         logout_user()
 
 
+def test_a_laboratory_reader_may_open_only_its_own_laboratory(admin_app):
+    """The map shows every laboratory; only one of them opens for this reader."""
+    from flask_login import login_user, logout_user
+    from werkzeug.exceptions import Forbidden
+    from app.core.roles import SUPERUSER_ROLE
+    from app.models.core.role import Role
+    from app.models.core.user import User
+    from app.models.core.user_module_permission import UserModulePermission
+    from app.modules.quality_control.routes import _can_view_laboratory, sap_lab_dashboard
+
+    user, _role = _plain_user()
+    user.quality_control_lab_code = "rgl_panvel"
+    super_role = Role(id=2, name=SUPERUSER_ROLE)
+    superuser = User(
+        id=2, username="super", password_hash="x", role=super_role,
+        is_active=True, must_change_password=False,
+    )
+    db.session.add_all([
+        UserModulePermission(user_id=user.id, module_code="quality_control", can_access=True),
+        super_role,
+        superuser,
+    ])
+    db.session.commit()
+
+    with admin_app.test_request_context("/quality-control/sap-control/labs/rgl_vadodara"):
+        login_user(user)
+        assert _can_view_laboratory("rgl_panvel") is True
+        assert _can_view_laboratory("rgl_vadodara") is False
+        # A workbook fallback laboratory is nobody's assigned scope either.
+        assert _can_view_laboratory("idwe_cementing") is False
+        with pytest.raises(Forbidden):
+            sap_lab_dashboard("rgl_vadodara")
+        logout_user()
+
+        login_user(superuser)
+        assert _can_view_laboratory("rgl_vadodara") is True
+        assert _can_view_laboratory("idwe_cementing") is True
+        logout_user()
+
+
+def test_the_sample_register_is_scoped_to_the_reader_s_own_laboratory(admin_app):
+    """The register is one screen at two scopes.
+
+    A laboratory reader cannot widen it back to the portfolio by asking for
+    another laboratory in the query string, and a reader with no laboratory
+    assigned yet gets an empty scope rather than the whole portfolio.
+    """
+    from flask_login import login_user, logout_user
+    from app.models.core.user_module_permission import UserModulePermission
+    from app.modules.quality_control.routes import sample_history
+
+    user, _role = _plain_user()
+    user.quality_control_lab_code = "rgl_panvel"
+    db.session.add(
+        UserModulePermission(user_id=user.id, module_code="quality_control", can_access=True)
+    )
+    db.session.commit()
+
+    with admin_app.test_request_context("/quality-control/history?lab=rgl_vadodara"):
+        login_user(user)
+        page = sample_history()
+        assert "Rgl Panvel" in page
+        assert "View all SAP laboratories" not in page
+        assert "All SAP laboratories" not in page
+        logout_user()
+
+    user.quality_control_lab_code = None
+    db.session.commit()
+    with admin_app.test_request_context("/quality-control/history"):
+        login_user(user)
+        unscoped = sample_history()
+        assert "No laboratory is assigned to your account" in unscoped
+        assert "0 matching current SAP records" in unscoped
+        logout_user()
+
+
 def test_standard_testing_times_stay_readable_outside_the_corporate_scope(admin_app):
     """Standard Testing Times are a shared reference, not a corporate screen.
 
