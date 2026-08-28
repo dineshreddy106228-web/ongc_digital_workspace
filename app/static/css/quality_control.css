@@ -137,13 +137,16 @@ a.qc-management-kpi:hover > .bi { color: var(--mod-accent); }
 .qc-sap-action-register .qc-sap-record-table tbody tr:not([hidden]):hover{ background:var(--primary-soft); }
 .qc-sap-action-register .qc-sap-record-table .qc-sap-subgroup-heading th{ padding:.65rem .8rem; border-top:1px solid var(--border); border-bottom:1px solid var(--border); background:var(--primary-soft); color:var(--primary); font-size:.72rem; letter-spacing:.035em; text-align:left; text-transform:uppercase; }.qc-sap-subgroup-heading strong{ margin-left:.35rem; color:var(--text); font-size:.82rem; letter-spacing:0; text-transform:none; }.qc-sap-subgroup-heading i{ margin-right:.2rem; }.qc-sap-spec-reference{ margin-top:.18rem; color:var(--mod-accent); font-weight:700; }
 .qc-sap-action-register .qc-sap-record-table .table-serial-column{ width:4%; padding-right:.35rem; padding-left:.35rem; text-align:center; }
-.qc-sap-action-register .qc-sap-record-table th:nth-child(2){ width:18%; }.qc-sap-action-register .qc-sap-record-table th:nth-child(3){ width:20%; }.qc-sap-action-register .qc-sap-record-table th:nth-child(4){ width:9%; }.qc-sap-action-register .qc-sap-record-table th:nth-child(5){ width:13%; }.qc-sap-action-register .qc-sap-record-table th:nth-child(6){ width:17%; }.qc-sap-action-register .qc-sap-record-table th:nth-child(7){ width:10%; }.qc-sap-action-register .qc-sap-record-table th:nth-child(8){ width:9%; }
+.qc-sap-action-register .qc-sap-record-table th:nth-child(2){ width:18%; }.qc-sap-action-register .qc-sap-record-table th:nth-child(3){ width:18%; }.qc-sap-action-register .qc-sap-record-table th:nth-child(4){ width:9%; }.qc-sap-action-register .qc-sap-record-table th:nth-child(5){ width:13%; }.qc-sap-action-register .qc-sap-record-table th:nth-child(6){ width:15%; }.qc-sap-action-register .qc-sap-record-table th:nth-child(7){ width:10%; }.qc-sap-action-register .qc-sap-record-table th:nth-child(8){ width:13%; }
+.qc-sap-action-register .qc-sap-record-table th:nth-child(8),
+.qc-sap-action-register .qc-sap-record-table .qc-sap-record-action-cell{ padding-right:.55rem; padding-left:.4rem; }
 .qc-sap-record-overdue{ box-shadow:inset 3px 0 0 var(--danger); }
 .qc-sap-lab-guidance{ display:grid; gap:.8rem; margin-top:.85rem; }.qc-sap-lab-guidance p{ margin:0; color:var(--text); font-size:.84rem; line-height:1.55; }.qc-sap-lab-guidance em{ color:var(--primary); font-style:normal; font-weight:700; }.qc-sap-lab-contact{ display:flex; gap:.55rem; align-items:flex-start; padding:.72rem .8rem; border:1px solid rgba(196,61,61,.24); border-radius:9px; background:var(--tone-bad-bg); color:var(--tone-bad-fg); font-size:.8rem; line-height:1.45; }.qc-sap-lab-contact i{ margin-top:.12rem; }
 .qc-sap-status{ display:inline-flex; max-width:220px; padding:.26rem .48rem; border-radius:999px; font-size:.7rem; font-weight:700; line-height:1.25; }.qc-sap-status.is-open,.qc-sap-status.is-awaiting_sap_confirmation{ color:var(--tone-bad-fg); background:var(--tone-bad-bg); }.qc-sap-status.is-awaiting_lab,.qc-sap-status.is-exclusion_review{ color:var(--tone-warn-fg); background:var(--tone-warn-bg); }.qc-sap-status.is-lab_updated,.qc-sap-status.is-excluded{ color:var(--primary); background:var(--primary-soft); }.qc-sap-status.is-sap_confirmed{ color:var(--tone-ok-fg); background:var(--tone-ok-bg); }
 .qc-sap-work-center{ font-size:.78rem; font-weight:700; }
 .qc-sap-record-action-cell{ text-align:right; white-space:nowrap; }
-.qc-sap-record-action{ min-width:86px; }
+.qc-sap-record-action{ white-space:nowrap; }
+.qc-sap-record-action i{ margin-right:.25rem; }
 .qc-sap-register-summary{ display:flex; flex-wrap:wrap; justify-content:flex-end; gap:.45rem; }
 .qc-sap-audit-count{ display:inline-flex; align-items:center; padding:.38rem .62rem; border-radius:999px; color:var(--mod-accent); background:var(--primary-soft); font-size:.74rem; font-weight:700; white-space:nowrap; }
 .qc-sap-disposition-register{ margin-top:1rem; border-color:rgba(25,118,210,.3); }
@@ -175,6 +178,13 @@ a.qc-management-kpi:hover > .bi { color: var(--mod-accent); }
 @media (max-width:1100px){ .qc-sap-kpis{ grid-template-columns:repeat(3,minmax(0,1fr)); }.qc-sap-panel-grid{ grid-template-columns:1fr; }.qc-sap-upload-card .card-body,.qc-sap-import-card .card-body{ align-items:flex-start; flex-direction:column; }.qc-sap-upload-form{ width:100%; grid-template-columns:1fr 1fr; }.qc-sap-upload-form .btn{ justify-self:start; } }
 @media (max-width:700px){ .qc-sap-kpis,.qc-sap-integrity-list,.qc-sap-upload-form{ grid-template-columns:1fr; }.qc-sap-authority-note{ grid-template-columns:auto minmax(0,1fr); }.qc-sap-authority-note span{ grid-column:2; text-align:left; } }
 @media (max-width:980px){ .qc-sap-register-tools{ grid-template-columns:repeat(2,minmax(0,1fr)); }.qc-sap-filter-count{ text-align:left; } }
+/* Where the action column can no longer hold the whole button, drop its icon
+   first, then let the register scroll sideways. Clipping the label is never
+   the answer: the button is how a laboratory records its follow-up. */
+@media (max-width:1200px){
+    .qc-sap-record-action i{ display:none; }
+    .qc-sap-action-register .qc-sap-register-table-wrap{ overflow-x:auto; }
+}
 @media (max-width:620px){ .qc-sap-register-tools{ grid-template-columns:1fr; }.qc-sap-register-tools .btn{ justify-self:start; }.qc-sap-overdue-filter{ min-height:auto; }.qc-sap-register-summary{ justify-content:flex-start; }.qc-sap-update-context,.qc-sap-update-form-grid{ grid-template-columns:1fr; }.qc-sap-update-note{ grid-column:auto; }.qc-sap-update-dialog-head,.qc-sap-update-context,.qc-sap-update-dialog form{ padding-left:1rem; padding-right:1rem; }.qc-sap-update-actions{ align-items:stretch; flex-direction:column-reverse; }.qc-sap-update-actions .btn{ width:100%; }.qc-sap-disposition-actions{ align-items:stretch; flex-direction:column; }.qc-sap-disposition-actions .btn{ width:100%; } }
 
 /* ── Head of Corporate Chemistry dashboard ─────────────────────────────
