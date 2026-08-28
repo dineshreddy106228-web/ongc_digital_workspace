@@ -941,7 +941,39 @@ def test_all_labs_presentation_groups_samples_by_lab_then_corporate_subgroup():
     ]
 
 
-def test_blank_presentation_lab_parameter_means_all_sap_laboratories(sap_app, monkeypatch):
+def _presentation_readers():
+    """A Corporate Chemistry reader and a laboratory one, for deck scoping."""
+    from app.core.roles import SUPERUSER_ROLE, USER_ROLE
+    from app.models.core.role import Role
+    from app.models.core.user import User
+    from app.models.core.user_module_permission import UserModulePermission
+
+    user_role, super_role = Role(id=1, name=USER_ROLE), Role(id=2, name=SUPERUSER_ROLE)
+    lab_user = User(
+        id=1, username="panvel", password_hash="x", role=user_role, is_active=True,
+        must_change_password=False, quality_control_lab_code="rgl_panvel",
+    )
+    superuser = User(
+        id=2, username="super", password_hash="x", role=super_role,
+        is_active=True, must_change_password=False,
+    )
+    db.session.add_all([
+        user_role, super_role, lab_user, superuser,
+        UserModulePermission(id=1, user_id=1, module_code="quality_control", can_access=True),
+        UserModulePermission(id=2, user_id=2, module_code="quality_control", can_access=True),
+    ])
+    db.session.commit()
+    return lab_user, superuser
+
+
+def test_management_deck_is_built_at_the_reader_s_own_scope(sap_app, monkeypatch):
+    """Corporate Chemistry chooses the scope; a laboratory always gets its own.
+
+    The laboratory takes the same management deck to its review, narrowed to
+    its own bench — and cannot widen it back by asking for another laboratory,
+    or for the whole portfolio, in the query string.
+    """
+    from flask_login import login_user, logout_user
     from app.modules.quality_control.routes import download_portfolio_management_presentation
 
     captured = {}
@@ -953,11 +985,35 @@ def test_blank_presentation_lab_parameter_means_all_sap_laboratories(sap_app, mo
     monkeypatch.setattr(
         "app.core.services.qc_presentation.build_sap_portfolio_management_presentation", build,
     )
-    with sap_app.test_request_context("/quality-control/management-review/presentation.pptx?lab="):
-        response = download_portfolio_management_presentation.__wrapped__.__wrapped__.__wrapped__()
+    lab_user, superuser = _presentation_readers()
 
+    # Corporate Chemistry: a blank lab parameter still means every laboratory.
+    with sap_app.test_request_context("/quality-control/management-review/presentation.pptx?lab="):
+        login_user(superuser)
+        response = download_portfolio_management_presentation.__wrapped__.__wrapped__()
+        logout_user()
     assert response.status_code == 200
     assert captured["lab_codes"] is None
+
+    # Corporate Chemistry: one named laboratory still narrows the deck.
+    with sap_app.test_request_context(
+        "/quality-control/management-review/presentation.pptx?lab=rgl_vadodara",
+    ):
+        login_user(superuser)
+        download_portfolio_management_presentation.__wrapped__.__wrapped__()
+        logout_user()
+    assert captured["lab_codes"] == {"rgl_vadodara"}
+
+    # A laboratory gets its own deck whatever the query string asks for.
+    for query in ("", "?lab=", "?lab=rgl_vadodara", "?scope=labs"):
+        with sap_app.test_request_context(
+            f"/quality-control/management-review/presentation.pptx{query}",
+        ):
+            login_user(lab_user)
+            response = download_portfolio_management_presentation.__wrapped__.__wrapped__()
+            logout_user()
+        assert response.status_code == 200, query
+        assert captured["lab_codes"] == {"rgl_panvel"}, query
 
 
 def test_open_register_paginates_every_item_for_the_management_presentation():

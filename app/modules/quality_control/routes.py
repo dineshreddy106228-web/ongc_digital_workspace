@@ -633,20 +633,41 @@ def portfolio_management_review():
 @quality_control_bp.route("/management-review/presentation.pptx")
 @login_required
 @module_access_required("quality_control")
-@quality_control_admin_required
 def download_portfolio_management_presentation():
+    """The management deck, built at the scope the reader is allowed to see.
+
+    Corporate Chemistry chooses — the whole portfolio, or one laboratory from
+    the presentation selector.  A laboratory always gets its own, whatever the
+    query string asks for: the same deck a superuser would take to a review,
+    narrowed to that bench rather than replaced by a different one.
+    """
     from app.core.services.qc_presentation import build_sap_portfolio_management_presentation
     from app.core.services.sap_quality_control import SAP_REPORTING_LAB_CODES
-    lab_codes = None
-    requested_lab_codes = [code for code in request.args.getlist("lab") if code]
-    # The presentation selector submits one ``lab`` value for a single-lab
-    # deck and no value for the all-laboratories deck.  Keep ``scope=labs``
-    # compatible with existing bookmarked filtered-deck links.
-    if request.args.get("scope") == "labs" or requested_lab_codes:
-        lab_codes = {code for code in requested_lab_codes if code in SAP_REPORTING_LAB_CODES}
-        if not lab_codes:
-            flash("Select at least one SAP laboratory, or choose the all-SAP deck.", "warning")
-            return redirect(url_for("quality_control.portfolio_management_review"))
+
+    scope = _user_lab_scope()
+    if scope is None:
+        fallback = url_for("quality_control.portfolio_management_review")
+        lab_codes = None
+        requested_lab_codes = [code for code in request.args.getlist("lab") if code]
+        # The presentation selector submits one ``lab`` value for a single-lab
+        # deck and no value for the all-laboratories deck.  Keep ``scope=labs``
+        # compatible with existing bookmarked filtered-deck links.
+        if request.args.get("scope") == "labs" or requested_lab_codes:
+            lab_codes = {code for code in requested_lab_codes if code in SAP_REPORTING_LAB_CODES}
+            if not lab_codes:
+                flash("Select at least one SAP laboratory, or choose the all-SAP deck.", "warning")
+                return redirect(fallback)
+    elif scope in SAP_REPORTING_LAB_CODES:
+        lab_codes = {scope}
+        # A laboratory reader cannot reach the management review, so an error
+        # has to land them back on a page they are allowed to open.
+        fallback = url_for("quality_control.sap_lab_dashboard", lab_code=scope)
+    else:
+        flash(
+            "No laboratory is assigned to your account, so there is no "
+            "management presentation to build.", "warning",
+        )
+        return redirect(url_for("quality_control.landing"))
     try:
         output, filename = build_sap_portfolio_management_presentation(current_app.static_folder, lab_codes)
     except ValueError as exc:
@@ -656,7 +677,7 @@ def download_portfolio_management_presentation():
         flash("The portfolio presentation could not be generated. Please try again.", "danger")
     else:
         return send_file(output, mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation", as_attachment=True, download_name=filename, max_age=0)
-    return redirect(url_for("quality_control.portfolio_management_review"))
+    return redirect(fallback)
 
 
 @quality_control_bp.route("/analytics")
