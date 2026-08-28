@@ -231,7 +231,8 @@ def test_corporate_qc_screens_are_not_reachable_by_a_reporting_laboratory(admin_
     from app.models.core.user import User
     from app.models.core.user_module_permission import UserModulePermission
     from app.modules.quality_control.routes import (
-        data_import, download_portfolio_management_presentation, sap_control,
+        data_import, download_management_report, download_portfolio_management_presentation,
+        management_analytics, portfolio_management_review, sap_control,
     )
 
     user, _role = _plain_user()
@@ -249,7 +250,10 @@ def test_corporate_qc_screens_are_not_reachable_by_a_reporting_laboratory(admin_
     ])
     db.session.commit()
 
-    corporate_views = (data_import, sap_control, download_portfolio_management_presentation)
+    corporate_views = (
+        data_import, sap_control, download_portfolio_management_presentation,
+        portfolio_management_review, management_analytics, download_management_report,
+    )
     with admin_app.test_request_context("/quality-control/sap-control"):
         login_user(user)
         for view in corporate_views:
@@ -260,6 +264,29 @@ def test_corporate_qc_screens_are_not_reachable_by_a_reporting_laboratory(admin_
         # The same guard must let Corporate Chemistry through.
         login_user(superuser)
         assert "SAP Control Tower" in sap_control()
+        logout_user()
+
+
+def test_standard_testing_times_stay_readable_outside_the_corporate_scope(admin_app):
+    """Standard Testing Times are a shared reference, not a corporate screen.
+
+    Inventory Monitoring links here to explain its material categories, so the
+    page must stay readable for any user with module access. Only the workbook
+    import is restricted, and that guard already lives inside the view.
+    """
+    from flask_login import login_user, logout_user
+    from app.models.core.user_module_permission import UserModulePermission
+    from app.modules.quality_control.routes import testing_standards
+
+    user, _role = _plain_user()
+    db.session.add(
+        UserModulePermission(user_id=user.id, module_code="quality_control", can_access=True)
+    )
+    db.session.commit()
+
+    with admin_app.test_request_context("/quality-control/testing-standards"):
+        login_user(user)
+        assert "Standard Testing Time" in testing_standards()
         logout_user()
 
 

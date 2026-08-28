@@ -546,6 +546,7 @@ def sample_history():
 @quality_control_bp.route("/management-review")
 @login_required
 @module_access_required("quality_control")
+@quality_control_admin_required
 def portfolio_management_review():
     from app.core.services.sap_quality_control import sap_management_data
     return render_template("quality_control/portfolio_management_review.html", **sap_management_data())
@@ -583,6 +584,7 @@ def download_portfolio_management_presentation():
 @quality_control_bp.route("/analytics")
 @login_required
 @module_access_required("quality_control")
+@quality_control_admin_required
 def management_analytics():
     from app.core.services.sap_quality_control import sap_management_data
     return render_template("quality_control/management_analytics.html", **sap_management_data())
@@ -591,6 +593,7 @@ def management_analytics():
 @quality_control_bp.route("/management-report.pdf")
 @login_required
 @module_access_required("quality_control")
+@quality_control_admin_required
 def download_management_report():
     root = Path(current_app.root_path).parent
     generator = root / "tmp" / "pdfs" / "generate_qc_weekly_management_report.py"
