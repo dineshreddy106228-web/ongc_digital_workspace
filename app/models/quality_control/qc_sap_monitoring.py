@@ -102,6 +102,12 @@ class QCSAPRecord(db.Model):
     completion_date = db.Column(db.Date, nullable=True)
     sap_delay_days = db.Column(db.Integer, nullable=True)
 
+    # Derived at import from the two columns above so the portfolio analytics
+    # can group in SQL. The usage-decision code and the SAP dates remain the
+    # authority; these are a materialised reading of them, never an input.
+    usage_outcome = db.Column(db.String(12), nullable=True, index=True)
+    turnaround_days = db.Column(db.Integer, nullable=True)
+
     first_seen_batch_id = db.Column(db.BigInteger, db.ForeignKey("qc_sap_upload_batches.id", ondelete="SET NULL"), nullable=True)
     last_seen_batch_id = db.Column(db.BigInteger, db.ForeignKey("qc_sap_upload_batches.id", ondelete="SET NULL"), nullable=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)

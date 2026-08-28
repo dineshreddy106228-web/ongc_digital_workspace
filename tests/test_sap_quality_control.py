@@ -262,6 +262,102 @@ def test_lab_navigator_dims_other_laboratories_and_reports_only_their_open_load(
     assert all(entry["can_open"] for entry in corporate)
 
 
+def test_usage_decision_reads_the_prefixed_sap_forms_without_over_matching():
+    """SAP writes the decision as a bare code or with its UD prefix.
+
+    The optional prefix and the word boundaries in this pattern were inert —
+    written into a raw string as doubled backslashes, so they matched literal
+    characters — which silently made every prefixed decision unrecorded.
+    """
+    from app.core.services.sap_quality_control import usage_decision_outcome
+
+    assert usage_decision_outcome("A") == "accepted"
+    assert usage_decision_outcome("R") == "rejected"
+    assert usage_decision_outcome("UD A") == "accepted"
+    assert usage_decision_outcome("UD R") == "rejected"
+    assert usage_decision_outcome("UD  R") == "rejected"
+    assert usage_decision_outcome("UDA") == "accepted"
+
+    # A status string is not a decision, and a word merely starting with A or R
+    # must not be read as one.
+    for value in ("UD ICCO STUP", "ICCO", "REL CALC", "UD REJECTED", "ACCEPTED", "", None):
+        assert usage_decision_outcome(value) is None, value
+
+
+def test_derived_sap_readings_are_refreshed_on_every_write(sap_app):
+    """The analytics group on these columns, so they must never go stale.
+
+    They are materialised by a mapper event rather than at the importer, so a
+    correction made anywhere re-derives them from the SAP values.
+    """
+    from app.core.services.sap_quality_control import import_sap_panvel_exports, latest_sap_batch
+    from app.models.quality_control.qc_sap_monitoring import QCSAPRecord
+
+    import_sap_panvel_exports(
+        _inspection_export(), "SAP_INSPECTION_20260826.xlsx",
+        _notification_export(), "SAP_NOTIFICATIONS_20260826.xlsx", None,
+    )
+    db.session.commit()
+
+    # The import already carries a completed, accepted row with both dates.
+    completed = QCSAPRecord.query.filter_by(
+        lab_code="rgl_panvel", notification_no="7002",
+    ).one()
+    assert completed.usage_outcome == "accepted"
+    assert completed.turnaround_days == (date(2026, 8, 25) - date(2026, 8, 2)).days
+
+    # A correction outside the importer re-derives rather than leaving a
+    # reading that disagrees with the code and dates beside it.
+    completed.usage_decision_code = "UD R"
+    completed.completion_date = date(2026, 8, 10)
+    db.session.commit()
+    assert completed.usage_outcome == "rejected"
+    assert completed.turnaround_days == 8
+
+    # A completion recorded before the start is a source fault, not zero days.
+    completed.completion_date = date(2026, 7, 1)
+    db.session.commit()
+    assert completed.turnaround_days is None
+
+
+def test_portfolio_analytics_counts_in_one_grouped_query(sap_app):
+    """The database does the counting; Python only maps the register."""
+    from sqlalchemy import event
+    from app.core.services.sap_quality_control import (
+        import_sap_panvel_exports, import_sap_lab_exports, sap_portfolio_analytics,
+    )
+
+    import_sap_panvel_exports(
+        _inspection_export(), "SAP_INSPECTION_20260826.xlsx",
+        _notification_export(), "SAP_NOTIFICATIONS_20260826.xlsx", None,
+    )
+    import_sap_lab_exports(
+        "rgl_vadodara", _inspection_export(plant="23R2"), "SAP_INSPECTION_20260826.xlsx",
+        _notification_export(plant="23R2"), "SAP_NOTIFICATIONS_20260826.xlsx", None,
+    )
+    db.session.commit()
+
+    statements = []
+
+    def record_statement(_conn, _cursor, statement, *_args):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(statement)
+
+    event.listen(db.engine, "after_cursor_execute", record_statement)
+    try:
+        analytics = sap_portfolio_analytics()
+    finally:
+        event.remove(db.engine, "after_cursor_execute", record_statement)
+
+    record_reads = [
+        statement for statement in statements if "qc_sap_records" in statement.lower()
+    ]
+    assert len(record_reads) == 1, record_reads
+    assert "group by" in record_reads[0].lower()
+    # It never grows with the number of laboratories in scope.
+    assert analytics["totals"]["total"] == 8
+
+
 def test_portfolio_analytics_reads_the_whole_recorded_load_not_one_snapshot(sap_app, monkeypatch):
     """The analysis counts every record ever imported, and rates honestly.
 

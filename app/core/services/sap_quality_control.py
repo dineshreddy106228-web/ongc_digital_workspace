@@ -11,13 +11,14 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from statistics import median
 from io import BytesIO
 import json
 import re
 from typing import Any
 
 import pandas as pd
+
+from sqlalchemy import event, func
 
 from app.extensions import db
 from app.models.quality_control.qc_sap_monitoring import (
@@ -588,8 +589,42 @@ def get_sap_reporting_laboratory(lab_code: str) -> dict[str, Any]:
 def usage_decision_outcome(value: Any) -> str | None:
     """Return the business outcome encoded by SAP usage decision A or R."""
     text = _text(value).upper()
-    match = re.search(r"(?:^|\\b)(?:UD\\s*)?([AR])(?:$|\\b)", text)
+    match = re.search(r"(?:^|\b)(?:UD\s*)?([AR])(?:$|\b)", text)
     return USAGE_DECISION_OUTCOMES.get(match.group(1)) if match else None
+
+
+def sap_turnaround_days(record: QCSAPRecord) -> int | None:
+    """Days from SAP receipt to SAP completion, or ``None`` if unmeasurable.
+
+    The window starts at SAP's receipt date — the notification date where no
+    inspection lot was matched — which is what the Corporate Specification
+    testing time is written against.  A completion recorded before the start
+    is a source-data fault, not a zero-day turnaround, so it stays unmeasured.
+    """
+    start_date = record.start_inspection_date or record.notification_start_date
+    if not start_date or not record.completion_date:
+        return None
+    elapsed = (record.completion_date - start_date).days
+    return elapsed if elapsed >= 0 else None
+
+
+def apply_derived_sap_readings(record: QCSAPRecord) -> None:
+    """Materialise the readings the portfolio analytics groups on in SQL."""
+    record.usage_outcome = usage_decision_outcome(record.usage_decision_code)
+    record.turnaround_days = sap_turnaround_days(record)
+
+
+@event.listens_for(QCSAPRecord, "before_insert")
+@event.listens_for(QCSAPRecord, "before_update")
+def _refresh_derived_sap_readings(_mapper, _connection, record: QCSAPRecord) -> None:
+    """Re-derive the materialised readings on every write to a record.
+
+    These columns exist so the analytics can group in SQL, which only works if
+    they can never disagree with the SAP values they are taken from.  Deriving
+    them here rather than at the importer covers a backfill or a correction
+    made anywhere else too.
+    """
+    apply_derived_sap_readings(record)
 
 
 def _paired_sap_as_of_date(inspections: SAPExportPayload, notifications: SAPExportPayload) -> date:
@@ -1734,9 +1769,37 @@ ANALYTICS_TABLE_LIMIT = 25
 def _blank_load_counters() -> dict[str, Any]:
     return {
         "total": 0, "completed": 0, "open": 0, "accepted": 0, "rejected": 0,
-        "turnaround_days": [], "within_stt": 0, "stt_measured": 0,
+        "turnaround": Counter(), "within_stt": 0, "stt_measured": 0,
         "laboratories": set(), "materials": set(),
     }
+
+
+def _value_at_rank(histogram: Counter, values: list[int], index: int) -> int:
+    seen = 0
+    for value in values:
+        seen += histogram[value]
+        if index < seen:
+            return value
+    return values[-1]
+
+
+def _median_from_histogram(histogram: Counter) -> float | None:
+    """Exact median over a value/count histogram rather than a list of rows.
+
+    The analytics aggregate in SQL, so turnaround arrives as counts per day
+    rather than one row per sample.  This returns what statistics.median would
+    have returned for the expanded list, including the two-value average on an
+    even population.
+    """
+    total = sum(histogram.values())
+    if not total:
+        return None
+    values = sorted(histogram)
+    if total % 2:
+        return float(_value_at_rank(histogram, values, total // 2))
+    lower = _value_at_rank(histogram, values, total // 2 - 1)
+    upper = _value_at_rank(histogram, values, total // 2)
+    return (lower + upper) / 2
 
 
 def _finalise_load(counters: dict[str, Any], **identity: Any) -> dict[str, Any]:
@@ -1746,8 +1809,9 @@ def _finalise_load(counters: dict[str, Any], **identity: Any) -> dict[str, Any]:
     template can say "not yet measured" instead of showing a confident 0%.
     """
     decided = counters["accepted"] + counters["rejected"]
-    turnarounds = counters["turnaround_days"]
+    turnaround = counters["turnaround"]
     stt_measured = counters["stt_measured"]
+    median_days = _median_from_histogram(turnaround)
     return {
         **identity,
         "total": counters["total"],
@@ -1758,8 +1822,8 @@ def _finalise_load(counters: dict[str, Any], **identity: Any) -> dict[str, Any]:
         "decided": decided,
         # Open samples are not passes, so they stay out of the denominator.
         "rejection_rate": round(counters["rejected"] / decided * 100, 1) if decided else None,
-        "median_turnaround_days": round(median(turnarounds), 1) if turnarounds else None,
-        "turnaround_measured": len(turnarounds),
+        "median_turnaround_days": round(median_days, 1) if median_days is not None else None,
+        "turnaround_measured": sum(turnaround.values()),
         "stt_measured": stt_measured,
         "within_stt": counters["within_stt"],
         "stt_on_time_rate": (
@@ -1770,52 +1834,79 @@ def _finalise_load(counters: dict[str, Any], **identity: Any) -> dict[str, Any]:
     }
 
 
-def _record_load_measurements(
-    record: QCSAPRecord, stt_days: int | None,
-) -> dict[str, Any]:
-    """Measure one record's outcome and how long it actually took.
-
-    Turnaround runs from SAP's receipt date — the notification date where no
-    inspection lot was matched — to SAP's completion date, which is the same
-    window the Corporate Specification testing time is written against.  A
-    completion recorded before the start is a source-data fault, not a
-    zero-day turnaround, so it is left unmeasured.
-    """
-    start_date = record.start_inspection_date or record.notification_start_date
-    turnaround = None
-    if start_date and record.completion_date:
-        elapsed = (record.completion_date - start_date).days
-        if elapsed >= 0:
-            turnaround = elapsed
-    return {
-        "outcome": usage_decision_outcome(record.usage_decision_code),
-        "is_completed": record.official_status == "completed",
-        "turnaround_days": turnaround,
-        "within_stt": (
-            turnaround <= stt_days
-            if turnaround is not None and stt_days is not None else None
-        ),
-    }
-
-
 def _add_to_load(
-    counters: dict[str, Any], measurements: dict[str, Any],
+    counters: dict[str, Any], group: dict[str, Any],
     *, laboratory_name: str, material_key: str,
 ) -> None:
-    counters["total"] += 1
-    counters["completed"] += int(measurements["is_completed"])
-    counters["open"] += int(not measurements["is_completed"])
-    if measurements["outcome"] == "accepted":
-        counters["accepted"] += 1
-    elif measurements["outcome"] == "rejected":
-        counters["rejected"] += 1
-    if measurements["turnaround_days"] is not None:
-        counters["turnaround_days"].append(measurements["turnaround_days"])
-    if measurements["within_stt"] is not None:
-        counters["stt_measured"] += 1
-        counters["within_stt"] += int(measurements["within_stt"])
+    """Fold one aggregated group — a count of identical samples — into a total."""
+    count = group["count"]
+    counters["total"] += count
+    counters["completed"] += count if group["is_completed"] else 0
+    counters["open"] += 0 if group["is_completed"] else count
+    if group["outcome"] == "accepted":
+        counters["accepted"] += count
+    elif group["outcome"] == "rejected":
+        counters["rejected"] += count
+    if group["turnaround_days"] is not None:
+        counters["turnaround"][group["turnaround_days"]] += count
+        if group["within_stt"] is not None:
+            counters["stt_measured"] += count
+            counters["within_stt"] += count if group["within_stt"] else 0
     counters["laboratories"].add(laboratory_name)
     counters["materials"].add(material_key)
+
+
+def _merge_load(target: dict[str, Any], cell: dict[str, Any]) -> None:
+    """Roll one laboratory-and-material cell up into a wider total.
+
+    Every wider figure — a laboratory, a sub-group, the portfolio — is a sum of
+    these cells, so each aggregated row is folded once and the roll-up then
+    runs over cells rather than over rows again.
+    """
+    for key in ("total", "completed", "open", "accepted", "rejected", "within_stt", "stt_measured"):
+        target[key] += cell[key]
+    target["turnaround"].update(cell["turnaround"])
+    target["laboratories"] |= cell["laboratories"]
+    target["materials"] |= cell["materials"]
+
+
+def _portfolio_load_groups(lab_codes: list[str]) -> list[Any]:
+    """Collapse the record table into one row per distinct sample shape.
+
+    The database does the counting.  Grouping on the materialised outcome and
+    turnaround columns means the whole recorded load reduces to at most a few
+    thousand rows — laboratory by material by status by outcome by day — which
+    is what makes this affordable to read on every page load.
+    """
+    return db.session.query(
+        QCSAPRecord.lab_code,
+        QCSAPRecord.material_code,
+        QCSAPRecord.material_description,
+        QCSAPRecord.official_status,
+        QCSAPRecord.usage_outcome,
+        QCSAPRecord.turnaround_days,
+        func.count(QCSAPRecord.id).label("sample_count"),
+    ).filter(
+        QCSAPRecord.lab_code.in_(lab_codes)
+    ).group_by(
+        QCSAPRecord.lab_code,
+        QCSAPRecord.material_code,
+        QCSAPRecord.material_description,
+        QCSAPRecord.official_status,
+        QCSAPRecord.usage_outcome,
+        QCSAPRecord.turnaround_days,
+    ).all()
+
+
+def _empty_portfolio_analytics() -> dict[str, Any]:
+    """The same shape with nothing in it, so the template needs no special case."""
+    return {
+        "totals": _finalise_load(_blank_load_counters()),
+        "laboratories": [], "materials_by_load": [], "materials_by_failure": [],
+        "material_total": 0, "ranked_failure_total": 0, "subgroups": [],
+        "min_decisions": MIN_DECISIONS_FOR_RATE, "table_limit": ANALYTICS_TABLE_LIMIT,
+        "has_data": False,
+    }
 
 
 def sap_portfolio_analytics(lab_codes: set[str] | None = None) -> dict[str, Any]:
@@ -1825,6 +1916,10 @@ def sap_portfolio_analytics(lab_codes: set[str] | None = None) -> dict[str, Any]
     is what makes "which chemical fails most" answerable at all: the daily
     snapshot holds only what SAP is currently reporting, so a completed sample
     leaves it and its outcome would never be counted.
+
+    The counting is done by the database.  One grouped query collapses the
+    record table into distinct sample shapes; only the Corporate Specification
+    mapping, which is assembled in Python from the register, is applied here.
 
     Two cautions are built into the shape of this data rather than left to the
     reader.  A rejection rate is taken only over samples SAP has actually
@@ -1837,50 +1932,71 @@ def sap_portfolio_analytics(lab_codes: set[str] | None = None) -> dict[str, Any]
         laboratory for laboratory in sap_reporting_laboratories()
         if lab_codes is None or laboratory["code"] in lab_codes
     ]
-    specifications_by_material_code = _corporate_specifications_by_material_code()
+    laboratory_names = {laboratory["code"]: laboratory for laboratory in laboratories}
+    if not laboratory_names:
+        return _empty_portfolio_analytics()
 
+    specifications_by_material_code = _corporate_specifications_by_material_code()
     portfolio = _blank_load_counters()
+    by_laboratory: dict[str, dict[str, Any]] = {}
     by_material: dict[str, dict[str, Any]] = {}
     material_identity: dict[str, dict[str, Any]] = {}
     by_subgroup: dict[str, dict[str, Any]] = {}
     subgroup_labels: dict[str, str] = {}
-    laboratory_rows: list[dict[str, Any]] = []
 
-    for laboratory in laboratories:
-        records = QCSAPRecord.query.filter_by(lab_code=laboratory["code"]).all()
-        if not records:
-            continue
-        lab_counters = _blank_load_counters()
-        for record in records:
+    cells: dict[tuple[str, str], dict[str, Any]] = {}
+    material_subgroups: dict[str, str] = {}
+    specification_cache: dict[Any, dict[str, Any]] = {}
+    for row in _portfolio_load_groups(list(laboratory_names)):
+        laboratory = laboratory_names[row.lab_code]
+        specification = specification_cache.get(row.material_code)
+        if specification is None:
             specification = _corporate_specification_fields(
-                record.material_code, specifications_by_material_code,
+                row.material_code, specifications_by_material_code,
             )
-            measurements = _record_load_measurements(record, specification["stt_days"])
-            material_key = _identifier(record.material_code) or (
-                _text(record.material_description) or "Not recorded"
-            )
-            material_identity.setdefault(material_key, {
-                "material_code": record.material_code or "No material code",
-                "material_description": (
-                    record.material_description or record.material_code or "Not recorded"
+            specification_cache[row.material_code] = specification
+        stt_days = specification["stt_days"]
+        material_key = _identifier(row.material_code) or (
+            _text(row.material_description) or "Not recorded"
+        )
+        material_identity.setdefault(material_key, {
+            "material_code": row.material_code or "No material code",
+            "material_description": (
+                row.material_description or row.material_code or "Not recorded"
+            ),
+            "subgroup_label": specification["subgroup_label"],
+            "specification_no": specification["specification_no"],
+            "specification_match": specification["specification_match"],
+        })
+        material_subgroups[material_key] = specification["subgroup_key"]
+        subgroup_labels[specification["subgroup_key"]] = specification["subgroup_label"]
+        _add_to_load(
+            cells.setdefault((row.lab_code, material_key), _blank_load_counters()),
+            {
+                "count": row.sample_count,
+                "is_completed": row.official_status == "completed",
+                "outcome": row.usage_outcome,
+                "turnaround_days": row.turnaround_days,
+                "within_stt": (
+                    row.turnaround_days <= stt_days
+                    if row.turnaround_days is not None and stt_days is not None else None
                 ),
-                "subgroup_label": specification["subgroup_label"],
-                "specification_no": specification["specification_no"],
-                "specification_match": specification["specification_match"],
-            })
-            subgroup_labels[specification["subgroup_key"]] = specification["subgroup_label"]
-            for counters in (
-                portfolio,
-                lab_counters,
-                by_material.setdefault(material_key, _blank_load_counters()),
-                by_subgroup.setdefault(specification["subgroup_key"], _blank_load_counters()),
-            ):
-                _add_to_load(
-                    counters, measurements,
-                    laboratory_name=laboratory["name"], material_key=material_key,
-                )
-        laboratory_rows.append(_finalise_load(lab_counters, laboratory=laboratory))
+            },
+            laboratory_name=laboratory["name"], material_key=material_key,
+        )
 
+    for (lab_code, material_key), cell in cells.items():
+        _merge_load(portfolio, cell)
+        _merge_load(by_laboratory.setdefault(lab_code, _blank_load_counters()), cell)
+        _merge_load(by_material.setdefault(material_key, _blank_load_counters()), cell)
+        _merge_load(
+            by_subgroup.setdefault(material_subgroups[material_key], _blank_load_counters()), cell,
+        )
+
+    laboratory_rows = [
+        _finalise_load(counters, laboratory=laboratory_names[code])
+        for code, counters in by_laboratory.items()
+    ]
     materials = [
         _finalise_load(counters, **material_identity[key])
         for key, counters in by_material.items()
