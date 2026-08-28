@@ -19,9 +19,23 @@ from app.modules.quality_control import quality_control_bp
 logger = logging.getLogger(__name__)
 
 
+@quality_control_bp.context_processor
+def inject_quality_control_scope():
+    """Expose the corporate-scope flag to every template in this module."""
+    return {"qc_can_control": _can_control_quality_monitoring()}
+
+
 def _can_control_quality_monitoring() -> bool:
-    """Only superusers may control SAP imports and QC-admin decisions."""
-    return current_user.is_super_user()
+    """Whether this user holds Corporate Chemistry's Quality Control scope.
+
+    Superusers and the module's assigned admins control SAP imports and
+    QC-admin decisions.  This is also the corporate reading scope: anyone who
+    controls the portfolio reads all of it, so the control tower never lists a
+    laboratory its reader would be refused on click.
+    """
+    return current_user.is_authenticated and (
+        current_user.is_super_user() or current_user.is_module_admin("quality_control")
+    )
 
 
 def _can_record_lab_follow_up(lab_code: str) -> bool:
@@ -35,7 +49,7 @@ def _can_record_lab_follow_up(lab_code: str) -> bool:
         current_user.is_authenticated
         and current_user.has_module_access("quality_control")
         and (
-            current_user.is_super_user()
+            _can_control_quality_monitoring()
             or current_user.quality_control_lab_code == lab_code
         )
     )
@@ -44,12 +58,13 @@ def _can_record_lab_follow_up(lab_code: str) -> bool:
 def _user_lab_scope() -> str | None:
     """The one laboratory this user works, or ``None`` for the full scope.
 
-    A superuser reads Corporate Chemistry's whole portfolio.  Everybody else
-    is scoped to the laboratory an admin assigned them; until that assignment
-    exists they have no laboratory scope at all, which is not the same as
-    having every laboratory.
+    Corporate Chemistry — a superuser or an assigned Quality Control module
+    admin — reads the whole portfolio.  Everybody else is scoped to the
+    laboratory an admin assigned them; until that assignment exists they have
+    no laboratory scope at all, which is not the same as having every
+    laboratory.
     """
-    if current_user.is_authenticated and current_user.is_super_user():
+    if _can_control_quality_monitoring():
         return None
     return getattr(current_user, "quality_control_lab_code", None) or ""
 
@@ -120,7 +135,7 @@ def landing():
             scope_lab_code=scope, sap_open_counts=sap_open_counts_by_lab(),
         ),
         monitoring_day=monitoring_day,
-        is_superuser=current_user.is_super_user(),
+        is_superuser=_can_control_quality_monitoring(),
     )
 
 

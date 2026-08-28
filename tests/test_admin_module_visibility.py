@@ -349,6 +349,49 @@ def test_the_sample_register_is_scoped_to_the_reader_s_own_laboratory(admin_app)
         logout_user()
 
 
+def test_a_quality_control_module_admin_holds_the_corporate_scope(admin_app):
+    """A module admin controls the portfolio, so they must also read all of it.
+
+    Control and reading scope are the same predicate on purpose: the control
+    tower lists every laboratory, and a reader who could open it but was
+    refused on click would be a worse experience than not offering it.
+    """
+    from flask_login import login_user, logout_user
+    from app.models.core.module_admin_assignment import ModuleAdminAssignment
+    from app.models.core.user_module_permission import UserModulePermission
+    from app.modules.quality_control.routes import (
+        _can_control_quality_monitoring, _can_record_lab_follow_up,
+        _can_view_laboratory, _user_lab_scope, sap_control,
+    )
+
+    user, _role = _plain_user()
+    db.session.add(
+        UserModulePermission(user_id=user.id, module_code="quality_control", can_access=True)
+    )
+    db.session.commit()
+
+    with admin_app.test_request_context("/quality-control/sap-control"):
+        login_user(user)
+        assert _can_control_quality_monitoring() is False
+        assert _user_lab_scope() == ""
+        logout_user()
+
+    db.session.add(
+        ModuleAdminAssignment(user_id=user.id, module_code="quality_control")
+    )
+    db.session.commit()
+
+    with admin_app.test_request_context("/quality-control/sap-control"):
+        login_user(user)
+        assert _can_control_quality_monitoring() is True
+        # The corporate scope is the whole portfolio, not one assigned bench.
+        assert _user_lab_scope() is None
+        assert _can_view_laboratory("rgl_vadodara") is True
+        assert _can_record_lab_follow_up("rgl_vadodara") is True
+        assert "SAP Control Tower" in sap_control()
+        logout_user()
+
+
 def test_standard_testing_times_stay_readable_outside_the_corporate_scope(admin_app):
     """Standard Testing Times are a shared reference, not a corporate screen.
 
