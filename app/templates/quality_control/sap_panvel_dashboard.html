@@ -8,14 +8,14 @@
 
   <div class="mod-page-head">
     <div>
-      <div class="qc-lab-eyebrow"><span class="qc-live-dot"></span> SAP-authoritative daily operating view{% if batch %} · as at {{ batch.as_of_date.strftime('%d %b %Y') }}{% endif %}</div>
+      <div class="qc-lab-eyebrow"><span class="qc-live-dot"></span> SAP-authoritative daily operating view{% if batch %} · as at {{ batch.as_of_date.strftime('%d %b %Y') }} · plant {{ batch.plant_code }} · imported {{ batch.uploaded_at.strftime('%d %b %Y %H:%M') }}{% endif %}</div>
       <h1 class="mod-page-title"><i class="bi bi-shield-check"></i> {{ laboratory.name }} · SAP QC Monitoring</h1>
       <p class="mod-page-sub">Official inspection and notification status is read from SAP. Corporate Chemistry records the returned laboratory action; it never overwrites SAP.</p>
     </div>
     <div class="mod-page-actions">
-      <a class="btn btn-secondary" href="{{ url_for('quality_control.data_import') }}"><i class="bi bi-database-add"></i> Import centre</a>
-      <a class="btn btn-secondary" href="{{ url_for('quality_control.sap_control') }}"><i class="bi bi-diagram-3"></i> SAP control tower</a>
-      {% if batch %}<a class="btn btn-primary" href="{{ url_for('quality_control.download_sap_lab_presentation', lab_code=lab_code) }}"><i class="bi bi-file-earmark-ppt"></i> This lab action pack</a><a class="btn btn-secondary" href="{{ url_for('quality_control.download_portfolio_management_presentation') }}"><i class="bi bi-buildings"></i> All-labs presentation</a>{% endif %}
+      {% if can_control %}<a class="btn btn-secondary" href="{{ url_for('quality_control.data_import') }}"><i class="bi bi-database-add"></i> Import centre</a>
+      <a class="btn btn-secondary" href="{{ url_for('quality_control.sap_control') }}"><i class="bi bi-diagram-3"></i> SAP control tower</a>{% endif %}
+      {% if batch %}<a class="btn btn-primary" href="{{ url_for('quality_control.download_sap_lab_presentation', lab_code=lab_code) }}"><i class="bi bi-file-earmark-ppt"></i> This lab action pack</a>{% if can_control %}<a class="btn btn-secondary" href="{{ url_for('quality_control.download_portfolio_management_presentation') }}"><i class="bi bi-buildings"></i> All-labs presentation</a>{% endif %}{% endif %}
     </div>
   </div>
 
@@ -31,12 +31,6 @@
   </section>
 
   {% if batch %}
-  <section class="qc-sap-authority-note">
-    <i class="bi bi-shield-lock"></i>
-    <div><strong>SAP is the final word.</strong> Corporate Chemistry logs the returned action, owner, reason and expected completion below. An item is shown as officially complete only when the next SAP export confirms it.</div>
-    <span>Plant {{ batch.plant_code }} · imported {{ batch.uploaded_at.strftime('%d %b %Y %H:%M') }}</span>
-  </section>
-
   <section class="mod-stats qc-sap-kpis" aria-label="SAP daily status">
     <div class="mod-stat"><span>SAP monitoring records</span><strong>{{ kpis.total }}</strong><small>{{ batch.inspection_lot_count }} lots · {{ batch.notification_count }} notifications</small></div>
     <div class="mod-stat mod-stat-success"><span>Officially complete</span><strong>{{ kpis.completed }}</strong><small>A: {{ kpis.accepted }} accepted · R: {{ kpis.rejected }} rejected</small></div>

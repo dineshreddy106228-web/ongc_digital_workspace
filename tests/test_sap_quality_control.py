@@ -183,6 +183,42 @@ def test_sap_import_remains_authoritative_when_laboratory_logs_completion(sap_ap
     assert "Exclude non-actionable notification" not in laboratory_page
 
 
+def test_lab_dashboard_hides_corporate_only_actions_from_a_reporting_laboratory(sap_app):
+    """A reporting laboratory works its own list, not Corporate Chemistry's.
+
+    Import, control-tower and all-labs actions belong to the corporate scope.
+    The laboratory keeps its own action pack.
+    """
+    from flask import render_template
+    from app.core.services.sap_quality_control import import_sap_panvel_exports, sap_lab_dashboard_data
+
+    import_sap_panvel_exports(
+        _inspection_export(), "SAP_INSPECTION_20260826.xlsx",
+        _notification_export(), "SAP_NOTIFICATIONS_20260826.xlsx", None,
+    )
+    db.session.commit()
+    data = sap_lab_dashboard_data("rgl_panvel")
+
+    with sap_app.test_request_context("/quality-control/sap-control/labs/rgl_panvel"):
+        lab_page = render_template(
+            "quality_control/sap_panvel_dashboard.html", can_control=False, **data,
+        )
+        corporate_page = render_template(
+            "quality_control/sap_panvel_dashboard.html", can_control=True, **data,
+        )
+
+    for corporate_action in ("Import centre", "SAP control tower", "All-labs presentation"):
+        assert corporate_action not in lab_page
+        assert corporate_action in corporate_page
+    assert "This lab action pack" in lab_page
+    assert "This lab action pack" in corporate_page
+    # The operating-rule notice was removed; its snapshot provenance is not.
+    assert "SAP is the final word" not in lab_page
+    assert "SAP is the final word" not in corporate_page
+    assert "plant 10R2" in lab_page
+    assert "imported" in lab_page
+
+
 def test_panvel_import_rejects_a_non_panvel_plant():
     from app.core.services.sap_quality_control import parse_sap_notification_workbook
 
@@ -615,7 +651,7 @@ def test_blank_presentation_lab_parameter_means_all_sap_laboratories(sap_app, mo
         "app.core.services.qc_presentation.build_sap_portfolio_management_presentation", build,
     )
     with sap_app.test_request_context("/quality-control/management-review/presentation.pptx?lab="):
-        response = download_portfolio_management_presentation.__wrapped__.__wrapped__()
+        response = download_portfolio_management_presentation.__wrapped__.__wrapped__.__wrapped__()
 
     assert response.status_code == 200
     assert captured["lab_codes"] is None

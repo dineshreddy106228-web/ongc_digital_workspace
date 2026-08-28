@@ -89,6 +89,7 @@ def landing():
 @quality_control_bp.route("/data-import")
 @login_required
 @module_access_required("quality_control")
+@quality_control_admin_required
 def data_import():
     """SAP control-tower entry point plus workbook fallback laboratories."""
     from app.core.services.quality_control import current_monitoring_day, laboratory_import_targets
@@ -185,6 +186,7 @@ def sap_panvel_dashboard():
 @quality_control_bp.route("/sap-control")
 @login_required
 @module_access_required("quality_control")
+@quality_control_admin_required
 def sap_control():
     """Corporate Chemistry's central daily SAP and exception register."""
     from app.core.services.sap_quality_control import sap_control_data
@@ -552,6 +554,7 @@ def portfolio_management_review():
 @quality_control_bp.route("/management-review/presentation.pptx")
 @login_required
 @module_access_required("quality_control")
+@quality_control_admin_required
 def download_portfolio_management_presentation():
     from app.core.services.qc_presentation import build_sap_portfolio_management_presentation
     from app.core.services.sap_quality_control import SAP_REPORTING_LAB_CODES
