@@ -661,8 +661,12 @@ def download_portfolio_management_presentation():
 @module_access_required("quality_control")
 @quality_control_admin_required
 def management_analytics():
-    from app.core.services.sap_quality_control import sap_management_data
-    return render_template("quality_control/management_analytics.html", **sap_management_data())
+    from app.core.services.sap_quality_control import sap_management_data, sap_portfolio_analytics
+    return render_template(
+        "quality_control/management_analytics.html",
+        portfolio=sap_portfolio_analytics(),
+        **sap_management_data(),
+    )
 
 
 @quality_control_bp.route("/management-report.pdf")

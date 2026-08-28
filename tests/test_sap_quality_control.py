@@ -262,6 +262,93 @@ def test_lab_navigator_dims_other_laboratories_and_reports_only_their_open_load(
     assert all(entry["can_open"] for entry in corporate)
 
 
+def test_portfolio_analytics_reads_the_whole_recorded_load_not_one_snapshot(sap_app, monkeypatch):
+    """The analysis counts every record ever imported, and rates honestly.
+
+    A completed sample drops out of the daily snapshot, so a snapshot-only
+    analysis would never see an outcome. Rates are taken over decided samples,
+    and a material needs enough decisions before it is ranked on a percentage.
+    """
+    from app.core.services import corporate_specifications
+    from app.core.services.sap_quality_control import (
+        MIN_DECISIONS_FOR_RATE, import_sap_panvel_exports, import_sap_lab_exports,
+        latest_sap_batch, sap_portfolio_analytics,
+    )
+    from app.models.quality_control.qc_sap_monitoring import QCSAPRecord
+
+    monkeypatch.setattr(corporate_specifications, "catalogue", lambda: [
+        {
+            "material_code": "1234", "category": "DFC", "category_label": "Drilling Fluid Chemicals",
+            "spec_number": "ONGC / DFC / 01 / 2026", "chemical_name": "Barytes",
+            "standard_days": "10", "on_register": True,
+        },
+    ])
+    import_sap_panvel_exports(
+        _inspection_export(), "SAP_INSPECTION_20260826.xlsx",
+        _notification_export(), "SAP_NOTIFICATIONS_20260826.xlsx", None,
+    )
+    import_sap_lab_exports(
+        "rgl_vadodara", _inspection_export(plant="23R2"), "SAP_INSPECTION_20260826.xlsx",
+        _notification_export(plant="23R2"), "SAP_NOTIFICATIONS_20260826.xlsx", None,
+    )
+    db.session.commit()
+
+    # Barytes is decided often enough to be ranked; one of those is a rejection.
+    barytes = QCSAPRecord.query.filter_by(
+        lab_code="rgl_panvel", material_description="Barytes",
+    ).one()
+    barytes.official_status = "completed"
+    barytes.usage_decision_code = "R"
+    barytes.completion_date = date(2026, 8, 20)
+    for index in range(MIN_DECISIONS_FOR_RATE - 1):
+        db.session.add(QCSAPRecord(
+            source_key=f"extra-barytes-{index}", lab_code="rgl_panvel",
+            material_code="00001234", material_description="Barytes",
+            official_status="completed", usage_decision_code="A",
+            start_inspection_date=date(2026, 8, 1), completion_date=date(2026, 8, 9),
+            last_seen_batch_id=latest_sap_batch("rgl_panvel").id,
+        ))
+    db.session.commit()
+
+    analytics = sap_portfolio_analytics()
+
+    # Eight rows exist across both laboratories plus the four added completions.
+    assert analytics["has_data"] is True
+    assert analytics["totals"]["total"] == 12
+    assert analytics["totals"]["rejected"] == 1
+    assert analytics["totals"]["accepted"] == 6
+    # Rates use decided samples only, never the open ones.
+    assert analytics["totals"]["decided"] == 7
+    assert analytics["totals"]["rejection_rate"] == round(1 / 7 * 100, 1)
+
+    by_load = {item["material_description"]: item for item in analytics["materials_by_load"]}
+    assert analytics["materials_by_load"][0]["material_description"] == "Barytes"
+    assert by_load["Barytes"]["total"] == 6
+    assert by_load["Barytes"]["subgroup_label"] == "Drilling Fluid Chemicals"
+
+    # Only Barytes clears the minimum-decisions bar, so nothing else is ranked
+    # on a percentage taken from one or two samples.
+    ranked = analytics["materials_by_failure"]
+    assert [item["material_description"] for item in ranked] == ["Barytes"]
+    assert ranked[0]["decided"] == MIN_DECISIONS_FOR_RATE
+    assert ranked[0]["rejection_rate"] == 20.0
+
+    # Turnaround is measured against SAP dates. Four added samples ran 8 days
+    # against a 10-day standard; the rejected one ran 19 and missed it, so the
+    # laboratory reads 4 of 5 within STT rather than a flat pass.
+    panvel = next(
+        item for item in analytics["laboratories"]
+        if item["laboratory"]["code"] == "rgl_panvel"
+    )
+    assert panvel["median_turnaround_days"] == 8.0
+    assert (panvel["within_stt"], panvel["stt_measured"]) == (4, 5)
+    assert panvel["stt_on_time_rate"] == 80.0
+    # A laboratory that has completed nothing measurable sorts last rather
+    # than ranking as a perfect score.
+    assert analytics["laboratories"][0]["laboratory"]["code"] == "rgl_panvel"
+    assert analytics["laboratories"][-1]["stt_on_time_rate"] is None
+
+
 def test_panvel_import_rejects_a_non_panvel_plant():
     from app.core.services.sap_quality_control import parse_sap_notification_workbook
 

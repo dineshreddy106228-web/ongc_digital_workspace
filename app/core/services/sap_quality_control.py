@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from statistics import median
 from io import BytesIO
 import json
 import re
@@ -1717,3 +1718,203 @@ def update_non_sap_sample(
     sample.updated_by = updated_by
     _append_non_sap_update(sample, updated_by)
     return sample
+
+
+# ── Whole-portfolio analytics ────────────────────────────────────
+# Below this many recorded usage decisions a percentage is noise rather than a
+# signal: one rejected sample out of one is not a 100% failure rate worth
+# ranking a chemical by.
+MIN_DECISIONS_FOR_RATE = 5
+
+# How many rows each ranked table carries. The totals beside them report the
+# full population, so a truncated table never reads as the whole picture.
+ANALYTICS_TABLE_LIMIT = 25
+
+
+def _blank_load_counters() -> dict[str, Any]:
+    return {
+        "total": 0, "completed": 0, "open": 0, "accepted": 0, "rejected": 0,
+        "turnaround_days": [], "within_stt": 0, "stt_measured": 0,
+        "laboratories": set(), "materials": set(),
+    }
+
+
+def _finalise_load(counters: dict[str, Any], **identity: Any) -> dict[str, Any]:
+    """Turn raw counters into the rates the analytics tables report.
+
+    A rate is ``None`` rather than zero where nothing was measured, so the
+    template can say "not yet measured" instead of showing a confident 0%.
+    """
+    decided = counters["accepted"] + counters["rejected"]
+    turnarounds = counters["turnaround_days"]
+    stt_measured = counters["stt_measured"]
+    return {
+        **identity,
+        "total": counters["total"],
+        "completed": counters["completed"],
+        "open": counters["open"],
+        "accepted": counters["accepted"],
+        "rejected": counters["rejected"],
+        "decided": decided,
+        # Open samples are not passes, so they stay out of the denominator.
+        "rejection_rate": round(counters["rejected"] / decided * 100, 1) if decided else None,
+        "median_turnaround_days": round(median(turnarounds), 1) if turnarounds else None,
+        "turnaround_measured": len(turnarounds),
+        "stt_measured": stt_measured,
+        "within_stt": counters["within_stt"],
+        "stt_on_time_rate": (
+            round(counters["within_stt"] / stt_measured * 100, 1) if stt_measured else None
+        ),
+        "laboratory_count": len(counters["laboratories"]),
+        "material_count": len(counters["materials"]),
+    }
+
+
+def _record_load_measurements(
+    record: QCSAPRecord, stt_days: int | None,
+) -> dict[str, Any]:
+    """Measure one record's outcome and how long it actually took.
+
+    Turnaround runs from SAP's receipt date — the notification date where no
+    inspection lot was matched — to SAP's completion date, which is the same
+    window the Corporate Specification testing time is written against.  A
+    completion recorded before the start is a source-data fault, not a
+    zero-day turnaround, so it is left unmeasured.
+    """
+    start_date = record.start_inspection_date or record.notification_start_date
+    turnaround = None
+    if start_date and record.completion_date:
+        elapsed = (record.completion_date - start_date).days
+        if elapsed >= 0:
+            turnaround = elapsed
+    return {
+        "outcome": usage_decision_outcome(record.usage_decision_code),
+        "is_completed": record.official_status == "completed",
+        "turnaround_days": turnaround,
+        "within_stt": (
+            turnaround <= stt_days
+            if turnaround is not None and stt_days is not None else None
+        ),
+    }
+
+
+def _add_to_load(
+    counters: dict[str, Any], measurements: dict[str, Any],
+    *, laboratory_name: str, material_key: str,
+) -> None:
+    counters["total"] += 1
+    counters["completed"] += int(measurements["is_completed"])
+    counters["open"] += int(not measurements["is_completed"])
+    if measurements["outcome"] == "accepted":
+        counters["accepted"] += 1
+    elif measurements["outcome"] == "rejected":
+        counters["rejected"] += 1
+    if measurements["turnaround_days"] is not None:
+        counters["turnaround_days"].append(measurements["turnaround_days"])
+    if measurements["within_stt"] is not None:
+        counters["stt_measured"] += 1
+        counters["within_stt"] += int(measurements["within_stt"])
+    counters["laboratories"].add(laboratory_name)
+    counters["materials"].add(material_key)
+
+
+def sap_portfolio_analytics(lab_codes: set[str] | None = None) -> dict[str, Any]:
+    """Analyse the whole recorded SAP sample load, not one day's snapshot.
+
+    Every ``QCSAPRecord`` ever imported for a laboratory is counted here.  That
+    is what makes "which chemical fails most" answerable at all: the daily
+    snapshot holds only what SAP is currently reporting, so a completed sample
+    leaves it and its outcome would never be counted.
+
+    Two cautions are built into the shape of this data rather than left to the
+    reader.  A rejection rate is taken only over samples SAP has actually
+    decided.  And a rejection rate describes the material and its supplier, not
+    the laboratory that tested it — laboratory performance is measured here by
+    turnaround against the Corporate Specification testing time, which is the
+    part a laboratory controls.
+    """
+    laboratories = [
+        laboratory for laboratory in sap_reporting_laboratories()
+        if lab_codes is None or laboratory["code"] in lab_codes
+    ]
+    specifications_by_material_code = _corporate_specifications_by_material_code()
+
+    portfolio = _blank_load_counters()
+    by_material: dict[str, dict[str, Any]] = {}
+    material_identity: dict[str, dict[str, Any]] = {}
+    by_subgroup: dict[str, dict[str, Any]] = {}
+    subgroup_labels: dict[str, str] = {}
+    laboratory_rows: list[dict[str, Any]] = []
+
+    for laboratory in laboratories:
+        records = QCSAPRecord.query.filter_by(lab_code=laboratory["code"]).all()
+        if not records:
+            continue
+        lab_counters = _blank_load_counters()
+        for record in records:
+            specification = _corporate_specification_fields(
+                record.material_code, specifications_by_material_code,
+            )
+            measurements = _record_load_measurements(record, specification["stt_days"])
+            material_key = _identifier(record.material_code) or (
+                _text(record.material_description) or "Not recorded"
+            )
+            material_identity.setdefault(material_key, {
+                "material_code": record.material_code or "No material code",
+                "material_description": (
+                    record.material_description or record.material_code or "Not recorded"
+                ),
+                "subgroup_label": specification["subgroup_label"],
+                "specification_no": specification["specification_no"],
+                "specification_match": specification["specification_match"],
+            })
+            subgroup_labels[specification["subgroup_key"]] = specification["subgroup_label"]
+            for counters in (
+                portfolio,
+                lab_counters,
+                by_material.setdefault(material_key, _blank_load_counters()),
+                by_subgroup.setdefault(specification["subgroup_key"], _blank_load_counters()),
+            ):
+                _add_to_load(
+                    counters, measurements,
+                    laboratory_name=laboratory["name"], material_key=material_key,
+                )
+        laboratory_rows.append(_finalise_load(lab_counters, laboratory=laboratory))
+
+    materials = [
+        _finalise_load(counters, **material_identity[key])
+        for key, counters in by_material.items()
+    ]
+    subgroups = [
+        _finalise_load(counters, key=key, label=subgroup_labels[key])
+        for key, counters in by_subgroup.items()
+    ]
+    by_load = sorted(
+        materials,
+        key=lambda item: (-item["total"], item["material_description"].casefold()),
+    )
+    # Ranked on rate, but only where enough decisions exist to mean anything.
+    by_failure = sorted(
+        (item for item in materials if item["decided"] >= MIN_DECISIONS_FOR_RATE),
+        key=lambda item: (-(item["rejection_rate"] or 0), -item["decided"]),
+    )
+    return {
+        "totals": _finalise_load(portfolio),
+        "laboratories": sorted(
+            laboratory_rows,
+            key=lambda item: (
+                # Never measured sorts last rather than ranking as perfect.
+                item["stt_on_time_rate"] is None,
+                -(item["stt_on_time_rate"] or 0),
+                item["median_turnaround_days"] if item["median_turnaround_days"] is not None else 10**6,
+            ),
+        ),
+        "materials_by_load": by_load[:ANALYTICS_TABLE_LIMIT],
+        "materials_by_failure": by_failure[:ANALYTICS_TABLE_LIMIT],
+        "material_total": len(materials),
+        "ranked_failure_total": len(by_failure),
+        "subgroups": sorted(subgroups, key=lambda item: (-item["total"], item["label"].casefold())),
+        "min_decisions": MIN_DECISIONS_FOR_RATE,
+        "table_limit": ANALYTICS_TABLE_LIMIT,
+        "has_data": portfolio["total"] > 0,
+    }
