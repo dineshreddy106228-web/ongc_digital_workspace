@@ -1089,6 +1089,44 @@ def sap_panvel_dashboard_data() -> dict[str, Any]:
     return sap_lab_dashboard_data(PANVEL_LAB_CODE)
 
 
+def _register_subgroup_groups(
+    entries: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Section the register rows under their Corporate Specification sub-group.
+
+    The register is read one category at a time, so the grouping belongs here
+    rather than in the template.  Sub-groups follow the Corporate
+    Specifications order used by the review deck, and material codes with no
+    register match are collected in a final section instead of being spread
+    through the table.
+    """
+    from app.core.services.csc_utils import SPEC_SUBSET_ORDER
+
+    subgroup_rank = {key: index for index, key in enumerate(SPEC_SUBSET_ORDER)}
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    labels: dict[str, str] = {}
+    for entry in entries:
+        key = entry["subgroup_key"] or CORPORATE_SPECIFICATION_UNMATCHED_KEY
+        grouped.setdefault(key, []).append(entry)
+        labels[key] = entry["subgroup_label"]
+    return [
+        {
+            "key": key,
+            "label": labels[key],
+            "is_unmatched": key == CORPORATE_SPECIFICATION_UNMATCHED_KEY,
+            "entries": grouped[key],
+        }
+        for key in sorted(
+            grouped,
+            key=lambda value: (
+                99 if value == CORPORATE_SPECIFICATION_UNMATCHED_KEY
+                else subgroup_rank.get(value, 90),
+                labels[value].casefold(),
+            ),
+        )
+    ]
+
+
 def sap_sample_register_data(
     lab_code: str = "", search: str = "", status: str = "", subgroup: str = "",
 ) -> dict[str, Any]:
@@ -1189,8 +1227,10 @@ def sap_sample_register_data(
         ),
         reverse=True,
     )
+    visible = entries[:500]
     return {
-        "entries": entries[:500],
+        "entries": visible,
+        "groups": _register_subgroup_groups(visible),
         "laboratories": laboratories,
         "status_filters": SAP_REGISTER_STATUS_FILTERS,
         "subgroup_filters": [

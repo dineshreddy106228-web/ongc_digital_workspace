@@ -297,6 +297,18 @@ def test_module_sample_register_uses_current_sap_records_not_weekly_workbook_row
         "Calcium carbonate",
     ]
     assert len(sap_sample_register_data(subgroup="not_in_corporate_specification")["entries"]) == 2
+    # The register is read category by category, so rows arrive grouped in
+    # Corporate Specifications order with unmatched material codes collected
+    # in a final section rather than spread through the table.
+    groups = register["groups"]
+    assert [(group["key"], len(group["entries"])) for group in groups] == [
+        ("DFC", 1), ("PC", 1), ("not_in_corporate_specification", 2),
+    ]
+    assert [group["label"] for group in groups] == [
+        "Drilling Fluid Chemicals", "Production Chemicals", "Not in Corporate Specification",
+    ]
+    assert [group["is_unmatched"] for group in groups] == [False, False, True]
+    assert sum(len(group["entries"]) for group in groups) == len(entries)
     dashboard = sap_panvel_dashboard_data()
     matched_record = next(entry["record"] for entry in entries if entry["record"].notification_no == "7001")
     notification_only_record = next(entry["record"] for entry in entries if entry["record"].notification_no == "7003")
@@ -318,6 +330,8 @@ def test_module_sample_register_uses_current_sap_records_not_weekly_workbook_row
     assert "Not in Corporate Specification" in page
     assert "Legacy weekly workbook sample" not in page
     assert "SAP receipt 01 Aug 2026" in page
+    assert page.index("Drilling Fluid Chemicals") < page.index("Production Chemicals") < page.index("Not in Corporate Specification")
+    assert "qc-sap-subgroup-heading" in page
     assert "Notification date 04 Aug 2026" in page
     with sap_app.test_request_context("/quality-control/sap-control/labs/rgl_panvel"):
         dashboard_page = render_template(

@@ -384,3 +384,10 @@ a.qc-age-distribution-item:hover { filter: brightness(.97); }
 
     .qc-presentation-scope-form .form-select { min-width: 0; }
 }
+
+/* The cross-laboratory register is read one Corporate Specification
+   sub-group at a time, so its rows carry the same section heading the
+   laboratory action register uses. */
+.mod-table.qc-sap-record-table .qc-sap-subgroup-heading th{ padding:.65rem .8rem; border-top:1px solid var(--border); border-bottom:1px solid var(--border); background:var(--primary-soft); color:var(--primary); font-size:.72rem; letter-spacing:.035em; text-align:left; text-transform:uppercase; }
+.mod-table.qc-sap-record-table .qc-sap-subgroup-heading.is-unmatched th{ background:var(--tone-warn-bg); color:var(--tone-warn-fg); }
+.qc-sap-subgroup-count{ margin-left:.5rem; padding:.1rem .45rem; border-radius:999px; background:var(--surface); color:var(--muted); font-size:.7rem; font-weight:700; letter-spacing:0; text-transform:none; }
