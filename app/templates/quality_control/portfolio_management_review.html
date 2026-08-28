@@ -47,6 +47,33 @@
   <section class="card qc-review-table-card"><div class="card-body"><div class="qc-review-section-heading"><div><span class="qc-section-label"><i class="bi bi-info-circle"></i> Notification-only closure register</span><h2>Completed without inspection-lot / UD details</h2><p>These notifications have a Completion Date and state an inspection-lot number, but their lot is absent from the paired QA33 export. They are not included in UD A or UD R.</p></div><span class="qc-review-count-chip">{{ completed_without_ud_entries|length }} records</span></div><div class="mod-table-wrap"><table class="mod-table qc-review-table"><thead><tr><th>Laboratory</th><th>Notification / stated lot</th><th>Material</th><th>Notification completion</th><th>SAP position</th></tr></thead><tbody>{% for item in completed_without_ud_entries %}{% set record = item.record %}<tr><td class="qc-management-lab-name">{{ item.laboratory.name }}<div class="mod-cell-meta">Plant {{ record.plant_code }}</div></td><td><strong>{{ record.notification_no or 'No notification' }}</strong><div class="mod-cell-meta">Stated lot {{ record.inspection_lot_number or 'not supplied' }}</div></td><td class="qc-management-lab-name">{{ record.material_description or 'Material not stated in SAP' }}<div class="mod-cell-meta">{{ record.material_code or 'Material code not stated' }}</div></td><td>{{ record.completion_date.strftime('%d %b %Y') }}</td><td><span class="qc-review-result qc-review-result-passed">Notification complete</span><div class="mod-cell-meta">No paired QA33 lot row · no UD details</div></td></tr>{% endfor %}</tbody></table></div></div></section>
   {% endif %}
 
+  <section id="non-sap-register" class="card qc-review-table-card"><div class="card-body">
+    <div class="qc-review-section-heading"><div><span class="qc-section-label"><i class="bi bi-clipboard-plus"></i> Controlled non-SAP register</span><h2>Work the laboratories carry outside SAP</h2><p>These samples are deliberately not SAP records and are not part of the position above — an outcome here is the laboratory’s declared result, not an SAP usage decision. They are shown so the portfolio’s real load is visible.</p></div><span class="qc-lab-count">{{ non_sap_kpis.pending }} pending · {{ non_sap_kpis.total }} recorded</span></div>
+    {% if non_sap_kpis.total %}
+    <div class="mod-stats">
+      <div class="mod-stat"><span>Recorded</span><strong>{{ non_sap_kpis.total }}</strong><small>across {{ non_sap_by_laboratory|length }} laboratories</small></div>
+      <div class="mod-stat {{ 'mod-stat-danger' if non_sap_kpis.overdue else '' }}"><span>Past expected completion</span><strong>{{ non_sap_kpis.overdue }}</strong><small>still open beyond the declared date</small></div>
+      <div class="mod-stat {{ 'mod-stat-warning' if non_sap_kpis.no_expected_date else '' }}"><span>No expected date</span><strong>{{ non_sap_kpis.no_expected_date }}</strong><small>open with no completion committed</small></div>
+      <div class="mod-stat mod-stat-success"><span>Closed — pass</span><strong>{{ non_sap_kpis.closed_pass }}</strong><small>laboratory-declared</small></div>
+      <div class="mod-stat mod-stat-danger"><span>Closed — fail</span><strong>{{ non_sap_kpis.closed_fail }}</strong><small>laboratory-declared</small></div>
+      <div class="mod-stat"><span>Declared fail rate</span><strong>{% if non_sap_kpis.fail_rate is not none %}{{ non_sap_kpis.fail_rate }}%{% else %}—{% endif %}</strong><small>of {{ non_sap_kpis.closed }} closed samples</small></div>
+    </div>
+    <div class="mod-table-wrap"><table class="mod-table"><thead><tr><th scope="col">Laboratory</th><th scope="col">Sample</th><th scope="col">Chemical</th><th scope="col">Declared status</th><th scope="col">Owner</th><th scope="col">Expected completion</th><th scope="col">Age</th></tr></thead><tbody>
+    {% for item in non_sap_entries %}{% set sample = item.sample %}<tr class="{{ 'qc-sap-record-overdue' if item.is_overdue }}">
+      <td class="qc-management-lab-name">{{ item.laboratory.name }}</td>
+      <td><strong>{{ sample.sample_reference }}</strong>{% if sample.sample_receipt_date %}<div class="mod-cell-meta">Received {{ sample.sample_receipt_date.strftime('%d %b %Y') }}</div>{% endif %}</td>
+      <td>{{ sample.chemical_name }}{% if sample.material_code %}<div class="mod-cell-meta">{{ sample.material_code }}</div>{% endif %}</td>
+      <td><span class="qc-sap-status is-{{ 'sap_confirmed' if sample.current_status == 'closed_pass' else 'open' if sample.current_status == 'closed_fail' else 'awaiting_lab' }}">{{ item.status_label }}</span>{% if item.outcome %}<div class="mod-cell-meta">Declared {{ item.outcome }}</div>{% endif %}</td>
+      <td>{{ sample.action_owner or '—' }}</td>
+      <td>{% if sample.expected_completion_date %}<span class="{{ 'text-danger' if item.is_overdue else '' }}">{{ sample.expected_completion_date.strftime('%d %b %Y') }}</span>{% elif item.is_closed %}—{% else %}<span class="mod-cell-meta">Not committed</span>{% endif %}</td>
+      <td>{% if item.age_days is not none %}{{ item.age_days }} d{% else %}—{% endif %}</td>
+    </tr>{% endfor %}
+    </tbody></table></div>
+    {% else %}
+    <p class="qc-clear-state">No laboratory has recorded a non-SAP sample. Every sample in the portfolio is currently an SAP record.</p>
+    {% endif %}
+  </div></section>
+
   <section class="card qc-review-table-card"><div class="card-body"><div class="qc-review-section-heading"><div><span class="qc-section-label"><i class="bi bi-arrow-left-right"></i> SAP snapshot movement</span><h2>Change from the prior SAP upload</h2><p>Raw SAP-open figures are compared only with the previous retained SAP snapshot for the same laboratory.</p></div></div><div class="mod-table-wrap"><table class="mod-table qc-review-table"><thead><tr><th>Laboratory</th><th>Current snapshot</th><th>Current SAP-open</th><th>Previous snapshot</th><th>Previous SAP-open</th><th>Change</th></tr></thead><tbody>{% for item in trend %}<tr><td class="qc-management-lab-name">{{ item.laboratory.name }}</td><td>{{ item.batch.as_of_date.strftime('%d %b %Y') }}</td><td>{{ item.current_open }}</td><td>{% if item.previous_batch %}{{ item.previous_batch.as_of_date.strftime('%d %b %Y') }}{% else %}—{% endif %}</td><td>{{ item.previous_open if item.previous_open is not none else '—' }}</td><td class="{{ 'text-danger' if item.open_change and item.open_change > 0 else 'text-success' if item.open_change is not none and item.open_change < 0 else '' }}">{% if item.open_change is not none %}{{ '+' if item.open_change > 0 else '' }}{{ item.open_change }}{% else %}First snapshot{% endif %}</td></tr>{% endfor %}</tbody></table></div></div></section>
 </div>
 {% endblock %}

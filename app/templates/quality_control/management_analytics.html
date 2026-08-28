@@ -80,6 +80,49 @@
 </div></section>
 {% endif %}
 
+<section id="non-sap-analysis" class="card qc-analytics-section" style="margin-top:1rem"><div class="card-body">
+  <div class="qc-history-result-heading"><div><span class="qc-section-eyebrow">Outside the SAP position</span><h2 class="mod-card-title">Controlled non-SAP register</h2><p class="mod-card-sub">Work the laboratories carry that SAP has no record of. It is never merged into the figures above — a result here is the laboratory’s declaration, not an SAP usage decision — but it is real load and is analysed on its own terms.</p></div><span class="qc-lab-count">{{ non_sap_kpis.pending }} pending · {{ non_sap_kpis.total }} recorded</span></div>
+  {% if non_sap_kpis.total %}
+  <div class="mod-stats">
+    <div class="mod-stat"><span>Recorded</span><strong>{{ non_sap_kpis.total }}</strong><small>{{ non_sap_chemical_total }} distinct chemicals</small></div>
+    <div class="mod-stat"><span>Still pending</span><strong>{{ non_sap_kpis.pending }}</strong><small>not yet closed by a laboratory</small></div>
+    <div class="mod-stat {{ 'mod-stat-danger' if non_sap_kpis.overdue else '' }}"><span>Past expected completion</span><strong>{{ non_sap_kpis.overdue }}</strong><small>open beyond the declared date</small></div>
+    <div class="mod-stat mod-stat-success"><span>Closed — pass</span><strong>{{ non_sap_kpis.closed_pass }}</strong><small>laboratory-declared</small></div>
+    <div class="mod-stat mod-stat-danger"><span>Closed — fail</span><strong>{{ non_sap_kpis.closed_fail }}</strong><small>laboratory-declared</small></div>
+    <div class="mod-stat"><span>Declared fail rate</span><strong>{% if non_sap_kpis.fail_rate is not none %}{{ non_sap_kpis.fail_rate }}%{% else %}—{% endif %}</strong><small>of {{ non_sap_kpis.closed }} closed samples</small></div>
+  </div>
+
+  <div class="qc-history-result-heading" style="margin-top:1.1rem"><div><h3 class="mod-card-title">Non-SAP load by laboratory</h3></div></div>
+  <div class="mod-table-wrap"><table class="mod-table"><thead><tr><th scope="col">Laboratory</th><th scope="col">Recorded</th><th scope="col">Pending</th><th scope="col">Past expected date</th><th scope="col">Closed pass</th><th scope="col">Closed fail</th></tr></thead><tbody>
+  {% for item in non_sap_by_laboratory %}<tr>
+    <td class="qc-management-lab-name">{{ item.laboratory.name }}</td>
+    <td><strong>{{ item.total }}</strong></td>
+    <td>{{ item.pending }}</td>
+    <td class="{{ 'text-danger' if item.overdue else '' }}">{{ item.overdue }}</td>
+    <td>{{ item.closed_pass }}</td>
+    <td class="{{ 'text-danger' if item.closed_fail else '' }}">{{ item.closed_fail }}</td>
+  </tr>{% endfor %}
+  </tbody></table></div>
+
+  <div class="qc-history-result-heading" style="margin-top:1.1rem"><div><h3 class="mod-card-title">Non-SAP chemicals</h3><p class="mod-card-sub">Which chemicals arrive without an SAP record.</p></div><span class="qc-lab-count">Top {{ non_sap_chemicals|length }} of {{ non_sap_chemical_total }}</span></div>
+  <div class="mod-table-wrap"><table class="mod-table"><thead><tr><th scope="col">Chemical</th><th scope="col">Laboratories</th><th scope="col">Samples</th><th scope="col">Pending</th><th scope="col">Closed</th><th scope="col">Declared fails</th></tr></thead><tbody>
+  {% for item in non_sap_chemicals %}<tr>
+    <td class="qc-management-lab-name">{{ item.chemical_name }}</td>
+    <td>{% for laboratory in item.laboratories %}<span class="qc-lab-table-label">{{ laboratory }}</span>{% endfor %}</td>
+    <td><strong>{{ item.total }}</strong></td>
+    <td>{{ item.pending }}</td>
+    <td>{{ item.closed }}</td>
+    <td class="{{ 'text-danger' if item.failed else '' }}">{{ item.failed }}</td>
+  </tr>{% endfor %}
+  </tbody></table></div>
+
+  <div class="qc-history-result-heading" style="margin-top:1.1rem"><div><h3 class="mod-card-title">Declared status of non-SAP work</h3></div></div>
+  <div class="mod-stats">{% for item in non_sap_by_status %}<div class="mod-stat {{ 'mod-stat-success' if item.key == 'closed_pass' else 'mod-stat-danger' if item.key == 'closed_fail' else '' }}"><span>{{ item.label }}</span><strong>{{ item.count }}</strong><small>laboratory-declared</small></div>{% endfor %}</div>
+  {% else %}
+  <p class="qc-clear-state">No laboratory has recorded a non-SAP sample. Every sample in the portfolio is currently an SAP record.</p>
+  {% endif %}
+</div></section>
+
 <section class="card qc-analytics-section" style="margin-top:1rem"><div class="card-body"><div class="qc-history-result-heading"><div><h2 class="mod-card-title">Open workload by SAP work center</h2><p class="mod-card-sub">Capacity and response exposure in the active SAP queue.</p></div><span class="qc-lab-count">{{ work_centers|length }} work centers</span></div><div class="mod-table-wrap"><table class="mod-table"><thead><tr><th>SAP work center</th><th>Laboratories</th><th>Actionable open</th><th>Past STT</th><th>Awaiting lab update</th></tr></thead><tbody>{% for item in work_centers %}<tr><td class="qc-management-lab-name">{{ item.name }}</td><td>{% for laboratory in item.laboratories %}<span class="qc-lab-table-label">{{ laboratory }}</span>{% endfor %}</td><td>{{ item.open }}</td><td class="{{ 'text-danger' if item.stt_overdue else '' }}">{{ item.stt_overdue }}</td><td>{{ item.awaiting_lab }}</td></tr>{% else %}<tr><td colspan="5" class="qc-clear-state">No actionable SAP-open records are present.</td></tr>{% endfor %}</tbody></table></div></div></section>
 <section class="card qc-analytics-section" style="margin-top:1rem"><div class="card-body"><div class="qc-history-result-heading"><div><h2 class="mod-card-title">Materials requiring SAP action</h2><p class="mod-card-sub">Material grouping comes directly from the current SAP record set; it is not a local product-performance score.</p></div><span class="qc-lab-count">{{ materials|length }} materials</span></div><div class="mod-table-wrap"><table class="mod-table"><thead><tr><th>Material</th><th>Laboratories</th><th>Work centers</th><th>Actionable open</th><th>Past STT</th><th>Awaiting lab update</th></tr></thead><tbody>{% for item in materials %}<tr><td class="qc-management-lab-name">{{ item.material_description }}<div class="mod-cell-meta">{{ item.material_code }}</div></td><td>{% for laboratory in item.laboratories %}<span class="qc-lab-table-label">{{ laboratory }}</span>{% endfor %}</td><td>{{ item.work_centers|join(', ') }}</td><td>{{ item.open }}</td><td class="{{ 'text-danger' if item.stt_overdue else '' }}">{{ item.stt_overdue }}</td><td>{{ item.awaiting_lab }}</td></tr>{% else %}<tr><td colspan="6">No material currently requires SAP follow-up.</td></tr>{% endfor %}</tbody></table></div></div></section>
 <section class="card qc-analytics-section" style="margin-top:1rem"><div class="card-body"><div class="qc-history-result-heading"><div><h2 class="mod-card-title">Usage decisions recorded by SAP</h2><p class="mod-card-sub">UD A means accepted and UD R means rejected. No decision is inferred where SAP has not recorded one.</p></div></div><div class="mod-stats">{% for item in usage_decisions %}<div class="mod-stat {{ 'mod-stat-danger' if item.tone == 'danger' else 'mod-stat-success' if item.tone == 'success' else '' }}"><span>{{ item.label }}</span><strong>{{ item.count }}</strong><small>current SAP snapshot records</small></div>{% endfor %}<div class="mod-stat"><span>Officially completed</span><strong>{{ kpis.completed }}</strong><small>completion status from SAP</small></div><div class="mod-stat"><span>QC-admin excluded</span><strong>{{ kpis.excluded }}</strong><small>{{ kpis.exclusion_review }} need renewed review</small></div></div></div></section>

@@ -1365,6 +1365,127 @@ def _batch_summary(batch: QCSAPUploadBatch | None) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def non_sap_register_data(lab_codes: set[str] | None = None) -> dict[str, Any]:
+    """The controlled non-SAP register, summarised for management reading.
+
+    These samples are deliberately not SAP records and are never merged into
+    the SAP position — that separation is the point of the register.  What was
+    missing was any management view of it at all: the work was visible only
+    from a single laboratory's dashboard, so nobody could see how much of it
+    the portfolio was carrying.
+
+    An outcome here is the laboratory's declared result, not an SAP usage
+    decision, so it is counted and labelled separately throughout.
+    """
+    laboratories = [
+        laboratory for laboratory in sap_reporting_laboratories()
+        if lab_codes is None or laboratory["code"] in lab_codes
+    ]
+    today = date.today()
+    entries: list[dict[str, Any]] = []
+    by_laboratory: list[dict[str, Any]] = []
+    status_counts: Counter = Counter()
+    chemicals: dict[str, dict[str, Any]] = {}
+
+    for laboratory in laboratories:
+        lab_entries = []
+        for entry in _non_sap_entries(laboratory["code"], include_closed=True):
+            sample = entry["sample"]
+            is_closed = sample.current_status in NON_SAP_CLOSED_STATUSES
+            # Only work still running can be late; a closed sample is history.
+            is_overdue = bool(
+                not is_closed
+                and sample.expected_completion_date
+                and sample.expected_completion_date < today
+            )
+            item = {
+                **entry,
+                "laboratory": laboratory,
+                "status_label": NON_SAP_STATUS_LABELS.get(
+                    sample.current_status, sample.current_status,
+                ),
+                "is_closed": is_closed,
+                "is_overdue": is_overdue,
+                "outcome": sample.reported_outcome,
+                "age_days": (
+                    (today - sample.sample_receipt_date).days
+                    if sample.sample_receipt_date else None
+                ),
+            }
+            lab_entries.append(item)
+            status_counts[sample.current_status] += 1
+            name = (sample.chemical_name or "Not stated").strip() or "Not stated"
+            chemical = chemicals.setdefault(name, {
+                "chemical_name": name, "total": 0, "pending": 0,
+                "closed": 0, "failed": 0, "laboratories": set(),
+            })
+            chemical["total"] += 1
+            chemical["pending"] += 0 if is_closed else 1
+            chemical["closed"] += 1 if is_closed else 0
+            chemical["failed"] += 1 if sample.current_status == "closed_fail" else 0
+            chemical["laboratories"].add(laboratory["name"])
+        entries.extend(lab_entries)
+        if lab_entries:
+            by_laboratory.append({
+                "laboratory": laboratory,
+                "total": len(lab_entries),
+                "pending": sum(1 for item in lab_entries if not item["is_closed"]),
+                "overdue": sum(1 for item in lab_entries if item["is_overdue"]),
+                "closed_pass": sum(
+                    1 for item in lab_entries
+                    if item["sample"].current_status == "closed_pass"
+                ),
+                "closed_fail": sum(
+                    1 for item in lab_entries
+                    if item["sample"].current_status == "closed_fail"
+                ),
+            })
+
+    closed_pass = status_counts["closed_pass"]
+    closed_fail = status_counts["closed_fail"]
+    decided = closed_pass + closed_fail
+    pending_entries = [item for item in entries if not item["is_closed"]]
+    kpis = {
+        "total": len(entries),
+        "pending": len(pending_entries),
+        "closed": decided,
+        "closed_pass": closed_pass,
+        "closed_fail": closed_fail,
+        "overdue": sum(1 for item in entries if item["is_overdue"]),
+        "no_expected_date": sum(
+            1 for item in pending_entries if not item["sample"].expected_completion_date
+        ),
+        # Declared results only; pending work is not a pass.
+        "fail_rate": round(closed_fail / decided * 100, 1) if decided else None,
+    }
+    return {
+        "non_sap_kpis": kpis,
+        "non_sap_entries": sorted(
+            entries,
+            key=lambda item: (
+                item["is_closed"],
+                not item["is_overdue"],
+                item["sample"].expected_completion_date or date.max,
+                item["laboratory"]["name"],
+                item["sample"].sample_reference,
+            ),
+        ),
+        "non_sap_by_laboratory": sorted(
+            by_laboratory, key=lambda item: (-item["overdue"], -item["pending"], item["laboratory"]["name"]),
+        ),
+        "non_sap_by_status": [
+            {"key": key, "label": label, "count": status_counts[key]}
+            for key, label in NON_SAP_STATUSES if status_counts[key]
+        ],
+        "non_sap_chemicals": sorted(
+            ({**item, "laboratories": sorted(item["laboratories"])} for item in chemicals.values()),
+            key=lambda item: (-item["total"], item["chemical_name"].casefold()),
+        )[:ANALYTICS_TABLE_LIMIT],
+        "non_sap_chemical_total": len(chemicals),
+        "non_sap_status_labels": NON_SAP_STATUS_LABELS,
+    }
+
+
 def sap_management_data(lab_codes: set[str] | None = None) -> dict[str, Any]:
     """Build the management view exclusively from each laboratory's latest SAP snapshot.
 

@@ -1,7 +1,7 @@
 """Tests for the Corporate Chemistry SAP QC control-tower workflow."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from io import BytesIO
 from pathlib import Path
 import sys
@@ -445,6 +445,78 @@ def test_portfolio_analytics_reads_the_whole_recorded_load_not_one_snapshot(sap_
     assert analytics["laboratories"][-1]["stt_on_time_rate"] is None
 
 
+def test_non_sap_register_summarises_without_touching_the_sap_position(sap_app):
+    """Management can now see the non-SAP load; it still is not SAP.
+
+    The register is reported on its own terms — a declared result, not a usage
+    decision — and none of it reaches the SAP figures beside it.
+    """
+    from app.core.services.sap_quality_control import (
+        import_sap_panvel_exports, non_sap_register_data, sap_management_data,
+    )
+    from app.models.quality_control.qc_sap_monitoring import QCNonSAPSample
+
+    import_sap_panvel_exports(
+        _inspection_export(), "SAP_INSPECTION_20260826.xlsx",
+        _notification_export(), "SAP_NOTIFICATIONS_20260826.xlsx", None,
+    )
+    today = date.today()
+    db.session.add_all([
+        QCNonSAPSample(
+            lab_code="rgl_panvel", sample_reference="NS-1", chemical_name="Produced water",
+            current_status="under_testing", sample_receipt_date=today - timedelta(days=10),
+            expected_completion_date=today - timedelta(days=2),
+        ),
+        QCNonSAPSample(
+            lab_code="rgl_panvel", sample_reference="NS-2", chemical_name="Produced water",
+            current_status="awaiting_sample", sample_receipt_date=today - timedelta(days=3),
+        ),
+        QCNonSAPSample(
+            lab_code="rgl_vadodara", sample_reference="NS-3", chemical_name="Glycol",
+            current_status="closed_fail", reported_outcome="fail",
+            expected_completion_date=today - timedelta(days=30),
+        ),
+        QCNonSAPSample(
+            lab_code="rgl_vadodara", sample_reference="NS-4", chemical_name="Glycol",
+            current_status="closed_pass", reported_outcome="pass",
+        ),
+    ])
+    db.session.commit()
+
+    register = non_sap_register_data()
+    kpis = register["non_sap_kpis"]
+
+    assert kpis["total"] == 4
+    assert kpis["pending"] == 2
+    # A closed sample is history, so a past expected date does not make it late.
+    assert kpis["overdue"] == 1
+    assert kpis["no_expected_date"] == 1
+    # The rate is over declared closures only, never over pending work.
+    assert (kpis["closed_pass"], kpis["closed_fail"], kpis["closed"]) == (1, 1, 2)
+    assert kpis["fail_rate"] == 50.0
+
+    # Overdue work leads and closed work sorts to the end; within each band the
+    # nearer committed date comes first, and no committed date comes last.
+    assert [item["sample"].sample_reference for item in register["non_sap_entries"]] == [
+        "NS-1", "NS-2", "NS-3", "NS-4",
+    ]
+    assert [item["laboratory"]["name"] for item in register["non_sap_by_laboratory"]] == [
+        "RGL Panvel", "RGL Vadodara",
+    ]
+    chemicals = {item["chemical_name"]: item for item in register["non_sap_chemicals"]}
+    assert chemicals["Produced water"]["pending"] == 2
+    assert chemicals["Glycol"]["failed"] == 1
+
+    # None of it has moved into the SAP position.
+    management = sap_management_data()
+    assert management["kpis"]["total"] == 4
+    assert management["kpis"]["rejected"] == 0
+    assert all(
+        entry["record"].material_description != "Produced water"
+        for entry in management["action_entries"]
+    )
+
+
 def test_panvel_import_rejects_a_non_panvel_plant():
     from app.core.services.sap_quality_control import parse_sap_notification_workbook
 
@@ -776,7 +848,9 @@ def test_management_data_uses_latest_sap_records_and_excludes_non_sap_rows(sap_a
 
 def test_management_separates_completed_notification_only_records_without_ud_details(sap_app):
     from flask import render_template
-    from app.core.services.sap_quality_control import import_sap_panvel_exports, sap_management_data
+    from app.core.services.sap_quality_control import (
+        import_sap_panvel_exports, non_sap_register_data, sap_management_data,
+    )
     from app.models.quality_control.qc_sap_monitoring import QCSAPRecord
 
     import_sap_panvel_exports(
@@ -795,7 +869,10 @@ def test_management_separates_completed_notification_only_records_without_ud_det
     assert [item["record"].notification_no for item in data["completed_without_ud_entries"]] == ["7003"]
     assert data["completed_without_ud_entries"][0]["record"].inspection_lot_number == "890000004999"
     with sap_app.test_request_context("/quality-control/management-review"):
-        page = render_template("quality_control/portfolio_management_review.html", **data)
+        page = render_template(
+            "quality_control/portfolio_management_review.html",
+            **data, **non_sap_register_data(),
+        )
     assert "Completed without inspection-lot / UD details" in page
     assert "No paired QA33 lot row · no UD details" in page
     assert "890000004999" in page
