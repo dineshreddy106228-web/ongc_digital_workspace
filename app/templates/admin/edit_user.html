@@ -122,6 +122,24 @@
                 {% endfor %}
               </select>
             </div>
+
+            <div class="form-group">
+              <label for="quality_control_lab_code" class="form-label">QC laboratory scope</label>
+              <select id="quality_control_lab_code" name="quality_control_lab_code" class="form-control">
+                <option value="">— No laboratory assigned (view-only QC access) —</option>
+                {% for laboratory in qc_laboratories %}
+                  <option value="{{ laboratory.code }}"
+                    {% if form_data %}
+                      {{ 'selected' if form_data.get('quality_control_lab_code', '') == laboratory.code }}
+                    {% else %}
+                      {{ 'selected' if target.quality_control_lab_code == laboratory.code }}
+                    {% endif %}>
+                    {{ laboratory.name }} · {{ laboratory.location }}
+                  </option>
+                {% endfor %}
+              </select>
+              <small class="form-hint">Standard users can enter QC details only for this laboratory. Superusers can enter details for every laboratory.</small>
+            </div>
           </div>
         </div>
 

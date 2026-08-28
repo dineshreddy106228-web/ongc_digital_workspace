@@ -1,4 +1,5 @@
 {% macro specs_nav(active='') %}
+<a class="mod-app-home-link" href="{{ url_for('main.dashboard') }}">← Back to app home</a>
 <nav class="mod-nav" aria-label="Corporate Specifications navigation">
   <a class="{{ 'is-active' if active == 'home' }}" href="{{ url_for('csc.index') }}"><i class="bi bi-house-door"></i><span>Specification home</span></a>
   <a class="{{ 'is-active' if active == 'export' }}" href="{{ url_for('csc.master_export') }}"><i class="bi bi-file-earmark-arrow-down"></i><span>Master Data Export</span></a>

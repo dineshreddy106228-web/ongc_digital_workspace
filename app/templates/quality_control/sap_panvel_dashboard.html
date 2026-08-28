@@ -15,7 +15,7 @@
     <div class="mod-page-actions">
       <a class="btn btn-secondary" href="{{ url_for('quality_control.data_import') }}"><i class="bi bi-database-add"></i> Import centre</a>
       <a class="btn btn-secondary" href="{{ url_for('quality_control.sap_control') }}"><i class="bi bi-diagram-3"></i> SAP control tower</a>
-      {% if batch %}<a class="btn btn-primary" href="{{ url_for('quality_control.download_sap_lab_presentation', lab_code=lab_code) }}"><i class="bi bi-file-earmark-ppt"></i> Lab action pack</a>{% endif %}
+      {% if batch %}<a class="btn btn-primary" href="{{ url_for('quality_control.download_sap_lab_presentation', lab_code=lab_code) }}"><i class="bi bi-file-earmark-ppt"></i> This lab action pack</a><a class="btn btn-secondary" href="{{ url_for('quality_control.download_portfolio_management_presentation') }}"><i class="bi bi-buildings"></i> All-labs presentation</a>{% endif %}
     </div>
   </div>
 
@@ -41,7 +41,7 @@
     <div class="mod-stat"><span>SAP monitoring records</span><strong>{{ kpis.total }}</strong><small>{{ batch.inspection_lot_count }} lots · {{ batch.notification_count }} notifications</small></div>
     <div class="mod-stat mod-stat-success"><span>Officially complete</span><strong>{{ kpis.completed }}</strong><small>A: {{ kpis.accepted }} accepted · R: {{ kpis.rejected }} rejected</small></div>
     <div class="mod-stat {{ 'mod-stat-danger' if kpis.open else '' }}"><span>Actionable SAP-open</span><strong>{{ kpis.open }}</strong><small>Included in laboratory monitoring</small></div>
-    <div class="mod-stat {{ 'mod-stat-danger' if kpis.planned_overdue else '' }}"><span>Past SAP planned end</span><strong>{{ kpis.planned_overdue }}</strong><small>Open items with a prior planned end date</small></div>
+    <div class="mod-stat {{ 'mod-stat-danger' if kpis.stt_overdue else '' }}"><span>Past STT</span><strong>{{ kpis.stt_overdue }}</strong><small>Open items beyond the Corporate Specification testing time</small></div>
     <div class="mod-stat {{ 'mod-stat-danger' if kpis.awaiting_sap_confirmation else 'mod-stat-info' }}"><span>Awaiting SAP confirmation</span><strong>{{ kpis.awaiting_sap_confirmation }}</strong><small>Lab says action completed; SAP remains open</small></div>
     <div class="mod-stat mod-stat-info"><span>Excluded by QC admin</span><strong>{{ kpis.excluded_from_monitoring }}</strong><small>Retained in SAP audit register</small></div>
     <div class="mod-stat {{ 'mod-stat-danger' if kpis.exclusion_review else 'mod-stat-info' }}"><span>Exclusion review</span><strong>{{ kpis.exclusion_review }}</strong><small>SAP assignment or status changed</small></div>
@@ -49,14 +49,16 @@
 
   <section class="qc-sap-panel-grid">
     <article class="card"><div class="card-body">
-      <div class="qc-lab-section-heading"><div><span class="qc-section-label">Open workload by SAP work center</span><h2>Daily follow-up allocation</h2><p>Only SAP-open records are counted.</p></div></div>
-      <div class="mod-table-wrap"><table class="mod-table"><thead><tr><th>Work center</th><th>Open</th><th>Past planned end</th><th>Awaiting lab update</th></tr></thead><tbody>{% for item in work_centers %}<tr><td><strong>{{ item.name }}</strong></td><td>{{ item.open }}</td><td>{% if item.planned_overdue %}<span class="qc-variance-badge">{{ item.planned_overdue }}</span>{% else %}0{% endif %}</td><td>{{ item.awaiting_lab }}</td></tr>{% else %}<tr><td colspan="4" class="qc-clear-state"><i class="bi bi-check-circle-fill"></i> No open SAP records in this snapshot.</td></tr>{% endfor %}</tbody></table></div>
+      <div class="qc-lab-section-heading"><div><span class="qc-section-label">Daily laboratory workload</span><h2>Daily follow-up allocation</h2><p>SAP-open records and laboratory-declared non-SAP samples are shown separately.</p></div></div>
+      <div class="mod-table-wrap"><table class="mod-table"><thead><tr><th>Work center / source</th><th>Follow-up items</th><th>Past STT</th><th>Awaiting action</th></tr></thead><tbody>{% for item in work_centers %}<tr><td><strong>{{ item.name }}</strong>{% if item.is_non_sap %}<div class="mod-cell-meta">Laboratory-declared · not an SAP work center</div>{% endif %}</td><td>{{ item.open }}</td><td>{% if item.is_non_sap %}—{% elif item.stt_overdue %}<span class="qc-variance-badge">{{ item.stt_overdue }}</span>{% else %}0{% endif %}</td><td>{{ item.awaiting_lab }}</td></tr>{% else %}<tr><td colspan="4" class="qc-clear-state"><i class="bi bi-check-circle-fill"></i> No active SAP or non-SAP follow-up items.</td></tr>{% endfor %}</tbody></table></div>
     </div></article>
     <article class="card"><div class="card-body">
-      <div class="qc-lab-section-heading"><div><span class="qc-section-label">SAP data integrity</span><h2>Reconciliation controls</h2><p>Unmatched rows remain visible for review; they are not excluded from monitoring.</p></div></div>
-      <dl class="qc-sap-integrity-list"><div><dt>Lot-only SAP records</dt><dd>{{ kpis.unmatched_inspection }}</dd><small>Inspection lot without a notification match</small></div><div><dt>Notification-only SAP records</dt><dd>{{ kpis.unmatched_notification }}</dd><small>Notification without a usable inspection-lot match</small></div><div><dt>Material standards linked</dt><dd>{{ kpis.material_standard_coverage }}</dd><small>Records matched to an approved material-code testing standard</small></div></dl>
-      <h3 class="qc-sap-minor-heading">Usage decisions recorded by SAP</h3>
-      <div class="qc-sap-decision-list">{% for item in usage_decisions %}<span><b>{{ item.count }}</b> {{ item.label }}</span>{% endfor %}</div>
+      <div class="qc-lab-section-heading"><div><span class="qc-section-label">Laboratory action instructions</span><h2>Complete every follow-up item</h2><p>Keep the action list current so the daily workload reflects the laboratory position.</p></div></div>
+      <div class="qc-sap-lab-guidance">
+        <p><strong>SAP-open samples:</strong> select <em>Enter details</em> (or <em>Update details</em>) for each item and record the sampling date, laboratory testing-start date, current stage, owner and any constraint.</p>
+        <p><strong>Non-SAP samples:</strong> use <em>Add non-SAP sample</em> to record work that has not been raised in SAP, then keep its stage and expected completion current.</p>
+        <div class="qc-sap-lab-contact"><i class="bi bi-telephone"></i><span>If any sample is missing from the list, or the displayed information is discrepant, contact <strong>Corporate Chemistry</strong>.</span></div>
+      </div>
     </div></article>
   </section>
 
@@ -90,8 +92,8 @@
           </select>
         </label>
         <label class="qc-sap-overdue-filter">
-          <input type="checkbox" data-sap-overdue-filter>
-          <span>Past planned end</span>
+          <input type="checkbox" data-sap-stt-overdue-filter>
+          <span>Past STT</span>
         </label>
         <button class="btn btn-secondary btn-sm" type="button" data-sap-reset-filters><i class="bi bi-arrow-counterclockwise"></i> Reset</button>
         <span class="qc-sap-filter-count" data-sap-filter-count aria-live="polite">{{ open_records|length }} shown</span>
@@ -99,11 +101,14 @@
 
       <div class="mod-table-wrap qc-sap-register-table-wrap">
         <table class="mod-table qc-sap-record-table">
-          <thead><tr><th scope="col" class="table-serial-column">S. No.</th><th>Inspection lot / notification</th><th>Material</th><th>Work center</th><th>SAP position</th><th>Lab follow-up</th><th>Action</th></tr></thead>
+          <thead><tr><th scope="col" class="table-serial-column">S. No.</th><th>Inspection lot / notification</th><th>Material / specification</th><th>Work center</th><th>SAP position</th><th>Sampling / lab start</th><th>Lab follow-up</th><th>Action</th></tr></thead>
           <tbody>
         {% for item in open_records %}
         {% set record = item.record %}
-        <tr id="sap-record-{{ record.id }}" class="{{ 'qc-sap-record-overdue' if item.planned_overdue else '' }}" data-sap-record-row data-work-center="{{ record.work_center or 'Not assigned in SAP' }}" data-follow-up="{{ item.reconciliation_key }}" data-follow-up-label="{{ item.reconciliation_label }}" data-overdue="{{ 1 if item.planned_overdue else 0 }}">
+        {% if loop.first or item.subgroup_key != loop.previtem.subgroup_key %}
+        <tr class="qc-sap-subgroup-heading" data-sap-subgroup-heading><th colspan="8"><i class="bi bi-diagram-3"></i> Corporate Specification sub-group <strong>{{ item.subgroup_label }}</strong></th></tr>
+        {% endif %}
+        <tr id="sap-record-{{ record.id }}" class="{{ 'qc-sap-record-overdue' if item.stt_overdue else '' }}" data-sap-record-row data-work-center="{{ record.work_center or 'Not assigned in SAP' }}" data-follow-up="{{ item.reconciliation_key }}" data-follow-up-label="{{ item.reconciliation_label }}" data-stt-overdue="{{ 1 if item.stt_overdue else 0 }}">
           <td class="table-serial-column">{{ loop.index }}</td>
           <td>
             <strong>{{ record.inspection_lot_number or 'No inspection lot' }}</strong>
@@ -111,27 +116,37 @@
           </td>
           <td>
             {{ record.material_description or record.material_code or 'Not recorded' }}
-            <div class="mod-cell-meta">{{ record.material_code or 'No material code' }}{% if item.standard_days is not none %} · Standard {{ item.standard_days }} d{% endif %}</div>
+            <div class="mod-cell-meta">{{ record.material_code or 'No material code' }}{% if item.stt_days is not none %} · STT {{ item.stt_days }} d{% endif %}</div>
+            <div class="mod-cell-meta qc-sap-spec-reference">{{ item.specification_no if item.specification_match else 'Not in Corporate Specification' }}</div>
           </td>
           <td><span class="qc-sap-work-center">{{ record.work_center or 'Not assigned in SAP' }}</span></td>
           <td>
             <span class="qc-sap-status is-open">Open in SAP</span>
             {% if record.start_inspection_date %}<div class="mod-cell-meta">SAP receipt {{ record.start_inspection_date.strftime('%d %b %Y') }}</div>{% endif %}
-            {% if record.planned_end_date %}<div class="mod-cell-meta {{ 'text-danger' if item.planned_overdue else '' }}">Planned end {{ record.planned_end_date.strftime('%d %b %Y') }}{% if item.planned_overdue %} · overdue{% endif %}</div>{% endif %}
+            {% if not record.start_inspection_date and record.notification_start_date %}<div class="mod-cell-meta">Notification date {{ record.notification_start_date.strftime('%d %b %Y') }}</div>{% endif %}
+            {% if item.stt_due_date %}<div class="mod-cell-meta {{ 'text-danger' if item.stt_overdue else '' }}">STT due {{ item.stt_due_date.strftime('%d %b %Y') }}{% if item.stt_overdue %} · {{ item.stt_variance_days }} day{{ '' if item.stt_variance_days == 1 else 's' }} over STT{% endif %}</div>{% elif item.stt_days is not none %}<div class="mod-cell-meta">STT {{ item.stt_days }} d · start date not available</div>{% endif %}
+          </td>
+          <td>
+            {% if item.lab_update and item.lab_update.sampling_date %}
+            <div>Sampling: {{ item.lab_update.sampling_date.strftime('%d %b %Y') }}</div>
+            {% else %}<div class="mod-cell-meta">Sampling: not recorded</div>{% endif %}
+            {% if record.notification_start_date %}<div class="mod-cell-meta">Notification: {{ record.notification_start_date.strftime('%d %b %Y') }}</div>{% else %}<div class="mod-cell-meta">Notification: not recorded</div>{% endif %}
+            {% if item.courier_days is not none %}<div class="mod-cell-meta {{ 'text-danger' if item.courier_days < 0 else '' }}">Courier: {{ item.courier_days }} day{{ '' if item.courier_days == 1 else 's' }}{% if item.courier_days < 0 %} · check dates{% endif %}</div>{% else %}<div class="mod-cell-meta">Courier: not available</div>{% endif %}
+            {% if item.lab_update and item.lab_update.actual_start_date %}<div class="mod-cell-meta">Lab start: {{ item.lab_update.actual_start_date.strftime('%d %b %Y') }}</div>{% else %}<div class="mod-cell-meta">Lab start: not recorded</div>{% endif %}
+            {% if item.time_in_queue_days is not none %}<div class="mod-cell-meta {{ 'text-danger' if item.time_in_queue_days < 0 else '' }}">Time in queue: {{ item.time_in_queue_days }} day{{ '' if item.time_in_queue_days == 1 else 's' }}{% if item.time_in_queue_days < 0 %} · check dates{% endif %}</div>{% else %}<div class="mod-cell-meta">Time in queue: not available</div>{% endif %}
           </td>
           <td>
             <span class="qc-sap-status is-{{ item.reconciliation_key }}">{{ item.reconciliation_label }}</span>
             {% if item.lab_update %}<div class="mod-cell-meta">{{ item.lab_update.created_at.strftime('%d %b %H:%M') }}{% if item.lab_update.action_owner %} · {{ item.lab_update.action_owner }}{% endif %}</div>{% endif %}
-            {% if item.lab_update and item.lab_update.sampling_date %}<div class="mod-cell-meta">Lab sampling {{ item.lab_update.sampling_date.strftime('%d %b %Y') }}{% if item.sampling_to_sap_receipt_days is not none %} · {{ item.sampling_to_sap_receipt_days }} day{{ '' if item.sampling_to_sap_receipt_days == 1 else 's' }} to SAP receipt{% endif %}</div>{% endif %}
-            {% if item.lab_update and item.lab_update.actual_start_date %}<div class="mod-cell-meta">Lab actual start {{ item.lab_update.actual_start_date.strftime('%d %b %Y') }}</div>{% endif %}
           </td>
           <td class="qc-sap-record-action-cell">
-            {% if can_control %}
-            <button class="btn btn-secondary btn-sm qc-sap-record-action" type="button" data-sap-update-open="sap-update-{{ record.id }}"><i class="bi bi-pencil-square"></i> Update</button>
-            {% else %}<span class="mod-cell-meta">Corporate Chemistry records follow-up</span>{% endif %}
+            {% if can_record_lab_updates %}
+            {% set timing_details_missing = not item.lab_update or not item.lab_update.sampling_date or not item.lab_update.actual_start_date %}
+            <button class="btn btn-secondary btn-sm qc-sap-record-action" type="button" data-sap-update-open="sap-update-{{ record.id }}"><i class="bi bi-pencil-square"></i> {{ 'Enter details' if timing_details_missing else 'Update details' }}</button>
+            {% else %}<span class="mod-cell-meta">Laboratory follow-up is read-only for this user.</span>{% endif %}
           </td>
         </tr>
-        {% else %}<tr><td colspan="7" class="qc-clear-state"><i class="bi bi-check-circle-fill"></i> SAP shows no open inspection or notification records in this snapshot.</td></tr>{% endfor %}
+        {% else %}<tr><td colspan="8" class="qc-clear-state"><i class="bi bi-check-circle-fill"></i> SAP shows no open inspection or notification records in this snapshot.</td></tr>{% endfor %}
           </tbody>
         </table>
       </div>
@@ -169,7 +184,7 @@
     </div>
   </section>
 
-  {% if can_control %}
+  {% if can_record_lab_updates %}
   {% for item in open_records %}
   {% set record = item.record %}
   <dialog class="qc-sap-update-dialog" id="sap-update-{{ record.id }}" aria-labelledby="sap-update-title-{{ record.id }}">
@@ -197,10 +212,10 @@
         <label>Delay / constraint<textarea class="form-control" name="delay_reason" rows="3">{{ item.lab_update.delay_reason if item.lab_update and item.lab_update.delay_reason else '' }}</textarea></label>
         <label class="qc-sap-update-note">Returned update note<textarea class="form-control" name="update_note" rows="3">{{ item.lab_update.update_note if item.lab_update and item.lab_update.update_note else '' }}</textarea></label>
       </div>
-      <div class="qc-sap-update-actions">{% if record.notification_no %}<button class="btn qc-sap-exclusion-trigger" type="button" data-sap-exclusion-open="sap-exclusion-{{ record.id }}"><i class="bi bi-slash-circle"></i> Exclude non-actionable notification</button>{% endif %}<button class="btn btn-secondary" type="button" data-sap-update-close>Cancel</button><button class="btn btn-primary" type="submit"><i class="bi bi-check2-circle"></i> Save returned status</button></div>
+      <div class="qc-sap-update-actions">{% if can_control and record.notification_no %}<button class="btn qc-sap-exclusion-trigger" type="button" data-sap-exclusion-open="sap-exclusion-{{ record.id }}"><i class="bi bi-slash-circle"></i> Exclude non-actionable notification</button>{% endif %}<button class="btn btn-secondary" type="button" data-sap-update-close>Cancel</button><button class="btn btn-primary" type="submit"><i class="bi bi-check2-circle"></i> Save returned status</button></div>
     </form>
   </dialog>
-  {% if record.notification_no %}
+  {% if can_control and record.notification_no %}
   <dialog class="qc-sap-update-dialog qc-sap-exclusion-dialog" id="sap-exclusion-{{ record.id }}" aria-labelledby="sap-exclusion-title-{{ record.id }}">
     <div class="qc-sap-update-dialog-head">
       <div>
@@ -227,6 +242,7 @@
   </dialog>
   {% endif %}
   {% endfor %}
+  {% if can_control %}
   {% for item in exclusion_review_entries %}
   {% set record = item.record %}
   <dialog class="qc-sap-update-dialog qc-sap-exclusion-dialog" id="sap-exclusion-{{ record.id }}" aria-labelledby="sap-exclusion-title-{{ record.id }}">
@@ -237,10 +253,52 @@
   </dialog>
   {% endfor %}
   {% endif %}
+  {% endif %}
 
-  <section class="card qc-sap-action-register"><div class="card-body"><div class="qc-section-title"><div><span class="qc-section-eyebrow"><i class="bi bi-clipboard-plus"></i> Separate controlled exception register</span><h2 class="mod-card-title">Active non-SAP samples</h2><p class="mod-card-sub">These items are not SAP records and are not included in the SAP-open count. Corporate Chemistry maintains them at the control tower.</p></div><span class="qc-overdue-count">{{ non_sap_entries|length }} non-SAP pending</span></div><div class="mod-table-wrap"><table class="mod-table"><thead><tr><th>Local reference</th><th>Sample</th><th>Declared current stage</th><th>Expected completion / owner</th></tr></thead><tbody>{% for item in non_sap_entries %}{% set sample = item.sample %}<tr><td><strong>{{ sample.sample_reference }}</strong></td><td>{{ sample.chemical_name }}<div class="mod-cell-meta">{{ sample.material_code or 'No material code' }}</div></td><td>{{ non_sap_status_labels.get(sample.current_status, sample.current_status|replace('_', ' ')|title) }}{% if sample.reported_outcome %}<div class="mod-cell-meta">Lab-declared {{ sample.reported_outcome|title }} · non-SAP</div>{% endif %}</td><td>{% if sample.expected_completion_date %}{{ sample.expected_completion_date.strftime('%d %b %Y') }}{% else %}No ETA{% endif %}{% if sample.action_owner %}<div class="mod-cell-meta">{{ sample.action_owner }}</div>{% endif %}</td></tr>{% else %}<tr><td colspan="4" class="qc-clear-state"><i class="bi bi-check-circle-fill"></i> No active non-SAP exceptions for this laboratory.</td></tr>{% endfor %}</tbody></table></div></div></section>
+  {% if can_record_lab_updates %}
+  <dialog class="qc-sap-update-dialog" id="non-sap-add" aria-labelledby="non-sap-add-title">
+    <div class="qc-sap-update-dialog-head"><div><span class="qc-section-label">Laboratory-declared exception</span><h2 id="non-sap-add-title">Add non-SAP sample</h2></div><button class="btn btn-secondary btn-sm" type="button" data-sap-update-close aria-label="Close add non-SAP sample form"><i class="bi bi-x-lg"></i></button></div>
+    <form method="POST" action="{{ url_for('quality_control.create_lab_non_sap_sample', lab_code=lab_code) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="qc-sap-update-form-grid">
+        <label>Local sample reference<input class="form-control" name="sample_reference" maxlength="120" required></label>
+        <label>Material / sample name<input class="form-control" name="chemical_name" maxlength="255" required></label>
+        <label>Material code (if known)<input class="form-control" name="material_code" maxlength="100"></label>
+        <label>Sample receipt date<input class="form-control" name="sample_receipt_date" type="date"></label>
+        <label>Current stage<select class="form-select" name="current_status" required>{% for value, label in non_sap_statuses %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></label>
+        <label>Expected completion<input class="form-control" name="expected_completion_date" type="date"></label>
+        <label>Action owner<input class="form-control" name="action_owner" maxlength="160"></label>
+        <label>Delay / constraint<textarea class="form-control" name="delay_reason" rows="3"></textarea></label>
+        <label class="qc-sap-update-note">Laboratory note<textarea class="form-control" name="update_note" rows="3"></textarea></label>
+      </div>
+      <div class="qc-sap-update-actions"><button class="btn btn-secondary" type="button" data-sap-update-close>Cancel</button><button class="btn btn-primary" type="submit"><i class="bi bi-plus-circle"></i> Add non-SAP sample</button></div>
+    </form>
+  </dialog>
+  {% endif %}
 
-  <section class="card"><div class="card-body"><div class="qc-lab-section-heading"><div><span class="qc-section-label">SAP source audit trail</span><h2>Imported daily snapshots</h2><p>Each native source export is preserved with the snapshot it created.</p></div></div><div class="mod-table-wrap"><table class="mod-table"><thead><tr><th>As at</th><th>Records</th><th>Lots / notifications</th><th>Unmatched rows</th><th>Imported</th><th>Native sources</th></tr></thead><tbody>{% for item in recent_batches %}<tr><td><strong>{{ item.as_of_date.strftime('%d %b %Y') }}</strong></td><td>{{ item.record_count }}</td><td>{{ item.inspection_lot_count }} / {{ item.notification_count }}</td><td>{{ item.unmatched_inspection_count }} lot-only · {{ item.unmatched_notification_count }} notification-only</td><td>{{ item.uploaded_at.strftime('%d %b %Y %H:%M') }}</td><td><a href="{{ url_for('quality_control.download_sap_lab_source', lab_code=lab_code, batch_id=item.id, source_kind='inspection') }}">Inspection Lots</a> · <a href="{{ url_for('quality_control.download_sap_lab_source', lab_code=lab_code, batch_id=item.id, source_kind='notifications') }}">Notifications</a></td></tr>{% endfor %}</tbody></table></div></div></section>
+  <section id="non-sap-register" class="card qc-sap-action-register"><div class="card-body"><div class="qc-section-title"><div><span class="qc-section-eyebrow"><i class="bi bi-clipboard-plus"></i> Separate controlled exception register</span><h2 class="mod-card-title">Active non-SAP samples</h2><p class="mod-card-sub">Laboratory-declared work that has no SAP record. These rows remain separate from the SAP-open count.</p></div><div class="qc-sap-register-summary"><span class="qc-overdue-count">{{ non_sap_entries|length }} non-SAP pending</span>{% if can_record_lab_updates %}<button class="btn btn-primary btn-sm" type="button" data-sap-update-open="non-sap-add"><i class="bi bi-plus-circle"></i> Add non-SAP sample</button>{% endif %}</div></div><div class="mod-table-wrap"><table class="mod-table"><thead><tr><th>S. No.</th><th>Local reference</th><th>Sample</th><th>Declared current stage</th><th>Expected completion / owner</th>{% if can_record_lab_updates %}<th>Action</th>{% endif %}</tr></thead><tbody>{% for item in non_sap_entries %}{% set sample = item.sample %}<tr><td>{{ loop.index }}</td><td><strong>{{ sample.sample_reference }}</strong>{% if sample.sample_receipt_date %}<div class="mod-cell-meta">Received {{ sample.sample_receipt_date.strftime('%d %b %Y') }}</div>{% endif %}</td><td>{{ sample.chemical_name }}<div class="mod-cell-meta">{{ sample.material_code or 'No material code' }}</div></td><td>{{ non_sap_status_labels.get(sample.current_status, sample.current_status|replace('_', ' ')|title) }}{% if sample.reported_outcome %}<div class="mod-cell-meta">Lab-declared {{ sample.reported_outcome|title }} · non-SAP</div>{% endif %}</td><td>{% if sample.expected_completion_date %}{{ sample.expected_completion_date.strftime('%d %b %Y') }}{% else %}No ETA{% endif %}{% if sample.action_owner %}<div class="mod-cell-meta">{{ sample.action_owner }}</div>{% endif %}</td>{% if can_record_lab_updates %}<td><button class="btn btn-secondary btn-sm qc-sap-record-action" type="button" data-sap-update-open="non-sap-update-{{ sample.id }}"><i class="bi bi-pencil-square"></i> Update</button></td>{% endif %}</tr>{% else %}<tr><td colspan="{{ 6 if can_record_lab_updates else 5 }}" class="qc-clear-state"><i class="bi bi-check-circle-fill"></i> No active non-SAP exceptions for this laboratory.</td></tr>{% endfor %}</tbody></table></div></div></section>
+
+  {% if can_record_lab_updates %}
+  {% for item in non_sap_entries %}{% set sample = item.sample %}
+  <dialog class="qc-sap-update-dialog" id="non-sap-update-{{ sample.id }}" aria-labelledby="non-sap-update-title-{{ sample.id }}">
+    <div class="qc-sap-update-dialog-head"><div><span class="qc-section-label">Laboratory-declared exception</span><h2 id="non-sap-update-title-{{ sample.id }}">Update non-SAP sample</h2></div><button class="btn btn-secondary btn-sm" type="button" data-sap-update-close aria-label="Close non-SAP sample form"><i class="bi bi-x-lg"></i></button></div>
+    <div class="qc-sap-update-context"><div><span>Local reference</span><strong>{{ sample.sample_reference }}</strong></div><div><span>Sample</span><strong>{{ sample.chemical_name }}</strong></div></div>
+    <form method="POST" action="{{ url_for('quality_control.update_lab_non_sap_sample', lab_code=lab_code, sample_id=sample.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="qc-sap-update-form-grid">
+        <label>Current stage<select class="form-select" name="current_status" required>{% for value, label in non_sap_statuses %}<option value="{{ value }}" {% if sample.current_status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+        <label>Expected completion<input class="form-control" name="expected_completion_date" type="date" value="{{ sample.expected_completion_date.isoformat() if sample.expected_completion_date else '' }}"></label>
+        <label>Action owner<input class="form-control" name="action_owner" maxlength="160" value="{{ sample.action_owner or '' }}"></label>
+        <label>Delay / constraint<textarea class="form-control" name="delay_reason" rows="3">{{ sample.delay_reason or '' }}</textarea></label>
+        <label class="qc-sap-update-note">Laboratory note<textarea class="form-control" name="update_note" rows="3">{{ sample.update_note or '' }}</textarea></label>
+      </div>
+      <div class="qc-sap-update-actions"><button class="btn btn-secondary" type="button" data-sap-update-close>Cancel</button><button class="btn btn-primary" type="submit"><i class="bi bi-check2-circle"></i> Save non-SAP update</button></div>
+    </form>
+  </dialog>
+  {% endfor %}
+  {% endif %}
+
+  <section class="card"><div class="card-body"><div class="qc-lab-section-heading"><div><span class="qc-section-label">SAP source audit trail</span><h2>Imported daily snapshots</h2><p>Native exports are available for a 15-day controlled rollback window. Reconciled SAP records and audit metadata remain available afterwards.</p></div></div><div class="mod-table-wrap"><table class="mod-table"><thead><tr><th>As at</th><th>Records</th><th>Lots / notifications</th><th>Unmatched rows</th><th>Imported</th><th>Native sources</th></tr></thead><tbody>{% for item in recent_batches %}<tr><td><strong>{{ item.as_of_date.strftime('%d %b %Y') }}</strong></td><td>{{ item.record_count }}</td><td>{{ item.inspection_lot_count }} / {{ item.notification_count }}</td><td>{{ item.unmatched_inspection_count }} lot-only · {{ item.unmatched_notification_count }} notification-only</td><td>{{ item.uploaded_at.strftime('%d %b %Y %H:%M') }}</td><td>{% if item.source_purged_at %}<span class="mod-cell-meta">Rollback window ended</span>{% else %}<a href="{{ url_for('quality_control.download_sap_lab_source', lab_code=lab_code, batch_id=item.id, source_kind='inspection') }}">Inspection Lots</a> · <a href="{{ url_for('quality_control.download_sap_lab_source', lab_code=lab_code, batch_id=item.id, source_kind='notifications') }}">Notifications</a>{% endif %}</td></tr>{% endfor %}</tbody></table></div></div></section>
   {% else %}
   <section class="card"><div class="card-body mod-empty" style="display:block"><span class="mod-empty-icon"><i class="bi bi-cloud-arrow-up"></i></span><h2>Ready for {{ laboratory.name }}’s first SAP snapshot</h2><p>Corporate Chemistry should upload paired daily Inspection Lots and Notifications exports at the SAP control tower. The dashboard will reconcile them into an authoritative SAP action list.</p></div></section>
   {% endif %}
@@ -251,11 +309,12 @@
   (function () {
     var tools = document.querySelector('[data-sap-record-tools]');
     var rows = Array.prototype.slice.call(document.querySelectorAll('[data-sap-record-row]'));
+    var subgroupHeadings = Array.prototype.slice.call(document.querySelectorAll('[data-sap-subgroup-heading]'));
     if (tools && rows.length) {
       var search = tools.querySelector('[data-sap-record-search]');
       var workCenter = tools.querySelector('[data-sap-work-center-filter]');
       var followUp = tools.querySelector('[data-sap-follow-up-filter]');
-      var overdue = tools.querySelector('[data-sap-overdue-filter]');
+      var overdue = tools.querySelector('[data-sap-stt-overdue-filter]');
       var reset = tools.querySelector('[data-sap-reset-filters]');
       var count = tools.querySelector('[data-sap-filter-count]');
 
@@ -285,9 +344,21 @@
           var matches = (!query || row.textContent.toLowerCase().indexOf(query) !== -1)
             && (!workCenter.value || row.dataset.workCenter === workCenter.value)
             && (!followUp.value || row.dataset.followUp === followUp.value)
-            && (!overdue.checked || row.dataset.overdue === '1');
+            && (!overdue.checked || row.dataset.sttOverdue === '1');
           row.hidden = !matches;
           if (matches) visible += 1;
+        });
+        subgroupHeadings.forEach(function (heading) {
+          var row = heading.nextElementSibling;
+          var hasVisibleRecord = false;
+          while (row && !row.hasAttribute('data-sap-subgroup-heading')) {
+            if (row.hasAttribute('data-sap-record-row') && !row.hidden) {
+              hasVisibleRecord = true;
+              break;
+            }
+            row = row.nextElementSibling;
+          }
+          heading.hidden = !hasVisibleRecord;
         });
         count.textContent = visible + ' of ' + rows.length + ' shown';
       }

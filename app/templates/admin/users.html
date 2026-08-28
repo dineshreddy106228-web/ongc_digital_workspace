@@ -130,17 +130,18 @@
              columns need room for a badge, a date and three buttons. #}
           <colgroup>
             <col style="width: 3%;">
-            <col style="width: 9%;">
+            <col style="width: 8%;">
             <col style="width: 10%;">
-            <col style="width: 12%;">
-            <col style="width: 6%;">
             <col style="width: 11%;">
-            <col style="width: 9%;">
+            <col style="width: 6%;">
+            <col style="width: 10%;">
             <col style="width: 9%;">
             <col style="width: 8%;">
-            <col style="width: 6%;">
-            <col style="width: 6%;">
-            <col style="width: 11%;">
+            <col style="width: 8%;">
+            <col style="width: 7%;">
+            <col style="width: 5%;">
+            <col style="width: 5%;">
+            <col style="width: 10%;">
           </colgroup>
           <thead>
             <tr>
@@ -150,6 +151,7 @@
               <th scope="col">Email</th>
               <th scope="col">Role</th>
               <th scope="col">Office</th>
+              <th scope="col">QC Lab Scope</th>
               <th scope="col">Controlling Officer</th>
               <th scope="col">Reviewing Officer</th>
               <th scope="col">Accepting Officer</th>
@@ -177,6 +179,13 @@
                   {{ u.office.office_name }}
                 {% else %}
                   <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if u.quality_control_lab_code %}
+                  {{ u.quality_control_lab_code|replace('_', ' ')|title }}
+                {% else %}
+                  <span class="text-muted">View-only</span>
                 {% endif %}
               </td>
               <td>

@@ -1,4 +1,5 @@
 {% macro office_nav(active='', can_create=false) %}
+<a class="mod-app-home-link" href="{{ url_for('main.dashboard') }}">← Back to app home</a>
 <nav class="mod-nav" aria-label="Task Management navigation">
   <a class="{{ 'is-active' if active == 'dashboard' }}" href="{{ url_for('tasks.task_dashboard') }}">
     <i class="bi bi-speedometer2"></i><span>Dashboard</span>

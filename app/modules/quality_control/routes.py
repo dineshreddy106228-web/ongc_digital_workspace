@@ -1,6 +1,5 @@
 """Routes for the QC Laboratory Monitoring module."""
 
-from datetime import date
 from functools import wraps
 from io import BytesIO
 import logging
@@ -19,17 +18,45 @@ logger = logging.getLogger(__name__)
 
 
 def _can_control_quality_monitoring() -> bool:
-    """Corporate Chemistry control actions are available to superusers and
-    explicitly assigned Quality Control module admins."""
-    return current_user.is_super_user() or current_user.is_module_admin("quality_control")
+    """Only superusers may control SAP imports and QC-admin decisions."""
+    return current_user.is_super_user()
+
+
+def _can_record_lab_follow_up(lab_code: str) -> bool:
+    """Return whether the user may record follow-up for this laboratory.
+
+    Superusers have the full Quality Control scope. Standard users may view
+    every laboratory dashboard, but can write returned details only for their
+    single admin-assigned ``quality_control_lab_code``.
+    """
+    return bool(
+        current_user.is_authenticated
+        and current_user.has_module_access("quality_control")
+        and (
+            current_user.is_super_user()
+            or current_user.quality_control_lab_code == lab_code
+        )
+    )
 
 
 def quality_control_admin_required(view):
-    """Guard central SAP imports and returned-status recording."""
+    """Guard central SAP imports and QC-admin monitoring decisions."""
     @wraps(view)
     def wrapped(*args, **kwargs):
         if not _can_control_quality_monitoring():
             flash("This action is restricted to Corporate Chemistry Quality Control admins.", "danger")
+            abort(403)
+        return view(*args, **kwargs)
+    return wrapped
+
+
+def laboratory_follow_up_required(view):
+    """Guard laboratory-returned data without granting control-tower rights."""
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        lab_code = kwargs.get("lab_code") or (args[0] if args else None)
+        if not lab_code or not _can_record_lab_follow_up(str(lab_code)):
+            flash("You may record laboratory follow-up only for your assigned laboratory.", "danger")
             abort(403)
         return view(*args, **kwargs)
     return wrapped
@@ -55,6 +82,7 @@ def landing():
         mapped_laboratory_total=len(laboratories) - len(designated_laboratories),
         map_laboratories=laboratory_navigator_data(laboratories, monitoring_day["date"]),
         monitoring_day=monitoring_day,
+        is_superuser=current_user.is_super_user(),
     )
 
 
@@ -181,6 +209,7 @@ def sap_lab_dashboard(lab_code: str):
         return render_template(
             "quality_control/sap_panvel_dashboard.html",
             can_control=_can_control_quality_monitoring(),
+            can_record_lab_updates=_can_record_lab_follow_up(lab_code),
             **sap_lab_dashboard_data(lab_code),
         )
     except ValueError as exc:
@@ -273,7 +302,7 @@ def import_sap_panvel_exports():
 @quality_control_bp.route("/sap-control/labs/<lab_code>/records/<int:record_id>/lab-update", methods=["POST"])
 @login_required
 @module_access_required("quality_control")
-@quality_control_admin_required
+@laboratory_follow_up_required
 def save_sap_lab_update(lab_code: str, record_id: int):
     from app.core.services.sap_quality_control import create_sap_lab_update
     try:
@@ -293,7 +322,6 @@ def save_sap_lab_update(lab_code: str, record_id: int):
 @quality_control_bp.route("/sap-panvel/records/<int:record_id>/lab-update", methods=["POST"])
 @login_required
 @module_access_required("quality_control")
-@quality_control_admin_required
 def save_sap_panvel_lab_update(record_id: int):
     return save_sap_lab_update("rgl_panvel", record_id)
 
@@ -383,6 +411,13 @@ def download_sap_lab_source(lab_code: str, batch_id: int, source_kind: str):
         flash("The requested SAP source export is no longer available.", "warning")
         return redirect(url_for("quality_control.sap_lab_dashboard", lab_code=lab_code))
     data = batch.inspection_source_data if source_kind == "inspection" else batch.notification_source_data
+    if batch.source_purged_at is not None or not data:
+        flash(
+            "The source workbook is outside the 15-day rollback window. "
+            "Its SAP audit record remains available.",
+            "warning",
+        )
+        return redirect(url_for("quality_control.sap_lab_dashboard", lab_code=lab_code))
     filename = batch.inspection_filename if source_kind == "inspection" else batch.notification_filename
     content_type = batch.inspection_content_type if source_kind == "inspection" else batch.notification_content_type
     return send_file(BytesIO(data), mimetype=content_type, as_attachment=True, download_name=filename, max_age=0)
@@ -431,45 +466,78 @@ def update_controlled_non_sap_sample(sample_id: int):
     return redirect(url_for("quality_control.sap_control") + "#non-sap-register")
 
 
+@quality_control_bp.route("/sap-control/labs/<lab_code>/non-sap", methods=["POST"])
+@login_required
+@module_access_required("quality_control")
+@laboratory_follow_up_required
+def create_lab_non_sap_sample(lab_code: str):
+    """Let a reporting laboratory log work that has no SAP record."""
+    from app.core.services.sap_quality_control import create_non_sap_sample, get_sap_reporting_laboratory
+    try:
+        get_sap_reporting_laboratory(lab_code)
+        form = request.form.to_dict()
+        form["lab_code"] = lab_code
+        sample = create_non_sap_sample(form, current_user.id)
+        db.session.commit()
+        flash(f"Non-SAP sample {sample.sample_reference} added to this laboratory's exception register.", "success")
+    except ValueError as exc:
+        db.session.rollback(); flash(str(exc), "danger")
+    except Exception:
+        db.session.rollback(); logger.exception("Non-SAP QC sample creation failed for lab=%s", lab_code)
+        flash("The non-SAP sample could not be added. Please try again.", "danger")
+    return redirect(url_for("quality_control.sap_lab_dashboard", lab_code=lab_code) + "#non-sap-register")
+
+
+@quality_control_bp.route("/sap-control/labs/<lab_code>/non-sap/<int:sample_id>/update", methods=["POST"])
+@login_required
+@module_access_required("quality_control")
+@laboratory_follow_up_required
+def update_lab_non_sap_sample(lab_code: str, sample_id: int):
+    """Keep a laboratory's own non-SAP exception status auditable."""
+    from app.core.services.sap_quality_control import get_sap_reporting_laboratory, update_non_sap_sample
+    try:
+        get_sap_reporting_laboratory(lab_code)
+        update_non_sap_sample(sample_id, request.form, current_user.id, lab_code=lab_code)
+        db.session.commit()
+        flash("Non-SAP sample follow-up saved.", "success")
+    except ValueError as exc:
+        db.session.rollback(); flash(str(exc), "danger")
+    except Exception:
+        db.session.rollback(); logger.exception("Non-SAP QC sample update failed for lab=%s id=%s", lab_code, sample_id)
+        flash("The non-SAP sample update could not be saved. Please try again.", "danger")
+    return redirect(url_for("quality_control.sap_lab_dashboard", lab_code=lab_code) + "#non-sap-register")
+
+
 @quality_control_bp.route("/history")
 @login_required
 @module_access_required("quality_control")
 def sample_history():
-    from app.core.services.quality_control import SAMPLE_VIEWS, history_filter_options, search_samples
+    """The module-wide register is the current SAP monitoring position."""
+    from app.core.services.sap_quality_control import sap_sample_register_data
+
     lab_code = (request.args.get("lab") or "").strip()
-    chemical_name = (request.args.get("chemical") or "").strip()
-    specification_no = (request.args.get("specification") or "").strip()
+    # Accept the former ``chemical`` key once so existing bookmarks still find
+    # their material in the SAP register after the source migration.
+    search = (request.args.get("search") or request.args.get("chemical") or "").strip()
     status = (request.args.get("status") or "").strip()
-    # A headline number on the analytics page opens the register on the samples
-    # behind it; the view is what carries that question through.
-    view = (request.args.get("view") or "").strip()
-    period_start_value = (request.args.get("period_start") or "").strip()
-    period_end_value = (request.args.get("period_end") or "").strip()
+    subgroup = (request.args.get("subgroup") or "").strip()
     try:
-        period_start = date.fromisoformat(period_start_value) if period_start_value else None
-        period_end = date.fromisoformat(period_end_value) if period_end_value else None
-        if (period_start is None) != (period_end is None) or (period_start and period_end and period_end < period_start):
-            raise ValueError
-    except ValueError:
-        period_start = period_end = None
-        period_start_value = period_end_value = ""
-        flash("The requested reporting period was not recognised; the full sample register is shown.", "warning")
-    try:
+        register = sap_sample_register_data(lab_code, search, status, subgroup)
         return render_template(
             "quality_control/samples.html",
-            samples=search_samples(
-                lab_code, chemical_name, specification_no, status, view,
-                period_start=period_start, period_end=period_end,
-            ),
-            filters={
-                "lab": lab_code, "chemical": chemical_name, "specification": specification_no,
-                "status": status, "view": view, "period_start": period_start_value,
-                "period_end": period_end_value,
-            },
-            view_label=(SAMPLE_VIEWS.get(view) or {}).get("label"),
-            **history_filter_options(lab_code),
+            filters={"lab": lab_code, "search": search, "status": status, "subgroup": subgroup},
+            **register,
         )
     except ValueError:
+        # Workbook fallback laboratories retain their lab-scoped archive. They
+        # do not belong in the module-wide SAP register.
+        if lab_code:
+            return redirect(url_for(
+                "quality_control.samples", lab_code=lab_code,
+                chemical=request.args.get("chemical") or "",
+                specification=request.args.get("specification") or "",
+                status=status if status in {"pass", "fail", "under_testing", "report_issued"} else "",
+            ))
         return redirect(url_for("quality_control.landing"))
 
 
@@ -488,8 +556,12 @@ def download_portfolio_management_presentation():
     from app.core.services.qc_presentation import build_sap_portfolio_management_presentation
     from app.core.services.sap_quality_control import SAP_REPORTING_LAB_CODES
     lab_codes = None
-    if request.args.get("scope") == "labs":
-        lab_codes = {code for code in request.args.getlist("lab") if code in SAP_REPORTING_LAB_CODES}
+    requested_lab_codes = [code for code in request.args.getlist("lab") if code]
+    # The presentation selector submits one ``lab`` value for a single-lab
+    # deck and no value for the all-laboratories deck.  Keep ``scope=labs``
+    # compatible with existing bookmarked filtered-deck links.
+    if request.args.get("scope") == "labs" or requested_lab_codes:
+        lab_codes = {code for code in requested_lab_codes if code in SAP_REPORTING_LAB_CODES}
         if not lab_codes:
             flash("Select at least one SAP laboratory, or choose the all-SAP deck.", "warning")
             return redirect(url_for("quality_control.portfolio_management_review"))
@@ -654,6 +726,13 @@ def download_source(batch_id: int):
     from app.core.services.quality_control import get_upload_batch
     batch = get_upload_batch(batch_id, include_source=True)
     if batch is None:
-        flash("The requested source workbook is no longer available.", "warning")
+        flash("The requested source workbook was not found.", "warning")
+        return redirect(url_for("quality_control.landing"))
+    if batch.source_purged_at is not None or not batch.source_data:
+        flash(
+            "The source workbook is outside the 15-day rollback window. "
+            "Its imported QC records remain available.",
+            "warning",
+        )
         return redirect(url_for("quality_control.landing"))
     return send_file(BytesIO(batch.source_data), mimetype=batch.source_content_type, as_attachment=True, download_name=batch.source_filename, max_age=0)

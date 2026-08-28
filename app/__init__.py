@@ -86,6 +86,19 @@ def create_app(config_class=Config):
 
         start_retained_backup_scheduler(app)
 
+    # Imported workbook bytes are available only for a short, controlled
+    # rollback period.  This scheduler clears expired payloads while retaining
+    # the parsed records and audit metadata used by both modules.
+    if (
+        app.config.get("AUDIT_WORKBOOK_RETENTION_ENABLED", True)
+        and not app.config.get("TESTING", False)
+        and os.environ.get("FLASK_RUN_FROM_CLI") != "true"
+        and not is_reloader_parent
+    ):
+        from app.core.services.audit_workbook_retention import start_audit_workbook_retention_scheduler
+
+        start_audit_workbook_retention_scheduler(app)
+
     app.jinja_env.filters["datetime_ist"] = format_datetime_ist
     app.jinja_env.filters["richtext"] = render_rich_text
 

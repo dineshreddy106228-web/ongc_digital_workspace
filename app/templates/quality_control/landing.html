@@ -6,6 +6,7 @@
 {% block content %}
 <div class="page-wrapper mod-page qc-landing-page">
 {{ qc_nav('home') }}
+    {% if is_superuser %}
     <section class="mod-hero">
         <div>
             <span class="mod-kicker"><i class="bi bi-flask"></i> Corporate Chemistry · Quality Control</span>
@@ -37,6 +38,7 @@
             <a class="mod-tile" href="{{ url_for('quality_control.testing_standards') }}"><i class="bi bi-sliders"></i><strong>Administration</strong><small>Standard Testing Time (STT) — approved chemical testing times and revisions.</small></a>
         </div>
     </section>
+    {% endif %}
 
     <section class="qc-lab-section mod-geo-card" aria-label="Lab navigator">
         <div class="mod-geo-heading">

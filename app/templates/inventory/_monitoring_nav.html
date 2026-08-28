@@ -1,4 +1,5 @@
 {% macro monitoring_nav(active='') %}
+<a class="mod-app-home-link" href="{{ url_for('main.dashboard') }}">← Back to app home</a>
 <nav class="mod-nav" aria-label="Inventory Monitoring navigation">
   <a class="{{ 'is-active' if active == 'home' }}" href="{{ url_for('inventory.landing') }}"><i class="bi bi-house-door"></i><span>Monitoring home</span></a>
   <a class="{{ 'is-active' if active == 'materials' }}" href="{{ url_for('inventory.materials') }}"><i class="bi bi-boxes"></i><span>Material Register</span></a>

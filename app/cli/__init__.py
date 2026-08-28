@@ -8,6 +8,7 @@ not import command-only dependency trees during startup.
 
 def register_cli(app):
     """Attach custom CLI commands to the Flask app."""
+    from app.cli.audit_retention import prune_audit_workbooks
     from app.cli.backups import create_daily_backup, restore_db, validate_backup
     from app.cli.cache import clear_cache
     from app.cli.csc import (
@@ -43,6 +44,7 @@ def register_cli(app):
     app.cli.add_command(generate_recurring_tasks)
     app.cli.add_command(fix_password_hashes)
     app.cli.add_command(issue_temp_password)
+    app.cli.add_command(prune_audit_workbooks)
 
     # Inventory CLI commands depend on pandas/numpy (heavy optional deps).
     # Import and register them only when ENABLE_INVENTORY is explicitly True

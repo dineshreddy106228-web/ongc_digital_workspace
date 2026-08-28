@@ -1,7 +1,7 @@
 """Lazy, on-demand PowerPoint exports for QC laboratory dashboards."""
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 from io import BytesIO
 from pathlib import Path
 
@@ -113,6 +113,64 @@ def _paginated_rows(rows, page_size: int):
     if page_size < 1:
         raise ValueError("A presentation page must contain at least one row.")
     return [rows[index:index + page_size] for index in range(0, len(rows), page_size)] or [[]]
+
+
+def _sap_presentation_action_groups(data):
+    """Order SAP-open samples by laboratory, then corporate-specification group.
+
+    The all-laboratories deck is read as a hand-off pack. A mixed, globally
+    overdue-sorted register makes it difficult for an RGL to find its own
+    Drilling Fluid, Production Chemical and other queues. Keep the approved
+    SAP laboratory order first, followed by the Corporate Specification
+    category order; overdue items still lead within each section.
+    """
+    from app.core.services.csc_utils import SPEC_SUBSET_ORDER
+    from app.core.services.sap_quality_control import CORPORATE_SPECIFICATION_UNMATCHED_KEY
+
+    laboratory_rank = {
+        laboratory["code"]: index
+        for index, laboratory in enumerate(data["scope_laboratories"])
+    }
+    subgroup_rank = {key: index for index, key in enumerate(SPEC_SUBSET_ORDER)}
+    grouped: dict[tuple[str, str], list] = {}
+    labels: dict[tuple[str, str], str] = {}
+    laboratories: dict[str, dict] = {}
+
+    for entry in data["action_entries"]:
+        laboratory = entry["laboratory"]
+        subgroup_key = entry["subgroup_key"] or CORPORATE_SPECIFICATION_UNMATCHED_KEY
+        key = (laboratory["code"], subgroup_key)
+        grouped.setdefault(key, []).append(entry)
+        labels[key] = entry["subgroup_label"]
+        laboratories[laboratory["code"]] = laboratory
+
+    groups = []
+    for key in sorted(
+        grouped,
+        key=lambda value: (
+            laboratory_rank.get(value[0], len(laboratory_rank)),
+            99 if value[1] == CORPORATE_SPECIFICATION_UNMATCHED_KEY else subgroup_rank.get(value[1], 90),
+            value[1],
+        ),
+    ):
+        entries = sorted(
+            grouped[key],
+            key=lambda entry: (
+                not entry["stt_overdue"],
+                entry["stt_due_date"] or date.max,
+                entry["specification_no"] or "",
+                (entry["record"].material_description or "").casefold(),
+                entry["record"].notification_no or "",
+                entry["record"].id,
+            ),
+        )
+        groups.append({
+            "laboratory": laboratories[key[0]],
+            "subgroup_key": key[1],
+            "subgroup_label": labels[key],
+            "entries": entries,
+        })
+    return groups
 
 
 def build_lab_performance_presentation(lab_code: str, static_folder: str) -> tuple[BytesIO, str]:
@@ -393,7 +451,7 @@ def build_sap_lab_presentation(lab_code: str, static_folder: str) -> tuple[Bytes
         (kpis["total"], "SAP monitoring records", navy),
         (kpis["completed"], "Officially complete", green),
         (kpis["open"], "Actionable SAP-open", red if kpis["open"] else green),
-        (kpis["planned_overdue"], "Open past planned end", red if kpis["planned_overdue"] else green),
+        (kpis["stt_overdue"], "Open past STT", red if kpis["stt_overdue"] else green),
         (kpis["awaiting_lab"], "Awaiting laboratory update", blue),
         (kpis["awaiting_sap_confirmation"], "Lab complete; SAP pending", red if kpis["awaiting_sap_confirmation"] else green),
     ]
@@ -405,13 +463,18 @@ def build_sap_lab_presentation(lab_code: str, static_folder: str) -> tuple[Bytes
         .75, 5.78, 11.15, .52, 12, grey,
     )
 
-    # 03 · Work-centre capacity and exposure
-    slide = chrome.new_slide("Open workload by SAP work center", 3)
+    # 03 · Work-centre capacity and non-SAP follow-up allocation
+    slide = chrome.new_slide("Daily follow-up allocation", 3)
     centre_rows = [
-        [item["name"], item["open"], item["planned_overdue"], item["awaiting_lab"]]
+        [
+            f"{item['name']} · non-SAP" if item["is_non_sap"] else item["name"],
+            item["open"],
+            "—" if item["is_non_sap"] else item["stt_overdue"],
+            item["awaiting_lab"],
+        ]
         for item in data["work_centers"][:12]
     ]
-    table(slide, ["SAP work center", "Open", "Past plan", "No lab update"], centre_rows, [6.1, 1.8, 2.0, 2.55], y=1.65, font_size=11)
+    table(slide, ["Work center / source", "Items", "Past STT", "Awaiting action"], centre_rows, [6.1, 1.8, 2.0, 2.55], y=1.65, font_size=11)
     if len(data["work_centers"]) > 12:
         chrome.add_text(slide, f"+ {len(data['work_centers']) - 12} further work center(s) in the dashboard.", .65, 6.45, 8, .22, 10, grey)
 
@@ -427,7 +490,14 @@ def build_sap_lab_presentation(lab_code: str, static_folder: str) -> tuple[Bytes
         exception_rows = []
         for item in entries:
             record = item["record"]
-            sap_receipt = record.start_inspection_date.strftime("%d %b %Y") if record.start_inspection_date else "Not stated"
+            if item["stt_due_date"]:
+                stt_due = item["stt_due_date"].strftime("%d %b %Y")
+                if item["stt_overdue"]:
+                    stt_due += f" · {item['stt_variance_days']} d over"
+            elif item["stt_days"] is not None:
+                stt_due = f"STT {item['stt_days']} d · no start"
+            else:
+                stt_due = "STT not defined"
             reference = "\n".join(filter(None, [
                 f"Lot {record.inspection_lot_number}" if record.inspection_lot_number else None,
                 f"Notification {record.notification_no}" if record.notification_no else None,
@@ -436,14 +506,14 @@ def build_sap_lab_presentation(lab_code: str, static_folder: str) -> tuple[Bytes
                 reference,
                 concise(record.material_description or record.material_code or "Not recorded", 34),
                 concise(record.work_center or "Not assigned", 18),
-                sap_receipt,
+                stt_due,
                 "________________",
                 "________________",
                 "________________________________",
             ])
         table(
             slide,
-            ["Inspection lot / notification", "Material", "Work center", "SAP receipt date", "Date of sampling", "Lab testing start date", "Lab follow-up"],
+            ["Inspection lot / notification", "Material", "Work center", "STT due", "Date of sampling", "Lab testing start date", "Lab follow-up"],
             exception_rows,
             [2.25, 2.45, 1.3, 1.4, 1.55, 1.65, 1.85],
             y=1.48, font_size=8,
@@ -736,7 +806,7 @@ def build_sap_portfolio_management_presentation(
     cards = [
         (kpis["total"], "SAP monitoring records", blue),
         (kpis["actionable_open"], "Actionable SAP-open", red if kpis["actionable_open"] else green),
-        (kpis["planned_overdue"], "Past SAP planned end", red if kpis["planned_overdue"] else green),
+        (kpis["stt_overdue"], "Past STT", red if kpis["stt_overdue"] else green),
         (kpis["awaiting_lab"], "Awaiting lab follow-up", blue),
         (f"{kpis['accepted']} / {kpis['rejected']}", "UD A / UD R", green),
         (kpis["completed"], "Officially complete", green),
@@ -756,44 +826,64 @@ def build_sap_portfolio_management_presentation(
         lab_rows.append([
             review["laboratory"]["name"], review["batch"].plant_code,
             review["batch"].as_of_date.strftime("%d %b %Y"), item["total"],
-            item["actionable_open"], item["planned_overdue"], item["awaiting_lab"],
+            item["actionable_open"], item["stt_overdue"], item["awaiting_lab"],
         ])
-    table(slide, ["Laboratory", "Plant", "SAP as of", "Records", "Actionable open", "Past plan", "Awaiting lab"], lab_rows, [2.8, 1.0, 1.45, 1.15, 1.65, 1.25, 1.15], y=1.55, font_size=9)
+    table(slide, ["Laboratory", "Plant", "SAP as of", "Records", "Actionable open", "Past STT", "Awaiting lab"], lab_rows, [2.8, 1.0, 1.45, 1.15, 1.65, 1.25, 1.15], y=1.55, font_size=9)
 
     # 04 · Work-centre exposure
     slide = chrome.new_slide("Open workload by SAP work center", 4)
     centre_rows = [[
         item["name"], ", ".join(item["laboratories"]), item["open"],
-        item["planned_overdue"], item["awaiting_lab"],
+        item["stt_overdue"], item["awaiting_lab"],
     ] for item in data["work_centers"][:14]]
-    table(slide, ["SAP work center", "Laboratories", "Open", "Past plan", "No lab update"], centre_rows, [3.7, 3.65, 1.35, 1.65, 2.1], y=1.55, font_size=10)
+    table(slide, ["SAP work center", "Laboratories", "Open", "Past STT", "No lab update"], centre_rows, [3.7, 3.65, 1.35, 1.65, 2.1], y=1.55, font_size=10)
 
-    # 05+ · Complete current action register, never a top-ten subset.
-    action_entries = data["action_entries"]
-    for page_index, entries in enumerate(_paginated_rows(action_entries, 10), start=5):
-        first = (page_index - 5) * 10 + 1
-        last = first + len(entries) - 1
-        suffix = f" ({first}–{last} of {len(action_entries)})" if action_entries else ""
-        slide = chrome.new_slide(f"All actionable SAP-open items{suffix}", page_index)
-        rows = []
-        for item in entries:
-            record, update = item["record"], item["lab_update"]
-            planned = record.planned_end_date.strftime("%d %b %Y") if record.planned_end_date else "Not stated"
-            if item["planned_overdue"]:
-                planned += " · past plan"
-            follow_up = item["reconciliation_label"]
-            if update and update.expected_completion_date:
-                follow_up += f" · ETA {update.expected_completion_date:%d %b}"
-            rows.append([
-                concise(item["laboratory"]["name"], 18),
-                record.inspection_lot_number or "—", record.notification_no or "—",
-                concise(record.material_description, 31), concise(record.work_center or "Not assigned", 24),
-                planned, concise(follow_up, 34),
-            ])
-        table(slide, ["Laboratory", "Inspection lot", "Notification", "Material", "Work center", "SAP plan", "Lab follow-up"], rows, [1.55, 1.45, 1.45, 2.45, 1.65, 1.45, 2.45], y=1.48, font_size=8)
+    # 05+ · Complete current action register, grouped for each laboratory's
+    # hand-off by Corporate Specification sub-group rather than as one mixed
+    # cross-laboratory queue.
+    action_groups = _sap_presentation_action_groups(data)
+    page_index = 5
+    if not action_groups:
+        slide = chrome.new_slide("All actionable SAP-open items", page_index)
+        table(slide, ["Inspection lot", "Notification", "Material", "Specification", "Work center", "STT due", "Lab follow-up"], [], [1.35, 1.35, 2.25, 1.8, 1.65, 1.45, 2.6], y=1.48, font_size=8)
+        page_index += 1
+    for group in action_groups:
+        total = len(group["entries"])
+        for start, entries in enumerate(_paginated_rows(group["entries"], 10)):
+            first = start * 10 + 1
+            last = first + len(entries) - 1
+            suffix = f" ({first}–{last} of {total})" if total > 10 else ""
+            title = f"{group['laboratory']['name']} · {group['subgroup_label']}{suffix}"
+            slide = chrome.new_slide(title, page_index)
+            page_index += 1
+            chrome.add_text(
+                slide,
+                "Actionable SAP-open samples — grouped by laboratory and Corporate Specification sub-group.",
+                .45, 1.28, 10.6, .15, 8, grey,
+            )
+            rows = []
+            for item in entries:
+                record, update = item["record"], item["lab_update"]
+                if item["stt_due_date"]:
+                    stt_due = item["stt_due_date"].strftime("%d %b %Y")
+                    if item["stt_overdue"]:
+                        stt_due += f" · {item['stt_variance_days']} d over"
+                elif item["stt_days"] is not None:
+                    stt_due = f"STT {item['stt_days']} d · no start"
+                else:
+                    stt_due = "STT not defined"
+                follow_up = item["reconciliation_label"]
+                if update and update.expected_completion_date:
+                    follow_up += f" · ETA {update.expected_completion_date:%d %b}"
+                rows.append([
+                    record.inspection_lot_number or "—", record.notification_no or "—",
+                    concise(record.material_description, 31),
+                    concise(item["specification_no"] or "Not in Corporate Specification", 28),
+                    concise(record.work_center or "Not assigned", 24), stt_due, concise(follow_up, 34),
+                ])
+            table(slide, ["Inspection lot", "Notification", "Material", "Specification", "Work center", "STT due", "Lab follow-up"], rows, [1.35, 1.35, 2.25, 1.8, 1.65, 1.45, 2.6], y=1.48, font_size=8)
 
-    next_page = 5 + len(_paginated_rows(action_entries, 10))
-    slide = chrome.new_slide("SAP usage decisions and daily movement", next_page)
+    slide = chrome.new_slide("SAP usage decisions and daily movement", page_index)
     for index, item in enumerate(data["usage_decisions"]):
         tone = green if item["tone"] == "success" else red if item["tone"] == "danger" else navy
         chrome.metric(slide, .8 + index * 3.7, 1.7, item["count"], item["label"], tone)
@@ -809,4 +899,10 @@ def build_sap_portfolio_management_presentation(
     prs.save(output)
     output.seek(0)
     filename_date = data["source_dates"][0].strftime("%d %b %Y") if len(data["source_dates"]) == 1 else "Latest"
-    return output, f"QC SAP Management Review {filename_date}.pptx"
+    if lab_codes is None:
+        filename_scope = "QC SAP"
+    elif len(scope_labs) == 1:
+        filename_scope = scope_labs[0]["name"]
+    else:
+        filename_scope = f"{len(scope_labs)} SAP Laboratories"
+    return output, f"{filename_scope} Management Review {filename_date}.pptx"

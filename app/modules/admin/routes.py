@@ -100,6 +100,12 @@ from app.core.roles import (
 logger = logging.getLogger(__name__)
 
 
+def _quality_control_laboratories() -> list[dict]:
+    """Return the SAP-reporting laboratories assignable to QC users."""
+    from app.core.services.sap_quality_control import sap_reporting_laboratories
+    return sap_reporting_laboratories()
+
+
 # ── Helper ──────────────────────────────────────────────────────
 def _client_ip():
     return get_client_ip()
@@ -1017,6 +1023,7 @@ def module_management():
 def create_user():
     roles = _assignable_roles()
     offices = Office.query.filter_by(is_active=True).order_by(Office.office_name).all()
+    qc_laboratories = _quality_control_laboratories()
     # Officers dropdown – all active users except the one being created
     officers = User.query.filter_by(is_active=True).order_by(User.full_name, User.username).all()
 
@@ -1026,6 +1033,7 @@ def create_user():
         email = request.form.get("email", "").strip().lower()
         role_id = request.form.get("role_id", "").strip()
         office_id = request.form.get("office_id", "").strip()
+        quality_control_lab_code = request.form.get("quality_control_lab_code", "").strip()
         designation = request.form.get("designation", "").strip()
         employee_code = request.form.get("employee_code", "").strip()
         temp_password = request.form.get("temporary_password", "")
@@ -1068,6 +1076,10 @@ def create_user():
             office = Office.query.filter_by(id=office_id, is_active=True).first()
             if not office:
                 errors.append("Selected office is invalid or inactive.")
+        if quality_control_lab_code and quality_control_lab_code not in {
+            laboratory["code"] for laboratory in qc_laboratories
+        }:
+            errors.append("Choose a valid Quality Control laboratory scope.")
 
         # Validate officer references
         controlling_officer_id = None
@@ -1096,6 +1108,7 @@ def create_user():
                 "admin/create_user.html",
                 roles=roles,
                 offices=offices,
+                qc_laboratories=qc_laboratories,
                 officers=officers,
                 supported_modules=_offered_module_options(),
                 form_data=request.form,
@@ -1109,6 +1122,7 @@ def create_user():
             email=email,
             role_id=int(role_id),
             office_id=int(office_id),
+            quality_control_lab_code=quality_control_lab_code or None,
             designation=designation,
             employee_code=employee_code,
             is_active=is_active,
@@ -1133,6 +1147,7 @@ def create_user():
             details=(
                 f"Admin '{current_user.username}' created user '{username}' "
                 f"(role={role.name}, office={office.office_name}, "
+                f"qc_lab={quality_control_lab_code or 'none'}, "
                 f"modules={','.join(selected_modules) or 'auto'})"
             ),
             ip_address=_client_ip(),
@@ -1155,6 +1170,7 @@ def create_user():
         "admin/create_user.html",
         roles=roles,
         offices=offices,
+        qc_laboratories=qc_laboratories,
         officers=officers,
         supported_modules=_offered_module_options(),
         form_data={},
@@ -1170,6 +1186,7 @@ def edit_user(user_id):
     target = User.query.get_or_404(user_id)
     roles = _assignable_roles()
     offices = Office.query.filter_by(is_active=True).order_by(Office.office_name).all()
+    qc_laboratories = _quality_control_laboratories()
     # Exclude the user being edited from officer dropdowns
     officers = (
         User.query.filter(User.is_active == True, User.id != user_id)
@@ -1191,6 +1208,7 @@ def edit_user(user_id):
         email = request.form.get("email", "").strip().lower()
         role_id = request.form.get("role_id", "").strip()
         office_id = request.form.get("office_id", "").strip()
+        quality_control_lab_code = request.form.get("quality_control_lab_code", "").strip()
         designation = request.form.get("designation", "").strip()
         employee_code = request.form.get("employee_code", "").strip()
         is_active = request.form.get("is_active") == "on"
@@ -1226,6 +1244,10 @@ def edit_user(user_id):
             office = Office.query.filter_by(id=office_id, is_active=True).first()
             if not office:
                 errors.append("Selected office is invalid or inactive.")
+        if quality_control_lab_code and quality_control_lab_code not in {
+            laboratory["code"] for laboratory in qc_laboratories
+        }:
+            errors.append("Choose a valid Quality Control laboratory scope.")
 
         # Validate officer references
         controlling_officer_id = None
@@ -1261,6 +1283,7 @@ def edit_user(user_id):
                 target=target,
                 roles=roles,
                 offices=offices,
+                qc_laboratories=qc_laboratories,
                 officers=officers,
                 supported_modules=_offered_module_options(),
                 current_module_codes=selected_modules,
@@ -1282,6 +1305,12 @@ def edit_user(user_id):
         if str(target.office_id) != str(office_id):
             changed_fields.append(f"office_id: {target.office_id} → {office_id}")
             target.office_id = int(office_id)
+        if target.quality_control_lab_code != (quality_control_lab_code or None):
+            changed_fields.append(
+                "quality_control_lab_code: "
+                f"{target.quality_control_lab_code or 'none'} → {quality_control_lab_code or 'none'}"
+            )
+            target.quality_control_lab_code = quality_control_lab_code or None
         if target.designation != designation:
             changed_fields.append(f"designation: '{target.designation}' → '{designation}'")
             target.designation = designation
@@ -1379,6 +1408,7 @@ def edit_user(user_id):
         target=target,
         roles=roles,
         offices=offices,
+        qc_laboratories=qc_laboratories,
         officers=officers,
         supported_modules=_offered_module_options(),
         current_module_codes=current_module_codes,

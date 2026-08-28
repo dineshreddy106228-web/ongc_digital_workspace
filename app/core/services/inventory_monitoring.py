@@ -432,13 +432,23 @@ def plant_code_index() -> dict[str, InventoryMonitoringWorkCenter]:
 
 
 def _directory_names() -> set[str]:
-    """Normalised names of every asset the work-centre directory declares."""
-    batch = InventoryMonitoringUploadBatch.query.filter_by(source_group="mapping").order_by(
-        InventoryMonitoringUploadBatch.id.desc()
-    ).first()
-    if batch is None:
-        return set()
-    return {normalize_name(row["work_center_name"]) for row in _read_mapping_directory(batch.source_data)}
+    """Normalised names of every persisted work-centre directory entry.
+
+    Mapping workbooks are retained for controlled rollback only. Their
+    directory is normalised into ``InventoryMonitoringWorkCenter`` at import,
+    so plant recognition remains available after the workbook bytes expire.
+    """
+    return {
+        centre.normalized_name
+        for centre in InventoryMonitoringWorkCenter.query.filter(
+            InventoryMonitoringWorkCenter.normalized_name.isnot(None),
+            InventoryMonitoringWorkCenter.normalized_name != "",
+            db.or_(
+                InventoryMonitoringWorkCenter.zone.isnot(None),
+                InventoryMonitoringWorkCenter.work_center_type.isnot(None),
+            ),
+        ).all()
+    }
 
 
 def unrecognised_plants(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -572,9 +582,9 @@ def audit_imported_plants() -> int:
 def backfill_material_summaries() -> int:
     """Read consumption from workbooks that were imported before it was stored.
 
-    Every import retains its workbook, so the material summary sheets are still
-    there to be read: an install that imported before consumption was recorded
-    does not have to upload anything again.
+    A source is available only during its controlled rollback window. Imports
+    from before summary persistence can be backfilled while that payload
+    remains available; after expiry the operational audit records still remain.
     """
     added = 0
     snapshots = InventoryMonitoringSnapshot.query.join(
@@ -982,29 +992,21 @@ def landing_data() -> dict[str, Any]:
     total = records.with_entities(func.coalesce(func.sum(InventoryMonitoringRecord.inventory_value_inr), 0)).scalar() if latest_date else 0
     centres = InventoryMonitoringWorkCenter.query.order_by(InventoryMonitoringWorkCenter.zone, InventoryMonitoringWorkCenter.name).all()
     exception_counts = dict(db.session.query(InventoryMonitoringException.work_center_id, func.count(InventoryMonitoringException.id)).join(InventoryMonitoringSnapshot).filter(InventoryMonitoringSnapshot.reporting_date == latest_date).group_by(InventoryMonitoringException.work_center_id).all()) if latest_date else {}
-    latest_mapping_batch = InventoryMonitoringUploadBatch.query.filter_by(source_group="mapping").order_by(
-        InventoryMonitoringUploadBatch.id.desc()
-    ).first()
-    centres_by_name = {centre.normalized_name: centre for centre in centres}
     grouped_directory: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
-    if latest_mapping_batch is not None:
-        for row in _read_mapping_directory(latest_mapping_batch.source_data):
-            centre = centres_by_name.get(normalize_name(row["work_center_name"]))
-            # A merged asset is one entry on the navigator, listed under its
-            # successor: the directory still names both, but the map is the
-            # organisation as it stands, not as the workbook last described it.
-            asset = _merge_target(centre) if centre else None
-            name = asset.name if asset else row["work_center_name"]
-            zone = (asset.zone if asset and asset.zone else row["zone"]) or "Unassigned zone"
-            grouped_directory[zone][name].append({
-                "id": asset.id if asset else None,
-                "name": name,
-                # The name the directory used, so a merged asset can still be
-                # placed on the map by the coordinates held for either of them.
-                "reported_name": row["work_center_name"],
-                "work_center_type": row["work_center_type"] or "Work centre",
-                "exception_count": exception_counts.get(asset.id, 0) if asset else 0,
-            })
+    for centre in centres:
+        # A merged asset is one entry on the navigator, listed under its
+        # successor. These values are persisted at import time so the live
+        # navigator never depends on a workbook kept only for rollback.
+        asset = _merge_target(centre)
+        name = asset.name
+        zone = (asset.zone or centre.zone) or "Unassigned zone"
+        grouped_directory[zone][name].append({
+            "id": asset.id,
+            "name": name,
+            "reported_name": centre.name,
+            "work_center_type": centre.work_center_type or asset.work_center_type or "Work centre",
+            "exception_count": exception_counts.get(asset.id, 0),
+        })
     directory = [
         {
             "zone": zone,
@@ -1768,40 +1770,25 @@ def resolve_plant_alert(alert_id: int, action: str, form: Any, user_id: int | No
 
 
 def _centre_units(centre: InventoryMonitoringWorkCenter, unit: str | None) -> tuple[str | None, list[str], set[str] | None]:
-    """Mapped units available for one asset, and the material codes of the selected unit."""
+    """Mapped units available for one asset, and its selected material codes.
+
+    The active work-centre/material relationships are persisted at import, so
+    drill-downs continue to work after the mapping workbook leaves the
+    15-day rollback window.
+    """
     selected_unit = (unit or "").strip() or None
-    available_units: list[str] = []
+    available_units = [centre.work_center_type] if centre.work_center_type else []
     selected_unit_codes: set[str] | None = None
-    latest_mapping_batch = InventoryMonitoringUploadBatch.query.filter_by(source_group="mapping").order_by(
-        InventoryMonitoringUploadBatch.id.desc()
-    ).first()
-    if latest_mapping_batch is not None:
-        # The directory retains configured DFS/ST units even when no material
-        # codes are assigned yet.  Keep those units selectable so the page can
-        # explain the empty state instead of treating the unit as missing.
-        directory_rows = _read_mapping_directory(latest_mapping_batch.source_data)
-        directory_asset_rows = [
-            row for row in directory_rows
-            if normalize_name(row["work_center_name"]) == centre.normalized_name
-        ]
-        mapping_rows, _ = _read_mapping(latest_mapping_batch.source_data)
-        mapped_asset_rows = [
-            row for row in mapping_rows
-            if normalize_name(row["work_center_name"]) == centre.normalized_name
-        ]
-        available_units = sorted(
-            {row["work_center_type"] for row in directory_asset_rows if row["work_center_type"]}
-            or {row["work_center_type"] for row in mapped_asset_rows if row["work_center_type"]},
-            key=lambda value: ({"DFS": 0, "ST": 1}.get(value, 2), value.casefold()),
-        )
-        if selected_unit:
-            if selected_unit not in available_units:
-                raise ValueError("That mapped unit is not available for this asset.")
-            selected_unit_codes = {
-                row["material_code"]
-                for row in mapped_asset_rows
-                if row["work_center_type"] == selected_unit
-            }
+    if selected_unit:
+        if selected_unit not in available_units:
+            raise ValueError("That mapped unit is not available for this asset.")
+        selected_unit_codes = {
+            mapping.material.material_code
+            for mapping in InventoryMonitoringWorkCenterMaterial.query.filter_by(
+                work_center_id=centre.id, is_current=True,
+            ).all()
+            if mapping.material is not None
+        }
     return selected_unit, available_units, selected_unit_codes
 
 

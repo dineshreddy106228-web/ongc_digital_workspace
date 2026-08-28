@@ -34,6 +34,9 @@ class InventoryMonitoringUploadBatch(db.Model):
     source_checksum = db.Column(db.String(64), nullable=False, index=True)
     source_file_size = db.Column(db.BigInteger, nullable=False, default=0)
     source_data = deferred(db.Column(INVENTORY_BINARY, nullable=False))
+    # Parsed snapshots and audit metadata remain indefinitely.  Only the
+    # recoverable workbook payload is cleared after the rollback window.
+    source_purged_at = db.Column(db.DateTime, nullable=True)
     status = db.Column(db.String(24), nullable=False, default="imported")
     is_superseded = db.Column(db.Boolean, nullable=False, default=False)
     superseded_by_id = db.Column(db.BigInteger, db.ForeignKey("inventory_monitoring_upload_batches.id", ondelete="SET NULL"), nullable=True)

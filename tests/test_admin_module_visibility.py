@@ -145,6 +145,7 @@ def test_a_retired_code_is_never_rendered_on_the_edit_form(admin_app):
     assert "committee" not in body
     assert "forecasting" not in body
     assert 'value="tasks"' in body
+    assert "QC laboratory scope" in body
 
 
 def test_the_backup_center_is_its_own_admin_module(admin_app):
@@ -215,3 +216,37 @@ def test_the_module_admin_picker_never_offers_an_administration_module(admin_app
     codes = {option["code"] for option in _manageable_module_options()}
 
     assert not codes & {"admin_users", "admin_backups", "dashboard"}
+
+
+def test_qc_lab_scope_allows_user_updates_only_for_the_assigned_laboratory(admin_app):
+    from flask_login import login_user, logout_user
+    from app.core.roles import SUPERUSER_ROLE
+    from app.models.core.role import Role
+    from app.models.core.user import User
+    from app.models.core.user_module_permission import UserModulePermission
+    from app.modules.quality_control.routes import _can_record_lab_follow_up
+
+    user, _role = _plain_user()
+    user.quality_control_lab_code = "rgl_panvel"
+    super_role = Role(id=2, name=SUPERUSER_ROLE)
+    superuser = User(
+        id=2, username="super", password_hash="x", role=super_role,
+        is_active=True, must_change_password=False,
+    )
+    db.session.add_all([
+        UserModulePermission(user_id=user.id, module_code="quality_control", can_access=True),
+        super_role,
+        superuser,
+    ])
+    db.session.commit()
+
+    with admin_app.test_request_context("/quality-control/sap-control/labs/rgl_panvel"):
+        login_user(user)
+        assert _can_record_lab_follow_up("rgl_panvel") is True
+        assert _can_record_lab_follow_up("rgl_vadodara") is False
+        logout_user()
+
+        login_user(superuser)
+        assert _can_record_lab_follow_up("rgl_panvel") is True
+        assert _can_record_lab_follow_up("rgl_vadodara") is True
+        logout_user()

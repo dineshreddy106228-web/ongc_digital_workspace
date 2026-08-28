@@ -53,6 +53,9 @@ class User(UserMixin, db.Model):
 
     designation = db.Column(db.String(150), default="")
     employee_code = db.Column(db.String(50), default="")
+    # The single SAP reporting laboratory whose returned QC follow-up a
+    # standard user may record.  Superusers are intentionally not scoped.
+    quality_control_lab_code = db.Column(db.String(64), nullable=True, index=True)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     must_change_password = db.Column(db.Boolean, default=True, nullable=False)
     last_login_at = db.Column(db.DateTime, nullable=True)

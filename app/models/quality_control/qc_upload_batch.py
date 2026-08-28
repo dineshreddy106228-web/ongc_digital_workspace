@@ -29,6 +29,9 @@ class QCUploadBatch(db.Model):
     source_content_type = db.Column(db.String(120), nullable=False)
     source_file_size = db.Column(db.BigInteger, nullable=False, default=0)
     source_data = deferred(db.Column(QC_BINARY_TYPE, nullable=False))
+    # The imported samples and workbook metadata are permanent; the binary
+    # source is only available for the controlled rollback period.
+    source_purged_at = db.Column(db.DateTime, nullable=True)
     row_count = db.Column(db.Integer, nullable=False, default=0)
     imported_count = db.Column(db.Integer, nullable=False, default=0)
     updated_count = db.Column(db.Integer, nullable=False, default=0)

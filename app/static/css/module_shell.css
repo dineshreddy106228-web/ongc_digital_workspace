@@ -30,6 +30,20 @@
 
 /* ── Module subnav ───────────────────────────────────────────── */
 
+.mod-app-home-link {
+    display: inline-flex;
+    margin-bottom: 8px;
+    color: var(--mod-accent);
+    font-size: .82rem;
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: .16em;
+}
+
+.mod-app-home-link:hover {
+    color: var(--mod-accent-strong);
+}
+
 .mod-nav {
     display: flex;
     flex-wrap: wrap;

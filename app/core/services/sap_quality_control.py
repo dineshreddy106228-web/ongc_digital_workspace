@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from io import BytesIO
 import json
 import re
@@ -27,7 +27,6 @@ from app.models.quality_control.qc_sap_monitoring import (
     QCSAPRecord,
     QCSAPUploadBatch,
 )
-from app.models.quality_control.qc_testing_standard import QCTestingStandard
 
 
 PANVEL_LAB_CODE = "rgl_panvel"
@@ -95,6 +94,16 @@ SAP_EXCLUSION_REASONS = (
     ("other", "Other non-actionable notification"),
 )
 SAP_EXCLUSION_REASON_LABELS = dict(SAP_EXCLUSION_REASONS)
+SAP_REGISTER_STATUS_FILTERS = (
+    ("open", "Open in SAP"),
+    ("completed", "Complete in SAP"),
+    ("accepted", "SAP usage decision: accepted"),
+    ("rejected", "SAP usage decision: rejected"),
+    ("excluded", "Excluded from active monitoring"),
+    ("exclusion_review", "QC-admin exclusion review"),
+)
+CORPORATE_SPECIFICATION_UNMATCHED_KEY = "not_in_corporate_specification"
+CORPORATE_SPECIFICATION_UNMATCHED_LABEL = "Not in Corporate Specification"
 
 
 @dataclass(frozen=True)
@@ -144,6 +153,67 @@ def _material_key(value: Any) -> str:
     """Compare SAP material numbers without presentation zero-padding."""
     identifier = _identifier(value) or ""
     return identifier.lstrip("0") or "0"
+
+
+def _corporate_specifications_by_material_code() -> dict[str, dict[str, Any]]:
+    """Index the Corporate Specifications catalogue using SAP-compatible codes.
+
+    SAP commonly pads material numbers with zeroes while the Corporate
+    Specifications register may not.  Matching the canonical numeric value
+    makes the connection explicit without changing either source record.
+    """
+    from app.core.services.corporate_specifications import catalogue
+
+    specifications: dict[str, dict[str, Any]] = {}
+    for entry in catalogue():
+        material_code = _identifier(entry.get("material_code"))
+        if not material_code:
+            continue
+        key = _material_key(material_code)
+        existing = specifications.get(key)
+        # Where legacy records happen to share a material code, keep the
+        # active corporate-register entry in preference to an off-register
+        # specification record.
+        if existing is not None and existing["on_register"]:
+            continue
+        specifications[key] = {
+            "subgroup_key": entry["category"],
+            "subgroup_label": entry["category_label"],
+            "specification_no": entry["spec_number"],
+            "chemical_name": entry["chemical_name"],
+            "stt_days": _integer(entry.get("standard_days")),
+            "on_register": bool(entry["on_register"]),
+        }
+    return specifications
+
+
+def _corporate_specification_fields(
+    material_code: str | None,
+    specifications_by_material_code: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Return display-ready Corporate Specifications classification fields."""
+    specification = (
+        specifications_by_material_code.get(_material_key(material_code))
+        if _identifier(material_code)
+        else None
+    )
+    if specification is None:
+        return {
+            "specification_match": False,
+            "subgroup_key": CORPORATE_SPECIFICATION_UNMATCHED_KEY,
+            "subgroup_label": CORPORATE_SPECIFICATION_UNMATCHED_LABEL,
+            "specification_no": None,
+            "specification_chemical_name": None,
+            "stt_days": None,
+        }
+    return {
+        "specification_match": True,
+        "subgroup_key": specification["subgroup_key"],
+        "subgroup_label": specification["subgroup_label"],
+        "specification_no": specification["specification_no"],
+        "specification_chemical_name": specification["chemical_name"],
+        "stt_days": specification["stt_days"],
+    }
 
 
 def _integer(value: Any) -> int | None:
@@ -449,18 +519,37 @@ def merge_sap_exports(
     }
 
 
+def _standard_testing_time_fields(
+    record: QCSAPRecord, stt_days: Any, as_of_date: date,
+) -> dict[str, Any]:
+    """Assess an SAP record against its Corporate Specification STT.
+
+    The SAP planned-end date is intentionally not used for monitoring.  The
+    elapsed testing window begins with SAP's receipt date; for a notification
+    without a matched lot, it begins with the notification date instead.
+    """
+    days = _integer(stt_days)
+    if days is not None and days < 0:
+        days = None
+    start_date = record.start_inspection_date or record.notification_start_date
+    due_date = start_date + timedelta(days=days) if start_date and days is not None else None
+    variance_days = (as_of_date - due_date).days if due_date else None
+    return {
+        "stt_days": days,
+        "stt_start_date": start_date,
+        "stt_due_date": due_date,
+        "stt_variance_days": variance_days,
+        "stt_overdue": bool(record.official_status == "open" and variance_days is not None and variance_days > 0),
+    }
+
+
 def _summary(rows: list[dict[str, Any]], as_of_date: date) -> dict[str, Any]:
     open_rows = [row for row in rows if row["official_status"] == "open"]
-    planned_overdue = [
-        row for row in open_rows
-        if row.get("planned_end_date") is not None and row["planned_end_date"] < as_of_date
-    ]
     return {
         "as_of_date": as_of_date.isoformat(),
         "total_records": len(rows),
         "completed_records": len(rows) - len(open_rows),
         "open_records": len(open_rows),
-        "planned_overdue_records": len(planned_overdue),
         "work_centers": dict(Counter(row.get("work_center") or "Not assigned in SAP" for row in open_rows)),
         "usage_decisions": dict(Counter(row.get("usage_decision_code") or "Not recorded" for row in rows)),
         "accepted_records": sum(1 for row in rows if usage_decision_outcome(row.get("usage_decision_code")) == "accepted"),
@@ -773,13 +862,45 @@ def _reconciliation_state(record: QCSAPRecord, update: QCSAPLabUpdate | None) ->
     return "lab_updated", "Lab update received"
 
 
-def _sampling_to_sap_receipt_days(
+def _completed_notification_without_ud_details(record: QCSAPRecord) -> bool:
+    """Identify a notification closure for which the paired QA33 row is absent.
+
+    The notification workbook can state a lot number and a completion date even
+    when the same lot is not present in the paired inspection-lot export.  Such
+    a closure must remain distinct from an SAP usage decision.
+    """
+    return bool(
+        record.official_status == "completed"
+        and record.source_completeness == "notification_only"
+        and record.completion_date is not None
+        and not record.usage_decision_code
+        and not record.sap_system_status
+    )
+
+
+def _sample_timing_fields(
     record: QCSAPRecord, update: QCSAPLabUpdate | None,
-) -> int | None:
-    """Return the laboratory-to-SAP receipt lag when both dates are recorded."""
-    if not update or not update.sampling_date or not record.start_inspection_date:
-        return None
-    return (record.start_inspection_date - update.sampling_date).days
+) -> dict[str, int | None]:
+    """Return the sample-movement intervals using the SAP notification date.
+
+    Courier time runs from laboratory sampling to the notification date.  Time
+    in queue runs from notification to the laboratory testing-start date.  A
+    missing source date intentionally produces no duration rather than an
+    inferred value from the inspection-lot receipt.
+    """
+    sampling_date = update.sampling_date if update else None
+    testing_start_date = update.actual_start_date if update else None
+    notification_date = record.notification_start_date
+    return {
+        "courier_days": (
+            (notification_date - sampling_date).days
+            if notification_date and sampling_date else None
+        ),
+        "time_in_queue_days": (
+            (testing_start_date - notification_date).days
+            if notification_date and testing_start_date else None
+        ),
+    }
 
 
 def _latest_non_sap_updates(samples: list[QCNonSAPSample]) -> dict[int, QCNonSAPSampleUpdate]:
@@ -832,15 +953,11 @@ def sap_lab_dashboard_data(lab_code: str) -> dict[str, Any]:
         }
 
     records = QCSAPRecord.query.filter_by(last_seen_batch_id=batch.id).order_by(
-        QCSAPRecord.official_status.asc(), QCSAPRecord.planned_end_date.asc(), QCSAPRecord.id.asc(),
+        QCSAPRecord.official_status.asc(), QCSAPRecord.id.asc(),
     ).all()
     updates = _latest_lab_updates(records)
     dispositions = _latest_monitoring_dispositions(records)
-    standards = {
-        _material_key(item.material_code): item.standard_days
-        for item in QCTestingStandard.query.filter(QCTestingStandard.material_code.isnot(None)).all()
-        if _material_key(item.material_code)
-    }
+    specifications_by_material_code = _corporate_specifications_by_material_code() if records else {}
     entries = []
     states = Counter()
     for record in records:
@@ -850,14 +967,19 @@ def sap_lab_dashboard_data(lab_code: str) -> dict[str, Any]:
         reconciliation_key, reconciliation_label = _reconciliation_state(record, update)
         if disposition_state["requires_review"]:
             reconciliation_key, reconciliation_label = "exclusion_review", "Exclusion review required"
-        is_planned_overdue = bool(
-            record.official_status == "open" and record.planned_end_date and record.planned_end_date < batch.as_of_date
+        specification_fields = _corporate_specification_fields(
+            record.material_code, specifications_by_material_code,
+        )
+        stt_fields = _standard_testing_time_fields(
+            record, specification_fields["stt_days"], batch.as_of_date,
         )
         if record.official_status == "open" and not disposition_state["is_excluded"] and not disposition_state["requires_review"]:
             states[reconciliation_key] += 1
         entries.append({
             "record": record,
             "lab_update": update,
+            **specification_fields,
+            **stt_fields,
             "disposition": disposition,
             "is_excluded": disposition_state["is_excluded"],
             "exclusion_requires_review": disposition_state["requires_review"],
@@ -866,9 +988,7 @@ def sap_lab_dashboard_data(lab_code: str) -> dict[str, Any]:
             ),
             "reconciliation_key": reconciliation_key,
             "reconciliation_label": reconciliation_label,
-            "planned_overdue": is_planned_overdue,
-            "standard_days": standards.get(_material_key(record.material_code)),
-            "sampling_to_sap_receipt_days": _sampling_to_sap_receipt_days(record, update),
+            **_sample_timing_fields(record, update),
         })
 
     open_entries = [
@@ -888,10 +1008,24 @@ def sap_lab_dashboard_data(lab_code: str) -> dict[str, Any]:
     work_centers: dict[str, dict[str, Any]] = {}
     for entry in open_entries:
         name = entry["record"].work_center or "Not assigned in SAP"
-        item = work_centers.setdefault(name, {"name": name, "open": 0, "planned_overdue": 0, "awaiting_lab": 0})
+        item = work_centers.setdefault(name, {
+            "name": name, "open": 0, "stt_overdue": 0, "awaiting_lab": 0,
+            "is_non_sap": False,
+        })
         item["open"] += 1
-        item["planned_overdue"] += int(entry["planned_overdue"])
+        item["stt_overdue"] += int(entry["stt_overdue"])
         item["awaiting_lab"] += int(entry["reconciliation_key"] == "awaiting_lab")
+    if non_sap_entries:
+        work_centers["__non_sap__"] = {
+            "name": "Non-SAP samples",
+            "open": len(non_sap_entries),
+            "stt_overdue": 0,
+            "awaiting_lab": sum(
+                item["sample"].current_status == "awaiting_sample"
+                for item in non_sap_entries
+            ),
+            "is_non_sap": True,
+        }
 
     kpis = {
         "total": len(records),
@@ -899,12 +1033,12 @@ def sap_lab_dashboard_data(lab_code: str) -> dict[str, Any]:
         "open": len(open_entries),
         "accepted": sum(1 for record in records if usage_decision_outcome(record.usage_decision_code) == "accepted"),
         "rejected": sum(1 for record in records if usage_decision_outcome(record.usage_decision_code) == "rejected"),
-        "planned_overdue": sum(1 for entry in open_entries if entry["planned_overdue"]),
+        "stt_overdue": sum(1 for entry in open_entries if entry["stt_overdue"]),
         "awaiting_lab": states["awaiting_lab"],
         "awaiting_sap_confirmation": states["awaiting_sap_confirmation"],
         "excluded_from_monitoring": len(excluded_entries),
         "exclusion_review": len(exclusion_review_entries),
-        "material_standard_coverage": sum(1 for entry in entries if entry["standard_days"] is not None),
+        "material_standard_coverage": sum(1 for entry in entries if entry["stt_days"] is not None),
         "unmatched_inspection": batch.unmatched_inspection_count,
         "unmatched_notification": batch.unmatched_notification_count,
         "non_sap_pending": len(non_sap_entries),
@@ -916,13 +1050,29 @@ def sap_lab_dashboard_data(lab_code: str) -> dict[str, Any]:
         "lab_code": lab_code,
         "batch": batch,
         "records": entries,
-        "open_records": [entry for entry in open_entries if entry["planned_overdue"] or entry["reconciliation_key"] != "sap_confirmed"],
+        "open_records": sorted(
+            [
+                entry for entry in open_entries
+                if entry["stt_overdue"] or entry["reconciliation_key"] != "sap_confirmed"
+            ],
+            key=lambda entry: (
+                entry["subgroup_key"] == CORPORATE_SPECIFICATION_UNMATCHED_KEY,
+                entry["subgroup_label"].casefold(),
+                not entry["stt_overdue"],
+                entry["stt_due_date"] or date.max,
+                entry["record"].notification_no or "",
+                entry["record"].id,
+            ),
+        ),
         "excluded_entries": excluded_entries,
         "exclusion_review_entries": exclusion_review_entries,
         "sap_exclusion_reasons": SAP_EXCLUSION_REASONS,
         "sap_exclusion_reason_labels": SAP_EXCLUSION_REASON_LABELS,
         "kpis": kpis,
-        "work_centers": sorted(work_centers.values(), key=lambda item: (-item["planned_overdue"], -item["open"], item["name"])),
+        "work_centers": sorted(
+            work_centers.values(),
+            key=lambda item: (item["is_non_sap"], -item["stt_overdue"], -item["open"], item["name"]),
+        ),
         "usage_decisions": sorted(({"label": label, "count": count} for label, count in usage_decisions.items()), key=lambda item: (-item["count"], item["label"])),
         "recent_batches": QCSAPUploadBatch.query.filter_by(lab_code=lab_code).order_by(
             QCSAPUploadBatch.as_of_date.desc(), QCSAPUploadBatch.id.desc(),
@@ -937,6 +1087,120 @@ def sap_lab_dashboard_data(lab_code: str) -> dict[str, Any]:
 def sap_panvel_dashboard_data() -> dict[str, Any]:
     """Compatibility wrapper for existing Panvel links and tests."""
     return sap_lab_dashboard_data(PANVEL_LAB_CODE)
+
+
+def sap_sample_register_data(
+    lab_code: str = "", search: str = "", status: str = "", subgroup: str = "",
+) -> dict[str, Any]:
+    """Return the current, SAP-authoritative register across reporting labs.
+
+    A record appears only when it belongs to that laboratory's latest paired
+    SAP snapshot.  The legacy weekly-workbook ``QCSample`` table is never
+    consulted here: its historical rows have different source authority and
+    remain available only through the local-workbook laboratory screens.
+    """
+    laboratories = sap_reporting_laboratories()
+    laboratories_by_code = {laboratory["code"]: laboratory for laboratory in laboratories}
+    if lab_code and lab_code not in laboratories_by_code:
+        raise ValueError("Choose a laboratory configured for SAP daily monitoring.")
+
+    selected_laboratories = (
+        [laboratories_by_code[lab_code]] if lab_code else laboratories
+    )
+    current: list[tuple[dict[str, Any], QCSAPUploadBatch, QCSAPRecord]] = []
+    for laboratory in selected_laboratories:
+        batch = latest_sap_batch(laboratory["code"])
+        if batch is None:
+            continue
+        records = QCSAPRecord.query.filter_by(
+            lab_code=laboratory["code"], last_seen_batch_id=batch.id,
+        ).all()
+        current.extend((laboratory, batch, record) for record in records)
+
+    records = [record for _, _, record in current]
+    updates = _latest_lab_updates(records)
+    dispositions = _latest_monitoring_dispositions(records)
+    specifications_by_material_code = _corporate_specifications_by_material_code() if records else {}
+    search_term = _text(search).casefold()
+    entries: list[dict[str, Any]] = []
+    subgroup_filters: dict[str, str] = {}
+    for laboratory, batch, record in current:
+        update = updates.get(record.id)
+        disposition_state = _monitoring_disposition_state(
+            record, dispositions.get(record.id),
+        )
+        reconciliation_key, reconciliation_label = _reconciliation_state(record, update)
+        outcome = usage_decision_outcome(record.usage_decision_code)
+        specification_fields = _corporate_specification_fields(
+            record.material_code, specifications_by_material_code,
+        )
+        stt_fields = _standard_testing_time_fields(
+            record, specification_fields["stt_days"], batch.as_of_date,
+        )
+        subgroup_key = specification_fields["subgroup_key"]
+        subgroup_label = specification_fields["subgroup_label"]
+        subgroup_filters[subgroup_key] = subgroup_label
+        entry = {
+            "laboratory": laboratory,
+            "batch": batch,
+            "record": record,
+            "lab_update": update,
+            **specification_fields,
+            **stt_fields,
+            "outcome": outcome,
+            "reconciliation_key": reconciliation_key,
+            "reconciliation_label": reconciliation_label,
+            "is_excluded": disposition_state["is_excluded"],
+            "exclusion_requires_review": disposition_state["requires_review"],
+            **_sample_timing_fields(record, update),
+        }
+        if search_term:
+            searchable = " ".join(filter(None, (
+                record.inspection_lot_number,
+                record.notification_no,
+                record.po_number,
+                record.material_code,
+                record.material_description,
+                record.work_center,
+            ))).casefold()
+            if search_term not in searchable:
+                continue
+        if status == "open" and record.official_status != "open":
+            continue
+        if status == "completed" and record.official_status != "completed":
+            continue
+        if status in {"accepted", "rejected"} and outcome != status:
+            continue
+        if status == "excluded" and not entry["is_excluded"]:
+            continue
+        if status == "exclusion_review" and not entry["exclusion_requires_review"]:
+            continue
+        if subgroup and subgroup_key != subgroup:
+            continue
+        entries.append(entry)
+
+    entries.sort(
+        key=lambda entry: (
+            entry["batch"].as_of_date,
+            entry["record"].start_inspection_date
+            or entry["record"].notification_start_date
+            or date.min,
+            entry["record"].id,
+        ),
+        reverse=True,
+    )
+    return {
+        "entries": entries[:500],
+        "laboratories": laboratories,
+        "status_filters": SAP_REGISTER_STATUS_FILTERS,
+        "subgroup_filters": [
+            {"key": key, "label": label}
+            for key, label in sorted(
+                subgroup_filters.items(),
+                key=lambda item: (item[0] == CORPORATE_SPECIFICATION_UNMATCHED_KEY, item[1]),
+            )
+        ],
+    }
 
 
 def sap_control_data() -> dict[str, Any]:
@@ -1014,8 +1278,10 @@ def sap_management_data(lab_codes: set[str] | None = None) -> dict[str, Any]:
         laboratory for laboratory in sap_reporting_laboratories()
         if lab_codes is None or laboratory["code"] in lab_codes
     ]
+    specifications_by_material_code = _corporate_specifications_by_material_code()
     laboratory_reviews: list[dict[str, Any]] = []
     action_entries: list[dict[str, Any]] = []
+    completed_without_ud_entries: list[dict[str, Any]] = []
     all_records: list[QCSAPRecord] = []
 
     for laboratory in laboratories:
@@ -1031,7 +1297,8 @@ def sap_management_data(lab_codes: set[str] | None = None) -> dict[str, Any]:
                 "kpis": {
                     "total": 0, "official_open": 0, "actionable_open": 0,
                     "completed": 0, "accepted": 0, "rejected": 0,
-                    "planned_overdue": 0, "awaiting_lab": 0,
+                    "completed_without_ud_details": 0,
+                    "stt_overdue": 0, "awaiting_lab": 0,
                     "awaiting_sap_confirmation": 0, "excluded": 0,
                     "exclusion_review": 0,
                 },
@@ -1046,7 +1313,8 @@ def sap_management_data(lab_codes: set[str] | None = None) -> dict[str, Any]:
         kpis = {
             "total": len(records), "official_open": 0, "actionable_open": 0,
             "completed": 0, "accepted": 0, "rejected": 0,
-            "planned_overdue": 0, "awaiting_lab": 0,
+            "completed_without_ud_details": 0,
+            "stt_overdue": 0, "awaiting_lab": 0,
             "awaiting_sap_confirmation": 0, "excluded": 0,
             "exclusion_review": 0,
         }
@@ -1059,16 +1327,22 @@ def sap_management_data(lab_codes: set[str] | None = None) -> dict[str, Any]:
             reconciliation_key, reconciliation_label = _reconciliation_state(record, update)
             is_open = record.official_status == "open"
             is_actionable = is_open and not disposition_state["is_excluded"] and not disposition_state["requires_review"]
-            planned_overdue = bool(
-                is_actionable and record.planned_end_date and record.planned_end_date < batch.as_of_date
+            specification_fields = _corporate_specification_fields(
+                record.material_code, specifications_by_material_code,
             )
+            stt_fields = _standard_testing_time_fields(
+                record, specification_fields["stt_days"], batch.as_of_date,
+            )
+            stt_overdue = bool(is_actionable and stt_fields["stt_overdue"])
             outcome = usage_decision_outcome(record.usage_decision_code)
+            completed_without_ud_details = _completed_notification_without_ud_details(record)
             kpis["official_open"] += int(is_open)
             kpis["actionable_open"] += int(is_actionable)
             kpis["completed"] += int(record.official_status == "completed")
             kpis["accepted"] += int(outcome == "accepted")
             kpis["rejected"] += int(outcome == "rejected")
-            kpis["planned_overdue"] += int(planned_overdue)
+            kpis["completed_without_ud_details"] += int(completed_without_ud_details)
+            kpis["stt_overdue"] += int(stt_overdue)
             kpis["excluded"] += int(disposition_state["is_excluded"])
             kpis["exclusion_review"] += int(disposition_state["requires_review"])
             if is_actionable:
@@ -1079,16 +1353,21 @@ def sap_management_data(lab_codes: set[str] | None = None) -> dict[str, Any]:
                 "batch": batch,
                 "record": record,
                 "lab_update": update,
+                **specification_fields,
+                **stt_fields,
                 "is_actionable": is_actionable,
-                "planned_overdue": planned_overdue,
+                "stt_overdue": stt_overdue,
                 "reconciliation_key": reconciliation_key,
                 "reconciliation_label": reconciliation_label,
                 "is_excluded": disposition_state["is_excluded"],
                 "exclusion_requires_review": disposition_state["requires_review"],
+                "completed_without_ud_details": completed_without_ud_details,
             }
             entries.append(entry)
             if is_actionable:
                 action_entries.append(entry)
+            if completed_without_ud_details:
+                completed_without_ud_entries.append(entry)
         previous_batch = QCSAPUploadBatch.query.filter_by(lab_code=laboratory["code"]).order_by(
             QCSAPUploadBatch.as_of_date.desc(), QCSAPUploadBatch.id.desc(),
         ).offset(1).first()
@@ -1104,24 +1383,30 @@ def sap_management_data(lab_codes: set[str] | None = None) -> dict[str, Any]:
         all_records.extend(records)
 
     action_entries.sort(key=lambda item: (
-        not item["planned_overdue"],
-        item["record"].planned_end_date or date.max,
+        not item["stt_overdue"],
+        item["stt_due_date"] or date.max,
         not bool(item["record"].work_center),
         item["laboratory"]["name"].casefold(),
         item["record"].notification_no or "",
         item["record"].id,
     ))
+    completed_without_ud_entries.sort(key=lambda item: (
+        item["record"].completion_date or date.min,
+        item["laboratory"]["name"].casefold(),
+        item["record"].notification_no or "",
+        item["record"].id,
+    ), reverse=True)
     work_centers: dict[str, dict[str, Any]] = {}
     materials: dict[tuple[str, str], dict[str, Any]] = {}
     for entry in action_entries:
         record = entry["record"]
         centre_name = record.work_center or "Not assigned in SAP"
         centre = work_centers.setdefault(centre_name, {
-            "name": centre_name, "open": 0, "planned_overdue": 0,
+            "name": centre_name, "open": 0, "stt_overdue": 0,
             "awaiting_lab": 0, "laboratories": set(),
         })
         centre["open"] += 1
-        centre["planned_overdue"] += int(entry["planned_overdue"])
+        centre["stt_overdue"] += int(entry["stt_overdue"])
         centre["awaiting_lab"] += int(entry["reconciliation_key"] == "awaiting_lab")
         centre["laboratories"].add(entry["laboratory"]["name"])
         material_name = record.material_description or "Material not stated in SAP"
@@ -1129,11 +1414,14 @@ def sap_management_data(lab_codes: set[str] | None = None) -> dict[str, Any]:
         material = materials.setdefault(key, {
             "material_code": record.material_code or "—",
             "material_description": material_name,
-            "open": 0, "planned_overdue": 0, "awaiting_lab": 0,
+            "specification_match": entry["specification_match"],
+            "subgroup_label": entry["subgroup_label"],
+            "specification_no": entry["specification_no"],
+            "open": 0, "stt_overdue": 0, "awaiting_lab": 0,
             "laboratories": set(), "work_centers": set(),
         })
         material["open"] += 1
-        material["planned_overdue"] += int(entry["planned_overdue"])
+        material["stt_overdue"] += int(entry["stt_overdue"])
         material["awaiting_lab"] += int(entry["reconciliation_key"] == "awaiting_lab")
         material["laboratories"].add(entry["laboratory"]["name"])
         material["work_centers"].add(centre_name)
@@ -1142,7 +1430,8 @@ def sap_management_data(lab_codes: set[str] | None = None) -> dict[str, Any]:
         key: sum(review["kpis"][key] for review in laboratory_reviews)
         for key in (
             "total", "official_open", "actionable_open", "completed", "accepted", "rejected",
-            "planned_overdue", "awaiting_lab", "awaiting_sap_confirmation", "excluded", "exclusion_review",
+            "completed_without_ud_details",
+            "stt_overdue", "awaiting_lab", "awaiting_sap_confirmation", "excluded", "exclusion_review",
         )
     }
     kpis["usage_not_recorded"] = kpis["total"] - kpis["accepted"] - kpis["rejected"]
@@ -1173,14 +1462,15 @@ def sap_management_data(lab_codes: set[str] | None = None) -> dict[str, Any]:
         "missing_snapshots": [review for review in laboratory_reviews if review["batch"] is None],
         "kpis": kpis,
         "action_entries": action_entries,
+        "completed_without_ud_entries": completed_without_ud_entries,
         "work_centers": sorted(({
             **item, "laboratories": sorted(item["laboratories"]),
-        } for item in work_centers.values()), key=lambda item: (-item["planned_overdue"], -item["open"], item["name"])),
+        } for item in work_centers.values()), key=lambda item: (-item["stt_overdue"], -item["open"], item["name"])),
         "materials": sorted(({
             **item,
             "laboratories": sorted(item["laboratories"]),
             "work_centers": sorted(item["work_centers"]),
-        } for item in materials.values()), key=lambda item: (-item["planned_overdue"], -item["open"], item["material_description"].casefold())),
+        } for item in materials.values()), key=lambda item: (-item["stt_overdue"], -item["open"], item["material_description"].casefold())),
         "usage_decisions": [
             {"label": "UD A · Accepted", "count": kpis["accepted"], "tone": "success"},
             {"label": "UD R · Rejected", "count": kpis["rejected"], "tone": "danger"},
@@ -1350,11 +1640,13 @@ def create_non_sap_sample(form: dict[str, Any], created_by: int | None) -> QCNon
 
 
 def update_non_sap_sample(
-    sample_id: int, form: dict[str, Any], updated_by: int | None,
+    sample_id: int, form: dict[str, Any], updated_by: int | None, *, lab_code: str | None = None,
 ) -> QCNonSAPSample:
     sample = db.session.get(QCNonSAPSample, sample_id)
     if sample is None:
         raise ValueError("The requested non-SAP sample is no longer available.")
+    if lab_code is not None and sample.lab_code != lab_code:
+        raise ValueError("The requested non-SAP sample does not belong to this laboratory.")
     values = _non_sap_values({**form, "lab_code": sample.lab_code}, creating=False)
     for field, value in values.items():
         if field != "lab_code":

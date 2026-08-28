@@ -105,6 +105,20 @@ class Config:
         os.environ.get("AUTO_BACKUP_CHECK_INTERVAL_SECONDS", "3600")
     )
 
+    # ── Imported workbook rollback window ────────────────────────
+    # Parsed operational records and audit metadata remain in the database.
+    # The source workbook bytes are retained only long enough for controlled
+    # rollback/download of a recent import.
+    AUDIT_WORKBOOK_RETENTION_DAYS = int(
+        os.environ.get("AUDIT_WORKBOOK_RETENTION_DAYS", "15")
+    )
+    AUDIT_WORKBOOK_RETENTION_ENABLED = _as_bool(
+        os.environ.get("AUDIT_WORKBOOK_RETENTION_ENABLED"), default=True
+    )
+    AUDIT_WORKBOOK_RETENTION_CHECK_INTERVAL_SECONDS = int(
+        os.environ.get("AUDIT_WORKBOOK_RETENTION_CHECK_INTERVAL_SECONDS", "3600")
+    )
+
     # ── Login hardening ──────────────────────────────────────────
     LOGIN_RATE_LIMIT_ENABLED = _as_bool(os.environ.get("LOGIN_RATE_LIMIT_ENABLED"), default=True)
     LOGIN_RATE_LIMIT_MAX_ATTEMPTS = int(os.environ.get("LOGIN_RATE_LIMIT_MAX_ATTEMPTS", "8"))

@@ -42,6 +42,10 @@ class QCSAPUploadBatch(db.Model):
     notification_file_size = db.Column(db.BigInteger, nullable=False, default=0)
     notification_source_data = deferred(db.Column(SAP_BINARY_TYPE, nullable=False))
 
+    # Both exports belong to the same daily SAP snapshot and expire together.
+    # The reconciled SAP records and all source metadata are retained.
+    source_purged_at = db.Column(db.DateTime, nullable=True)
+
     inspection_lot_count = db.Column(db.Integer, nullable=False, default=0)
     notification_count = db.Column(db.Integer, nullable=False, default=0)
     record_count = db.Column(db.Integer, nullable=False, default=0)
