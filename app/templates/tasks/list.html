@@ -5,12 +5,14 @@
 {% block head_extra %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/office.css') }}">
+<script defer src="{{ url_for('static', filename='js/task_reorder.js') }}"></script>
 {% endblock %}
 
-{% macro task_row(task, task_permissions, filters, can_reorder_tasks, index, today) %}
+{% macro task_row(task, task_permissions, filters, can_reorder_tasks, index, today, sequence='') %}
 {% set perms = task_permissions.get(task.id, {}) %}
-<tr>
-  <td class="is-serial">{{ index }}</td>
+{% set can_move = can_reorder_tasks and task.is_active and task.status not in ['Completed', 'Cancelled'] %}
+<tr {% if can_move %}draggable="true" data-reorder-row="{{ task.id }}"{% endif %}>
+  <td class="is-serial">{% if can_move %}<span class="om-drag-grip" aria-hidden="true" title="Drag to reorder"><i class="bi bi-grip-vertical"></i></span>{% endif %}{{ index }}</td>
   <td>
     <a
       href="{{ url_for('tasks.task_detail', task_id=task.id) }}"
@@ -45,18 +47,17 @@
   <td>{{ task.office.office_name if task.office else '—' }}</td>
   <td>
     <div class="om-cell-actions">
-      {% if can_reorder_tasks and task.is_active and task.status not in ['Completed', 'Cancelled'] %}
+      {% if can_move %}
       <span class="om-reorder">
-        <form method="POST" action="{{ url_for('tasks.reorder_task', task_id=task.id, **filters) }}">
+        {% for direction, icon, label in [('up', 'arrow-up', 'Move task up'), ('down', 'arrow-down', 'Move task down')] %}
+        <form method="POST" action="{{ url_for('tasks.reorder_tasks', **filters) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <input type="hidden" name="direction" value="up">
-          <button type="submit" aria-label="Move task up" title="Move up"><i class="bi bi-arrow-up"></i></button>
+          <input type="hidden" name="sequence" value="{{ sequence }}">
+          <input type="hidden" name="task_id" value="{{ task.id }}">
+          <input type="hidden" name="direction" value="{{ direction }}">
+          <button type="submit" aria-label="{{ label }}" title="{{ label|replace('Move task', 'Move') }}"><i class="bi bi-{{ icon }}"></i></button>
         </form>
-        <form method="POST" action="{{ url_for('tasks.reorder_task', task_id=task.id, **filters) }}">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <input type="hidden" name="direction" value="down">
-          <button type="submit" aria-label="Move task down" title="Move down"><i class="bi bi-arrow-down"></i></button>
-        </form>
+        {% endfor %}
       </span>
       {% endif %}
       {# View opens the full record; the task title opens the quick summary. #}
@@ -75,10 +76,20 @@
 </tr>
 {% endmacro %}
 
-{% macro task_table(task_list, task_permissions, empty_title, empty_msg, filters, can_reorder_tasks, today) %}
+{% macro task_table(task_list, task_permissions, empty_title, empty_msg, filters, can_reorder_tasks, today, section='tasks') %}
 {% if task_list %}
+{% set movable = task_list | selectattr('is_active') | rejectattr('status', 'in', ['Completed', 'Cancelled']) | list %}
+{% set sequence = movable | map(attribute='id') | join(',') %}
+{% if can_reorder_tasks and movable %}
+{# Dragging submits this form with the rearranged sequence; the per-row buttons
+   post the same sequence with a one-step move instead. #}
+<form method="POST" action="{{ url_for('tasks.reorder_tasks', **filters) }}" id="reorder-{{ section }}" data-reorder-form hidden>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="sequence" value="{{ sequence }}" data-reorder-sequence>
+</form>
+{% endif %}
 <div class="om-table-wrap">
-  <table class="om-table">
+  <table class="om-table"{% if can_reorder_tasks and movable %} data-reorder-table="reorder-{{ section }}"{% endif %}>
     <thead>
       <tr>
         <th scope="col" class="is-serial">S. No.</th>
@@ -92,7 +103,7 @@
     </thead>
     <tbody>
       {% for task in task_list %}
-        {{ task_row(task, task_permissions, filters, can_reorder_tasks, loop.index, today) }}
+        {{ task_row(task, task_permissions, filters, can_reorder_tasks, loop.index, today, sequence) }}
       {% endfor %}
     </tbody>
   </table>
@@ -284,7 +295,7 @@
       </div>
       <span class="om-count-chip">{{ active_tasks|length }}</span>
     </div>
-    {{ task_table(active_tasks, task_permissions, 'No matching tasks', 'No active tasks match the selected filters.', filters, can_reorder_tasks, today) }}
+    {{ task_table(active_tasks, task_permissions, 'No matching tasks', 'No active tasks match the selected filters.', filters, can_reorder_tasks, today, 'active') }}
   </div>
 
   {% else %}
@@ -298,7 +309,7 @@
       </div>
       <span class="om-count-chip">{{ global_tasks|length }}</span>
     </div>
-    {{ task_table(global_tasks, task_permissions, 'No global tasks', 'No global tasks have been raised at this time.', filters, can_reorder_tasks, today) }}
+    {{ task_table(global_tasks, task_permissions, 'No global tasks', 'No global tasks have been raised at this time.', filters, can_reorder_tasks, today, 'global') }}
   </div>
   {% else %}
   {# Nothing raised workspace-wide: stated in one line rather than a full empty
@@ -322,7 +333,7 @@
       </div>
       <span class="om-count-chip">{{ my_tasks|length }}</span>
     </div>
-    {{ task_table(my_tasks, task_permissions, 'No local tasks', 'No self or local tasks are visible to you at this time.', filters, can_reorder_tasks, today) }}
+    {{ task_table(my_tasks, task_permissions, 'No local tasks', 'No self or local tasks are visible to you at this time.', filters, can_reorder_tasks, today, 'local') }}
   </div>
   {% endif %}
 
@@ -344,7 +355,7 @@
       </div>
       <span class="om-collapse-chevron" aria-hidden="true"><i class="bi bi-chevron-down"></i></span>
     </summary>
-    {{ task_table(completed_tasks, task_permissions, 'Nothing completed', 'No completed tasks are available for these filters.', filters, can_reorder_tasks, today) }}
+    {{ task_table(completed_tasks, task_permissions, 'Nothing completed', 'No completed tasks are available for these filters.', filters, can_reorder_tasks, today, 'completed') }}
   </details>
   {% endif %}
 
@@ -357,7 +368,7 @@
       </div>
       <span class="om-collapse-chevron" aria-hidden="true"><i class="bi bi-chevron-down"></i></span>
     </summary>
-    {{ task_table(archived_tasks, task_permissions, 'Nothing archived', 'No archived tasks are available for these filters.', filters, can_reorder_tasks, today) }}
+    {{ task_table(archived_tasks, task_permissions, 'Nothing archived', 'No archived tasks are available for these filters.', filters, can_reorder_tasks, today, 'archived') }}
   </details>
   {% endif %}
   {% endif %}

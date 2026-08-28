@@ -307,7 +307,24 @@
 }.om-reorder button:disabled{
     opacity: .4;
     cursor: not-allowed;
-}/* ── Pills ───────────────────────────────────────────────────── */
+}
+/* Drag to reorder. The grip is the affordance; the up and down buttons remain
+   the keyboard and no-JavaScript route, so this is never the only way. */
+.om-drag-grip{
+    margin-right: 4px;
+    color: var(--muted);
+    cursor: grab;
+}
+
+tr[data-reorder-row]{ cursor: default; }
+
+tr[data-reorder-row].is-dragging{
+    opacity: .5;
+    background: var(--om-accent-soft, var(--surface-alt));
+}
+
+tr[data-reorder-row].is-dragging .om-drag-grip{ cursor: grabbing; }
+/* ── Pills ───────────────────────────────────────────────────── */
 
 .om-pill{
     display: inline-flex;

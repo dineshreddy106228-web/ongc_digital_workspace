@@ -940,14 +940,20 @@ def _normalize_global_task_display_order() -> bool:
         )
         .all()
     )
-    changed = False
-    for index, row in enumerate(rows, start=1):
-        if row.display_order != index:
-            db.session.query(Task).filter(Task.id == row.id).update(
-                {"display_order": index}, synchronize_session=False
-            )
-            changed = True
-    return changed
+    updates = [
+        {"task_id": row.id, "display_order": index}
+        for index, row in enumerate(rows, start=1)
+        if row.display_order != index
+    ]
+    if not updates:
+        return False
+    db.session.execute(
+        db.update(Task).where(Task.id == db.bindparam("task_id")).values(
+            display_order=db.bindparam("display_order")
+        ),
+        updates,
+    )
+    return True
 
 
 def _next_task_display_order() -> int:
@@ -1124,98 +1130,138 @@ def list_tasks():
         task_permissions=task_permissions,
         can_create_global=_can_create_global_task(),
         is_privileged=is_privileged,
-        can_reorder_tasks=_can_reorder_tasks(),
+        can_reorder_tasks=_can_reorder_tasks() and not _narrowing_task_filters(filters),
         recurrence_summary=recurrence_summary,
         today=date_type.today(),
     )
 
 
-@office_bp.route("/<int:task_id>/reorder", methods=["POST"])
+def _narrowing_task_filters(filters: dict) -> list[str]:
+    """Filters that hide rows inside the register's own office.
+
+    ``office`` is not one of them: the register always renders exactly one
+    office, so that is the view itself rather than a narrowing of it.
+    """
+    return [
+        key for key in ("status", "priority", "owner", "scope", "focus", "view")
+        if filters.get(key)
+    ]
+
+
+def _apply_visible_task_order(ordered_tasks: list[Task]) -> None:
+    """Give a visible sequence its new order without moving anything else.
+
+    The tasks redistribute the display_order slots they already occupy, so the
+    move the reader saw is exactly the move that happens: a task never travels
+    past a row hidden from the current view, and no task outside the sequence
+    changes position. Swapping two rows' order values could not promise that —
+    adjacent on screen is not adjacent in a shared, workspace-wide order.
+    """
+    slots = sorted(int(task.display_order) for task in ordered_tasks)
+    for task, slot in zip(ordered_tasks, slots):
+        if task.display_order != slot:
+            task.display_order = slot
+
+
+@office_bp.route("/reorder", methods=["POST"])
 @login_required
 @_task_read_access_required
-def reorder_task(task_id: int):
-    """Move a visible task up or down in the shared list order."""
+def reorder_tasks():
+    """Apply a new order to one rendered section of the task register.
+
+    The request carries that section exactly as it was displayed. Dragging
+    submits the sequence already rearranged; the up and down buttons submit the
+    unchanged sequence plus the one-step move to make, so the controls keep
+    working without JavaScript.
+    """
     if not _can_reorder_tasks():
         abort(403)
 
-    direction = (request.form.get("direction") or "").strip().lower()
-    if direction not in {"up", "down"}:
-        flash("Choose a valid reorder direction.", "danger")
-        return redirect(url_for("tasks.list_tasks", **request.args.to_dict()))
-
     query, filters, _register_office = _filtered_task_query_from_request()
-    target_task = query.filter(Task.id == task_id).first()
-    if target_task is None or not _can_view_task(target_task):
-        flash("Task not found in the current visible list.", "warning")
-        return redirect(url_for("tasks.list_tasks", **filters))
-    if _is_archived_task(target_task):
-        flash("Archived tasks cannot be reordered.", "warning")
-        return redirect(url_for("tasks.list_tasks", **filters))
+    redirect_to = redirect(url_for("tasks.list_tasks", **filters))
+    if _narrowing_task_filters(filters):
+        flash("Clear the filters before changing the task order.", "warning")
+        return redirect_to
 
-    try:
-        _normalize_global_task_display_order()
-        visible_tasks = _order_task_collection([
-            task for task in query.all()
-            if not _is_archived_task(task)
-        ])
-        ordered_ids = [task.id for task in visible_tasks]
+    submitted_ids = []
+    for value in (request.form.get("sequence") or "").split(","):
+        value = value.strip()
+        if value.isdigit() and int(value) not in submitted_ids:
+            submitted_ids.append(int(value))
+    if not submitted_ids:
+        flash("No task order was submitted.", "warning")
+        return redirect_to
+
+    visible = {
+        task.id: task for task in query.filter(Task.id.in_(submitted_ids)).all()
+        if _can_view_task(task) and not _is_archived_task(task)
+    }
+    if len(visible) != len(submitted_ids):
+        # A stale page: something was closed, archived or moved out of view
+        # since it was rendered. Reordering from it would write an order the
+        # sender never actually saw.
+        flash("The task list changed while you were reordering it. Reload and try again.", "warning")
+        return redirect_to
+
+    ordered_ids = list(submitted_ids)
+    moved_task = None
+    direction = (request.form.get("direction") or "").strip().lower()
+    task_id_raw = (request.form.get("task_id") or "").strip()
+    if direction or task_id_raw:
+        if direction not in {"up", "down"} or not task_id_raw.isdigit():
+            flash("Choose a valid reorder direction.", "danger")
+            return redirect_to
+        task_id = int(task_id_raw)
         if task_id not in ordered_ids:
             flash("Task not found in the current visible list.", "warning")
-            return redirect(url_for("tasks.list_tasks", **filters))
-
-        current_index = ordered_ids.index(task_id)
-        swap_index = current_index - 1 if direction == "up" else current_index + 1
-        if swap_index < 0 or swap_index >= len(visible_tasks):
+            return redirect_to
+        index = ordered_ids.index(task_id)
+        target = index - 1 if direction == "up" else index + 1
+        if target < 0 or target >= len(ordered_ids):
             flash(
-                "Task is already at the top of the current list." if direction == "up"
-                else "Task is already at the bottom of the current list.",
+                "Task is already at the top of this list." if direction == "up"
+                else "Task is already at the bottom of this list.",
                 "info",
             )
-            return redirect(url_for("tasks.list_tasks", **filters))
+            return redirect_to
+        ordered_ids[index], ordered_ids[target] = ordered_ids[target], ordered_ids[index]
+        moved_task = visible[task_id]
 
-        # Re-fetch with row-level locks to reduce the race condition window
-        # between the normalize pass and the actual swap commit.
-        current_task = db.session.query(Task).filter_by(
-            id=visible_tasks[current_index].id
-        ).with_for_update().first()
-        adjacent_task = db.session.query(Task).filter_by(
-            id=visible_tasks[swap_index].id
-        ).with_for_update().first()
-        if current_task is None or adjacent_task is None:
-            flash("Task not found in the current visible list.", "warning")
-            return redirect(url_for("tasks.list_tasks", **filters))
-        current_task.display_order, adjacent_task.display_order = (
-            adjacent_task.display_order,
-            current_task.display_order,
-        )
+    try:
+        if any(visible[task_id].display_order is None for task_id in ordered_ids):
+            _normalize_global_task_display_order()
+            db.session.flush()
+        ordered_tasks = [visible[task_id] for task_id in ordered_ids]
+        before = [task.id for task in sorted(ordered_tasks, key=lambda t: int(t.display_order))]
+        if before == ordered_ids:
+            flash("Task order is already as submitted.", "info")
+            return redirect_to
+        _apply_visible_task_order(ordered_tasks)
 
+        if moved_task is not None:
+            summary = f"Task '{moved_task.task_title}' moved {direction} within the visible task list."
+            activity = f"direction={direction}, task={moved_task.task_title}"
+            entity_id = str(moved_task.id)
+        else:
+            summary = f"Visible task order rearranged for {len(ordered_tasks)} tasks."
+            activity = f"reordered={len(ordered_tasks)} tasks"
+            entity_id = ",".join(str(task.id) for task in ordered_tasks[:20])
         log_action(
-            action="TASK_REORDERED",
-            user_id=current_user.id,
-            entity_type="Task",
-            entity_id=str(current_task.id),
-            details=(
-                f"Task '{current_task.task_title}' moved {direction} in shared task order "
-                f"by swapping with task '{adjacent_task.task_title}'."
-            ),
+            action="TASK_REORDERED", user_id=current_user.id,
+            entity_type="Task", entity_id=entity_id, details=summary,
         )
         log_activity(
-            current_user.username,
-            "task_reordered",
-            "task",
-            current_task.task_title,
-            details=f"direction={direction}, swap_with={adjacent_task.task_title}",
+            current_user.username, "task_reordered", "task",
+            moved_task.task_title if moved_task else "Task register", details=activity,
         )
         db.session.commit()
         flash("Task order saved.", "success")
     except SQLAlchemyError:
         db.session.rollback()
         flash("Could not save the task order.", "danger")
+    return redirect_to
 
-    return redirect(url_for("tasks.list_tasks", **filters))
 
-
-# ── Task Dashboard ────────────────────────────────────────────────
 @office_bp.route("/dashboard")
 @login_required
 @_task_read_access_required
