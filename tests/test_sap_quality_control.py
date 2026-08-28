@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 from io import BytesIO
 from pathlib import Path
+import re
 import sys
 from types import SimpleNamespace
 
@@ -515,6 +516,56 @@ def test_non_sap_register_summarises_without_touching_the_sap_position(sap_app):
         entry["record"].material_description != "Produced water"
         for entry in management["action_entries"]
     )
+
+
+def test_control_tower_and_import_centre_are_named_apart(sap_app):
+    """A link goes where its label says, and no two pages share a name.
+
+    The landing tile called "SAP Control Tower" opened the import screen,
+    which called itself the SAP Control Tower too — so the reader arrived
+    somewhere that agreed with the label and was still the wrong page.
+    """
+    from flask import render_template
+    from app.core.services.quality_control import (
+        current_monitoring_day, laboratory_landing_data, laboratory_navigator_data,
+    )
+    from app.core.services.sap_quality_control import sap_control_data
+
+    with sap_app.test_request_context("/quality-control/"):
+        laboratories = laboratory_landing_data()
+        monitoring_day = current_monitoring_day()
+        landing = render_template(
+            "quality_control/landing.html",
+            laboratories=laboratories,
+            designated_laboratories=[],
+            mapped_laboratory_total=len(laboratories),
+            map_laboratories=laboratory_navigator_data(laboratories, monitoring_day["date"]),
+            monitoring_day=monitoring_day, is_superuser=True,
+        )
+        sap_data = sap_control_data()
+        import_centre = render_template(
+            "quality_control/data_import.html",
+            laboratories=[], monitoring_day=monitoring_day,
+            sap_control_cards=sap_data["control_cards"],
+            sap_laboratories=sap_data["sap_laboratories"],
+            sap_plant_mappings=sap_data["sap_plant_mappings"],
+            can_control=True,
+        )
+
+    control_tower_url = "/quality-control/sap-control"
+    import_centre_url = "/quality-control/data-import"
+
+    # Each landing tile points at the page its name promises.
+    tiles = re.findall(r'<a class="mod-tile" href="([^"]+)".*?<strong>([^<]+)</strong>', landing)
+    tiles_by_name = {name: href for href, name in tiles}
+    assert tiles_by_name["SAP Control Tower"] == control_tower_url
+    assert tiles_by_name["Import Centre"] == import_centre_url
+
+    # The import screen no longer claims the control tower's name.
+    assert "SAP Import Centre" in import_centre
+    assert ">Import Centre" in import_centre or "Import Centre ·" in import_centre
+    heading = re.search(r'<h1 class="mod-page-title">.*?</h1>', import_centre, re.S).group()
+    assert "Control Tower" not in heading
 
 
 def test_panvel_import_rejects_a_non_panvel_plant():
