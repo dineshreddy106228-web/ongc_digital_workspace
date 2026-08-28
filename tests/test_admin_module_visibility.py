@@ -232,7 +232,8 @@ def test_corporate_qc_screens_are_not_reachable_by_a_reporting_laboratory(admin_
     from app.models.core.user_module_permission import UserModulePermission
     from app.modules.quality_control.routes import (
         data_import, download_management_report, download_portfolio_management_presentation,
-        management_analytics, portfolio_management_review, sap_control,
+        download_sap_lab_presentation, management_analytics, portfolio_management_review,
+        sap_control,
     )
 
     user, _role = _plain_user()
@@ -254,6 +255,13 @@ def test_corporate_qc_screens_are_not_reachable_by_a_reporting_laboratory(admin_
         data_import, sap_control, download_portfolio_management_presentation,
         portfolio_management_review, management_analytics, download_management_report,
     )
+    with admin_app.test_request_context("/quality-control/sap-control/labs/rgl_panvel/presentation.pptx"):
+        login_user(user)
+        # The laboratory deck is a corporate download too: a laboratory records
+        # its follow-up in the workspace rather than working from a handout.
+        with pytest.raises(Forbidden):
+            download_sap_lab_presentation("rgl_panvel")
+        logout_user()
     with admin_app.test_request_context("/quality-control/sap-control"):
         login_user(user)
         for view in corporate_views:

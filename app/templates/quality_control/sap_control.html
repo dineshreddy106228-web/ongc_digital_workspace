@@ -10,7 +10,7 @@
     <div>
       <div class="qc-lab-eyebrow"><span class="qc-live-dot"></span> Corporate Chemistry controlled daily cycle</div>
       <h1 class="mod-page-title"><i class="bi bi-shield-check"></i> SAP QC Control Tower</h1>
-      <p class="mod-page-sub">Upload the native SAP snapshot, generate a lab-specific action pack, obtain the laboratory response, and record it here. SAP remains the official outcome; non-SAP work is maintained separately.</p>
+      <p class="mod-page-sub">Upload the native SAP snapshot and monitor each laboratory’s returned follow-up, which the laboratory records against its own dashboard. SAP remains the official outcome; non-SAP work is maintained separately.</p>
     </div>
     <div class="mod-page-actions"><a class="btn btn-secondary" href="{{ url_for('quality_control.data_import') }}"><i class="bi bi-database-add"></i> Import centre</a><a class="btn btn-primary" href="{{ url_for('quality_control.download_portfolio_management_presentation') }}"><i class="bi bi-file-earmark-ppt"></i> All-labs presentation</a></div>
   </div>
@@ -39,13 +39,13 @@
 
   <section class="card qc-sap-action-register">
     <div class="card-body">
-      <div class="qc-section-title"><div><span class="qc-section-eyebrow"><i class="bi bi-diagram-3"></i> Step 2 · Daily lab action packs</span><h2 class="mod-card-title">RGL and IDWE SAP monitoring</h2><p class="mod-card-sub">Every laboratory’s latest SAP snapshot is retained with its source files. The action-pack deck exposes every SAP-open item, not a reduced top-ten list.</p></div></div>
+      <div class="qc-section-title"><div><span class="qc-section-eyebrow"><i class="bi bi-diagram-3"></i> Step 2 · Daily lab monitoring</span><h2 class="mod-card-title">RGL and IDWE SAP monitoring</h2><p class="mod-card-sub">Every laboratory’s latest SAP snapshot is retained with its source files. The laboratory presentation exposes every SAP-open item, not a reduced top-ten list.</p></div></div>
       <div class="mod-table-wrap"><table class="mod-table"><thead><tr><th>Laboratory</th><th>Latest SAP snapshot</th><th>Actionable SAP-open</th><th>QC excluded</th><th>Exclusion review</th><th>Non-SAP pending</th><th>Current action</th></tr></thead><tbody>
       {% for item in control_cards %}
         <tr><td><strong>{{ item.laboratory.name }}</strong><div class="mod-cell-meta">{{ item.laboratory.location }}</div></td>
           <td>{% if item.batch %}<strong>{{ item.batch.as_of_date.strftime('%d %b %Y') }}</strong><div class="mod-cell-meta">Plant {{ item.batch.plant_code }} · {{ item.batch.record_count }} records</div>{% else %}<span class="qc-sap-status is-awaiting_lab">Not uploaded</span>{% endif %}</td>
           <td><strong class="{{ 'text-danger' if item.sap_open else '' }}">{{ item.sap_open }}</strong></td><td>{{ item.excluded_from_monitoring }}</td><td>{% if item.exclusion_review %}<span class="qc-variance-badge">{{ item.exclusion_review }}</span>{% else %}0{% endif %}</td><td>{{ item.non_sap_pending }}</td>
-          <td><a class="btn btn-secondary btn-sm" href="{{ url_for('quality_control.sap_lab_dashboard', lab_code=item.laboratory.code) }}">Open control view</a>{% if item.batch %} <a class="btn btn-primary btn-sm" href="{{ url_for('quality_control.download_sap_lab_presentation', lab_code=item.laboratory.code) }}"><i class="bi bi-file-earmark-ppt"></i> Action pack</a>{% endif %}</td></tr>
+          <td><a class="btn btn-secondary btn-sm" href="{{ url_for('quality_control.sap_lab_dashboard', lab_code=item.laboratory.code) }}">Open control view</a>{% if item.batch %} <a class="btn btn-primary btn-sm" href="{{ url_for('quality_control.download_sap_lab_presentation', lab_code=item.laboratory.code) }}"><i class="bi bi-file-earmark-ppt"></i> Presentation</a>{% endif %}</td></tr>
       {% endfor %}
       </tbody></table></div>
     </div>

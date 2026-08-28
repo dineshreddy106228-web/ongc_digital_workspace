@@ -15,7 +15,7 @@
     <div class="mod-page-actions">
       {% if can_control %}<a class="btn btn-secondary" href="{{ url_for('quality_control.data_import') }}"><i class="bi bi-database-add"></i> Import centre</a>
       <a class="btn btn-secondary" href="{{ url_for('quality_control.sap_control') }}"><i class="bi bi-diagram-3"></i> SAP control tower</a>{% endif %}
-      {% if batch %}<a class="btn btn-primary" href="{{ url_for('quality_control.download_sap_lab_presentation', lab_code=lab_code) }}"><i class="bi bi-file-earmark-ppt"></i> This lab action pack</a>{% if can_control %}<a class="btn btn-secondary" href="{{ url_for('quality_control.download_portfolio_management_presentation') }}"><i class="bi bi-buildings"></i> All-labs presentation</a>{% endif %}{% endif %}
+      {% if can_control and batch %}<a class="btn btn-primary" href="{{ url_for('quality_control.download_sap_lab_presentation', lab_code=lab_code) }}"><i class="bi bi-file-earmark-ppt"></i> Download presentation</a><a class="btn btn-secondary" href="{{ url_for('quality_control.download_portfolio_management_presentation') }}"><i class="bi bi-buildings"></i> All-labs presentation</a>{% endif %}
     </div>
   </div>
 

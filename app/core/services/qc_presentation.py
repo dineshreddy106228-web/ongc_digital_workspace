@@ -377,13 +377,13 @@ def build_lab_brief_presentation(lab_code: str, static_folder: str) -> tuple[Byt
 
 
 def build_sap_lab_presentation(lab_code: str, static_folder: str) -> tuple[BytesIO, str]:
-    """Create a complete daily action pack from one lab's SAP snapshot.
+    """Create one laboratory's daily review deck from its SAP snapshot.
 
     The operational register is deliberately paginated rather than shortened:
-    every actionable SAP-open record is supplied to the laboratory. QC-admin
-    exclusions remain in the Corporate Chemistry audit register, and non-SAP
-    work remains a separate declared-exception section with a blank return
-    table, never a substitute for an SAP status.
+    every actionable SAP-open record appears. QC-admin exclusions remain in the
+    Corporate Chemistry audit register, and non-SAP work remains a separate
+    declared-exception section with a blank return table, never a substitute
+    for an SAP status.
     """
     from pptx import Presentation
     from pptx.util import Inches
@@ -392,7 +392,7 @@ def build_sap_lab_presentation(lab_code: str, static_folder: str) -> tuple[Bytes
     data = sap_lab_dashboard_data(lab_code)
     batch = data["batch"]
     if batch is None:
-        raise ValueError(f"Import paired SAP exports for {data['laboratory']['name']} before downloading an action pack.")
+        raise ValueError(f"Import paired SAP exports for {data['laboratory']['name']} before downloading a presentation.")
     laboratory = data["laboratory"]
 
     prs = Presentation()
@@ -439,7 +439,7 @@ def build_sap_lab_presentation(lab_code: str, static_folder: str) -> tuple[Bytes
     chrome.rectangle(slide, .65, 3.06, 2.0, .05, blue)
     chrome.add_wrapped_text(
         slide,
-        "Corporate Chemistry generated this action pack from native SAP Inspection Lots and Notifications exports. The returned laboratory action is a follow-up commitment only; SAP remains the official status.",
+        "Corporate Chemistry generated this presentation from native SAP Inspection Lots and Notifications exports. The returned laboratory action is a follow-up commitment only; SAP remains the official status.",
         .65, 3.48, 9.7, .8, 17, grey,
     )
     chrome.add_text(slide, f"Plant {batch.plant_code} · {batch.record_count} monitoring records", .65, 5.18, 8.8, .28, 15, navy, True)
@@ -571,7 +571,7 @@ def build_sap_lab_presentation(lab_code: str, static_folder: str) -> tuple[Bytes
     chrome.add_text(slide, "Daily operating discipline", .8, 3.55, 5.2, .3, 19, navy, True)
     asks = [
         "Import both SAP exports from one daily run and retain the source files.",
-        "Return a status for every action-pack item; QC-admin exclusions remain separately auditable and are not sent to the laboratory.",
+        "Each laboratory records a returned status for every SAP-open item on its own dashboard; QC-admin exclusions remain separately auditable.",
         "Use the non-SAP return table only for samples not present in SAP; SAP-open records close only after the next SAP export confirms them.",
     ]
     for index, ask in enumerate(asks):
@@ -582,7 +582,7 @@ def build_sap_lab_presentation(lab_code: str, static_folder: str) -> tuple[Bytes
     output = BytesIO()
     prs.save(output)
     output.seek(0)
-    return output, f"{laboratory['name']} SAP QC Action Pack {batch.as_of_date:%d %b %Y}.pptx"
+    return output, f"{laboratory['name']} SAP QC Presentation {batch.as_of_date:%d %b %Y}.pptx"
 
 
 def build_sap_panvel_presentation(static_folder: str) -> tuple[BytesIO, str]:

@@ -170,7 +170,7 @@ class QCNonSAPSample(db.Model):
     """Corporate Chemistry's controlled register for work absent from SAP.
 
     These rows are intentionally not SAP records.  They carry the laboratory's
-    declared status and are displayed separately in every action pack, so they
+    declared status and are displayed separately in every deck, so they
     can close operational gaps without diluting the authority of SAP QM.
     """
 

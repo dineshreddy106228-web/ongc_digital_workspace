@@ -186,8 +186,9 @@ def test_sap_import_remains_authoritative_when_laboratory_logs_completion(sap_ap
 def test_lab_dashboard_hides_corporate_only_actions_from_a_reporting_laboratory(sap_app):
     """A reporting laboratory works its own list, not Corporate Chemistry's.
 
-    Import, control-tower and all-labs actions belong to the corporate scope.
-    The laboratory keeps its own action pack.
+    Import, control-tower and deck downloads all belong to the corporate scope.
+    A laboratory records its follow-up in the workspace, so it is offered no
+    download at all.
     """
     from flask import render_template
     from app.core.services.sap_quality_control import import_sap_panvel_exports, sap_lab_dashboard_data
@@ -207,11 +208,12 @@ def test_lab_dashboard_hides_corporate_only_actions_from_a_reporting_laboratory(
             "quality_control/sap_panvel_dashboard.html", can_control=True, **data,
         )
 
-    for corporate_action in ("Import centre", "SAP control tower", "All-labs presentation"):
+    corporate_actions = (
+        "Import centre", "SAP control tower", "All-labs presentation", "Download presentation",
+    )
+    for corporate_action in corporate_actions:
         assert corporate_action not in lab_page
         assert corporate_action in corporate_page
-    assert "This lab action pack" in lab_page
-    assert "This lab action pack" in corporate_page
     # The operating-rule notice was removed; its snapshot provenance is not.
     assert "SAP is the final word" not in lab_page
     assert "SAP is the final word" not in corporate_page
@@ -631,7 +633,7 @@ def test_sap_management_presentation_uses_the_current_snapshot(sap_app):
     db.session.commit()
     output, filename = build_sap_panvel_presentation(sap_app.static_folder)
 
-    assert filename == "RGL Panvel SAP QC Action Pack 26 Aug 2026.pptx"
+    assert filename == "RGL Panvel SAP QC Presentation 26 Aug 2026.pptx"
     assert output.read(2) == b"PK"
 
     portfolio_output, portfolio_filename = build_sap_portfolio_management_presentation(sap_app.static_folder)
