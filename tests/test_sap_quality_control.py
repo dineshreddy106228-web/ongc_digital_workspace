@@ -974,6 +974,87 @@ def test_sap_management_presentation_uses_the_current_snapshot(sap_app):
     assert single_lab_filename == "RGL Panvel Management Review 26 Aug 2026.pptx"
     assert single_lab_output.read(2) == b"PK"
 
+def test_lab_deck_lists_unassigned_notifications_for_an_active_inactive_call(sap_app):
+    """A notification SAP never routed to a work center gets its own page.
+
+    Without a work center nobody at the laboratory recognises the item as
+    theirs, so it can sit open indefinitely while still counting against the
+    bench. The deck already lists it among the action items; this page asks
+    the one question that clears it — is it still live?
+    """
+    from pptx import Presentation
+    from app.core.services.qc_presentation import build_sap_lab_presentation
+    from app.core.services.sap_quality_control import (
+        import_sap_panvel_exports, sap_lab_dashboard_data,
+    )
+
+    import_sap_panvel_exports(
+        _inspection_export(), "SAP_INSPECTION_20260826.xlsx",
+        _notification_export(first_work_center=""), "SAP_NOTIFICATIONS_20260826.xlsx", None,
+    )
+    db.session.commit()
+
+    data = sap_lab_dashboard_data("rgl_panvel")
+    unassigned = [item for item in data["open_records"] if not item["record"].work_center]
+    assigned = [item for item in data["open_records"] if item["record"].work_center]
+    assert unassigned, "the fixture must leave at least one open record unrouted"
+    assert assigned, "and at least one routed, so the page is not simply everything"
+
+    output, _ = build_sap_lab_presentation("rgl_panvel", sap_app.static_folder)
+    pages = []
+    for slide in Presentation(output).slides:
+        text = "\n".join(
+            shape.text_frame.text for shape in slide.shapes
+            if shape.has_text_frame and shape.text_frame.text.strip()
+        )
+        if "Unassigned notifications" in text:
+            tables = [shape.table for shape in slide.shapes if shape.has_table]
+            pages.append((text, tables[0] if tables else None))
+
+    assert len(pages) == 1
+    text, table = pages[0]
+    assert table is not None
+    assert f"(1\u2013{len(unassigned)} of {len(unassigned)})" in text
+
+    header = [cell.text.strip() for cell in table.rows[0].cells]
+    assert "Active / Inactive" in header
+    assert "Laboratory remark" in header
+
+    # Every unrouted record, and only those.
+    body = [" | ".join(cell.text for cell in row.cells) for row in list(table.rows)[1:]]
+    assert len(body) == len(unassigned)
+    for item in unassigned:
+        reference = item["record"].notification_no or item["record"].inspection_lot_number
+        assert any(reference in line for line in body)
+    for item in assigned:
+        assert not any(item["record"].work_center in line for line in body)
+
+
+def test_lab_deck_omits_the_unassigned_page_when_sap_routed_everything(sap_app):
+    """No unrouted record, no page — the deck does not carry an empty ask."""
+    from pptx import Presentation
+    from app.core.services.qc_presentation import build_sap_lab_presentation
+    from app.core.services.sap_quality_control import (
+        import_sap_panvel_exports, sap_lab_dashboard_data,
+    )
+
+    import_sap_panvel_exports(
+        _inspection_export(), "SAP_INSPECTION_20260826.xlsx",
+        _notification_export(), "SAP_NOTIFICATIONS_20260826.xlsx", None,
+    )
+    db.session.commit()
+    for item in sap_lab_dashboard_data("rgl_panvel")["open_records"]:
+        if not item["record"].work_center:
+            item["record"].work_center = "MUDLAB"
+    db.session.commit()
+
+    output, _ = build_sap_lab_presentation("rgl_panvel", sap_app.static_folder)
+    for slide in Presentation(output).slides:
+        for shape in slide.shapes:
+            if shape.has_text_frame:
+                assert "Unassigned notifications" not in shape.text_frame.text
+
+
 def test_all_labs_presentation_groups_samples_by_lab_then_corporate_subgroup():
     from app.core.services.qc_presentation import _sap_presentation_action_groups
 

@@ -525,6 +525,58 @@ def build_sap_lab_presentation(lab_code: str, static_folder: str) -> tuple[Bytes
         )
 
     next_page = 4 + len(open_pages)
+
+    # Records SAP has not routed to a work center. They already appear in the
+    # register above, but a work center is how a laboratory recognises an item
+    # as its own — without one, nobody owns the notification and it can sit
+    # open indefinitely. So they are repeated on their own page and the
+    # laboratory is asked one question about each: is it still live?
+    unassigned = [item for item in data["open_records"] if not item["record"].work_center]
+    if unassigned:
+        for page, entries in enumerate(_paginated_rows(unassigned, 9)):
+            first = page * 9 + 1
+            suffix = f" ({first}–{first + len(entries) - 1} of {len(unassigned)})"
+            slide = chrome.new_slide(
+                f"Unassigned notifications — confirm active or inactive{suffix}", next_page,
+            )
+            rows = []
+            for item in entries:
+                record = item["record"]
+                reference = "\n".join(filter(None, [
+                    f"Lot {record.inspection_lot_number}" if record.inspection_lot_number else None,
+                    f"Notification {record.notification_no}" if record.notification_no else None,
+                ])) or "No SAP reference"
+                if item["stt_due_date"]:
+                    stt_due = item["stt_due_date"].strftime("%d %b %Y")
+                    if item["stt_overdue"]:
+                        stt_due += f" · {item['stt_variance_days']} d over"
+                elif item["stt_days"] is not None:
+                    stt_due = f"STT {item['stt_days']} d · no start"
+                else:
+                    stt_due = "STT not defined"
+                rows.append([
+                    reference,
+                    concise(record.material_description or record.material_code or "Not recorded", 30),
+                    concise(record.sap_lot_status or record.sap_system_status or "Status not stated", 22),
+                    stt_due,
+                    "____________",
+                    "____________________",
+                ])
+            table(
+                slide,
+                [
+                    "Inspection lot / notification", "Material", "SAP status", "STT due",
+                    "Active / Inactive", "Laboratory remark",
+                ],
+                rows, [2.4, 3.0, 2.0, 1.45, 1.8, 1.8], y=1.48, font_size=8,
+            )
+            chrome.add_wrapped_text(
+                slide,
+                "SAP has not assigned a work center to these notifications. Mark each one Active if the laboratory is still to test it, or Inactive if it is closed, duplicated, wrongly raised or no longer required — and say which in the remark. Corporate Chemistry records an Inactive confirmation as a QC-admin exclusion; SAP itself is unchanged until its own next export.",
+                .65, 5.25, 11.8, .7, 9, grey,
+            )
+            next_page += 1
+
     non_sap_entries = data["non_sap_entries"]
     if non_sap_entries:
         for entries in _paginated_rows(non_sap_entries, 9):
