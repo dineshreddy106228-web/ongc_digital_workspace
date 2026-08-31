@@ -898,6 +898,31 @@ def _reconciliation_state(record: QCSAPRecord, update: QCSAPLabUpdate | None) ->
     return "lab_updated", "Lab update received"
 
 
+def source_completeness_label(record: QCSAPRecord) -> str:
+    """Say what the pairing actually means, not which export the row came from.
+
+    "Notification Only" was accurate about provenance and misleading on the
+    page: it sat directly under the inspection-lot number the notification
+    states, so it read as contradicting the number above it.  What it means is
+    that the stated lot has no row in the paired QA33 export — which is the
+    fact a reader needs, because it is why no usage decision could be joined.
+
+    A notification that states no lot at all is a different case and says so:
+    there is nothing missing from QA33 to go looking for.
+    """
+    if record.source_completeness == "notification_only":
+        return (
+            "Notification only · stated lot not in QA33 export"
+            if record.inspection_lot_number
+            else "Notification only · no inspection lot stated"
+        )
+    if record.source_completeness == "inspection_lot_only":
+        return "Inspection lot only · no notification in SAP"
+    if record.source_completeness == "matched":
+        return "Matched · lot and notification paired"
+    return (record.source_completeness or "Not recorded").replace("_", " ").title()
+
+
 def _completed_notification_without_ud_details(record: QCSAPRecord) -> bool:
     """Identify a notification closure for which the paired QA33 row is absent.
 

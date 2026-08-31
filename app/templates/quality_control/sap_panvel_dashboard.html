@@ -109,7 +109,7 @@
           <td class="table-serial-column">{{ loop.index }}</td>
           <td>
             <strong>{{ record.inspection_lot_number or 'No inspection lot' }}</strong>
-            <div class="mod-cell-meta">Notification {{ record.notification_no or 'not linked' }} · {{ record.source_completeness | replace('_', ' ') | title }}</div>
+            <div class="mod-cell-meta">Notification {{ record.notification_no or 'not linked' }} · {{ qc_source_label(record) }}</div>
           </td>
           <td>
             {{ record.material_description or record.material_code or 'Not recorded' }}

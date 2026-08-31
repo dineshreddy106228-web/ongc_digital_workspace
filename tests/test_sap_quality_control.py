@@ -1105,6 +1105,37 @@ def test_register_reports_matches_before_the_display_cap(sap_app, monkeypatch):
     assert sum(len(group["entries"]) for group in capped["groups"]) == 2
 
 
+def test_pairing_label_says_what_is_missing_not_which_export_it_came_from():
+    """"Notification Only" sat directly under the lot number it seemed to deny.
+
+    The label described provenance, so a row showing a bold inspection lot was
+    captioned as notification-only and read as self-contradictory. It has to
+    say the thing the reader needs instead: that stated lot is absent from the
+    paired QA33 export, which is why no usage decision could be joined.
+    """
+    from app.core.services.sap_quality_control import source_completeness_label
+    from app.models.quality_control.qc_sap_monitoring import QCSAPRecord
+
+    def record(completeness, lot=None):
+        return QCSAPRecord(source_completeness=completeness, inspection_lot_number=lot)
+
+    stated = source_completeness_label(record("notification_only", "890000040483"))
+    assert stated == "Notification only · stated lot not in QA33 export"
+
+    # A notification naming no lot has nothing missing from QA33 to chase.
+    assert source_completeness_label(record("notification_only")) == (
+        "Notification only · no inspection lot stated"
+    )
+    assert source_completeness_label(record("inspection_lot_only", "890000040432")) == (
+        "Inspection lot only · no notification in SAP"
+    )
+    assert source_completeness_label(record("matched", "890000040435")) == (
+        "Matched · lot and notification paired"
+    )
+    # An unrecognised value still renders as something readable.
+    assert source_completeness_label(record("some_new_state")) == "Some New State"
+
+
 def test_all_labs_presentation_groups_samples_by_lab_then_corporate_subgroup():
     from app.core.services.qc_presentation import _sap_presentation_action_groups
 

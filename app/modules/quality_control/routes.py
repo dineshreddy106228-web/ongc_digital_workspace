@@ -22,7 +22,11 @@ logger = logging.getLogger(__name__)
 @quality_control_bp.context_processor
 def inject_quality_control_scope():
     """Expose the corporate-scope flag to every template in this module."""
-    return {"qc_can_control": _can_control_quality_monitoring()}
+    from app.core.services.sap_quality_control import source_completeness_label
+    return {
+        "qc_can_control": _can_control_quality_monitoring(),
+        "qc_source_label": source_completeness_label,
+    }
 
 
 def _can_control_quality_monitoring() -> bool:
