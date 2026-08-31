@@ -570,7 +570,7 @@ def sample_history():
     corporate screen with a filter a laboratory could widen.
     """
     from app.core.services.sap_quality_control import (
-        SAP_REGISTER_STATUS_FILTERS, sap_sample_register_data,
+        SAP_REGISTER_STATUS_FILTERS, SAP_REGISTER_VISIBLE_LIMIT, sap_sample_register_data,
     )
 
     scope = _user_lab_scope()
@@ -587,6 +587,9 @@ def sample_history():
             filters={"lab": "", "search": "", "status": "", "subgroup": ""},
             entries=[], groups=[], laboratories=[], subgroup_filters=[],
             status_filters=SAP_REGISTER_STATUS_FILTERS,
+            # The caption counts matches, so the empty scope has to state its
+            # own zero rather than leave the count undefined.
+            total_matching=0, visible_limit=SAP_REGISTER_VISIBLE_LIMIT, is_truncated=False,
             can_view_all_laboratories=False, has_lab_scope=False,
         )
     try:

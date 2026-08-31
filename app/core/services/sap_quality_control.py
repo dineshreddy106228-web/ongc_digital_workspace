@@ -1163,6 +1163,12 @@ def _register_subgroup_groups(
     ]
 
 
+# The register renders every matching row at once, so it is capped. The cap is
+# named here because the page has to say what it is holding back — a caption
+# counted after truncation reads "500 matching" however many actually matched.
+SAP_REGISTER_VISIBLE_LIMIT = 500
+
+
 def sap_sample_register_data(
     lab_code: str = "", search: str = "", status: str = "", subgroup: str = "",
 ) -> dict[str, Any]:
@@ -1263,9 +1269,14 @@ def sap_sample_register_data(
         ),
         reverse=True,
     )
-    visible = entries[:500]
+    visible = entries[:SAP_REGISTER_VISIBLE_LIMIT]
     return {
         "entries": visible,
+        # The true match count, before the cap, so the caption can be honest
+        # about a filter that narrowed nothing.
+        "total_matching": len(entries),
+        "visible_limit": SAP_REGISTER_VISIBLE_LIMIT,
+        "is_truncated": len(entries) > SAP_REGISTER_VISIBLE_LIMIT,
         "groups": _register_subgroup_groups(visible),
         "laboratories": laboratories,
         "status_filters": SAP_REGISTER_STATUS_FILTERS,

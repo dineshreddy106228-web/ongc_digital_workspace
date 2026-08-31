@@ -1071,6 +1071,40 @@ def test_lab_deck_omits_the_unassigned_page_when_sap_routed_everything(sap_app):
                 assert "Unassigned notifications" not in shape.text_frame.text
 
 
+def test_register_reports_matches_before_the_display_cap(sap_app, monkeypatch):
+    """The caption counts what matched, not what fitted on the page.
+
+    It used to be measured on the truncated list, so a filter matching
+    thousands and a filter matching exactly the cap both read the same. There
+    was no way to tell the register was holding anything back.
+    """
+    from app.core.services import sap_quality_control
+    from app.core.services.sap_quality_control import (
+        import_sap_panvel_exports, sap_sample_register_data,
+    )
+
+    import_sap_panvel_exports(
+        _inspection_export(), "SAP_INSPECTION_20260826.xlsx",
+        _notification_export(), "SAP_NOTIFICATIONS_20260826.xlsx", None,
+    )
+    db.session.commit()
+
+    uncapped = sap_sample_register_data()
+    assert uncapped["total_matching"] == len(uncapped["entries"])
+    assert uncapped["is_truncated"] is False
+
+    # Below the cap the two agree, so force the cap under the fixture instead
+    # of importing hundreds of rows to reach it.
+    monkeypatch.setattr(sap_quality_control, "SAP_REGISTER_VISIBLE_LIMIT", 2)
+    capped = sap_sample_register_data()
+    assert capped["total_matching"] == uncapped["total_matching"]
+    assert len(capped["entries"]) == 2
+    assert capped["is_truncated"] is True
+    assert capped["visible_limit"] == 2
+    # The grouped view must not out-count the rows it was built from.
+    assert sum(len(group["entries"]) for group in capped["groups"]) == 2
+
+
 def test_all_labs_presentation_groups_samples_by_lab_then_corporate_subgroup():
     from app.core.services.qc_presentation import _sap_presentation_action_groups
 
