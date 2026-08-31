@@ -623,10 +623,25 @@ def sample_history():
 @module_access_required("quality_control")
 @quality_control_admin_required
 def portfolio_management_review():
-    from app.core.services.sap_quality_control import non_sap_register_data, sap_management_data
+    """The single management screen: today's SAP position and the recorded load.
+
+    Review and analytics used to be two pages built from overlapping calls —
+    both read the snapshot and the non-SAP register, and only analytics added
+    the whole recorded load.  They are one page now, tabbed so the two
+    denominators stay visibly apart, and the three service calls happen once.
+    """
+    from app.core.services.qc_management_charts import management_chart_series
+    from app.core.services.sap_quality_control import (
+        non_sap_register_data, sap_management_data, sap_portfolio_analytics,
+    )
+    management = sap_management_data()
+    non_sap = non_sap_register_data()
+    portfolio = sap_portfolio_analytics()
     return render_template(
         "quality_control/portfolio_management_review.html",
-        **sap_management_data(), **non_sap_register_data(),
+        portfolio=portfolio,
+        charts=management_chart_series(management, portfolio, non_sap),
+        **management, **non_sap,
     )
 
 
@@ -678,21 +693,6 @@ def download_portfolio_management_presentation():
     else:
         return send_file(output, mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation", as_attachment=True, download_name=filename, max_age=0)
     return redirect(fallback)
-
-
-@quality_control_bp.route("/analytics")
-@login_required
-@module_access_required("quality_control")
-@quality_control_admin_required
-def management_analytics():
-    from app.core.services.sap_quality_control import (
-        non_sap_register_data, sap_management_data, sap_portfolio_analytics,
-    )
-    return render_template(
-        "quality_control/management_analytics.html",
-        portfolio=sap_portfolio_analytics(),
-        **sap_management_data(), **non_sap_register_data(),
-    )
 
 
 @quality_control_bp.route("/management-report.pdf")

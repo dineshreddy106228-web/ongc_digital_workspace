@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "quality_control/_qc_nav.html" import qc_nav with context %}
-{% block title %}QC SAP Management Review{% endblock %}
+{% block title %}QC Management Review & Analytics{% endblock %}
 {% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/quality_control.css') }}">{% endblock %}
 {% block content %}
 <div class="page-wrapper mod-page qc-review-page">
@@ -8,8 +8,8 @@
   <div class="mod-page-head is-stacked-actions">
     <div>
       <div class="qc-lab-eyebrow"><span class="qc-live-dot"></span> Corporate Chemistry · SAP-authoritative daily review</div>
-      <h1 class="mod-page-title"><i class="bi bi-easel2"></i> QC Laboratory Management Review</h1>
-      <p class="mod-page-sub">{{ source_as_of_label }}. Every metric and line item below comes from the latest paired SAP Inspection Lots and Notifications export for each laboratory.</p>
+      <h1 class="mod-page-title"><i class="bi bi-easel2"></i> QC Management Review &amp; Analytics</h1>
+      <p class="mod-page-sub">{{ source_as_of_label }}. The position is read from the latest paired SAP Inspection Lots and Notifications export for each laboratory; the performance tab reads the whole recorded load.</p>
     </div>
     <div class="mod-page-actions">
       <a class="btn btn-secondary" href="{{ url_for('quality_control.landing') }}"><i class="bi bi-grid"></i> Monitoring home</a>
@@ -26,6 +26,17 @@
 
   {% if missing_snapshots %}<div class="qc-period-missing-notice qc-review-missing-notice"><i class="bi bi-exclamation-triangle-fill"></i><span><strong>{{ missing_snapshots|length }} configured SAP laboratory{{ '' if missing_snapshots|length == 1 else 'ies' }} have no snapshot yet.</strong> {% for review in missing_snapshots %}{{ review.laboratory.name }}{% if not loop.last %}; {% endif %}{% endfor %}. They are not represented in the figures below.</span></div>{% endif %}
 
+  {# Three denominators, three tabs. The position is one snapshot, performance
+     is every record ever imported, and the non-SAP register is not SAP data at
+     all — tabs keep a reader from carrying a number across that line. #}
+  <div class="qc-mr-tabs" role="tablist" aria-label="Management view">
+    <button class="qc-mr-tab is-active" type="button" role="tab" id="tab-position" aria-controls="panel-position" aria-selected="true" data-mr-tab="position"><i class="bi bi-clipboard-pulse"></i> Position <small>current SAP snapshot</small></button>
+    <button class="qc-mr-tab" type="button" role="tab" id="tab-performance" aria-controls="panel-performance" aria-selected="false" tabindex="-1" data-mr-tab="performance"><i class="bi bi-graph-up"></i> Performance <small>whole recorded load</small></button>
+    <button class="qc-mr-tab" type="button" role="tab" id="tab-non-sap" aria-controls="panel-non-sap" aria-selected="false" tabindex="-1" data-mr-tab="non-sap"><i class="bi bi-clipboard-plus"></i> Non-SAP register <small>lab-declared work</small></button>
+  </div>
+
+  {# ══ POSITION ══════════════════════════════════════════════════════ #}
+  <section class="qc-mr-panel" id="panel-position" role="tabpanel" aria-labelledby="tab-position" data-mr-panel="position">
   <section class="mod-stats" aria-label="SAP portfolio position">
     <div class="mod-stat"><span>SAP monitoring records</span><strong>{{ kpis.total }}</strong><small>{{ reporting_labs }}/{{ configured_labs }} laboratories with a current snapshot</small></div>
     <div class="mod-stat mod-stat-danger"><span>Actionable SAP-open</span><strong>{{ kpis.actionable_open }}</strong><small>{{ kpis.excluded }} QC-admin exclusion{{ '' if kpis.excluded == 1 else 's' }} held outside monitoring</small></div>
@@ -34,7 +45,34 @@
     <div class="mod-stat mod-stat-success"><span>UD A / UD R</span><strong>{{ kpis.accepted }} / {{ kpis.rejected }}</strong><small>accepted / rejected in SAP</small></div>
     <div class="mod-stat mod-stat-info"><span>Completed without UD details</span><strong>{{ kpis.completed_without_ud_details }}</strong><small>notification closure; no paired QA33 lot row</small></div>
     <div class="mod-stat"><span>Officially completed</span><strong>{{ kpis.completed }}</strong><small>completion recorded in SAP</small></div>
+    <div class="mod-stat"><span>QC-admin excluded</span><strong>{{ kpis.excluded }}</strong><small>{{ kpis.exclusion_review }} need renewed review</small></div>
   </section>
+
+  {% if charts %}
+  <div class="qc-mr-chart-grid">
+    <section class="card qc-mr-chart-card"><div class="card-body">
+      <div class="qc-review-section-heading">
+        <div><span class="qc-section-label"><i class="bi bi-bar-chart-steps"></i> Open workload</span><h2>Actionable SAP-open by laboratory</h2><p>Both readings total the same bar. Click a laboratory to open its SAP dashboard.</p></div>
+        <div class="qc-mr-seg" role="group" aria-label="Segment the open workload">
+          <button class="qc-mr-seg-btn is-active" type="button" data-mr-segment="response">Response</button>
+          <button class="qc-mr-seg-btn" type="button" data-mr-segment="timing">Timing</button>
+        </div>
+      </div>
+      <div class="qc-mr-canvas is-tall"><canvas id="mrWorkload" aria-label="Actionable SAP-open records by laboratory" role="img"></canvas></div>
+      {# A canvas takes no keyboard focus, so the same destinations are repeated
+         as real links underneath. #}
+      <div class="qc-mr-chart-links" aria-label="Open a laboratory SAP dashboard">
+        {% for review in laboratory_reviews if review.batch %}<a href="{{ url_for('quality_control.sap_lab_dashboard', lab_code=review.laboratory.code) }}">{{ review.laboratory.name }} <b>{{ review.kpis.actionable_open }}</b></a>{% endfor %}
+      </div>
+    </div></section>
+
+    <section class="card qc-mr-chart-card"><div class="card-body">
+      <div class="qc-review-section-heading"><div><span class="qc-section-label"><i class="bi bi-pie-chart"></i> Usage decisions</span><h2>UD recorded in SAP</h2><p>UD A is accepted and UD R is rejected. No decision is inferred where SAP has not recorded one.</p></div></div>
+      <div class="qc-mr-canvas"><canvas id="mrUsage" aria-label="Usage decisions recorded in SAP" role="img"></canvas></div>
+      <div class="qc-mr-chart-links" aria-label="Usage decision counts">{% for item in usage_decisions %}<span>{{ item.label }} <b>{{ item.count }}</b></span>{% endfor %}</div>
+    </div></section>
+  </div>
+  {% endif %}
 
   <section class="card qc-review-table-card"><div class="card-body">
     <div class="qc-review-section-heading"><div><span class="qc-section-label"><i class="bi bi-buildings"></i> Daily snapshot coverage</span><h2>Laboratory SAP position</h2><p>One row for each SAP-routed laboratory. No local-workbook data is blended into these counts.</p></div><span class="qc-review-count-chip">{{ reporting_labs }} snapshots</span></div>
@@ -43,21 +81,154 @@
 
   <section id="attention-register" class="qc-overdue-card card qc-review-attention"><div class="card-body"><div class="qc-section-title"><div><span class="qc-section-eyebrow">Leadership attention register</span><h2 class="mod-card-title">All actionable SAP-open items</h2><p class="mod-card-sub">The complete daily action queue, sorted with items past their Corporate Specification STT first. Excluded notifications are intentionally not shown.</p></div><span class="qc-overdue-count">{{ action_entries|length }} SAP-open</span></div>{% if action_entries %}<div class="mod-table-wrap"><table class="mod-table qc-review-table"><thead><tr><th>Laboratory</th><th>Inspection lot / notification</th><th>Material</th><th>Work center</th><th>STT due</th><th>Official SAP position</th><th>Returned laboratory follow-up</th></tr></thead><tbody>{% for item in action_entries %}{% set record = item.record %}<tr><td><span class="qc-lab-table-label">{{ item.laboratory.name }}</span></td><td><strong>{{ record.inspection_lot_number or 'No inspection lot' }}</strong><div class="mod-cell-meta">{{ record.notification_no or 'No notification' }}</div></td><td class="qc-management-lab-name">{{ record.material_description or 'Material not stated in SAP' }}<div class="mod-cell-meta">{{ record.material_code or 'Material code not stated' }}</div></td><td>{{ record.work_center or 'Not assigned in SAP' }}</td><td class="{{ 'text-danger' if item.stt_overdue else '' }}">{% if item.stt_due_date %}{{ item.stt_due_date.strftime('%d %b %Y') }}<div class="mod-cell-meta">STT {{ item.stt_days }} d{% if item.stt_overdue %} · {{ item.stt_variance_days }} d over{% endif %}</div>{% elif item.stt_days is not none %}STT {{ item.stt_days }} d<div class="mod-cell-meta">Start date not stated</div>{% else %}STT not defined{% endif %}</td><td><span class="qc-review-result qc-review-result-under_testing">Open in SAP</span><div class="mod-cell-meta">{{ record.sap_lot_status or record.sap_system_status or 'Status not stated' }}</div></td><td>{{ item.reconciliation_label }}{% if item.lab_update and item.lab_update.expected_completion_date %}<div class="mod-cell-meta">ETA {{ item.lab_update.expected_completion_date.strftime('%d %b %Y') }}</div>{% endif %}{% if item.lab_update and item.lab_update.update_note %}<div class="mod-cell-meta">{{ item.lab_update.update_note }}</div>{% endif %}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="qc-clear-state"><i class="bi bi-check-circle-fill"></i> No actionable SAP-open item is present in the uploaded snapshots.</p>{% endif %}</div></section>
 
+  <section class="card qc-review-table-card"><div class="card-body"><div class="qc-review-section-heading"><div><span class="qc-section-label"><i class="bi bi-diagram-3"></i> Capacity exposure</span><h2>Open workload by SAP work center</h2><p>Capacity and response exposure in the active SAP queue.</p></div><span class="qc-review-count-chip">{{ work_centers|length }} work centers</span></div><div class="mod-table-wrap"><table class="mod-table qc-review-table"><thead><tr><th>SAP work center</th><th>Laboratories</th><th>Actionable open</th><th>Past STT</th><th>Awaiting lab update</th></tr></thead><tbody>{% for item in work_centers %}<tr><td class="qc-management-lab-name">{{ item.name }}</td><td>{% for laboratory in item.laboratories %}<span class="qc-lab-table-label">{{ laboratory }}</span>{% endfor %}</td><td>{{ item.open }}</td><td class="{{ 'text-danger' if item.stt_overdue else '' }}">{{ item.stt_overdue }}</td><td>{{ item.awaiting_lab }}</td></tr>{% else %}<tr><td colspan="5" class="qc-clear-state">No actionable SAP-open records are present.</td></tr>{% endfor %}</tbody></table></div></div></section>
+
+  <section class="card qc-review-table-card"><div class="card-body"><div class="qc-review-section-heading"><div><span class="qc-section-label"><i class="bi bi-box-seam"></i> Action queue by material</span><h2>Materials requiring SAP action</h2><p>Material grouping comes directly from the current SAP record set; it is not a local product-performance score.</p></div><span class="qc-review-count-chip">{{ materials|length }} materials</span></div><div class="mod-table-wrap"><table class="mod-table qc-review-table"><thead><tr><th>Material</th><th>Laboratories</th><th>Work centers</th><th>Actionable open</th><th>Past STT</th><th>Awaiting lab update</th></tr></thead><tbody>{% for item in materials %}<tr><td class="qc-management-lab-name">{{ item.material_description }}<div class="mod-cell-meta">{{ item.material_code }}</div></td><td>{% for laboratory in item.laboratories %}<span class="qc-lab-table-label">{{ laboratory }}</span>{% endfor %}</td><td>{{ item.work_centers|join(', ') }}</td><td>{{ item.open }}</td><td class="{{ 'text-danger' if item.stt_overdue else '' }}">{{ item.stt_overdue }}</td><td>{{ item.awaiting_lab }}</td></tr>{% else %}<tr><td colspan="6" class="qc-clear-state">No material currently requires SAP follow-up.</td></tr>{% endfor %}</tbody></table></div></div></section>
+
   {% if completed_without_ud_entries %}
   <section class="card qc-review-table-card"><div class="card-body"><div class="qc-review-section-heading"><div><span class="qc-section-label"><i class="bi bi-info-circle"></i> Notification-only closure register</span><h2>Completed without inspection-lot / UD details</h2><p>These notifications have a Completion Date and state an inspection-lot number, but their lot is absent from the paired QA33 export. They are not included in UD A or UD R.</p></div><span class="qc-review-count-chip">{{ completed_without_ud_entries|length }} records</span></div><div class="mod-table-wrap"><table class="mod-table qc-review-table"><thead><tr><th>Laboratory</th><th>Notification / stated lot</th><th>Material</th><th>Notification completion</th><th>SAP position</th></tr></thead><tbody>{% for item in completed_without_ud_entries %}{% set record = item.record %}<tr><td class="qc-management-lab-name">{{ item.laboratory.name }}<div class="mod-cell-meta">Plant {{ record.plant_code }}</div></td><td><strong>{{ record.notification_no or 'No notification' }}</strong><div class="mod-cell-meta">Stated lot {{ record.inspection_lot_number or 'not supplied' }}</div></td><td class="qc-management-lab-name">{{ record.material_description or 'Material not stated in SAP' }}<div class="mod-cell-meta">{{ record.material_code or 'Material code not stated' }}</div></td><td>{{ record.completion_date.strftime('%d %b %Y') }}</td><td><span class="qc-review-result qc-review-result-passed">Notification complete</span><div class="mod-cell-meta">No paired QA33 lot row · no UD details</div></td></tr>{% endfor %}</tbody></table></div></div></section>
   {% endif %}
 
+  <section class="card qc-review-table-card"><div class="card-body"><div class="qc-review-section-heading"><div><span class="qc-section-label"><i class="bi bi-arrow-left-right"></i> SAP snapshot movement</span><h2>Change from the prior SAP upload</h2><p>Raw SAP-open figures are compared only with the previous retained SAP snapshot for the same laboratory.</p></div></div>
+    {% if charts %}<div class="qc-mr-canvas is-wide"><canvas id="mrMovement" aria-label="Previous against current SAP-open records by laboratory" role="img"></canvas></div>{% endif %}
+    <div class="mod-table-wrap"><table class="mod-table qc-review-table"><thead><tr><th>Laboratory</th><th>Current snapshot</th><th>Current SAP-open</th><th>Previous snapshot</th><th>Previous SAP-open</th><th>Change</th></tr></thead><tbody>{% for item in trend %}<tr><td class="qc-management-lab-name">{{ item.laboratory.name }}</td><td>{{ item.batch.as_of_date.strftime('%d %b %Y') }}</td><td>{{ item.current_open }}</td><td>{% if item.previous_batch %}{{ item.previous_batch.as_of_date.strftime('%d %b %Y') }}{% else %}—{% endif %}</td><td>{{ item.previous_open if item.previous_open is not none else '—' }}</td><td class="{{ 'text-danger' if item.open_change and item.open_change > 0 else 'text-success' if item.open_change is not none and item.open_change < 0 else '' }}">{% if item.open_change is not none %}{{ '+' if item.open_change > 0 else '' }}{{ item.open_change }}{% else %}First snapshot{% endif %}</td></tr>{% else %}<tr><td colspan="6" class="qc-clear-state">No SAP snapshot has been uploaded yet.</td></tr>{% endfor %}</tbody></table></div>
+  </div></section>
+  </section>
+
+  {# ══ PERFORMANCE ═══════════════════════════════════════════════════ #}
+  <section class="qc-mr-panel" id="panel-performance" role="tabpanel" aria-labelledby="tab-performance" data-mr-panel="performance" hidden>
+  <section class="card qc-analytics-section"><div class="card-body">
+    <div class="qc-review-section-heading"><div><span class="qc-section-label"><i class="bi bi-archive"></i> Whole recorded sample load</span><h2>Portfolio analysis</h2><p>Every SAP record ever imported, not only the current snapshot — a completed sample leaves the daily snapshot, so its outcome can only be counted here. Rates are taken over samples SAP has actually decided; an open sample is not a pass.</p></div><span class="qc-lab-count">{{ portfolio.totals.total }} samples recorded</span></div>
+    {% if portfolio.has_data %}
+    <div class="mod-stats">
+      <div class="mod-stat"><span>Samples recorded</span><strong>{{ portfolio.totals.total }}</strong><small>{{ portfolio.material_total }} distinct materials</small></div>
+      <div class="mod-stat"><span>Completed in SAP</span><strong>{{ portfolio.totals.completed }}</strong><small>{{ portfolio.totals.open }} still open</small></div>
+      <div class="mod-stat mod-stat-success"><span>Accepted</span><strong>{{ portfolio.totals.accepted }}</strong><small>usage decision A</small></div>
+      <div class="mod-stat mod-stat-danger"><span>Rejected</span><strong>{{ portfolio.totals.rejected }}</strong><small>usage decision R</small></div>
+      <div class="mod-stat {{ 'mod-stat-danger' if portfolio.totals.rejection_rate and portfolio.totals.rejection_rate >= 10 else '' }}"><span>Portfolio failure rate</span><strong>{% if portfolio.totals.rejection_rate is not none %}{{ portfolio.totals.rejection_rate }}%{% else %}—{% endif %}</strong><small>of {{ portfolio.totals.decided }} decided samples</small></div>
+      <div class="mod-stat"><span>Median turnaround</span><strong>{% if portfolio.totals.median_turnaround_days is not none %}{{ portfolio.totals.median_turnaround_days }} d{% else %}—{% endif %}</strong><small>SAP receipt to completion, {{ portfolio.totals.turnaround_measured }} measured</small></div>
+    </div>
+    {% else %}
+    <p class="qc-clear-state">No SAP records have been imported yet, so there is no sample load to analyse.</p>
+    {% endif %}
+  </div></section>
+
+  {% if portfolio.has_data %}
+  <section class="card qc-analytics-section"><div class="card-body">
+    <div class="qc-review-section-heading"><div><h2>Laboratory performance</h2><p class="mod-card-sub">Ranked by how often a laboratory completes within the Corporate Specification testing time — the part a laboratory controls. A laboratory’s rejection rate reflects the materials it happens to receive, so it is reported beside the ranking rather than as part of it.</p></div><span class="qc-lab-count">{{ portfolio.laboratories|length }} laboratories</span></div>
+    {% if charts %}<div class="qc-mr-canvas is-tall"><canvas id="mrLabStt" aria-label="Within-STT completion rate by laboratory" role="img"></canvas></div>{% endif %}
+    <div class="mod-table-wrap"><table class="mod-table"><thead><tr><th scope="col">Laboratory</th><th scope="col">Samples</th><th scope="col">Completed</th><th scope="col">Within STT</th><th scope="col">Median turnaround</th><th scope="col">Rejection rate</th></tr></thead><tbody>
+    {% for item in portfolio.laboratories %}<tr>
+      <td class="qc-management-lab-name">{{ item.laboratory.name }}<div class="mod-cell-meta">{{ item.laboratory.location }}</div></td>
+      <td>{{ item.total }}<div class="mod-cell-meta">{{ item.open }} open</div></td>
+      <td>{{ item.completed }}</td>
+      <td>{% if item.stt_on_time_rate is not none %}<strong class="{{ 'text-success' if item.stt_on_time_rate >= 80 else 'text-danger' if item.stt_on_time_rate < 50 else '' }}">{{ item.stt_on_time_rate }}%</strong><div class="mod-cell-meta">{{ item.within_stt }} of {{ item.stt_measured }} measured</div>{% else %}<span class="mod-cell-meta">Not yet measurable</span>{% endif %}</td>
+      <td>{% if item.median_turnaround_days is not none %}{{ item.median_turnaround_days }} d{% else %}—{% endif %}</td>
+      <td>{% if item.rejection_rate is not none %}{{ item.rejection_rate }}%<div class="mod-cell-meta">{{ item.rejected }} of {{ item.decided }} decided</div>{% else %}<span class="mod-cell-meta">No decisions yet</span>{% endif %}</td>
+    </tr>{% else %}<tr><td colspan="6" class="qc-clear-state">No laboratory has recorded a sample yet.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </div></section>
+
+  <section class="card qc-analytics-section"><div class="card-body">
+    <div class="qc-review-section-heading"><div><h2>Chemicals by sample load</h2><p class="mod-card-sub">Which materials the laboratories actually spend their capacity on, across the whole recorded load.</p></div><span class="qc-lab-count">Top {{ portfolio.materials_by_load|length }} of {{ portfolio.material_total }}</span></div>
+    {% if charts %}<div class="qc-mr-canvas is-tall"><canvas id="mrMaterialLoad" aria-label="Leading materials by recorded sample load" role="img"></canvas></div>{% endif %}
+    <div class="mod-table-wrap"><table class="mod-table"><thead><tr><th scope="col">Material</th><th scope="col">Corporate Specification</th><th scope="col">Samples</th><th scope="col">Laboratories</th><th scope="col">Rejection rate</th><th scope="col">Median turnaround</th></tr></thead><tbody>
+    {% for item in portfolio.materials_by_load %}<tr>
+      <td class="qc-management-lab-name">{{ item.material_description }}<div class="mod-cell-meta">{{ item.material_code }}</div></td>
+      <td>{% if item.specification_match %}{{ item.specification_no }}<div class="mod-cell-meta">{{ item.subgroup_label }}</div>{% else %}<span class="mod-cell-meta">{{ item.subgroup_label }}</span>{% endif %}</td>
+      <td><strong>{{ item.total }}</strong><div class="mod-cell-meta">{{ item.open }} open</div></td>
+      <td>{{ item.laboratory_count }}</td>
+      <td>{% if item.rejection_rate is not none %}<span class="{{ 'text-danger' if item.rejection_rate >= 20 else '' }}">{{ item.rejection_rate }}%</span><div class="mod-cell-meta">{{ item.rejected }} of {{ item.decided }} decided</div>{% else %}<span class="mod-cell-meta">No decisions yet</span>{% endif %}</td>
+      <td>{% if item.median_turnaround_days is not none %}{{ item.median_turnaround_days }} d{% else %}—{% endif %}</td>
+    </tr>{% endfor %}
+    </tbody></table></div>
+  </div></section>
+
+  <section class="card qc-analytics-section"><div class="card-body">
+    <div class="qc-review-section-heading"><div><h2>Chemicals by failure rate</h2><p class="mod-card-sub">Ranked on rejections as a share of decided samples. A material needs at least {{ portfolio.min_decisions }} recorded usage decisions to be ranked here — one rejection out of one is not a 100% failure rate. This is a signal about the material and its supplier, not about the laboratory that tested it.</p></div><span class="qc-lab-count">{{ portfolio.ranked_failure_total }} materials qualify</span></div>
+    {% if charts and portfolio.materials_by_failure %}<div class="qc-mr-canvas is-tall"><canvas id="mrMaterialFailure" aria-label="Materials ranked by rejection rate" role="img"></canvas></div>{% endif %}
+    <div class="mod-table-wrap"><table class="mod-table"><thead><tr><th scope="col">Material</th><th scope="col">Corporate Specification</th><th scope="col">Failure rate</th><th scope="col">Rejected</th><th scope="col">Accepted</th><th scope="col">Samples</th></tr></thead><tbody>
+    {% for item in portfolio.materials_by_failure %}<tr>
+      <td class="qc-management-lab-name">{{ item.material_description }}<div class="mod-cell-meta">{{ item.material_code }}</div></td>
+      <td>{% if item.specification_match %}{{ item.specification_no }}<div class="mod-cell-meta">{{ item.subgroup_label }}</div>{% else %}<span class="mod-cell-meta">{{ item.subgroup_label }}</span>{% endif %}</td>
+      <td><strong class="{{ 'text-danger' if item.rejection_rate >= 20 else '' }}">{{ item.rejection_rate }}%</strong></td>
+      <td>{{ item.rejected }}</td>
+      <td>{{ item.accepted }}</td>
+      <td>{{ item.total }}</td>
+    </tr>{% else %}<tr><td colspan="6" class="qc-clear-state">No material has reached {{ portfolio.min_decisions }} recorded usage decisions yet, so no failure rate can be ranked.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </div></section>
+
+  <section class="card qc-analytics-section"><div class="card-body">
+    <div class="qc-review-section-heading"><div><h2>Load by Corporate Specification sub-group</h2><p class="mod-card-sub">Where the portfolio’s testing effort sits by chemical category, and how each category is deciding.</p></div><span class="qc-lab-count">{{ portfolio.subgroups|length }} sub-groups</span></div>
+    {% if charts %}<div class="qc-mr-canvas"><canvas id="mrSubgroups" aria-label="Recorded sample load by Corporate Specification sub-group" role="img"></canvas></div>{% endif %}
+    <div class="mod-table-wrap"><table class="mod-table"><thead><tr><th scope="col">Sub-group</th><th scope="col">Samples</th><th scope="col">Materials</th><th scope="col">Completed</th><th scope="col">Rejection rate</th><th scope="col">Median turnaround</th></tr></thead><tbody>
+    {% for item in portfolio.subgroups %}<tr>
+      <td class="qc-management-lab-name">{{ item.label }}</td>
+      <td><strong>{{ item.total }}</strong><div class="mod-cell-meta">{{ item.open }} open</div></td>
+      <td>{{ item.material_count }}</td>
+      <td>{{ item.completed }}</td>
+      <td>{% if item.rejection_rate is not none %}<span class="{{ 'text-danger' if item.rejection_rate >= 20 else '' }}">{{ item.rejection_rate }}%</span><div class="mod-cell-meta">{{ item.rejected }} of {{ item.decided }} decided</div>{% else %}<span class="mod-cell-meta">No decisions yet</span>{% endif %}</td>
+      <td>{% if item.median_turnaround_days is not none %}{{ item.median_turnaround_days }} d{% else %}—{% endif %}</td>
+    </tr>{% endfor %}
+    </tbody></table></div>
+  </div></section>
+  {% endif %}
+  </section>
+
+  {# ══ NON-SAP REGISTER ══════════════════════════════════════════════ #}
+  <section class="qc-mr-panel" id="panel-non-sap" role="tabpanel" aria-labelledby="tab-non-sap" data-mr-panel="non-sap" hidden>
   <section id="non-sap-register" class="card qc-review-table-card"><div class="card-body">
-    <div class="qc-review-section-heading"><div><span class="qc-section-label"><i class="bi bi-clipboard-plus"></i> Controlled non-SAP register</span><h2>Work the laboratories carry outside SAP</h2><p>These samples are deliberately not SAP records and are not part of the position above — an outcome here is the laboratory’s declared result, not an SAP usage decision. They are shown so the portfolio’s real load is visible.</p></div><span class="qc-lab-count">{{ non_sap_kpis.pending }} pending · {{ non_sap_kpis.total }} recorded</span></div>
+    <div class="qc-review-section-heading"><div><span class="qc-section-label"><i class="bi bi-clipboard-plus"></i> Controlled non-SAP register</span><h2>Work the laboratories carry outside SAP</h2><p>These samples are deliberately not SAP records and are never merged into the position or the performance figures — an outcome here is the laboratory’s declared result, not an SAP usage decision. They are shown so the portfolio’s real load is visible.</p></div><span class="qc-lab-count">{{ non_sap_kpis.pending }} pending · {{ non_sap_kpis.total }} recorded</span></div>
     {% if non_sap_kpis.total %}
     <div class="mod-stats">
-      <div class="mod-stat"><span>Recorded</span><strong>{{ non_sap_kpis.total }}</strong><small>across {{ non_sap_by_laboratory|length }} laboratories</small></div>
+      <div class="mod-stat"><span>Recorded</span><strong>{{ non_sap_kpis.total }}</strong><small>{{ non_sap_chemical_total }} distinct chemicals across {{ non_sap_by_laboratory|length }} laboratories</small></div>
+      <div class="mod-stat"><span>Still pending</span><strong>{{ non_sap_kpis.pending }}</strong><small>not yet closed by a laboratory</small></div>
       <div class="mod-stat {{ 'mod-stat-danger' if non_sap_kpis.overdue else '' }}"><span>Past expected completion</span><strong>{{ non_sap_kpis.overdue }}</strong><small>still open beyond the declared date</small></div>
       <div class="mod-stat {{ 'mod-stat-warning' if non_sap_kpis.no_expected_date else '' }}"><span>No expected date</span><strong>{{ non_sap_kpis.no_expected_date }}</strong><small>open with no completion committed</small></div>
       <div class="mod-stat mod-stat-success"><span>Closed — pass</span><strong>{{ non_sap_kpis.closed_pass }}</strong><small>laboratory-declared</small></div>
       <div class="mod-stat mod-stat-danger"><span>Closed — fail</span><strong>{{ non_sap_kpis.closed_fail }}</strong><small>laboratory-declared</small></div>
       <div class="mod-stat"><span>Declared fail rate</span><strong>{% if non_sap_kpis.fail_rate is not none %}{{ non_sap_kpis.fail_rate }}%{% else %}—{% endif %}</strong><small>of {{ non_sap_kpis.closed }} closed samples</small></div>
     </div>
+
+    {% if charts %}
+    <div class="qc-mr-chart-grid">
+      <div class="qc-mr-chart-inset">
+        <h3 class="mod-card-title">Non-SAP load by laboratory</h3>
+        <div class="qc-mr-canvas is-tall"><canvas id="mrNonSapLabs" aria-label="Non-SAP register load by laboratory" role="img"></canvas></div>
+      </div>
+      <div class="qc-mr-chart-inset">
+        <h3 class="mod-card-title">Declared status</h3>
+        <div class="qc-mr-canvas"><canvas id="mrNonSapStatus" aria-label="Declared status of non-SAP work" role="img"></canvas></div>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="qc-review-section-heading" style="margin-top:1.1rem"><div><h3 class="mod-card-title">Non-SAP load by laboratory</h3></div></div>
+    <div class="mod-table-wrap"><table class="mod-table"><thead><tr><th scope="col">Laboratory</th><th scope="col">Recorded</th><th scope="col">Pending</th><th scope="col">Past expected date</th><th scope="col">Closed pass</th><th scope="col">Closed fail</th></tr></thead><tbody>
+    {% for item in non_sap_by_laboratory %}<tr>
+      <td class="qc-management-lab-name">{{ item.laboratory.name }}</td>
+      <td><strong>{{ item.total }}</strong></td>
+      <td>{{ item.pending }}</td>
+      <td class="{{ 'text-danger' if item.overdue else '' }}">{{ item.overdue }}</td>
+      <td>{{ item.closed_pass }}</td>
+      <td class="{{ 'text-danger' if item.closed_fail else '' }}">{{ item.closed_fail }}</td>
+    </tr>{% endfor %}
+    </tbody></table></div>
+
+    <div class="qc-review-section-heading" style="margin-top:1.1rem"><div><h3 class="mod-card-title">Non-SAP chemicals</h3><p class="mod-card-sub">Which chemicals arrive without an SAP record.</p></div><span class="qc-lab-count">Top {{ non_sap_chemicals|length }} of {{ non_sap_chemical_total }}</span></div>
+    <div class="mod-table-wrap"><table class="mod-table"><thead><tr><th scope="col">Chemical</th><th scope="col">Laboratories</th><th scope="col">Samples</th><th scope="col">Pending</th><th scope="col">Closed</th><th scope="col">Declared fails</th></tr></thead><tbody>
+    {% for item in non_sap_chemicals %}<tr>
+      <td class="qc-management-lab-name">{{ item.chemical_name }}</td>
+      <td>{% for laboratory in item.laboratories %}<span class="qc-lab-table-label">{{ laboratory }}</span>{% endfor %}</td>
+      <td><strong>{{ item.total }}</strong></td>
+      <td>{{ item.pending }}</td>
+      <td>{{ item.closed }}</td>
+      <td class="{{ 'text-danger' if item.failed else '' }}">{{ item.failed }}</td>
+    </tr>{% endfor %}
+    </tbody></table></div>
+
+    <div class="qc-review-section-heading" style="margin-top:1.1rem"><div><h3 class="mod-card-title">Every recorded non-SAP sample</h3><p class="mod-card-sub">The full register, oldest commitment first, with still-running work above closed history.</p></div><span class="qc-lab-count">{{ non_sap_entries|length }} samples</span></div>
     <div class="mod-table-wrap"><table class="mod-table"><thead><tr><th scope="col">Laboratory</th><th scope="col">Sample</th><th scope="col">Chemical</th><th scope="col">Declared status</th><th scope="col">Owner</th><th scope="col">Expected completion</th><th scope="col">Age</th></tr></thead><tbody>
     {% for item in non_sap_entries %}{% set sample = item.sample %}<tr class="{{ 'qc-sap-record-overdue' if item.is_overdue }}">
       <td class="qc-management-lab-name">{{ item.laboratory.name }}</td>
@@ -73,7 +244,20 @@
     <p class="qc-clear-state">No laboratory has recorded a non-SAP sample. Every sample in the portfolio is currently an SAP record.</p>
     {% endif %}
   </div></section>
-
-  <section class="card qc-review-table-card"><div class="card-body"><div class="qc-review-section-heading"><div><span class="qc-section-label"><i class="bi bi-arrow-left-right"></i> SAP snapshot movement</span><h2>Change from the prior SAP upload</h2><p>Raw SAP-open figures are compared only with the previous retained SAP snapshot for the same laboratory.</p></div></div><div class="mod-table-wrap"><table class="mod-table qc-review-table"><thead><tr><th>Laboratory</th><th>Current snapshot</th><th>Current SAP-open</th><th>Previous snapshot</th><th>Previous SAP-open</th><th>Change</th></tr></thead><tbody>{% for item in trend %}<tr><td class="qc-management-lab-name">{{ item.laboratory.name }}</td><td>{{ item.batch.as_of_date.strftime('%d %b %Y') }}</td><td>{{ item.current_open }}</td><td>{% if item.previous_batch %}{{ item.previous_batch.as_of_date.strftime('%d %b %Y') }}{% else %}—{% endif %}</td><td>{{ item.previous_open if item.previous_open is not none else '—' }}</td><td class="{{ 'text-danger' if item.open_change and item.open_change > 0 else 'text-success' if item.open_change is not none and item.open_change < 0 else '' }}">{% if item.open_change is not none %}{{ '+' if item.open_change > 0 else '' }}{{ item.open_change }}{% else %}First snapshot{% endif %}</td></tr>{% endfor %}</tbody></table></div></div></section>
+  </section>
 </div>
+{% endblock %}
+{% block scripts_extra %}
+{% if charts %}
+{# The data must be assigned before the module runs — it reads both globals
+   at load and does nothing if they are missing. #}
+{% set lab_urls = {} %}{% for review in laboratory_reviews if review.batch %}{% set _ = lab_urls.update({
+  review.laboratory.name: url_for('quality_control.sap_lab_dashboard', lab_code=review.laboratory.code)
+}) %}{% endfor %}
+<script nonce="{{ csp_nonce() }}">window.QC_MANAGEMENT_CHARTS = {{ charts|tojson }};
+window.QC_LAB_DASHBOARD_URLS = {{ lab_urls|tojson }};
+</script>
+<script nonce="{{ csp_nonce() }}" src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script nonce="{{ csp_nonce() }}" src="{{ url_for('static', filename='js/qc_management_charts.js') }}"></script>
+{% endif %}
 {% endblock %}

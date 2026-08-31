@@ -9,7 +9,6 @@
   {% if qc_can_control %}
   <a class="{{ 'is-active' if active == 'sap' }}" href="{{ url_for('quality_control.sap_control') }}"><i class="bi bi-cloud-arrow-down"></i><span>SAP Control Tower</span></a>
   <a class="{{ 'is-active' if active == 'review' }}" href="{{ url_for('quality_control.portfolio_management_review') }}"><i class="bi bi-easel2"></i><span>Management Review</span></a>
-  <a class="{{ 'is-active' if active == 'analytics' }}" href="{{ url_for('quality_control.management_analytics') }}"><i class="bi bi-bar-chart-line"></i><span>Management Analytics</span></a>
   <a class="{{ 'is-active' if active == 'standards' }}" href="{{ url_for('quality_control.testing_standards') }}"><i class="bi bi-sliders"></i><span>Administration</span></a>
   {% endif %}
 </nav>

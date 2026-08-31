@@ -232,7 +232,7 @@ def test_corporate_qc_screens_are_not_reachable_by_a_reporting_laboratory(admin_
     from app.models.core.user_module_permission import UserModulePermission
     from app.modules.quality_control.routes import (
         data_import, download_management_report, download_sap_lab_presentation,
-        management_analytics, portfolio_management_review, sap_control,
+        portfolio_management_review, sap_control,
     )
 
     user, _role = _plain_user()
@@ -252,7 +252,7 @@ def test_corporate_qc_screens_are_not_reachable_by_a_reporting_laboratory(admin_
 
     corporate_views = (
         data_import, sap_control,
-        portfolio_management_review, management_analytics, download_management_report,
+        portfolio_management_review, download_management_report,
     )
     with admin_app.test_request_context("/quality-control/sap-control/labs/rgl_vadodara/presentation.pptx"):
         login_user(user)

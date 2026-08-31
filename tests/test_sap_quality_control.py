@@ -899,8 +899,10 @@ def test_management_data_uses_latest_sap_records_and_excludes_non_sap_rows(sap_a
 
 def test_management_separates_completed_notification_only_records_without_ud_details(sap_app):
     from flask import render_template
+    from app.core.services.qc_management_charts import management_chart_series
     from app.core.services.sap_quality_control import (
         import_sap_panvel_exports, non_sap_register_data, sap_management_data,
+        sap_portfolio_analytics,
     )
     from app.models.quality_control.qc_sap_monitoring import QCSAPRecord
 
@@ -919,10 +921,14 @@ def test_management_separates_completed_notification_only_records_without_ud_det
     assert data["kpis"]["completed_without_ud_details"] == 1
     assert [item["record"].notification_no for item in data["completed_without_ud_entries"]] == ["7003"]
     assert data["completed_without_ud_entries"][0]["record"].inspection_lot_number == "890000004999"
+    non_sap = non_sap_register_data()
+    portfolio = sap_portfolio_analytics()
     with sap_app.test_request_context("/quality-control/management-review"):
         page = render_template(
             "quality_control/portfolio_management_review.html",
-            **data, **non_sap_register_data(),
+            portfolio=portfolio,
+            charts=management_chart_series(data, portfolio, non_sap),
+            **data, **non_sap,
         )
     assert "Completed without inspection-lot / UD details" in page
     assert "No paired QA33 lot row · no UD details" in page
