@@ -20,10 +20,6 @@
     </div>
   </div>
 
-  <section class="card qc-review-controls-card"><div class="card-body">
-    <p class="mod-card-sub mb-0"><i class="bi bi-shield-check"></i> <strong>SAP is the final word.</strong> Local weekly-workbook records, manual laboratory updates and the controlled non-SAP register are not included in this management position. A laboratory response only records follow-up; the next SAP snapshot confirms closure.</p>
-  </div></section>
-
   {% if missing_snapshots %}<div class="qc-period-missing-notice qc-review-missing-notice"><i class="bi bi-exclamation-triangle-fill"></i><span><strong>{{ missing_snapshots|length }} configured SAP laboratory{{ '' if missing_snapshots|length == 1 else 'ies' }} have no snapshot yet.</strong> {% for review in missing_snapshots %}{{ review.laboratory.name }}{% if not loop.last %}; {% endif %}{% endfor %}. They are not represented in the figures below.</span></div>{% endif %}
 
   {# Three denominators, three tabs. The position is one snapshot, performance
