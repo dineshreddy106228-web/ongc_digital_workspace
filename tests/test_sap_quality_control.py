@@ -1136,6 +1136,84 @@ def test_pairing_label_says_what_is_missing_not_which_export_it_came_from():
     assert source_completeness_label(record("some_new_state")) == "Some New State"
 
 
+def test_register_export_splits_by_subgroup_and_exports_every_match(sap_app):
+    """The download is the uncapped answer the page cannot render.
+
+    Work-centre records go to their Corporate Specification sub-group sheet,
+    because that is the axis a chemist reads along. The two source sheets are
+    the exceptions worth chasing, laboratory-wise and newest first.
+    """
+    from openpyxl import load_workbook
+    from app.core.services.qc_register_export import build_sample_register_workbook
+    from app.core.services.sap_quality_control import (
+        import_sap_panvel_exports, sap_sample_register_data,
+    )
+
+    import_sap_panvel_exports(
+        _inspection_export(), "SAP_INSPECTION_20260826.xlsx",
+        _notification_export(), "SAP_NOTIFICATIONS_20260826.xlsx", None,
+    )
+    db.session.commit()
+
+    entries = sap_sample_register_data(limit=None)["entries"]
+    with_centre = [item for item in entries if item["record"].work_center]
+    lot_only = [item for item in entries
+                if item["record"].source_completeness == "inspection_lot_only"]
+    assert with_centre and lot_only
+
+    output, filename = build_sample_register_workbook()
+    assert filename.endswith(".xlsx")
+    workbook = load_workbook(output)
+
+    assert workbook.sheetnames[0] == "Summary"
+    assert "Notification no lot" in workbook.sheetnames
+    assert "Inspection lot only" in workbook.sheetnames
+
+    def rows(name):
+        sheet = workbook[name]
+        return max(sheet.max_row - 2, 0)
+
+    # A lot-only record has a lot by definition; that sheet must not be empty
+    # just because the notification sheet next to it filters on having none.
+    assert rows("Inspection lot only") == len(lot_only)
+
+    subgroup_sheets = [
+        name for name in workbook.sheetnames
+        if name not in {"Summary", "Notification no lot", "Inspection lot only"}
+    ]
+    assert subgroup_sheets
+    # Every work-centre record lands on exactly one sub-group sheet.
+    assert sum(rows(name) for name in subgroup_sheets) == len(with_centre)
+
+
+def test_register_export_is_not_capped_like_the_page(sap_app, monkeypatch):
+    """The page truncates; the export must not inherit that."""
+    from openpyxl import load_workbook
+    from app.core.services import sap_quality_control
+    from app.core.services.qc_register_export import build_sample_register_workbook
+    from app.core.services.sap_quality_control import (
+        import_sap_panvel_exports, sap_sample_register_data,
+    )
+
+    import_sap_panvel_exports(
+        _inspection_export(), "SAP_INSPECTION_20260826.xlsx",
+        _notification_export(), "SAP_NOTIFICATIONS_20260826.xlsx", None,
+    )
+    db.session.commit()
+    total = sap_sample_register_data(limit=None)["total_matching"]
+
+    monkeypatch.setattr(sap_quality_control, "SAP_REGISTER_VISIBLE_LIMIT", 1)
+    assert len(sap_sample_register_data()["entries"]) == 1
+
+    workbook = load_workbook(build_sample_register_workbook()[0])
+    exported = sum(
+        max(workbook[name].max_row - 2, 0)
+        for name in workbook.sheetnames
+        if name not in {"Summary", "Notification no lot", "Inspection lot only"}
+    ) + max(workbook["Inspection lot only"].max_row - 2, 0)
+    assert exported == total
+
+
 def test_all_labs_presentation_groups_samples_by_lab_then_corporate_subgroup():
     from app.core.services.qc_presentation import _sap_presentation_action_groups
 

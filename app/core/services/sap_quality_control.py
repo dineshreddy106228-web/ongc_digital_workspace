@@ -1193,9 +1193,15 @@ def _register_subgroup_groups(
 # counted after truncation reads "500 matching" however many actually matched.
 SAP_REGISTER_VISIBLE_LIMIT = 500
 
+# A default argument is bound once at import, which would freeze the cap into
+# the signature and make the constant above unpatchable. The sentinel defers
+# the lookup to call time, so the cap stays a single source of truth.
+_REGISTER_DEFAULT_LIMIT = object()
+
 
 def sap_sample_register_data(
     lab_code: str = "", search: str = "", status: str = "", subgroup: str = "",
+    *, limit: int | None = _REGISTER_DEFAULT_LIMIT,
 ) -> dict[str, Any]:
     """Return the current, SAP-authoritative register across reporting labs.
 
@@ -1294,14 +1300,18 @@ def sap_sample_register_data(
         ),
         reverse=True,
     )
-    visible = entries[:SAP_REGISTER_VISIBLE_LIMIT]
+    # The page caps what it renders; the workbook export passes limit=None so
+    # a download is never a truncated answer to the question the filters asked.
+    if limit is _REGISTER_DEFAULT_LIMIT:
+        limit = SAP_REGISTER_VISIBLE_LIMIT
+    visible = entries if limit is None else entries[:limit]
     return {
         "entries": visible,
         # The true match count, before the cap, so the caption can be honest
         # about a filter that narrowed nothing.
         "total_matching": len(entries),
-        "visible_limit": SAP_REGISTER_VISIBLE_LIMIT,
-        "is_truncated": len(entries) > SAP_REGISTER_VISIBLE_LIMIT,
+        "visible_limit": limit,
+        "is_truncated": limit is not None and len(entries) > limit,
         "groups": _register_subgroup_groups(visible),
         "laboratories": laboratories,
         "status_filters": SAP_REGISTER_STATUS_FILTERS,

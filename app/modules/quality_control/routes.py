@@ -617,6 +617,48 @@ def sample_history():
         return redirect(url_for("quality_control.landing"))
 
 
+@quality_control_bp.route("/history/export.xlsx")
+@login_required
+@module_access_required("quality_control")
+def download_sample_register():
+    """The register as a workbook, at the reader's own scope and uncapped.
+
+    A laboratory reader exports its own bench whatever the query string says,
+    the same rule the register page itself applies.
+    """
+    from app.core.services.qc_register_export import build_sample_register_workbook
+
+    scope = _user_lab_scope()
+    if scope == "":
+        flash("No laboratory is assigned to your account, so there is no register to export.", "warning")
+        return redirect(url_for("quality_control.landing"))
+    lab_code = (request.args.get("lab") or "").strip() if scope is None else scope
+    fallback = url_for(
+        "quality_control.sample_history",
+        lab=lab_code, search=request.args.get("search") or "",
+        status=request.args.get("status") or "", subgroup=request.args.get("subgroup") or "",
+    )
+    try:
+        output, filename = build_sample_register_workbook(
+            lab_code,
+            (request.args.get("search") or "").strip(),
+            (request.args.get("status") or "").strip(),
+            (request.args.get("subgroup") or "").strip(),
+        )
+    except ValueError as exc:
+        flash(str(exc), "warning")
+    except Exception:
+        logger.exception("QC sample register export failed for lab=%s", lab_code)
+        flash("The sample register export could not be generated. Please try again.", "danger")
+    else:
+        return send_file(
+            output,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            as_attachment=True, download_name=filename, max_age=0,
+        )
+    return redirect(fallback)
+
+
 @quality_control_bp.route("/management-review")
 @login_required
 @module_access_required("quality_control")
