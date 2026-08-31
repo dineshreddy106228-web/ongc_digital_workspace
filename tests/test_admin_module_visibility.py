@@ -232,7 +232,7 @@ def test_corporate_qc_screens_are_not_reachable_by_a_reporting_laboratory(admin_
     from app.models.core.user_module_permission import UserModulePermission
     from app.modules.quality_control.routes import (
         data_import, download_management_report, download_sap_lab_presentation,
-        portfolio_management_review, sap_control,
+        portfolio_management_review,
     )
 
     user, _role = _plain_user()
@@ -251,8 +251,7 @@ def test_corporate_qc_screens_are_not_reachable_by_a_reporting_laboratory(admin_
     db.session.commit()
 
     corporate_views = (
-        data_import, sap_control,
-        portfolio_management_review, download_management_report,
+        data_import, portfolio_management_review, download_management_report,
     )
     with admin_app.test_request_context("/quality-control/sap-control/labs/rgl_vadodara/presentation.pptx"):
         login_user(user)
@@ -268,7 +267,7 @@ def test_corporate_qc_screens_are_not_reachable_by_a_reporting_laboratory(admin_
 
         # The same guard must let Corporate Chemistry through.
         login_user(superuser)
-        assert "SAP Control Tower" in sap_control()
+        assert "SAP Import Centre" in data_import()
         logout_user()
 
 
@@ -352,7 +351,7 @@ def test_a_quality_control_module_admin_holds_the_corporate_scope(admin_app):
     """A module admin controls the portfolio, so they must also read all of it.
 
     Control and reading scope are the same predicate on purpose: the control
-    tower lists every laboratory, and a reader who could open it but was
+    centre lists every laboratory, and a reader who could open it but was
     refused on click would be a worse experience than not offering it.
     """
     from flask_login import login_user, logout_user
@@ -360,7 +359,7 @@ def test_a_quality_control_module_admin_holds_the_corporate_scope(admin_app):
     from app.models.core.user_module_permission import UserModulePermission
     from app.modules.quality_control.routes import (
         _can_control_quality_monitoring, _can_record_lab_follow_up,
-        _can_view_laboratory, _user_lab_scope, sap_control,
+        _can_view_laboratory, _user_lab_scope, data_import,
     )
 
     user, _role = _plain_user()
@@ -387,7 +386,7 @@ def test_a_quality_control_module_admin_holds_the_corporate_scope(admin_app):
         assert _user_lab_scope() is None
         assert _can_view_laboratory("rgl_vadodara") is True
         assert _can_record_lab_follow_up("rgl_vadodara") is True
-        assert "SAP Control Tower" in sap_control()
+        assert "SAP Import Centre" in data_import()
         logout_user()
 
 

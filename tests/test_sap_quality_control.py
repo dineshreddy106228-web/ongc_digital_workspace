@@ -208,11 +208,14 @@ def test_lab_dashboard_hides_corporate_only_actions_from_a_reporting_laboratory(
             "quality_control/sap_panvel_dashboard.html", can_control=True, **data,
         )
 
-    for corporate_action in ("Import centre", "SAP control tower", "All-labs presentation"):
+    for corporate_action in ("Import centre", "Upload at import centre", "All-labs presentation"):
         assert corporate_action not in lab_page
         assert corporate_action in corporate_page
     assert "Download presentation" in lab_page
     assert "Download presentation" in corporate_page
+    # A laboratory may take its own SAP deck; it is not a corporate-only action.
+    assert "Laboratory SAP deck" in lab_page
+    assert "Laboratory SAP deck" in corporate_page
     # The operating-rule notice was removed; its snapshot provenance is not.
     assert "SAP is the final word" not in lab_page
     assert "SAP is the final word" not in corporate_page
@@ -518,12 +521,13 @@ def test_non_sap_register_summarises_without_touching_the_sap_position(sap_app):
     )
 
 
-def test_control_tower_and_import_centre_are_named_apart(sap_app):
-    """A link goes where its label says, and no two pages share a name.
+def test_import_centre_absorbed_the_control_tower(sap_app):
+    """One SAP operations screen, carrying everything the tower uniquely held.
 
-    The landing tile called "SAP Control Tower" opened the import screen,
-    which called itself the SAP Control Tower too — so the reader arrived
-    somewhere that agreed with the label and was still the wrong page.
+    The control tower duplicated this page's central import form. What it did
+    not duplicate was the per-laboratory position table, the cross-laboratory
+    non-SAP register, and the link to each laboratory's own SAP deck — so
+    removing the tower had to bring those three here rather than drop them.
     """
     from flask import render_template
     from app.core.services.quality_control import (
@@ -549,23 +553,32 @@ def test_control_tower_and_import_centre_are_named_apart(sap_app):
             sap_control_cards=sap_data["control_cards"],
             sap_laboratories=sap_data["sap_laboratories"],
             sap_plant_mappings=sap_data["sap_plant_mappings"],
+            all_laboratories=sap_data["all_laboratories"],
+            non_sap_entries=sap_data["non_sap_entries"],
+            non_sap_statuses=sap_data["non_sap_statuses"],
+            non_sap_status_labels=sap_data["non_sap_status_labels"],
             can_control=True,
         )
 
-    control_tower_url = "/quality-control/sap-control"
-    import_centre_url = "/quality-control/data-import"
-
-    # Each landing tile points at the page its name promises.
+    # No tile offers a page that no longer exists.
     tiles = re.findall(r'<a class="mod-tile" href="([^"]+)".*?<strong>([^<]+)</strong>', landing)
     tiles_by_name = {name: href for href, name in tiles}
-    assert tiles_by_name["SAP Control Tower"] == control_tower_url
-    assert tiles_by_name["Import Centre"] == import_centre_url
+    assert "SAP Control Tower" not in tiles_by_name
+    assert tiles_by_name["Import Centre"] == "/quality-control/data-import"
+    assert "/quality-control/sap-control" not in landing
 
-    # The import screen no longer claims the control tower's name.
+    # The import screen keeps its own identity and the tower's three sections.
     assert "SAP Import Centre" in import_centre
-    assert ">Import Centre" in import_centre or "Import Centre ·" in import_centre
     heading = re.search(r'<h1 class="mod-page-title">.*?</h1>', import_centre, re.S).group()
     assert "Control Tower" not in heading
+    assert "RGL and IDWE SAP position" in import_centre
+    assert "Exclusion review" in import_centre
+    assert 'id="non-sap-register"' in import_centre
+    assert "Add a non-SAP sample returned by a laboratory" in import_centre
+    # Each row opens the laboratory's own control view, where records are
+    # excluded, reinstated and updated. The deck button beside it needs a
+    # snapshot, so it is asserted where one exists, on the lab dashboard.
+    assert "Open control view" in import_centre
 
 
 def test_panvel_import_rejects_a_non_panvel_plant():

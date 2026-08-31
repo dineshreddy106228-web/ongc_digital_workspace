@@ -144,7 +144,14 @@ def landing():
 @module_access_required("quality_control")
 @quality_control_admin_required
 def data_import():
-    """SAP control-tower entry point plus workbook fallback laboratories."""
+    """The single SAP operations screen: import, lab position, exception register.
+
+    This absorbed the SAP Control Tower, which duplicated this page's central
+    import form and otherwise held the per-laboratory position table and the
+    cross-laboratory non-SAP register.  Every QC-admin action on a record —
+    exclude, reinstate, record a lab update — has always lived on the
+    laboratory's own dashboard, which is where the table below links.
+    """
     from app.core.services.quality_control import current_monitoring_day, laboratory_import_targets
     from app.core.services.sap_quality_control import SAP_REPLACED_WEEKLY_LAB_CODES, sap_control_data
     sap_data = sap_control_data()
@@ -159,6 +166,10 @@ def data_import():
         sap_control_cards=sap_data["control_cards"],
         sap_laboratories=sap_data["sap_laboratories"],
         sap_plant_mappings=sap_data["sap_plant_mappings"],
+        all_laboratories=sap_data["all_laboratories"],
+        non_sap_entries=sap_data["non_sap_entries"],
+        non_sap_statuses=sap_data["non_sap_statuses"],
+        non_sap_status_labels=sap_data["non_sap_status_labels"],
         can_control=_can_control_quality_monitoring(),
     )
 
@@ -237,25 +248,6 @@ def sap_panvel_dashboard():
     return redirect(url_for("quality_control.sap_lab_dashboard", lab_code="rgl_panvel"))
 
 
-@quality_control_bp.route("/sap-control")
-@login_required
-@module_access_required("quality_control")
-@quality_control_admin_required
-def sap_control():
-    """Corporate Chemistry's central daily SAP and exception register."""
-    from app.core.services.sap_quality_control import sap_control_data
-    try:
-        return render_template(
-            "quality_control/sap_control.html",
-            can_control=_can_control_quality_monitoring(),
-            **sap_control_data(),
-        )
-    except Exception:
-        logger.exception("SAP QC control tower could not be loaded")
-        flash("The SAP quality control view could not be loaded. Please try again.", "danger")
-        return redirect(url_for("quality_control.landing"))
-
-
 @quality_control_bp.route("/sap-control/labs/<lab_code>")
 @login_required
 @module_access_required("quality_control")
@@ -274,7 +266,7 @@ def sap_lab_dashboard(lab_code: str):
     except Exception:
         logger.exception("SAP QC dashboard load failed for lab=%s", lab_code)
         flash("The SAP quality dashboard could not be loaded. Please try again.", "danger")
-    return redirect(url_for("quality_control.sap_control"))
+    return redirect(url_for("quality_control.data_import"))
 
 
 def _import_sap_snapshot(lab_code: str):
@@ -322,7 +314,7 @@ def import_sap_control_exports():
                 f"{laboratory_count} laboratories and {record_count} monitoring records refreshed.",
                 "success sap-import-completed",
             )
-            return redirect(url_for("quality_control.sap_control"))
+            return redirect(url_for("quality_control.data_import"))
         batch = snapshot
         flash(
             f"{batch.lab_code.replace('_', ' ').title()} SAP snapshot for {batch.as_of_date:%d %b %Y} is now live: "
@@ -335,7 +327,7 @@ def import_sap_control_exports():
         db.session.rollback()
         logger.exception("SAP QC import failed for lab=%s", lab_code)
         flash("The SAP exports could not be imported. Confirm both files are from the same daily run.", "danger")
-    return redirect(url_for("quality_control.sap_control"))
+    return redirect(url_for("quality_control.data_import"))
 
 
 @quality_control_bp.route("/sap-panvel/import", methods=["POST"])
@@ -503,7 +495,7 @@ def create_controlled_non_sap_sample():
     except Exception:
         db.session.rollback(); logger.exception("Non-SAP QC sample creation failed")
         flash("The non-SAP sample could not be added. Please try again.", "danger")
-    return redirect(url_for("quality_control.sap_control") + "#non-sap-register")
+    return redirect(url_for("quality_control.data_import") + "#non-sap-register")
 
 
 @quality_control_bp.route("/sap-control/non-sap/<int:sample_id>/update", methods=["POST"])
@@ -521,7 +513,7 @@ def update_controlled_non_sap_sample(sample_id: int):
     except Exception:
         db.session.rollback(); logger.exception("Non-SAP QC sample update failed for id=%s", sample_id)
         flash("The non-SAP sample update could not be saved. Please try again.", "danger")
-    return redirect(url_for("quality_control.sap_control") + "#non-sap-register")
+    return redirect(url_for("quality_control.data_import") + "#non-sap-register")
 
 
 @quality_control_bp.route("/sap-control/labs/<lab_code>/non-sap", methods=["POST"])

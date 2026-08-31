@@ -7,7 +7,7 @@
   <a class="{{ 'is-active' if active == 'home' }}" href="{{ url_for('quality_control.landing') }}"><i class="bi bi-house-door"></i><span>Monitoring home</span></a>
   <a class="{{ 'is-active' if active == 'history' }}" href="{{ url_for('quality_control.sample_history') }}"><i class="bi bi-database"></i><span>Sample Register</span></a>
   {% if qc_can_control %}
-  <a class="{{ 'is-active' if active == 'sap' }}" href="{{ url_for('quality_control.sap_control') }}"><i class="bi bi-cloud-arrow-down"></i><span>SAP Control Tower</span></a>
+  <a class="{{ 'is-active' if active == 'sap' }}" href="{{ url_for('quality_control.data_import') }}"><i class="bi bi-cloud-arrow-down"></i><span>Import Centre</span></a>
   <a class="{{ 'is-active' if active == 'review' }}" href="{{ url_for('quality_control.portfolio_management_review') }}"><i class="bi bi-easel2"></i><span>Management Review</span></a>
   <a class="{{ 'is-active' if active == 'standards' }}" href="{{ url_for('quality_control.testing_standards') }}"><i class="bi bi-sliders"></i><span>Administration</span></a>
   {% endif %}
