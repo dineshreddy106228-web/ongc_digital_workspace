@@ -526,12 +526,19 @@ def build_sap_lab_presentation(lab_code: str, static_folder: str) -> tuple[Bytes
 
     next_page = 4 + len(open_pages)
 
-    # Records SAP has not routed to a work center. They already appear in the
-    # register above, but a work center is how a laboratory recognises an item
-    # as its own — without one, nobody owns the notification and it can sit
-    # open indefinitely. So they are repeated on their own page and the
+    # Notifications SAP has not routed to a work center. They already appear in
+    # the register above, but a work center is how a laboratory recognises an
+    # item as its own — without one, nobody owns the notification and it can
+    # sit open indefinitely. So they are repeated on their own page and the
     # laboratory is asked one question about each: is it still live?
-    unassigned = [item for item in data["open_records"] if not item["record"].work_center]
+    #
+    # A record with no notification number is an inspection lot on its own, not
+    # something the laboratory can confirm as active or inactive, so it is not
+    # asked about here.
+    unassigned = [
+        item for item in data["open_records"]
+        if not item["record"].work_center and item["record"].notification_no
+    ]
     if unassigned:
         for page, entries in enumerate(_paginated_rows(unassigned, 9)):
             first = page * 9 + 1
@@ -543,9 +550,9 @@ def build_sap_lab_presentation(lab_code: str, static_folder: str) -> tuple[Bytes
             for item in entries:
                 record = item["record"]
                 reference = "\n".join(filter(None, [
+                    f"Notification {record.notification_no}",
                     f"Lot {record.inspection_lot_number}" if record.inspection_lot_number else None,
-                    f"Notification {record.notification_no}" if record.notification_no else None,
-                ])) or "No SAP reference"
+                ]))
                 if item["stt_due_date"]:
                     stt_due = item["stt_due_date"].strftime("%d %b %Y")
                     if item["stt_overdue"]:
@@ -565,7 +572,7 @@ def build_sap_lab_presentation(lab_code: str, static_folder: str) -> tuple[Bytes
             table(
                 slide,
                 [
-                    "Inspection lot / notification", "Material", "SAP status", "STT due",
+                    "Notification / inspection lot", "Material", "SAP status", "STT due",
                     "Active / Inactive", "Laboratory remark",
                 ],
                 rows, [2.4, 3.0, 2.0, 1.45, 1.8, 1.8], y=1.48, font_size=8,

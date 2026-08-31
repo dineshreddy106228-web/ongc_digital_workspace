@@ -995,10 +995,20 @@ def test_lab_deck_lists_unassigned_notifications_for_an_active_inactive_call(sap
     db.session.commit()
 
     data = sap_lab_dashboard_data("rgl_panvel")
-    unassigned = [item for item in data["open_records"] if not item["record"].work_center]
+    unassigned = [
+        item for item in data["open_records"]
+        if not item["record"].work_center and item["record"].notification_no
+    ]
     assigned = [item for item in data["open_records"] if item["record"].work_center]
-    assert unassigned, "the fixture must leave at least one open record unrouted"
+    # An inspection lot carrying no notification is not something a laboratory
+    # can call active or inactive, so it stays off this page.
+    lot_only = [
+        item for item in data["open_records"]
+        if not item["record"].work_center and not item["record"].notification_no
+    ]
+    assert unassigned, "the fixture must leave at least one open notification unrouted"
     assert assigned, "and at least one routed, so the page is not simply everything"
+    assert lot_only, "and at least one lot-only record, which must be excluded"
 
     output, _ = build_sap_lab_presentation("rgl_panvel", sap_app.static_folder)
     pages = []
@@ -1028,6 +1038,8 @@ def test_lab_deck_lists_unassigned_notifications_for_an_active_inactive_call(sap
         assert any(reference in line for line in body)
     for item in assigned:
         assert not any(item["record"].work_center in line for line in body)
+    for item in lot_only:
+        assert not any(item["record"].inspection_lot_number in line for line in body)
 
 
 def test_lab_deck_omits_the_unassigned_page_when_sap_routed_everything(sap_app):
@@ -1047,6 +1059,10 @@ def test_lab_deck_omits_the_unassigned_page_when_sap_routed_everything(sap_app):
         if not item["record"].work_center:
             item["record"].work_center = "MUDLAB"
     db.session.commit()
+    assert not [
+        item for item in sap_lab_dashboard_data("rgl_panvel")["open_records"]
+        if not item["record"].work_center and item["record"].notification_no
+    ]
 
     output, _ = build_sap_lab_presentation("rgl_panvel", sap_app.static_folder)
     for slide in Presentation(output).slides:
