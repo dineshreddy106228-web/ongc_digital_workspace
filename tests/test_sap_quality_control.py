@@ -1863,3 +1863,46 @@ def test_the_retention_sweep_repairs_a_purge_missed_at_import(sap_app):
     assert counts["qc_sap"] == 1
     assert db.session.get(QCSAPSourceDocument, stray.id).purged_at is not None
     assert QCSAPSourceDocument.query.filter(QCSAPSourceDocument.purged_at.is_(None)).count() == 1
+
+
+def test_the_source_audit_trail_lists_only_the_most_recent_uploads(sap_app):
+    """The trail is trimmed, and the page says how far back it goes."""
+    from app.core.services.sap_quality_control import (
+        SAP_SOURCE_AUDIT_TRAIL_LIMIT, import_sap_lab_exports, sap_lab_dashboard_data,
+    )
+    from app.models.quality_control.qc_sap_monitoring import QCSAPUploadBatch
+
+    import_sap_lab_exports(
+        "rgl_panvel",
+        _year_inspection_export([
+            ["890000040001", "00001234", "10R2", "05.04.2026", "", "REL CALC", ""],
+        ]),
+        "SAP_INSP_20260901.xlsx",
+        _year_notification_export([
+            ["020000040001", "OPEN", "45000001", "10", "00001234", "Barytes", "MUDLAB", "10R2",
+             "890000040001", "REL CALC", "05.04.2026", "20.04.2026", "", "1"],
+        ], title="Date : 01.09.2026"),
+        "SAP_ZLABIMS_20260901.xlsx", None,
+    )
+    # The rest are recorded directly: this is about how many the page lists,
+    # not about parsing the same workbook a dozen more times.
+    for day in range(2, SAP_SOURCE_AUDIT_TRAIL_LIMIT + 4):
+        db.session.add(QCSAPUploadBatch(
+            lab_code="rgl_panvel", plant_code="10R2", as_of_date=date(2026, 9, day),
+            inspection_filename="i.xlsx", inspection_content_type="x", inspection_file_size=1,
+            notification_filename="n.xlsx", notification_content_type="x", notification_file_size=1,
+            record_count=1, summary_json="{}",
+        ))
+    db.session.commit()
+
+    total = QCSAPUploadBatch.query.filter_by(lab_code="rgl_panvel").count()
+    assert total == SAP_SOURCE_AUDIT_TRAIL_LIMIT + 3
+
+    data = sap_lab_dashboard_data("rgl_panvel")
+    assert data["source_audit_trail_limit"] == SAP_SOURCE_AUDIT_TRAIL_LIMIT
+    assert len(data["recent_batches"]) == SAP_SOURCE_AUDIT_TRAIL_LIMIT
+    # Newest first, and the trimmed-away uploads are the oldest ones.
+    listed = [batch.as_of_date for batch in data["recent_batches"]]
+    assert listed == sorted(listed, reverse=True)
+    assert listed[0] == date(2026, 9, SAP_SOURCE_AUDIT_TRAIL_LIMIT + 3)
+    assert date(2026, 9, 1) not in listed

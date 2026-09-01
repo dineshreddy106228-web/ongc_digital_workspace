@@ -234,6 +234,11 @@ def _integer(value: Any) -> int | None:
 # those are not laboratory work and never enter quality monitoring.
 SAP_LAB_LOT_PREFIX = "8900"
 
+# How many past uploads the laboratory's source audit trail lists.  It used to
+# follow the fifteen-day workbook window; with only the current pair retained,
+# the number is simply how far back a reader is likely to look.
+SAP_SOURCE_AUDIT_TRAIL_LIMIT = 10
+
 
 def financial_year_label(value: date) -> str:
     """Name the Indian financial year (1 April - 31 March) a date falls in."""
@@ -1397,6 +1402,7 @@ def sap_lab_dashboard_data(lab_code: str) -> dict[str, Any]:
             "work_centers": [],
             "usage_decisions": [],
             "recent_batches": [],
+            "source_audit_trail_limit": SAP_SOURCE_AUDIT_TRAIL_LIMIT,
             "lab_update_statuses": LAB_UPDATE_STATUSES,
             "non_sap_entries": non_sap_entries,
             "non_sap_statuses": NON_SAP_STATUSES,
@@ -1529,7 +1535,8 @@ def sap_lab_dashboard_data(lab_code: str) -> dict[str, Any]:
         "usage_decisions": sorted(({"label": label, "count": count} for label, count in usage_decisions.items()), key=lambda item: (-item["count"], item["label"])),
         "recent_batches": QCSAPUploadBatch.query.filter_by(lab_code=lab_code).order_by(
             QCSAPUploadBatch.as_of_date.desc(), QCSAPUploadBatch.id.desc(),
-        ).limit(14).all(),
+        ).limit(SAP_SOURCE_AUDIT_TRAIL_LIMIT).all(),
+        "source_audit_trail_limit": SAP_SOURCE_AUDIT_TRAIL_LIMIT,
         "lab_update_statuses": LAB_UPDATE_STATUSES,
         "non_sap_entries": non_sap_entries,
         "non_sap_statuses": NON_SAP_STATUSES,
