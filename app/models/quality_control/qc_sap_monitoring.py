@@ -74,12 +74,19 @@ class QCSAPRecord(db.Model):
         db.Index("ix_qc_sap_records_notification", "notification_no"),
         db.Index("ix_qc_sap_records_status", "official_status"),
         db.Index("ix_qc_sap_records_work_center", "work_center"),
+        db.Index("ix_qc_sap_records_lab_year", "lab_code", "financial_year"),
     )
 
     id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
     source_key = db.Column(db.String(180), nullable=False)
     lab_code = db.Column(db.String(64), nullable=False, default="rgl_panvel")
     source_completeness = db.Column(db.String(32), nullable=False, default="matched")
+
+    # The Indian financial year the record belongs to, as "2026-27".  A year's
+    # base data is loaded once; a daily export then carries only current and
+    # newly created notifications, so the year -- not the latest upload batch
+    # -- is what the dashboards and the register read.
+    financial_year = db.Column(db.String(9), nullable=True)
 
     inspection_lot_number = db.Column(db.String(100), nullable=True)
     notification_no = db.Column(db.String(100), nullable=True)

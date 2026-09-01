@@ -18,6 +18,7 @@ def register_cli(app):
         sync_csc_master_data_command,
     )
     from app.cli.normalize import normalize_roles
+    from app.cli.sap_quality_year import seed_sap_financial_year
     from app.cli.passwords import issue_temp_password
     from app.cli.seed import (
         fix_password_hashes,
@@ -36,6 +37,7 @@ def register_cli(app):
     app.cli.add_command(backfill_csc_material_codes_command)
     app.cli.add_command(resequence_csc_draft_ids_command)
     app.cli.add_command(sync_csc_master_data_command)
+    app.cli.add_command(seed_sap_financial_year)
     app.cli.add_command(seed_initial_data)
     app.cli.add_command(seed_module_permissions)
     app.cli.add_command(seed_admin)

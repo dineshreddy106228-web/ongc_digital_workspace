@@ -9,7 +9,7 @@ labelled register holds the few samples that are not represented in SAP.
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dataclass_field
 from datetime import date, datetime, timedelta
 from io import BytesIO
 import json
@@ -112,6 +112,9 @@ CORPORATE_SPECIFICATION_UNMATCHED_LABEL = "Not in Corporate Specification"
 class SAPExportPayload:
     rows: list[dict[str, Any]]
     as_of_date: date | None
+    # Rows a scope rule removed, by reason, so an import can account for the
+    # difference between the workbook SAP produced and the rows it monitors.
+    excluded_rows: dict[str, int] = dataclass_field(default_factory=dict)
 
 
 def _text(value: Any) -> str:
@@ -222,6 +225,23 @@ def _integer(value: Any) -> int | None:
     text = _text(value)
     match = re.search(r"-?\d+", text)
     return int(match.group()) if match else None
+
+
+# SAP raises a laboratory inspection lot in the 8900 series.  The same QA33
+# selection also returns goods-receipt lots from every plant in the company;
+# those are not laboratory work and never enter quality monitoring.
+SAP_LAB_LOT_PREFIX = "8900"
+
+
+def financial_year_label(value: date) -> str:
+    """Name the Indian financial year (1 April - 31 March) a date falls in."""
+    start_year = value.year if value.month >= 4 else value.year - 1
+    return f"{start_year}-{(start_year + 1) % 100:02d}"
+
+
+def financial_year_start(value: date) -> date:
+    """The 1 April that opens the financial year the given date falls in."""
+    return date(value.year if value.month >= 4 else value.year - 1, 4, 1)
 
 
 def _find_as_of_date(raw: pd.DataFrame, filename: str | None = None) -> date | None:
@@ -357,15 +377,22 @@ def parse_sap_inspection_workbook(
     *,
     expected_plant: str | None = PANVEL_PLANT_CODE,
     allow_multiple_plants: bool = False,
+    lab_lots_only: bool = True,
 ) -> SAPExportPayload:
     payload = _read_sap_export(
         source, filename, kind="inspection-lot", aliases=_INSPECTION_COLUMNS,
         required={"inspection_lot_number", "material_code", "plant_code"},
     )
     rows = []
+    non_lab_lots = 0
     for raw in payload.rows:
         lot = _identifier(raw.get("inspection_lot_number"), zero_is_blank=True)
         if not lot:
+            continue
+        if lab_lots_only and not lot.startswith(SAP_LAB_LOT_PREFIX):
+            # Dropped before the plant routing check, so a goods-receipt lot
+            # raised at an unmapped plant cannot fail the whole upload.
+            non_lab_lots += 1
             continue
         rows.append({
             "inspection_lot_number": lot,
@@ -377,10 +404,18 @@ def parse_sap_inspection_workbook(
             "usage_decision_code": _text(raw.get("usage_decision_code")) or None,
         })
     if not rows:
+        if non_lab_lots:
+            raise ValueError(
+                f"The SAP inspection-lot workbook holds no {SAP_LAB_LOT_PREFIX}-series laboratory "
+                f"inspection lots; all {non_lab_lots} lot(s) are goods-receipt lots."
+            )
         raise ValueError("The SAP inspection-lot workbook contains no usable inspection-lot numbers.")
     if not allow_multiple_plants:
         _validate_sap_plants(rows, "inspection-lot", expected_plant)
-    return SAPExportPayload(rows=rows, as_of_date=payload.as_of_date)
+    return SAPExportPayload(
+        rows=rows, as_of_date=payload.as_of_date,
+        excluded_rows={"non_laboratory_lots": non_lab_lots} if non_lab_lots else {},
+    )
 
 
 def parse_sap_notification_workbook(
@@ -389,16 +424,38 @@ def parse_sap_notification_workbook(
     *,
     expected_plant: str | None = PANVEL_PLANT_CODE,
     allow_multiple_plants: bool = False,
+    from_date: date | None = None,
 ) -> SAPExportPayload:
+    """Read a SAP notification export, scoped to one financial year.
+
+    The full SAP history reaches back to 2009.  Monitoring is kept to the
+    financial year of the export, so the same workbook can seed a year's base
+    data and, on any later day, carry only what is current and newly raised.
+    ``from_date`` overrides that boundary where a year must be re-seeded from
+    an export taken after it closed.
+    """
     payload = _read_sap_export(
         source, filename, kind="notification", aliases=_NOTIFICATION_COLUMNS,
         required={"notification_no", "material_code", "plant_code"},
     )
+    if from_date is None and payload.as_of_date is not None:
+        from_date = financial_year_start(payload.as_of_date)
     rows = []
+    before_year = 0
+    undated = 0
     for raw in payload.rows:
         notification_no = _identifier(raw.get("notification_no"), zero_is_blank=True)
         if not notification_no:
             continue
+        start_date = _date(raw.get("notification_start_date"))
+        if from_date is not None:
+            if start_date is None:
+                # A notification SAP has not dated belongs to no year.
+                undated += 1
+                continue
+            if start_date < from_date:
+                before_year += 1
+                continue
         rows.append({
             "notification_no": notification_no,
             "sap_notification_status": _text(raw.get("sap_notification_status")) or None,
@@ -410,16 +467,26 @@ def parse_sap_notification_workbook(
             "plant_code": (_text(raw.get("plant_code")) or "").upper(),
             "inspection_lot_number": _identifier(raw.get("inspection_lot_number"), zero_is_blank=True),
             "sap_lot_status": _text(raw.get("sap_lot_status")) or None,
-            "notification_start_date": _date(raw.get("notification_start_date")),
+            "notification_start_date": start_date,
             "planned_end_date": _date(raw.get("planned_end_date")),
             "completion_date": _date(raw.get("completion_date")),
             "sap_delay_days": _integer(raw.get("sap_delay_days")),
         })
     if not rows:
+        if before_year or undated:
+            raise ValueError(
+                "The SAP notification workbook holds no notifications raised on or after "
+                f"{from_date:%d.%m.%Y}. Export the notifications for the current financial year."
+            )
         raise ValueError("The SAP notification workbook contains no usable notification numbers.")
     if not allow_multiple_plants:
         _validate_sap_plants(rows, "notification", expected_plant)
-    return SAPExportPayload(rows=rows, as_of_date=payload.as_of_date)
+    excluded = {}
+    if before_year:
+        excluded["before_financial_year"] = before_year
+    if undated:
+        excluded["no_start_date"] = undated
+    return SAPExportPayload(rows=rows, as_of_date=payload.as_of_date, excluded_rows=excluded)
 
 
 def _validate_sap_plants(
@@ -461,8 +528,20 @@ def _official_status(inspection: dict[str, Any] | None, notification: dict[str, 
     return "open"
 
 
+def _row_financial_year(row: dict[str, Any], as_of_date: date | None) -> str | None:
+    """Place a merged row in the year its SAP work was raised in.
+
+    The notification date is the authority.  An inspection lot carrying no
+    notification is placed by its own receipt date, and only a row SAP dates
+    in neither way falls back to the date of the export itself.
+    """
+    anchor = row.get("notification_start_date") or row.get("start_inspection_date") or as_of_date
+    return financial_year_label(anchor) if anchor else None
+
+
 def merge_sap_exports(
     inspections: list[dict[str, Any]], notifications: list[dict[str, Any]], *, lab_code: str = PANVEL_LAB_CODE,
+    as_of_date: date | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     """Join notification detail to inspection lots without discarding unmatched SAP rows."""
     inspection_by_lot = {row["inspection_lot_number"]: row for row in inspections}
@@ -513,6 +592,8 @@ def merge_sap_exports(
         if lot not in used_lots:
             add(inspection, None, "inspection_lot_only")
 
+    for row in rows:
+        row["financial_year"] = _row_financial_year(row, as_of_date)
     unmatched_inspection = sum(1 for row in rows if row["source_completeness"] == "inspection_lot_only")
     unmatched_notification = sum(1 for row in rows if row["source_completeness"] == "notification_only")
     return rows, {
@@ -679,13 +760,18 @@ def _persist_sap_lab_snapshot(
     notification_source: bytes,
     notification_filename: str,
     uploaded_by: int | None,
+    excluded_rows: dict[str, int] | None = None,
 ) -> QCSAPUploadBatch:
     """Store one laboratory's mapped portion of a paired SAP export."""
-    rows, reconciliation = merge_sap_exports(inspection_rows, notification_rows, lab_code=lab_code)
+    rows, reconciliation = merge_sap_exports(
+        inspection_rows, notification_rows, lab_code=lab_code, as_of_date=as_of_date,
+    )
     if not rows:
         raise ValueError(f"The SAP exports did not yield any monitoring records for plant {plant_code}.")
 
     summary = _summary(rows, as_of_date)
+    summary["financial_year"] = financial_year_label(as_of_date)
+    summary["excluded_rows"] = dict(excluded_rows or {})
     batch = QCSAPUploadBatch(
         lab_code=lab_code,
         plant_code=plant_code,
@@ -720,8 +806,8 @@ def _persist_sap_lab_snapshot(
                 source_key=row["source_key"], lab_code=lab_code, first_seen_batch_id=batch.id,
             )
             db.session.add(record)
-        for field, value in row.items():
-            setattr(record, field, value)
+        for column, value in row.items():
+            setattr(record, column, value)
         record.last_seen_batch_id = batch.id
     return batch
 
@@ -766,6 +852,7 @@ def import_sap_lab_exports(
         notification_source=notification_source,
         notification_filename=notification_filename,
         uploaded_by=uploaded_by,
+        excluded_rows={**inspections.excluded_rows, **notifications.excluded_rows},
     )
 
 
@@ -803,6 +890,7 @@ def import_central_sap_exports(
             notification_source=notification_source,
             notification_filename=notification_filename,
             uploaded_by=uploaded_by,
+            excluded_rows={**inspections.excluded_rows, **notifications.excluded_rows},
         ))
     return batches
 
@@ -818,6 +906,19 @@ def import_sap_panvel_exports(
     return import_sap_lab_exports(
         PANVEL_LAB_CODE, inspection_source, inspection_filename,
         notification_source, notification_filename, uploaded_by,
+    )
+
+
+def financial_year_records(lab_code: str, batch: QCSAPUploadBatch):
+    """A laboratory's records for the financial year the batch belongs to.
+
+    A daily SAP export carries only the notifications that are still current
+    plus those raised that morning, so the batch it creates holds a fraction of
+    the year.  Every screen reads the year the batch falls in, which keeps the
+    base data loaded at the start of that year in view.
+    """
+    return QCSAPRecord.query.filter_by(
+        lab_code=lab_code, financial_year=financial_year_label(batch.as_of_date),
     )
 
 
@@ -1013,7 +1114,7 @@ def sap_lab_dashboard_data(lab_code: str) -> dict[str, Any]:
             "non_sap_status_labels": NON_SAP_STATUS_LABELS,
         }
 
-    records = QCSAPRecord.query.filter_by(last_seen_batch_id=batch.id).order_by(
+    records = financial_year_records(lab_code, batch).order_by(
         QCSAPRecord.official_status.asc(), QCSAPRecord.id.asc(),
     ).all()
     updates = _latest_lab_updates(records)
@@ -1205,10 +1306,11 @@ def sap_sample_register_data(
 ) -> dict[str, Any]:
     """Return the current, SAP-authoritative register across reporting labs.
 
-    A record appears only when it belongs to that laboratory's latest paired
-    SAP snapshot.  The legacy weekly-workbook ``QCSample`` table is never
-    consulted here: its historical rows have different source authority and
-    remain available only through the local-workbook laboratory screens.
+    A record appears when it belongs to that laboratory's current financial
+    year, whichever daily export last reported it.  The legacy weekly-workbook
+    ``QCSample`` table is never consulted here: its historical rows have
+    different source authority and remain available only through the
+    local-workbook laboratory screens.
     """
     laboratories = sap_reporting_laboratories()
     laboratories_by_code = {laboratory["code"]: laboratory for laboratory in laboratories}
@@ -1223,9 +1325,7 @@ def sap_sample_register_data(
         batch = latest_sap_batch(laboratory["code"])
         if batch is None:
             continue
-        records = QCSAPRecord.query.filter_by(
-            lab_code=laboratory["code"], last_seen_batch_id=batch.id,
-        ).all()
+        records = financial_year_records(laboratory["code"], batch).all()
         current.extend((laboratory, batch, record) for record in records)
 
     records = [record for _, _, record in current]
@@ -1332,8 +1432,8 @@ def _sap_monitoring_counts(
     counts = {"sap_open": 0, "excluded_from_monitoring": 0, "exclusion_review": 0}
     if batch is None:
         return counts
-    current_records = QCSAPRecord.query.filter_by(
-        lab_code=lab_code, last_seen_batch_id=batch.id, official_status="open",
+    current_records = financial_year_records(lab_code, batch).filter_by(
+        official_status="open",
     ).all()
     latest_dispositions = _latest_monitoring_dispositions(current_records)
     for record in current_records:
@@ -1571,9 +1671,9 @@ def sap_management_data(lab_codes: set[str] | None = None) -> dict[str, Any]:
             })
             continue
 
-        records = QCSAPRecord.query.filter_by(
-            lab_code=laboratory["code"], last_seen_batch_id=batch.id,
-        ).order_by(QCSAPRecord.id.asc()).all()
+        records = financial_year_records(laboratory["code"], batch).order_by(
+            QCSAPRecord.id.asc(),
+        ).all()
         updates = _latest_lab_updates(records)
         dispositions = _latest_monitoring_dispositions(records)
         kpis = {

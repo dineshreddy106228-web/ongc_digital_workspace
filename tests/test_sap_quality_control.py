@@ -30,9 +30,9 @@ def _xlsx(frame: pd.DataFrame, *, startrow: int = 0, title: str | None = None) -
 
 def _inspection_export(*, plant: str = "10R2") -> bytes:
     return _xlsx(pd.DataFrame([
-        ["5001", "00001234", plant, "01.08.2026", "", "REL CALC", ""],
-        ["5002", "00005678", plant, "02.08.2026", "25.08.2026", "UD ICCO STUP", "A"],
-        ["5003", "00009999", plant, "03.08.2026", "", "REL CALC", ""],
+        ["890000005001", "00001234", plant, "01.08.2026", "", "REL CALC", ""],
+        ["890000005002", "00005678", plant, "02.08.2026", "25.08.2026", "UD ICCO STUP", "A"],
+        ["890000005003", "00009999", plant, "03.08.2026", "", "REL CALC", ""],
     ], columns=[
         "Inspection Lot", "Material", "Plant", "Start of Inspection", "End of Inspection",
         "System Status", "Usage Decision Code",
@@ -41,8 +41,8 @@ def _inspection_export(*, plant: str = "10R2") -> bytes:
 
 def _notification_export(*, plant: str = "10R2", first_work_center: str = "MUDLAB") -> bytes:
     return _xlsx(pd.DataFrame([
-        ["7001", "OPEN", "45000001", "10", "00001234", "Barytes", first_work_center, plant, "5001", "REL CALC", "01.08.2026", "20.08.2026", "", "6"],
-        ["7002", "COMP", "45000002", "10", "00005678", "Calcium carbonate", "OILLAB", plant, "5002", "UD ICCO", "02.08.2026", "24.08.2026", "25.08.2026", "1"],
+        ["7001", "OPEN", "45000001", "10", "00001234", "Barytes", first_work_center, plant, "890000005001", "REL CALC", "01.08.2026", "20.08.2026", "", "6"],
+        ["7002", "COMP", "45000002", "10", "00005678", "Calcium carbonate", "OILLAB", plant, "890000005002", "UD ICCO", "02.08.2026", "24.08.2026", "25.08.2026", "1"],
         ["7003", "OPEN", "45000003", "10", "00007777", "Unlinked item", "WATERLAB", plant, "0", "", "04.08.2026", "21.08.2026", "", "5"],
     ], columns=[
         "Notification No", "Notification Status", "Purchasing Document", "Item", "Material Number",
@@ -53,8 +53,8 @@ def _notification_export(*, plant: str = "10R2", first_work_center: str = "MUDLA
 
 def _central_inspection_export() -> bytes:
     return _xlsx(pd.DataFrame([
-        ["5101", "00001234", "10R2", "26.08.2026", "", "REL CALC", ""],
-        ["5201", "00005678", "42R2", "26.08.2026", "", "REL CALC", ""],
+        ["890000005101", "00001234", "10R2", "26.08.2026", "", "REL CALC", ""],
+        ["890000005201", "00005678", "42R2", "26.08.2026", "", "REL CALC", ""],
     ], columns=[
         "Inspection Lot", "Material", "Plant", "Start of Inspection", "End of Inspection",
         "System Status", "Usage Decision Code",
@@ -63,9 +63,9 @@ def _central_inspection_export() -> bytes:
 
 def _central_notification_export() -> bytes:
     return _xlsx(pd.DataFrame([
-        ["7101", "OPEN", "45000001", "10", "00001234", "Barytes", "MUDLAB", "10R2", "5101", "REL CALC", "26.08.2026", "30.08.2026", "", "0"],
-        ["7201", "OPEN", "45000002", "10", "00005678", "Xylene", "QUALILAB", "42R2", "5201", "REL CALC", "26.08.2026", "30.08.2026", "", "0"],
-        ["7301", "OPEN", "45000003", "10", "00009999", "Glycol", "MUDLAB", "51R2", "5301", "REL CALC", "26.08.2026", "30.08.2026", "", "0"],
+        ["7101", "OPEN", "45000001", "10", "00001234", "Barytes", "MUDLAB", "10R2", "890000005101", "REL CALC", "26.08.2026", "30.08.2026", "", "0"],
+        ["7201", "OPEN", "45000002", "10", "00005678", "Xylene", "QUALILAB", "42R2", "890000005201", "REL CALC", "26.08.2026", "30.08.2026", "", "0"],
+        ["7301", "OPEN", "45000003", "10", "00009999", "Glycol", "MUDLAB", "51R2", "890000005301", "REL CALC", "26.08.2026", "30.08.2026", "", "0"],
     ], columns=[
         "Notification No", "Notification Status", "Purchasing Document", "Item", "Material Number",
         "Material Description", "Work Center", "Plant", "Inspection Lot Number", "Status of Inspection Lot",
@@ -114,9 +114,9 @@ def test_native_sap_exports_are_parsed_and_unmatched_rows_are_retained():
     assert len(rows) == 4
     assert reconciliation == {"unmatched_inspection_count": 1, "unmatched_notification_count": 1}
     by_lot = {row["inspection_lot_number"]: row for row in rows if row["inspection_lot_number"]}
-    assert by_lot["5001"]["official_status"] == "open"
-    assert by_lot["5002"]["official_status"] == "completed"
-    assert by_lot["5003"]["source_completeness"] == "inspection_lot_only"
+    assert by_lot["890000005001"]["official_status"] == "open"
+    assert by_lot["890000005002"]["official_status"] == "completed"
+    assert by_lot["890000005003"]["source_completeness"] == "inspection_lot_only"
     assert next(row for row in rows if row["notification_no"] == "7003")["source_completeness"] == "notification_only"
 
 
@@ -133,7 +133,7 @@ def test_sap_import_remains_authoritative_when_laboratory_logs_completion(sap_ap
     )
     db.session.commit()
     assert batch.record_count == 4
-    record = QCSAPRecord.query.filter_by(inspection_lot_number="5001").one()
+    record = QCSAPRecord.query.filter_by(inspection_lot_number="890000005001").one()
     assert record.official_status == "open"
 
     create_sap_lab_update(record.id, {
@@ -1333,3 +1333,163 @@ def test_open_register_paginates_every_item_for_the_management_presentation():
 
     assert [len(page) for page in pages] == [11, 11, 11, 4]
     assert [item for page in pages for item in page] == list(range(37))
+
+
+def _year_inspection_export(rows: list[list[str]]) -> bytes:
+    return _xlsx(pd.DataFrame(rows, columns=[
+        "Inspection Lot", "Material", "Plant", "Start of Inspection", "End of Inspection",
+        "System Status", "Usage Decision Code",
+    ]))
+
+
+def _year_notification_export(rows: list[list[str]], *, title: str) -> bytes:
+    return _xlsx(pd.DataFrame(rows, columns=[
+        "Notification No", "Notification Status", "Purchasing Document", "Item", "Material Number",
+        "Material Description", "Work Center", "Plant", "Inspection Lot Number", "Status of Inspection Lot",
+        "Start Date", "Planned End Date", "Completion Date", "Delay Days",
+    ]), startrow=4, title=title)
+
+
+def test_financial_year_is_named_from_the_first_of_april():
+    from app.core.services.sap_quality_control import financial_year_label, financial_year_start
+
+    assert financial_year_label(date(2026, 4, 1)) == "2026-27"
+    assert financial_year_label(date(2026, 9, 1)) == "2026-27"
+    assert financial_year_label(date(2027, 3, 31)) == "2026-27"
+    assert financial_year_label(date(2027, 4, 1)) == "2027-28"
+    assert financial_year_label(date(2099, 12, 1)) == "2099-00"
+    assert financial_year_start(date(2027, 3, 31)) == date(2026, 4, 1)
+
+
+def test_goods_receipt_lots_are_dropped_before_the_plant_routing_check():
+    """A central QA33 selection returns lots from plants with no laboratory."""
+    from app.core.services.sap_quality_control import parse_sap_inspection_workbook
+
+    payload = parse_sap_inspection_workbook(
+        _year_inspection_export([
+            ["890000040001", "00001234", "10R2", "01.08.2026", "", "REL CALC", ""],
+            # A goods-receipt lot raised at a plant outside the routing map.
+            ["100001466468", "00009999", "12F1", "01.08.2026", "", "INSP RREC", ""],
+        ]),
+        "SAP_INSP_20260901.xlsx", expected_plant=None, allow_multiple_plants=True,
+    )
+
+    assert [row["inspection_lot_number"] for row in payload.rows] == ["890000040001"]
+    assert payload.excluded_rows == {"non_laboratory_lots": 1}
+
+
+def test_notifications_before_the_financial_year_are_left_out_of_the_base():
+    from app.core.services.sap_quality_control import parse_sap_notification_workbook
+
+    payload = parse_sap_notification_workbook(
+        _year_notification_export([
+            ["020000030000", "COMP", "45000001", "10", "00001234", "Barytes", "MUDLAB", "10R2",
+             "890000030000", "UD ICCO", "12.11.2025", "20.11.2025", "25.11.2025", "1"],
+            ["020000036313", "OPEN", "45000002", "10", "00005678", "Glycol", "OILLAB", "10R2",
+             "890000041007", "REL CALC", "01.04.2026", "10.04.2026", "", "0"],
+            # SAP dates neither the raising nor the close of this notification.
+            ["020000000001", "COMP", "45000003", "10", "00007777", "Undated", "OILLAB", "10R2",
+             "890000000001", "UD ICCO", "", "", "", ""],
+        ], title="Date : 01.09.2026"),
+        "SAP_ZLABIMS_20260901.xlsx", expected_plant="10R2",
+    )
+
+    assert [row["notification_no"] for row in payload.rows] == ["020000036313"]
+    assert payload.excluded_rows == {"before_financial_year": 1, "no_start_date": 1}
+
+
+def test_a_daily_upload_of_current_work_leaves_the_years_base_data_in_view(sap_app):
+    """The base is loaded once; each morning's export carries far less.
+
+    Every screen reads the financial year rather than the newest batch, so a
+    notification the base recorded stays in the register and on the dashboard
+    even on a day SAP no longer reports it.
+    """
+    from app.core.services.sap_quality_control import (
+        import_sap_lab_exports, sap_lab_dashboard_data, sap_sample_register_data,
+    )
+    from app.models.quality_control.qc_sap_monitoring import QCSAPRecord
+
+    import_sap_lab_exports(
+        "rgl_panvel",
+        _year_inspection_export([
+            ["890000040001", "00001234", "10R2", "05.04.2026", "20.04.2026", "UD ICCO STUP", "A"],
+            ["890000040002", "00005678", "10R2", "06.04.2026", "", "REL CALC", ""],
+        ]),
+        "SAP_INSP_20260430.xlsx",
+        _year_notification_export([
+            ["020000040001", "COMP", "45000001", "10", "00001234", "Barytes", "MUDLAB", "10R2",
+             "890000040001", "UD ICCO", "05.04.2026", "18.04.2026", "20.04.2026", "2"],
+            ["020000040002", "OPEN", "45000002", "10", "00005678", "Glycol", "OILLAB", "10R2",
+             "890000040002", "REL CALC", "06.04.2026", "20.04.2026", "", "1"],
+        ], title="Date : 30.04.2026"),
+        "SAP_ZLABIMS_20260430.xlsx", None,
+    )
+    db.session.commit()
+
+    # The next morning SAP reports only what is still current, plus one new
+    # notification raised that day.
+    import_sap_lab_exports(
+        "rgl_panvel",
+        _year_inspection_export([
+            ["890000040002", "00005678", "10R2", "06.04.2026", "", "REL CALC", ""],
+            ["890000040003", "00009999", "10R2", "01.09.2026", "", "CRTD CHCR", ""],
+        ]),
+        "SAP_INSP_20260901.xlsx",
+        _year_notification_export([
+            ["020000040002", "OPEN", "45000002", "10", "00005678", "Glycol", "OILLAB", "10R2",
+             "890000040002", "REL CALC", "06.04.2026", "20.04.2026", "", "1"],
+            ["020000040003", "OPEN", "45000003", "10", "00009999", "Xylene", "QUALILAB", "10R2",
+             "890000040003", "CRTD CHCR", "01.09.2026", "10.09.2026", "", "0"],
+        ], title="Date : 01.09.2026"),
+        "SAP_ZLABIMS_20260901.xlsx", None,
+    )
+    db.session.commit()
+
+    assert {record.financial_year for record in QCSAPRecord.query.all()} == {"2026-27"}
+
+    dashboard = sap_lab_dashboard_data("rgl_panvel")
+    on_screen = {entry["record"].notification_no for entry in dashboard["records"]}
+    assert on_screen == {"020000040001", "020000040002", "020000040003"}
+    assert dashboard["batch"].as_of_date == date(2026, 9, 1)
+
+    register = sap_sample_register_data(lab_code="rgl_panvel")
+    assert {entry["record"].notification_no for entry in register["entries"]} == on_screen
+
+
+def test_a_closed_year_is_not_mixed_into_the_year_being_reported(sap_app):
+    from app.core.services.sap_quality_control import import_sap_lab_exports, sap_lab_dashboard_data
+    from app.models.quality_control.qc_sap_monitoring import QCSAPRecord
+
+    import_sap_lab_exports(
+        "rgl_panvel",
+        _year_inspection_export([
+            ["890000030001", "00001234", "10R2", "05.09.2025", "20.09.2025", "UD ICCO STUP", "A"],
+        ]),
+        "SAP_INSP_20260131.xlsx",
+        _year_notification_export([
+            ["020000030001", "COMP", "45000001", "10", "00001234", "Barytes", "MUDLAB", "10R2",
+             "890000030001", "UD ICCO", "05.09.2025", "18.09.2025", "20.09.2025", "2"],
+        ], title="Date : 31.01.2026"),
+        "SAP_ZLABIMS_20260131.xlsx", None,
+    )
+    import_sap_lab_exports(
+        "rgl_panvel",
+        _year_inspection_export([
+            ["890000040001", "00005678", "10R2", "05.04.2026", "", "REL CALC", ""],
+        ]),
+        "SAP_INSP_20260901.xlsx",
+        _year_notification_export([
+            ["020000040001", "OPEN", "45000002", "10", "00005678", "Glycol", "OILLAB", "10R2",
+             "890000040001", "REL CALC", "05.04.2026", "20.04.2026", "", "1"],
+        ], title="Date : 01.09.2026"),
+        "SAP_ZLABIMS_20260901.xlsx", None,
+    )
+    db.session.commit()
+
+    assert {
+        (record.notification_no, record.financial_year) for record in QCSAPRecord.query.all()
+    } == {("020000030001", "2025-26"), ("020000040001", "2026-27")}
+
+    dashboard = sap_lab_dashboard_data("rgl_panvel")
+    assert [entry["record"].notification_no for entry in dashboard["records"]] == ["020000040001"]
