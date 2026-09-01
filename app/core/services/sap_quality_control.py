@@ -18,7 +18,7 @@ from typing import Any
 
 import pandas as pd
 
-from sqlalchemy import event, func
+from sqlalchemy import case, event, func, or_
 from sqlalchemy.orm import undefer
 
 from app.extensions import db
@@ -234,9 +234,9 @@ def _integer(value: Any) -> int | None:
 # those are not laboratory work and never enter quality monitoring.
 SAP_LAB_LOT_PREFIX = "8900"
 
-# How many past uploads the laboratory's source audit trail lists.  It used to
-# follow the fifteen-day workbook window; with only the current pair retained,
-# the number is simply how far back a reader is likely to look.
+# How many past uploads the laboratory's source audit trail lists. Source bytes
+# are retained only while they support an active laboratory snapshot, so this
+# number is simply how far back a reader is likely to look.
 SAP_SOURCE_AUDIT_TRAIL_LIMIT = 10
 
 
@@ -831,12 +831,12 @@ def store_sap_source_document(
     notification_filename: str,
     uploaded_by: int | None,
 ) -> QCSAPSourceDocument:
-    """Hold one upload's pair of workbooks, and retire the pair it replaces.
+    """Hold one upload's pair of workbooks until its batches are persisted.
 
-    Only the current upload is kept.  An earlier pair cannot re-create the
-    current position -- re-importing it would push SAP's fields backwards --
-    so it is cleared as soon as this one lands, and the reconciled records and
-    each batch's own metadata carry the audit trail instead.
+    Retention cannot be decided yet: a central upload creates several batches
+    and a single-laboratory upload must not discard another laboratory's live
+    source pair.  The caller therefore persists its batches first and then
+    purges documents no current laboratory snapshot still needs.
     """
     document = QCSAPSourceDocument(
         inspection_filename=inspection_filename,
@@ -851,36 +851,77 @@ def store_sap_source_document(
     )
     db.session.add(document)
     db.session.flush()
-    purge_superseded_sap_source_documents(keep_id=document.id)
     return document
+
+
+def _assert_sap_snapshot_is_current(
+    lab_codes: set[str], as_of_date: date, *, same_financial_year_only: bool = False,
+) -> None:
+    """Refuse an export that would overwrite a newer live SAP position.
+
+    Records are canonical rows updated in place, while dashboards select the
+    newest batch by ``as_of_date``.  Without this check, importing yesterday's
+    export after today's would replace record fields with yesterday's values
+    while screens continued to say they were current as at today.
+
+    A deliberate financial-year rebuild may target a closed year, so it only
+    compares with the latest batch when both dates are in the same year.
+    """
+    for lab_code in sorted(lab_codes):
+        latest = QCSAPUploadBatch.query.filter_by(lab_code=lab_code).order_by(
+            QCSAPUploadBatch.as_of_date.desc(), QCSAPUploadBatch.id.desc(),
+        ).first()
+        if latest is None or as_of_date >= latest.as_of_date:
+            continue
+        if same_financial_year_only and (
+            financial_year_label(as_of_date) != financial_year_label(latest.as_of_date)
+        ):
+            continue
+        laboratory = get_sap_reporting_laboratory(lab_code)
+        raise ValueError(
+            f"The SAP export for {laboratory['name']} is dated {as_of_date:%d %b %Y}, "
+            f"which is older than the current SAP snapshot ({latest.as_of_date:%d %b %Y}). "
+            "Import the newer export or use an explicitly approved correction."
+        )
+
+
+def _current_sap_source_document_ids() -> set[int]:
+    """Return source documents backing the latest snapshot for each lab."""
+    document_ids: set[int] = set()
+    for lab_code in SAP_REPORTING_LAB_CODES:
+        batch = QCSAPUploadBatch.query.filter_by(lab_code=lab_code).order_by(
+            QCSAPUploadBatch.as_of_date.desc(), QCSAPUploadBatch.id.desc(),
+        ).first()
+        if batch is not None and batch.source_document_id:
+            document_ids.add(batch.source_document_id)
+    return document_ids
 
 
 def purge_superseded_sap_source_documents(
     *, keep_id: int | None = None, now: datetime | None = None,
 ) -> int:
-    """Clear the bytes of every SAP source pair except the current one.
+    """Clear source bytes that no current laboratory snapshot needs.
 
-    ``purged_at`` makes this idempotent and lets a reader tell a superseded
-    upload apart from one that was never stored.  Empty bytes keep the
-    non-null binary columns valid on both MySQL and SQLite.
+    Central uploads share one document across laboratories, while a compatible
+    single-laboratory upload creates another.  Keeping only the most recently
+    *uploaded* document made the latter erase download/recovery material for
+    every unaffected laboratory.  Keep the document selected as latest for
+    each laboratory instead. ``keep_id`` remains an optional temporary guard
+    for callers that have flushed a document but not yet its batches.
     """
-    if keep_id is None:
-        newest = QCSAPSourceDocument.query.filter(
-            QCSAPSourceDocument.purged_at.is_(None),
-        ).order_by(
-            QCSAPSourceDocument.uploaded_at.desc(), QCSAPSourceDocument.id.desc(),
-        ).first()
-        if newest is None:
-            return 0
-        keep_id = newest.id
+    retained_ids = _current_sap_source_document_ids()
+    if keep_id is not None:
+        retained_ids.add(keep_id)
     reference = now or datetime.now(timezone.utc)
-    superseded = QCSAPSourceDocument.query.options(
+    query = QCSAPSourceDocument.query.options(
         undefer(QCSAPSourceDocument.inspection_source_data),
         undefer(QCSAPSourceDocument.notification_source_data),
     ).filter(
-        QCSAPSourceDocument.id != keep_id,
         QCSAPSourceDocument.purged_at.is_(None),
-    ).all()
+    )
+    if retained_ids:
+        query = query.filter(~QCSAPSourceDocument.id.in_(retained_ids))
+    superseded = query.all()
     for document in superseded:
         document.inspection_source_data = b""
         document.notification_source_data = b""
@@ -983,12 +1024,14 @@ def import_sap_lab_exports(
         raise ValueError(
             "The two SAP exports report different plants. Upload paired reports from the same laboratory run."
         )
-    return _persist_sap_lab_snapshot(
+    as_of_date = _paired_sap_as_of_date(inspections, notifications)
+    _assert_sap_snapshot_is_current({lab_code}, as_of_date)
+    batch = _persist_sap_lab_snapshot(
         lab_code=lab_code,
         plant_code=inspection_plant,
         inspection_rows=inspections.rows,
         notification_rows=notifications.rows,
-        as_of_date=_paired_sap_as_of_date(inspections, notifications),
+        as_of_date=as_of_date,
         source_document=store_sap_source_document(
             inspection_source, inspection_filename,
             notification_source, notification_filename, uploaded_by,
@@ -996,6 +1039,8 @@ def import_sap_lab_exports(
         uploaded_by=uploaded_by,
         excluded_rows={**inspections.excluded_rows, **notifications.excluded_rows},
     )
+    purge_superseded_sap_source_documents()
+    return batch
 
 
 def import_central_sap_exports(
@@ -1025,13 +1070,16 @@ def import_central_sap_exports(
     as_of_date = _paired_sap_as_of_date(inspections, notifications)
     inspections_by_plant = _rows_by_plant(inspection_rows)
     notifications_by_plant = _rows_by_plant(notification_rows)
+    plant_codes = sorted(set(inspections_by_plant) | set(notifications_by_plant))
+    lab_codes = {SAP_PLANT_LAB_CODES[plant_code] for plant_code in plant_codes}
+    _assert_sap_snapshot_is_current(lab_codes, as_of_date)
 
     source_document = store_sap_source_document(
         inspection_source, inspection_filename,
         notification_source, notification_filename, uploaded_by,
     )
     batches = []
-    for plant_code in sorted(set(inspections_by_plant) | set(notifications_by_plant)):
+    for plant_code in plant_codes:
         lab_code = SAP_PLANT_LAB_CODES[plant_code]
         get_sap_reporting_laboratory(lab_code)
         batches.append(_persist_sap_lab_snapshot(
@@ -1044,6 +1092,7 @@ def import_central_sap_exports(
             uploaded_by=uploaded_by,
             excluded_rows=excluded_rows,
         ))
+    purge_superseded_sap_source_documents()
     return batches
 
 
@@ -1130,6 +1179,11 @@ def rebuild_sap_financial_year(
     financial_year = financial_year_label(as_of_date)
     inspections_by_plant = _rows_by_plant(inspection_rows)
     notifications_by_plant = _rows_by_plant(notification_rows)
+    plant_codes = sorted(set(inspections_by_plant) | set(notifications_by_plant))
+    rebuild_lab_codes = {SAP_PLANT_LAB_CODES[plant_code] for plant_code in plant_codes}
+    _assert_sap_snapshot_is_current(
+        rebuild_lab_codes, as_of_date, same_financial_year_only=True,
+    )
 
     source_document = store_sap_source_document(
         inspection_source, inspection_filename,
@@ -1137,7 +1191,7 @@ def rebuild_sap_financial_year(
     )
     batches: list[QCSAPUploadBatch] = []
     lab_codes: set[str] = set()
-    for plant_code in sorted(set(inspections_by_plant) | set(notifications_by_plant)):
+    for plant_code in plant_codes:
         lab_code = SAP_PLANT_LAB_CODES[plant_code]
         get_sap_reporting_laboratory(lab_code)
         lab_codes.add(lab_code)
@@ -1163,6 +1217,8 @@ def rebuild_sap_financial_year(
             ).all()
         }
         reconciliation = _reconcile_financial_year(lab_codes, financial_year, keep)
+
+    purge_superseded_sap_source_documents()
 
     return {
         "batches": batches,
@@ -1587,9 +1643,9 @@ def _register_subgroup_groups(
     ]
 
 
-# The register renders every matching row at once, so it is capped. The cap is
-# named here because the page has to say what it is holding back — a caption
-# counted after truncation reads "500 matching" however many actually matched.
+# The register renders a bounded first page. The cap is named here because the
+# page has to say what it is holding back — a caption counted after truncation
+# reads "500 matching" however many actually matched.
 SAP_REGISTER_VISIBLE_LIMIT = 500
 
 # A default argument is bound once at import, which would freeze the cap into
@@ -1618,21 +1674,89 @@ def sap_sample_register_data(
     selected_laboratories = (
         [laboratories_by_code[lab_code]] if lab_code else laboratories
     )
-    current: list[tuple[dict[str, Any], QCSAPUploadBatch, QCSAPRecord]] = []
+    if limit is _REGISTER_DEFAULT_LIMIT:
+        limit = SAP_REGISTER_VISIBLE_LIMIT
+
+    # Resolve the per-laboratory current financial year once. The normal
+    # register path can then filter, order, count, and cap in SQL instead of
+    # loading a whole year's portfolio merely to display the first 500 rows.
+    current_batches: dict[str, QCSAPUploadBatch] = {}
     for laboratory in selected_laboratories:
         batch = latest_sap_batch(laboratory["code"])
-        if batch is None:
-            continue
-        records = financial_year_records(laboratory["code"], batch).all()
-        current.extend((laboratory, batch, record) for record in records)
+        if batch is not None:
+            current_batches[laboratory["code"]] = batch
+
+    search_term = _text(search).casefold()
+    # Exclusion and subgroup classifications are derived from immutable human
+    # decisions and the Corporate Specifications catalogue respectively. Keep
+    # their existing in-Python path so that those filters remain exact.
+    can_use_sql_window = not subgroup and status not in {
+        "excluded", "exclusion_review",
+    }
+    current: list[tuple[dict[str, Any], QCSAPUploadBatch, QCSAPRecord]] = []
+    total_matching: int | None = None
+    if current_batches and can_use_sql_window:
+        year_conditions = [
+            (QCSAPRecord.lab_code == code)
+            & (QCSAPRecord.financial_year == financial_year_label(batch.as_of_date))
+            for code, batch in current_batches.items()
+        ]
+        statement = QCSAPRecord.query.filter(or_(*year_conditions))
+        if search_term:
+            escaped_search = (
+                search_term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            )
+            pattern = f"%{escaped_search}%"
+            statement = statement.filter(or_(
+                QCSAPRecord.inspection_lot_number.ilike(pattern, escape="\\"),
+                QCSAPRecord.notification_no.ilike(pattern, escape="\\"),
+                QCSAPRecord.po_number.ilike(pattern, escape="\\"),
+                QCSAPRecord.material_code.ilike(pattern, escape="\\"),
+                QCSAPRecord.material_description.ilike(pattern, escape="\\"),
+                QCSAPRecord.work_center.ilike(pattern, escape="\\"),
+            ))
+        if status in {"open", "completed"}:
+            statement = statement.filter(QCSAPRecord.official_status == status)
+        elif status in {"accepted", "rejected"}:
+            statement = statement.filter(QCSAPRecord.usage_outcome == status)
+
+        total_matching = statement.count()
+        batch_order = case(
+            {code: batch.as_of_date for code, batch in current_batches.items()},
+            value=QCSAPRecord.lab_code,
+        )
+        statement = statement.order_by(
+            batch_order.desc(),
+            func.coalesce(
+                QCSAPRecord.start_inspection_date, QCSAPRecord.notification_start_date,
+            ).desc(),
+            QCSAPRecord.id.desc(),
+        )
+        if limit is not None:
+            statement = statement.limit(limit)
+        current = [
+            (laboratories_by_code[record.lab_code], current_batches[record.lab_code], record)
+            for record in statement.all()
+        ]
+    else:
+        for laboratory in selected_laboratories:
+            batch = current_batches.get(laboratory["code"])
+            if batch is None:
+                continue
+            records = financial_year_records(laboratory["code"], batch).all()
+            current.extend((laboratory, batch, record) for record in records)
 
     records = [record for _, _, record in current]
     updates = _latest_lab_updates(records)
     dispositions = _latest_monitoring_dispositions(records)
     specifications_by_material_code = _corporate_specifications_by_material_code() if records else {}
-    search_term = _text(search).casefold()
     entries: list[dict[str, Any]] = []
-    subgroup_filters: dict[str, str] = {}
+    subgroup_filters: dict[str, str] = {
+        specification["subgroup_key"]: specification["subgroup_label"]
+        for specification in specifications_by_material_code.values()
+    }
+    if specifications_by_material_code:
+        subgroup_filters[CORPORATE_SPECIFICATION_UNMATCHED_KEY] = CORPORATE_SPECIFICATION_UNMATCHED_LABEL
     for laboratory, batch, record in current:
         update = updates.get(record.id)
         disposition_state = _monitoring_disposition_state(
@@ -1698,14 +1822,14 @@ def sap_sample_register_data(
         ),
         reverse=True,
     )
-    # The page caps what it renders; the workbook export passes limit=None so
-    # a download is never a truncated answer to the question the filters asked.
-    if limit is _REGISTER_DEFAULT_LIMIT:
-        limit = SAP_REGISTER_VISIBLE_LIMIT
-    visible = entries if limit is None else entries[:limit]
+    # In the common SQL path the cap was already applied before loading rows.
+    # Derived filters retain the original exact in-memory filtering and cap.
+    visible = entries if limit is None or total_matching is not None else entries[:limit]
     # Each reporting laboratory is read at its own latest snapshot, but they
     # share one financial year; only name it where they genuinely agree.
-    scope_dates = {batch.as_of_date for _, batch, _ in current}
+    scope_dates = {
+        batch.as_of_date for batch in current_batches.values()
+    } if total_matching is not None else {batch.as_of_date for _, batch, _ in current}
     scope_labels = {financial_year_label(value) for value in scope_dates}
     return {
         "financial_year_scope": (
@@ -1714,9 +1838,12 @@ def sap_sample_register_data(
         "entries": visible,
         # The true match count, before the cap, so the caption can be honest
         # about a filter that narrowed nothing.
-        "total_matching": len(entries),
+        "total_matching": total_matching if total_matching is not None else len(entries),
         "visible_limit": limit,
-        "is_truncated": limit is not None and len(entries) > limit,
+        "is_truncated": (
+            limit is not None
+            and (total_matching if total_matching is not None else len(entries)) > limit
+        ),
         "groups": _register_subgroup_groups(visible),
         "laboratories": laboratories,
         "status_filters": SAP_REGISTER_STATUS_FILTERS,

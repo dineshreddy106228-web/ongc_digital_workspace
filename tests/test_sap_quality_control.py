@@ -1836,6 +1836,84 @@ def test_a_new_upload_supersedes_the_previous_workbooks(sap_app):
     assert all(batch.record_count for batch in old_batches)
 
 
+def test_an_older_daily_export_cannot_regress_the_current_sap_position(sap_app):
+    """The live batch label and canonical record values must never disagree."""
+    from app.core.services.sap_quality_control import import_sap_lab_exports
+    from app.models.quality_control.qc_sap_monitoring import QCSAPRecord, QCSAPSourceDocument
+
+    current_inspection = _year_inspection_export([
+        ["890000040001", "00001234", "10R2", "01.09.2026", "", "REL CALC", ""],
+    ])
+    current_notifications = _year_notification_export([
+        ["020000040001", "OPEN", "45000001", "10", "00001234", "Barytes", "NEWLAB", "10R2",
+         "890000040001", "REL CALC", "01.09.2026", "10.09.2026", "", "0"],
+    ], title="Date : 02.09.2026")
+    import_sap_lab_exports(
+        "rgl_panvel", current_inspection, "SAP_INSP_20260902.xlsx",
+        current_notifications, "SAP_ZLABIMS_20260902.xlsx", None,
+    )
+    db.session.commit()
+
+    with pytest.raises(ValueError, match="older than the current SAP snapshot"):
+        import_sap_lab_exports(
+            "rgl_panvel",
+            _year_inspection_export([
+                ["890000040001", "00001234", "10R2", "01.09.2026", "", "REL CALC", ""],
+            ]),
+            "SAP_INSP_20260901.xlsx",
+            _year_notification_export([
+                ["020000040001", "OPEN", "45000001", "10", "00001234", "Barytes", "OLDLAB", "10R2",
+                 "890000040001", "REL CALC", "01.09.2026", "10.09.2026", "", "0"],
+            ], title="Date : 01.09.2026"),
+            "SAP_ZLABIMS_20260901.xlsx", None,
+        )
+
+    record = QCSAPRecord.query.filter_by(notification_no="020000040001").one()
+    assert record.work_center == "NEWLAB"
+    assert QCSAPSourceDocument.query.count() == 1
+    assert QCSAPSourceDocument.query.one().purged_at is None
+
+
+def test_a_single_lab_upload_keeps_other_labs_current_source_pair(sap_app):
+    """A compatible one-lab upload must not erase the central pair it leaves live."""
+    from app.core.services.sap_quality_control import (
+        import_central_sap_exports, import_sap_lab_exports, latest_sap_batch,
+    )
+    from app.models.quality_control.qc_sap_monitoring import QCSAPSourceDocument
+
+    central_batches = import_central_sap_exports(
+        _central_inspection_export(), "SAP_INSP_20260827.xlsx",
+        _central_notification_export(), "SAP_ZLABIMS_20260827.xlsx", None,
+    )
+    db.session.commit()
+    central_document_id = central_batches[0].source_document_id
+
+    import_sap_lab_exports(
+        "rgl_panvel",
+        _year_inspection_export([
+            ["890000040001", "00001234", "10R2", "01.09.2026", "", "REL CALC", ""],
+        ]),
+        "SAP_INSP_20260901.xlsx",
+        _year_notification_export([
+            ["020000040001", "OPEN", "45000001", "10", "00001234", "Barytes", "NEWLAB", "10R2",
+             "890000040001", "REL CALC", "01.09.2026", "10.09.2026", "", "0"],
+        ], title="Date : 01.09.2026"),
+        "SAP_ZLABIMS_20260901.xlsx", None,
+    )
+    db.session.commit()
+
+    panvel_document_id = latest_sap_batch("rgl_panvel").source_document_id
+    chennai_batch = latest_sap_batch("rgl_chennai")
+    retained = {
+        document.id for document in QCSAPSourceDocument.query.filter(
+            QCSAPSourceDocument.purged_at.is_(None),
+        ).all()
+    }
+    assert retained == {central_document_id, panvel_document_id}
+    assert chennai_batch.source_document_id == central_document_id
+    assert chennai_batch.source_is_available is True
+
+
 def test_the_retention_sweep_repairs_a_purge_missed_at_import(sap_app):
     from app.core.services.audit_workbook_retention import purge_expired_audit_workbook_payloads
     from app.core.services.sap_quality_control import import_central_sap_exports

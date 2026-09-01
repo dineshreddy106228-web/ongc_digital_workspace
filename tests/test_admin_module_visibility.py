@@ -311,6 +311,56 @@ def test_a_laboratory_reader_may_open_only_its_own_laboratory(admin_app):
         logout_user()
 
 
+def test_lab_scope_protects_historic_views_and_source_downloads(admin_app):
+    """Every lab-specific artefact must use the same scope as its dashboard."""
+    from datetime import date
+
+    from flask_login import login_user, logout_user
+    from werkzeug.exceptions import Forbidden
+    from app.models.core.user_module_permission import UserModulePermission
+    from app.models.quality_control.qc_upload_batch import QCUploadBatch
+    from app.modules.quality_control.routes import (
+        download_brief_presentation,
+        download_lab_presentation,
+        download_sap_lab_source,
+        download_source,
+        management_brief,
+        samples,
+    )
+
+    user, _role = _plain_user()
+    user.quality_control_lab_code = "rgl_panvel"
+    batch = QCUploadBatch(
+        lab_code="rgl_vadodara", lab_name="RGL Vadodara",
+        week_start=date(2026, 8, 24), week_end=date(2026, 8, 28),
+        report_label="Period ending 28 Aug 2026", source_filename="vadodara.xlsx",
+        source_content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        source_file_size=1, source_data=b"x", row_count=0, summary_json="{}",
+    )
+    db.session.add_all([
+        user,
+        UserModulePermission(user_id=user.id, module_code="quality_control", can_access=True),
+        batch,
+    ])
+    db.session.commit()
+
+    protected_lab_views = (
+        lambda: download_sap_lab_source("rgl_vadodara", 1, "inspection"),
+        lambda: samples("rgl_vadodara"),
+        lambda: management_brief("rgl_vadodara"),
+        lambda: download_brief_presentation("rgl_vadodara"),
+        lambda: download_lab_presentation("rgl_vadodara"),
+    )
+    with admin_app.test_request_context("/quality-control/labs/rgl_vadodara"):
+        login_user(user)
+        for view in protected_lab_views:
+            with pytest.raises(Forbidden):
+                view()
+        with pytest.raises(Forbidden):
+            download_source(batch.id)
+        logout_user()
+
+
 def test_the_sample_register_is_scoped_to_the_reader_s_own_laboratory(admin_app):
     """The register is one screen at two scopes.
 

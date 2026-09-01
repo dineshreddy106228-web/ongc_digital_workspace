@@ -25,10 +25,12 @@ class QCSAPSourceDocument(db.Model):
     was made from the same two files.  Storing the pair here rather than on
     each batch keeps one copy instead of six or seven.
 
-    Only the newest upload's files are kept.  Earlier documents have their
-    bytes cleared and ``purged_at`` stamped as soon as an upload supersedes
-    them: the reconciled records and every batch's own metadata are the audit
-    trail, and the workbook is only there to re-import the current position.
+    The files backing each laboratory's newest snapshot are kept.  A central
+    upload may therefore share one document across several laboratories while
+    a newer single-laboratory upload introduces a second active document.
+    Documents no latest snapshot references have their bytes cleared and
+    ``purged_at`` stamped; the reconciled records and batch metadata remain
+    the permanent audit trail.
     """
 
     __tablename__ = "qc_sap_source_documents"

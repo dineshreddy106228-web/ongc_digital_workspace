@@ -1,8 +1,8 @@
 """Coverage for workbook retention.
 
 Inventory and the weekly QC workbook keep their source for a 15-day rollback
-window.  The SAP daily exports do not: each upload supersedes the one before
-it, so only the current pair is held whatever its age.
+window. SAP daily exports retain only the source pairs behind active laboratory
+snapshots, whatever their age.
 """
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ def retention_app(tmp_path):
 def test_expired_payloads_are_cleared_but_audit_rows_and_recent_rollbacks_remain(retention_app):
     from app.core.services.audit_workbook_retention import purge_expired_audit_workbook_payloads
     from app.models.inventory.monitoring import InventoryMonitoringUploadBatch
-    from app.models.quality_control.qc_sap_monitoring import QCSAPSourceDocument
+    from app.models.quality_control.qc_sap_monitoring import QCSAPSourceDocument, QCSAPUploadBatch
     from app.models.quality_control.qc_upload_batch import QCUploadBatch
 
     reference = datetime(2026, 8, 28, 12, 0, 0)
@@ -78,8 +78,9 @@ def test_expired_payloads_are_cleared_but_audit_rows_and_recent_rollbacks_remain
         source_filename="weekly-current.xlsx", source_content_type="application/vnd.ms-excel",
         source_file_size=202, source_data=b"weekly-current", uploaded_at=current_time,
     )
-    # Both SAP pairs sit inside the rollback window; the older one is still
-    # cleared, because a later upload has superseded it.
+    # Both SAP pairs sit inside the rollback window. The older one is still
+    # cleared because a newer snapshot for the same laboratory references the
+    # current pair.
     old_sap = QCSAPSourceDocument(
         inspection_filename="inspection-old.xlsx", inspection_content_type="application/vnd.ms-excel",
         inspection_file_size=301, inspection_source_data=b"inspection-old",
@@ -95,6 +96,28 @@ def test_expired_payloads_are_cleared_but_audit_rows_and_recent_rollbacks_remain
     db.session.add_all([
         old_inventory, current_inventory, old_weekly, current_weekly, old_sap, current_sap,
     ])
+    db.session.flush()
+    old_sap_batch = QCSAPUploadBatch(
+        lab_code="rgl_panvel", plant_code="10R2", as_of_date=date(2026, 8, 27),
+        source_document_id=old_sap.id,
+        inspection_filename=old_sap.inspection_filename,
+        inspection_content_type=old_sap.inspection_content_type,
+        inspection_file_size=old_sap.inspection_file_size,
+        notification_filename=old_sap.notification_filename,
+        notification_content_type=old_sap.notification_content_type,
+        notification_file_size=old_sap.notification_file_size,
+    )
+    current_sap_batch = QCSAPUploadBatch(
+        lab_code="rgl_panvel", plant_code="10R2", as_of_date=date(2026, 8, 28),
+        source_document_id=current_sap.id,
+        inspection_filename=current_sap.inspection_filename,
+        inspection_content_type=current_sap.inspection_content_type,
+        inspection_file_size=current_sap.inspection_file_size,
+        notification_filename=current_sap.notification_filename,
+        notification_content_type=current_sap.notification_content_type,
+        notification_file_size=current_sap.notification_file_size,
+    )
+    db.session.add_all([old_sap_batch, current_sap_batch])
     db.session.commit()
 
     counts = purge_expired_audit_workbook_payloads(now=reference)

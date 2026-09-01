@@ -4,9 +4,10 @@ Import batches keep their parsed rows and source metadata permanently.  The
 binary workbook is deliberately short-lived: it is useful for a controlled
 rollback, but should not turn the audit trail into an unlimited file store.
 
-Inventory and the weekly QC workbook keep theirs for the rollback window.  The
-SAP daily exports do not: each upload supersedes the one before it, so only the
-current pair is held.
+Inventory and the weekly QC workbook keep theirs for the rollback window. SAP
+daily exports keep only the pairs that still back a laboratory's latest
+snapshot, rather than treating the upload most recently received as globally
+authoritative.
 """
 
 from __future__ import annotations
@@ -76,9 +77,9 @@ def purge_expired_audit_workbook_payloads(
         batch.source_purged_at = reference
         counts["qc_weekly"] += 1
 
-    # SAP daily exports are not kept for the window at all: an upload supersedes
-    # the one before it, so only the current pair is retained.  The sweep still
-    # runs over them so a purge missed at import time is repaired.
+    # SAP daily exports are not kept for the time window. The source pairs for
+    # active laboratory snapshots remain, and the sweep clears anything no
+    # latest snapshot references so a purge missed at import time is repaired.
     from app.core.services.sap_quality_control import purge_superseded_sap_source_documents
 
     counts["qc_sap"] = purge_superseded_sap_source_documents(now=reference)

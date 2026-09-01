@@ -535,6 +535,7 @@ def download_sap_panvel_presentation():
 @quality_control_bp.route("/sap-control/labs/<lab_code>/uploads/<int:batch_id>/<source_kind>")
 @login_required
 @module_access_required("quality_control")
+@laboratory_view_required
 def download_sap_lab_source(lab_code: str, batch_id: int, source_kind: str):
     from sqlalchemy.orm import undefer
     from app.models.quality_control.qc_sap_monitoring import QCSAPSourceDocument, QCSAPUploadBatch
@@ -563,8 +564,8 @@ def download_sap_lab_source(lab_code: str, batch_id: int, source_kind: str):
         )
     if document is None or document.purged_at is not None or not data:
         flash(
-            "Only the current SAP upload's workbooks are retained, and this one has "
-            "been superseded. Its SAP audit record remains available.",
+            "This SAP source pair no longer backs any laboratory's current snapshot. "
+            "Its SAP audit record remains available.",
             "warning",
         )
         return redirect(url_for("quality_control.sap_lab_dashboard", lab_code=lab_code))
@@ -895,6 +896,7 @@ def testing_standards():
 @quality_control_bp.route("/labs/<lab_code>/samples")
 @login_required
 @module_access_required("quality_control")
+@laboratory_view_required
 def samples(lab_code: str):
     """One laboratory's own sample register, inside that laboratory's navigation.
 
@@ -925,6 +927,7 @@ def samples(lab_code: str):
 @quality_control_bp.route("/labs/<lab_code>/management-brief")
 @login_required
 @module_access_required("quality_control")
+@laboratory_view_required
 def management_brief(lab_code: str):
     from app.core.services.quality_control import latest_dashboard_data
     try:
@@ -936,6 +939,7 @@ def management_brief(lab_code: str):
 @quality_control_bp.route("/labs/<lab_code>/management-brief.pptx")
 @login_required
 @module_access_required("quality_control")
+@laboratory_view_required
 def download_brief_presentation(lab_code: str):
     from app.core.services.qc_presentation import build_lab_brief_presentation
     try:
@@ -953,6 +957,7 @@ def download_brief_presentation(lab_code: str):
 @quality_control_bp.route("/labs/<lab_code>/performance-presentation.pptx")
 @login_required
 @module_access_required("quality_control")
+@laboratory_view_required
 def download_lab_presentation(lab_code: str):
     from app.core.services.qc_presentation import build_lab_performance_presentation
     try:
@@ -976,6 +981,13 @@ def download_source(batch_id: int):
     if batch is None:
         flash("The requested source workbook was not found.", "warning")
         return redirect(url_for("quality_control.landing"))
+    # Unlike the SAP source route, this historical workbook route identifies
+    # its laboratory through the batch rather than the URL.  Check it after
+    # resolving the batch so a reader cannot fetch another laboratory's source
+    # simply by changing the numeric identifier.
+    if not _can_view_laboratory(batch.lab_code):
+        flash("You may open only your own laboratory's monitoring views.", "danger")
+        abort(403)
     if batch.source_purged_at is not None or not batch.source_data:
         flash(
             "The source workbook is outside the 15-day rollback window. "
