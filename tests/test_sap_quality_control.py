@@ -1493,3 +1493,54 @@ def test_a_closed_year_is_not_mixed_into_the_year_being_reported(sap_app):
 
     dashboard = sap_lab_dashboard_data("rgl_panvel")
     assert [entry["record"].notification_no for entry in dashboard["records"]] == ["020000040001"]
+
+
+def test_financial_year_scope_states_the_span_and_rolls_over_on_its_own():
+    """The wording is derived from the data, so April re-dates it unattended."""
+    from app.core.services.sap_quality_control import financial_year_scope
+
+    scope = financial_year_scope(date(2026, 9, 1))
+    assert scope["label"] == "2026-27"
+    assert scope["start_date"] == date(2026, 4, 1)
+    assert scope["note"] == "All SAP notifications created on or after 01.04.2026"
+
+    # The last day of the year still names that year, and the first day of the
+    # next names the next -- no edit is needed for the wording to stay true.
+    assert financial_year_scope(date(2027, 3, 31))["note"].endswith("01.04.2026")
+    assert financial_year_scope(date(2027, 4, 1))["note"].endswith("01.04.2027")
+
+
+def test_every_sap_screen_states_the_financial_year_it_is_reporting(sap_app):
+    from app.core.services.sap_quality_control import (
+        import_sap_lab_exports, sap_lab_dashboard_data, sap_management_data,
+        sap_sample_register_data,
+    )
+
+    import_sap_lab_exports(
+        "rgl_panvel",
+        _year_inspection_export([
+            ["890000040001", "00001234", "10R2", "05.04.2026", "", "REL CALC", ""],
+        ]),
+        "SAP_INSP_20260901.xlsx",
+        _year_notification_export([
+            ["020000040001", "OPEN", "45000001", "10", "00001234", "Barytes", "MUDLAB", "10R2",
+             "890000040001", "REL CALC", "05.04.2026", "20.04.2026", "", "1"],
+        ], title="Date : 01.09.2026"),
+        "SAP_ZLABIMS_20260901.xlsx", None,
+    )
+    db.session.commit()
+
+    expected = {
+        "label": "2026-27",
+        "start_date": date(2026, 4, 1),
+        "note": "All SAP notifications created on or after 01.04.2026",
+    }
+    assert sap_lab_dashboard_data("rgl_panvel")["financial_year_scope"] == expected
+    assert sap_sample_register_data(lab_code="rgl_panvel")["financial_year_scope"] == expected
+    assert sap_management_data()["financial_year_scope"] == expected
+
+
+def test_a_laboratory_awaiting_its_first_import_claims_no_financial_year(sap_app):
+    from app.core.services.sap_quality_control import sap_lab_dashboard_data
+
+    assert sap_lab_dashboard_data("rgl_panvel")["financial_year_scope"] is None

@@ -590,7 +590,7 @@ def sample_history():
             "quality_control/samples.html",
             filters={"lab": "", "search": "", "status": "", "subgroup": ""},
             entries=[], groups=[], laboratories=[], subgroup_filters=[],
-            status_filters=SAP_REGISTER_STATUS_FILTERS,
+            status_filters=SAP_REGISTER_STATUS_FILTERS, financial_year_scope=None,
             # The caption counts matches, so the empty scope has to state its
             # own zero rather than leave the count undefined.
             total_matching=0, visible_limit=SAP_REGISTER_VISIBLE_LIMIT, is_truncated=False,

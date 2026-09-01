@@ -909,6 +909,21 @@ def import_sap_panvel_exports(
     )
 
 
+def financial_year_scope(as_of_date: date) -> dict[str, Any]:
+    """How a screen states the span of SAP data it is showing.
+
+    The monitoring base is a financial year, not the latest export, so every
+    count on a page is a year-to-date figure.  Saying so where the counts are
+    read stops a daily snapshot being inferred from them.
+    """
+    start_date = financial_year_start(as_of_date)
+    return {
+        "label": financial_year_label(as_of_date),
+        "start_date": start_date,
+        "note": f"All SAP notifications created on or after {start_date:%d.%m.%Y}",
+    }
+
+
 def financial_year_records(lab_code: str, batch: QCSAPUploadBatch):
     """A laboratory's records for the financial year the batch belongs to.
 
@@ -1112,6 +1127,7 @@ def sap_lab_dashboard_data(lab_code: str) -> dict[str, Any]:
             "non_sap_entries": non_sap_entries,
             "non_sap_statuses": NON_SAP_STATUSES,
             "non_sap_status_labels": NON_SAP_STATUS_LABELS,
+            "financial_year_scope": None,
         }
 
     records = financial_year_records(lab_code, batch).order_by(
@@ -1211,6 +1227,7 @@ def sap_lab_dashboard_data(lab_code: str) -> dict[str, Any]:
         "laboratory": laboratory,
         "lab_code": lab_code,
         "batch": batch,
+        "financial_year_scope": financial_year_scope(batch.as_of_date),
         "records": entries,
         "open_records": sorted(
             [
@@ -1405,7 +1422,14 @@ def sap_sample_register_data(
     if limit is _REGISTER_DEFAULT_LIMIT:
         limit = SAP_REGISTER_VISIBLE_LIMIT
     visible = entries if limit is None else entries[:limit]
+    # Each reporting laboratory is read at its own latest snapshot, but they
+    # share one financial year; only name it where they genuinely agree.
+    scope_dates = {batch.as_of_date for _, batch, _ in current}
+    scope_labels = {financial_year_label(value) for value in scope_dates}
     return {
+        "financial_year_scope": (
+            financial_year_scope(max(scope_dates)) if len(scope_labels) == 1 else None
+        ),
         "entries": visible,
         # The true match count, before the cap, so the caption can be honest
         # about a filter that narrowed nothing.
@@ -1821,7 +1845,14 @@ def sap_management_data(lab_codes: set[str] | None = None) -> dict[str, Any]:
             "current_total": int(review["summary"].get("total_records", review["kpis"]["total"]) or 0),
         })
 
+    review_dates = {
+        review["batch"].as_of_date for review in laboratory_reviews if review["batch"] is not None
+    }
+    review_labels = {financial_year_label(value) for value in review_dates}
     return {
+        "financial_year_scope": (
+            financial_year_scope(max(review_dates)) if len(review_labels) == 1 else None
+        ),
         "laboratory_reviews": laboratory_reviews,
         "reporting_labs": sum(review["batch"] is not None for review in laboratory_reviews),
         "configured_labs": len(laboratories),

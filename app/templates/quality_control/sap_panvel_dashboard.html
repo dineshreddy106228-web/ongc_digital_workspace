@@ -8,7 +8,8 @@
 
   <div class="mod-page-head">
     <div>
-      <div class="qc-lab-eyebrow"><span class="qc-live-dot"></span> SAP-authoritative daily operating view{% if batch %} · as at {{ batch.as_of_date.strftime('%d %b %Y') }} · plant {{ batch.plant_code }} · imported {{ batch.uploaded_at.strftime('%d %b %Y %H:%M') }}{% endif %}</div>
+      <div class="qc-lab-eyebrow"><span class="qc-live-dot"></span> SAP-authoritative operating view{% if batch %} · as at {{ batch.as_of_date.strftime('%d %b %Y') }} · plant {{ batch.plant_code }} · imported {{ batch.uploaded_at.strftime('%d %b %Y %H:%M') }}{% endif %}</div>
+      {% if financial_year_scope %}<div class="qc-scope-notice"><span><i class="bi bi-calendar-range"></i> Financial year <strong>{{ financial_year_scope.label }}</strong> — {{ financial_year_scope.note }}. Every count below is year to date, not one day's export.</span></div>{% endif %}
       <h1 class="mod-page-title"><i class="bi bi-shield-check"></i> {{ laboratory.name }} · SAP QC Monitoring</h1>
       <p class="mod-page-sub">Official inspection and notification status is read from SAP. Corporate Chemistry records the returned laboratory action; it never overwrites SAP.</p>
     </div>

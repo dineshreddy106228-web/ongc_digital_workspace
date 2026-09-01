@@ -343,7 +343,7 @@ def test_the_sample_register_is_scoped_to_the_reader_s_own_laboratory(admin_app)
         login_user(user)
         unscoped = sample_history()
         assert "No laboratory is assigned to your account" in unscoped
-        assert "0 matching current SAP records" in unscoped
+        assert "0 matching SAP records" in unscoped
         logout_user()
 
 

@@ -9,7 +9,7 @@
     <div>
       <div class="qc-lab-eyebrow"><span class="qc-live-dot"></span> Corporate Chemistry · SAP-authoritative daily review</div>
       <h1 class="mod-page-title"><i class="bi bi-easel2"></i> QC Management Review &amp; Analytics</h1>
-      <p class="mod-page-sub">{{ source_as_of_label }}. The position is read from the latest paired SAP Inspection Lots and Notifications export for each laboratory; the performance tab reads the whole recorded load.</p>
+      <p class="mod-page-sub">{{ source_as_of_label }}.{% if financial_year_scope %} Financial year {{ financial_year_scope.label }} — {{ financial_year_scope.note }}.{% endif %} The position is read from each laboratory's records for that year, refreshed by the latest paired SAP Inspection Lots and Notifications export; the performance tab reads the whole recorded load.</p>
     </div>
     <div class="mod-page-actions">
       <a class="btn btn-secondary" href="{{ url_for('quality_control.landing') }}"><i class="bi bi-grid"></i> Monitoring home</a>
