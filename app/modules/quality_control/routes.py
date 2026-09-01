@@ -537,23 +537,34 @@ def download_sap_panvel_presentation():
 @module_access_required("quality_control")
 def download_sap_lab_source(lab_code: str, batch_id: int, source_kind: str):
     from sqlalchemy.orm import undefer
-    from app.models.quality_control.qc_sap_monitoring import QCSAPUploadBatch
+    from app.models.quality_control.qc_sap_monitoring import QCSAPSourceDocument, QCSAPUploadBatch
 
     if source_kind not in {"inspection", "notifications"}:
         abort(404)
+    # The workbooks live on the document the whole upload shares, so a central
+    # upload keeps one copy rather than one per laboratory.
     column = (
-        QCSAPUploadBatch.inspection_source_data
-        if source_kind == "inspection" else QCSAPUploadBatch.notification_source_data
+        QCSAPSourceDocument.inspection_source_data
+        if source_kind == "inspection" else QCSAPSourceDocument.notification_source_data
     )
-    batch = QCSAPUploadBatch.query.options(undefer(column)).filter_by(id=batch_id, lab_code=lab_code).first()
+    batch = QCSAPUploadBatch.query.filter_by(id=batch_id, lab_code=lab_code).first()
+    document = (
+        QCSAPSourceDocument.query.options(undefer(column)).filter_by(id=batch.source_document_id).first()
+        if batch is not None and batch.source_document_id else None
+    )
     if batch is None:
         flash("The requested SAP source export is no longer available.", "warning")
         return redirect(url_for("quality_control.sap_lab_dashboard", lab_code=lab_code))
-    data = batch.inspection_source_data if source_kind == "inspection" else batch.notification_source_data
-    if batch.source_purged_at is not None or not data:
+    data = None
+    if document is not None:
+        data = (
+            document.inspection_source_data if source_kind == "inspection"
+            else document.notification_source_data
+        )
+    if document is None or document.purged_at is not None or not data:
         flash(
-            "The source workbook is outside the 15-day rollback window. "
-            "Its SAP audit record remains available.",
+            "Only the current SAP upload's workbooks are retained, and this one has "
+            "been superseded. Its SAP audit record remains available.",
             "warning",
         )
         return redirect(url_for("quality_control.sap_lab_dashboard", lab_code=lab_code))

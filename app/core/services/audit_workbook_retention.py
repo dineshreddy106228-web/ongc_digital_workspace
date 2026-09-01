@@ -3,6 +3,10 @@
 Import batches keep their parsed rows and source metadata permanently.  The
 binary workbook is deliberately short-lived: it is useful for a controlled
 rollback, but should not turn the audit trail into an unlimited file store.
+
+Inventory and the weekly QC workbook keep theirs for the rollback window.  The
+SAP daily exports do not: each upload supersedes the one before it, so only the
+current pair is held.
 """
 
 from __future__ import annotations
@@ -15,7 +19,6 @@ from sqlalchemy.orm import undefer
 
 from app.extensions import db
 from app.models.inventory.monitoring import InventoryMonitoringUploadBatch
-from app.models.quality_control.qc_sap_monitoring import QCSAPUploadBatch
 from app.models.quality_control.qc_upload_batch import QCUploadBatch
 
 
@@ -73,18 +76,12 @@ def purge_expired_audit_workbook_payloads(
         batch.source_purged_at = reference
         counts["qc_weekly"] += 1
 
-    sap_batches = QCSAPUploadBatch.query.options(
-        undefer(QCSAPUploadBatch.inspection_source_data),
-        undefer(QCSAPUploadBatch.notification_source_data),
-    ).filter(
-        QCSAPUploadBatch.uploaded_at < cutoff,
-        QCSAPUploadBatch.source_purged_at.is_(None),
-    ).all()
-    for batch in sap_batches:
-        batch.inspection_source_data = b""
-        batch.notification_source_data = b""
-        batch.source_purged_at = reference
-        counts["qc_sap"] += 1
+    # SAP daily exports are not kept for the window at all: an upload supersedes
+    # the one before it, so only the current pair is retained.  The sweep still
+    # runs over them so a purge missed at import time is repaired.
+    from app.core.services.sap_quality_control import purge_superseded_sap_source_documents
+
+    counts["qc_sap"] = purge_superseded_sap_source_documents(now=reference)
 
     return counts
 

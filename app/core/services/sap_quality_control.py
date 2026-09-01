@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field as dataclass_field
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
 import json
 import re
@@ -19,6 +19,7 @@ from typing import Any
 import pandas as pd
 
 from sqlalchemy import event, func
+from sqlalchemy.orm import undefer
 
 from app.extensions import db
 from app.models.quality_control.qc_sap_monitoring import (
@@ -27,6 +28,7 @@ from app.models.quality_control.qc_sap_monitoring import (
     QCSAPLabUpdate,
     QCSAPMonitoringDisposition,
     QCSAPRecord,
+    QCSAPSourceDocument,
     QCSAPUploadBatch,
 )
 
@@ -817,6 +819,70 @@ def _change_summary(log: dict[str, list[str]]) -> dict[str, Any]:
     }
 
 
+def store_sap_source_document(
+    inspection_source: bytes,
+    inspection_filename: str,
+    notification_source: bytes,
+    notification_filename: str,
+    uploaded_by: int | None,
+) -> QCSAPSourceDocument:
+    """Hold one upload's pair of workbooks, and retire the pair it replaces.
+
+    Only the current upload is kept.  An earlier pair cannot re-create the
+    current position -- re-importing it would push SAP's fields backwards --
+    so it is cleared as soon as this one lands, and the reconciled records and
+    each batch's own metadata carry the audit trail instead.
+    """
+    document = QCSAPSourceDocument(
+        inspection_filename=inspection_filename,
+        inspection_content_type=SAP_XLSX_MIME,
+        inspection_file_size=len(inspection_source),
+        inspection_source_data=inspection_source,
+        notification_filename=notification_filename,
+        notification_content_type=SAP_XLSX_MIME,
+        notification_file_size=len(notification_source),
+        notification_source_data=notification_source,
+        uploaded_by=uploaded_by,
+    )
+    db.session.add(document)
+    db.session.flush()
+    purge_superseded_sap_source_documents(keep_id=document.id)
+    return document
+
+
+def purge_superseded_sap_source_documents(
+    *, keep_id: int | None = None, now: datetime | None = None,
+) -> int:
+    """Clear the bytes of every SAP source pair except the current one.
+
+    ``purged_at`` makes this idempotent and lets a reader tell a superseded
+    upload apart from one that was never stored.  Empty bytes keep the
+    non-null binary columns valid on both MySQL and SQLite.
+    """
+    if keep_id is None:
+        newest = QCSAPSourceDocument.query.filter(
+            QCSAPSourceDocument.purged_at.is_(None),
+        ).order_by(
+            QCSAPSourceDocument.uploaded_at.desc(), QCSAPSourceDocument.id.desc(),
+        ).first()
+        if newest is None:
+            return 0
+        keep_id = newest.id
+    reference = now or datetime.now(timezone.utc)
+    superseded = QCSAPSourceDocument.query.options(
+        undefer(QCSAPSourceDocument.inspection_source_data),
+        undefer(QCSAPSourceDocument.notification_source_data),
+    ).filter(
+        QCSAPSourceDocument.id != keep_id,
+        QCSAPSourceDocument.purged_at.is_(None),
+    ).all()
+    for document in superseded:
+        document.inspection_source_data = b""
+        document.notification_source_data = b""
+        document.purged_at = reference
+    return len(superseded)
+
+
 def _persist_sap_lab_snapshot(
     *,
     lab_code: str,
@@ -824,10 +890,7 @@ def _persist_sap_lab_snapshot(
     inspection_rows: list[dict[str, Any]],
     notification_rows: list[dict[str, Any]],
     as_of_date: date,
-    inspection_source: bytes,
-    inspection_filename: str,
-    notification_source: bytes,
-    notification_filename: str,
+    source_document: QCSAPSourceDocument,
     uploaded_by: int | None,
     excluded_rows: dict[str, int] | None = None,
 ) -> QCSAPUploadBatch:
@@ -845,14 +908,13 @@ def _persist_sap_lab_snapshot(
         lab_code=lab_code,
         plant_code=plant_code,
         as_of_date=as_of_date,
-        inspection_filename=inspection_filename,
-        inspection_content_type=SAP_XLSX_MIME,
-        inspection_file_size=len(inspection_source),
-        inspection_source_data=inspection_source,
-        notification_filename=notification_filename,
-        notification_content_type=SAP_XLSX_MIME,
-        notification_file_size=len(notification_source),
-        notification_source_data=notification_source,
+        source_document_id=source_document.id,
+        inspection_filename=source_document.inspection_filename,
+        inspection_content_type=source_document.inspection_content_type,
+        inspection_file_size=source_document.inspection_file_size,
+        notification_filename=source_document.notification_filename,
+        notification_content_type=source_document.notification_content_type,
+        notification_file_size=source_document.notification_file_size,
         inspection_lot_count=len(inspection_rows),
         notification_count=len(notification_rows),
         record_count=len(rows),
@@ -922,10 +984,10 @@ def import_sap_lab_exports(
         inspection_rows=inspections.rows,
         notification_rows=notifications.rows,
         as_of_date=_paired_sap_as_of_date(inspections, notifications),
-        inspection_source=inspection_source,
-        inspection_filename=inspection_filename,
-        notification_source=notification_source,
-        notification_filename=notification_filename,
+        source_document=store_sap_source_document(
+            inspection_source, inspection_filename,
+            notification_source, notification_filename, uploaded_by,
+        ),
         uploaded_by=uploaded_by,
         excluded_rows={**inspections.excluded_rows, **notifications.excluded_rows},
     )
@@ -959,6 +1021,10 @@ def import_central_sap_exports(
     inspections_by_plant = _rows_by_plant(inspection_rows)
     notifications_by_plant = _rows_by_plant(notification_rows)
 
+    source_document = store_sap_source_document(
+        inspection_source, inspection_filename,
+        notification_source, notification_filename, uploaded_by,
+    )
     batches = []
     for plant_code in sorted(set(inspections_by_plant) | set(notifications_by_plant)):
         lab_code = SAP_PLANT_LAB_CODES[plant_code]
@@ -969,10 +1035,7 @@ def import_central_sap_exports(
             inspection_rows=inspections_by_plant.get(plant_code, []),
             notification_rows=notifications_by_plant.get(plant_code, []),
             as_of_date=as_of_date,
-            inspection_source=inspection_source,
-            inspection_filename=inspection_filename,
-            notification_source=notification_source,
-            notification_filename=notification_filename,
+            source_document=source_document,
             uploaded_by=uploaded_by,
             excluded_rows=excluded_rows,
         ))
@@ -1063,6 +1126,10 @@ def rebuild_sap_financial_year(
     inspections_by_plant = _rows_by_plant(inspection_rows)
     notifications_by_plant = _rows_by_plant(notification_rows)
 
+    source_document = store_sap_source_document(
+        inspection_source, inspection_filename,
+        notification_source, notification_filename, uploaded_by,
+    )
     batches: list[QCSAPUploadBatch] = []
     lab_codes: set[str] = set()
     for plant_code in sorted(set(inspections_by_plant) | set(notifications_by_plant)):
@@ -1075,10 +1142,7 @@ def rebuild_sap_financial_year(
             inspection_rows=inspections_by_plant.get(plant_code, []),
             notification_rows=notifications_by_plant.get(plant_code, []),
             as_of_date=as_of_date,
-            inspection_source=inspection_source,
-            inspection_filename=inspection_filename,
-            notification_source=notification_source,
-            notification_filename=notification_filename,
+            source_document=source_document,
             uploaded_by=uploaded_by,
             excluded_rows=excluded_rows,
         ))

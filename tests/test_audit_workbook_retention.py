@@ -1,4 +1,9 @@
-"""Coverage for the controlled 15-day Inventory and QC workbook rollback window."""
+"""Coverage for workbook retention.
+
+Inventory and the weekly QC workbook keep their source for a 15-day rollback
+window.  The SAP daily exports do not: each upload supersedes the one before
+it, so only the current pair is held whatever its age.
+"""
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
@@ -41,7 +46,7 @@ def retention_app(tmp_path):
 def test_expired_payloads_are_cleared_but_audit_rows_and_recent_rollbacks_remain(retention_app):
     from app.core.services.audit_workbook_retention import purge_expired_audit_workbook_payloads
     from app.models.inventory.monitoring import InventoryMonitoringUploadBatch
-    from app.models.quality_control.qc_sap_monitoring import QCSAPUploadBatch
+    from app.models.quality_control.qc_sap_monitoring import QCSAPSourceDocument
     from app.models.quality_control.qc_upload_batch import QCUploadBatch
 
     reference = datetime(2026, 8, 28, 12, 0, 0)
@@ -73,15 +78,15 @@ def test_expired_payloads_are_cleared_but_audit_rows_and_recent_rollbacks_remain
         source_filename="weekly-current.xlsx", source_content_type="application/vnd.ms-excel",
         source_file_size=202, source_data=b"weekly-current", uploaded_at=current_time,
     )
-    old_sap = QCSAPUploadBatch(
-        lab_code="rgl_panvel", plant_code="10R2", as_of_date=date(2026, 8, 1),
+    # Both SAP pairs sit inside the rollback window; the older one is still
+    # cleared, because a later upload has superseded it.
+    old_sap = QCSAPSourceDocument(
         inspection_filename="inspection-old.xlsx", inspection_content_type="application/vnd.ms-excel",
         inspection_file_size=301, inspection_source_data=b"inspection-old",
         notification_filename="notifications-old.xlsx", notification_content_type="application/vnd.ms-excel",
         notification_file_size=302, notification_source_data=b"notifications-old", uploaded_at=old_time,
     )
-    current_sap = QCSAPUploadBatch(
-        lab_code="rgl_panvel", plant_code="10R2", as_of_date=date(2026, 8, 2),
+    current_sap = QCSAPSourceDocument(
         inspection_filename="inspection-current.xlsx", inspection_content_type="application/vnd.ms-excel",
         inspection_file_size=303, inspection_source_data=b"inspection-current",
         notification_filename="notifications-current.xlsx", notification_content_type="application/vnd.ms-excel",
@@ -106,7 +111,7 @@ def test_expired_payloads_are_cleared_but_audit_rows_and_recent_rollbacks_remain
     assert old_weekly.report_label == "Week 31"
     assert old_sap.inspection_source_data == b""
     assert old_sap.notification_source_data == b""
-    assert old_sap.source_purged_at == reference
+    assert old_sap.purged_at == reference
     assert old_sap.inspection_filename == "inspection-old.xlsx"
     assert current_inventory.source_data == b"inventory-current"
     assert current_inventory.source_purged_at is None
@@ -114,7 +119,7 @@ def test_expired_payloads_are_cleared_but_audit_rows_and_recent_rollbacks_remain
     assert current_weekly.source_purged_at is None
     assert current_sap.inspection_source_data == b"inspection-current"
     assert current_sap.notification_source_data == b"notifications-current"
-    assert current_sap.source_purged_at is None
+    assert current_sap.purged_at is None
 
     # The sweep is safe to run repeatedly: a purged audit row is never touched
     # again and no fresh source is prematurely removed.

@@ -1,7 +1,7 @@
 """Tests for the Corporate Chemistry SAP QC control-tower workflow."""
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from io import BytesIO
 import json
 from pathlib import Path
@@ -86,14 +86,14 @@ def sap_app(tmp_path):
         from app.models.quality_control.qc_sample import QCSample
         from app.models.quality_control.qc_sap_monitoring import (
             QCNonSAPSample, QCNonSAPSampleUpdate, QCSAPLabUpdate, QCSAPMonitoringDisposition, QCSAPRecord,
-            QCSAPUploadBatch,
+            QCSAPSourceDocument, QCSAPUploadBatch,
         )
 
         # SQLite only auto-generates primary keys for an INTEGER column; the
         # production schema intentionally retains BIGINT primary keys for MySQL.
         for model in (
-            QCSample, QCSAPUploadBatch, QCSAPRecord, QCSAPLabUpdate, QCSAPMonitoringDisposition,
-            QCNonSAPSample, QCNonSAPSampleUpdate,
+            QCSample, QCSAPSourceDocument, QCSAPUploadBatch, QCSAPRecord, QCSAPLabUpdate,
+            QCSAPMonitoringDisposition, QCNonSAPSample, QCNonSAPSampleUpdate,
         ):
             model.__table__.c.id.type = Integer()
         db.create_all()
@@ -1775,3 +1775,91 @@ def test_an_export_holding_no_laboratory_plant_at_all_still_stops_the_upload(sap
             ], title="Date : 01.09.2026"),
             "SAP_ZLABIMS_20260901.xlsx", None,
         )
+
+
+def test_one_upload_stores_its_workbooks_once_for_every_laboratory(sap_app):
+    """A central upload writes a batch per laboratory from a single pair."""
+    from app.core.services.sap_quality_control import import_central_sap_exports
+    from app.models.quality_control.qc_sap_monitoring import QCSAPSourceDocument
+
+    batches = import_central_sap_exports(
+        _central_inspection_export(), "SAP_INSP_20260827.xlsx",
+        _central_notification_export(), "SAP_ZLABIMS_20260827.xlsx", None,
+    )
+    db.session.commit()
+
+    assert len(batches) == 3
+    assert len({batch.source_document_id for batch in batches}) == 1
+    assert QCSAPSourceDocument.query.count() == 1
+    document = QCSAPSourceDocument.query.one()
+    assert document.purged_at is None
+    assert document.inspection_source_data
+    # Each batch still describes what it was built from.
+    assert all(batch.inspection_filename == "SAP_INSP_20260827.xlsx" for batch in batches)
+    assert all(batch.source_is_available for batch in batches)
+
+
+def test_a_new_upload_supersedes_the_previous_workbooks(sap_app):
+    """Only the current pair is retained; the one before it is cleared."""
+    from app.core.services.sap_quality_control import import_central_sap_exports
+    from app.models.quality_control.qc_sap_monitoring import QCSAPSourceDocument, QCSAPUploadBatch
+
+    first = import_central_sap_exports(
+        _central_inspection_export(), "SAP_INSP_20260827.xlsx",
+        _central_notification_export(), "SAP_ZLABIMS_20260827.xlsx", None,
+    )
+    db.session.commit()
+    first_document_id = first[0].source_document_id
+
+    # The same day re-uploaded: still a new pair, still supersedes the old one.
+    import_central_sap_exports(
+        _central_inspection_export(), "SAP_INSP_20260827.xlsx",
+        _central_notification_export(), "SAP_ZLABIMS_20260827.xlsx", None,
+    )
+    db.session.commit()
+
+    superseded = db.session.get(QCSAPSourceDocument, first_document_id)
+    assert superseded.purged_at is not None
+    assert superseded.inspection_source_data == b""
+    assert superseded.notification_source_data == b""
+
+    current = QCSAPSourceDocument.query.filter(
+        QCSAPSourceDocument.purged_at.is_(None)
+    ).one()
+    assert current.inspection_source_data
+
+    # The superseded upload's batches survive with their metadata; only the
+    # workbooks are gone, and the dashboard can say so.
+    old_batches = QCSAPUploadBatch.query.filter_by(source_document_id=first_document_id).all()
+    assert old_batches
+    assert all(not batch.source_is_available for batch in old_batches)
+    assert all(batch.record_count for batch in old_batches)
+
+
+def test_the_retention_sweep_repairs_a_purge_missed_at_import(sap_app):
+    from app.core.services.audit_workbook_retention import purge_expired_audit_workbook_payloads
+    from app.core.services.sap_quality_control import import_central_sap_exports
+    from app.models.quality_control.qc_sap_monitoring import QCSAPSourceDocument
+
+    import_central_sap_exports(
+        _central_inspection_export(), "SAP_INSP_20260827.xlsx",
+        _central_notification_export(), "SAP_ZLABIMS_20260827.xlsx", None,
+    )
+    db.session.commit()
+    # A second pair left behind as though its supersede had not run.
+    stray = QCSAPSourceDocument(
+        inspection_filename="stray.xlsx", inspection_content_type="x", inspection_file_size=3,
+        inspection_source_data=b"abc",
+        notification_filename="stray2.xlsx", notification_content_type="x", notification_file_size=3,
+        notification_source_data=b"abc",
+        uploaded_at=datetime(2026, 8, 1, 9, 0),
+    )
+    db.session.add(stray)
+    db.session.commit()
+
+    counts = purge_expired_audit_workbook_payloads()
+    db.session.commit()
+
+    assert counts["qc_sap"] == 1
+    assert db.session.get(QCSAPSourceDocument, stray.id).purged_at is not None
+    assert QCSAPSourceDocument.query.filter(QCSAPSourceDocument.purged_at.is_(None)).count() == 1

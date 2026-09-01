@@ -18,6 +18,44 @@ from app.extensions import db
 SAP_BINARY_TYPE = db.LargeBinary().with_variant(mysql.LONGBLOB(), "mysql")
 
 
+class QCSAPSourceDocument(db.Model):
+    """The uploaded pair of SAP workbooks, held once for the whole upload.
+
+    A central upload produces one batch per laboratory, and every one of them
+    was made from the same two files.  Storing the pair here rather than on
+    each batch keeps one copy instead of six or seven.
+
+    Only the newest upload's files are kept.  Earlier documents have their
+    bytes cleared and ``purged_at`` stamped as soon as an upload supersedes
+    them: the reconciled records and every batch's own metadata are the audit
+    trail, and the workbook is only there to re-import the current position.
+    """
+
+    __tablename__ = "qc_sap_source_documents"
+    __table_args__ = (
+        db.Index("ix_qc_sap_source_documents_uploaded_at", "uploaded_at"),
+    )
+
+    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+
+    inspection_filename = db.Column(db.String(255), nullable=False)
+    inspection_content_type = db.Column(db.String(120), nullable=False)
+    inspection_file_size = db.Column(db.BigInteger, nullable=False, default=0)
+    inspection_source_data = deferred(db.Column(SAP_BINARY_TYPE, nullable=False))
+
+    notification_filename = db.Column(db.String(255), nullable=False)
+    notification_content_type = db.Column(db.String(120), nullable=False)
+    notification_file_size = db.Column(db.BigInteger, nullable=False, default=0)
+    notification_source_data = deferred(db.Column(SAP_BINARY_TYPE, nullable=False))
+
+    purged_at = db.Column(db.DateTime, nullable=True)
+    uploaded_by = db.Column(db.BigInteger, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    uploaded_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    uploader = db.relationship("User", foreign_keys=[uploaded_by])
+    batches = db.relationship("QCSAPUploadBatch", back_populates="source_document")
+
+
 class QCSAPUploadBatch(db.Model):
     """One paired daily export of SAP inspection lots and notifications."""
 
@@ -32,19 +70,20 @@ class QCSAPUploadBatch(db.Model):
     plant_code = db.Column(db.String(32), nullable=False, default="10R2")
     as_of_date = db.Column(db.Date, nullable=False)
 
+    # The file names and sizes stay on the batch because they describe what
+    # this laboratory's position was built from.  The bytes themselves live on
+    # the shared document, which every batch of one upload points at.
     inspection_filename = db.Column(db.String(255), nullable=False)
     inspection_content_type = db.Column(db.String(120), nullable=False)
     inspection_file_size = db.Column(db.BigInteger, nullable=False, default=0)
-    inspection_source_data = deferred(db.Column(SAP_BINARY_TYPE, nullable=False))
 
     notification_filename = db.Column(db.String(255), nullable=False)
     notification_content_type = db.Column(db.String(120), nullable=False)
     notification_file_size = db.Column(db.BigInteger, nullable=False, default=0)
-    notification_source_data = deferred(db.Column(SAP_BINARY_TYPE, nullable=False))
 
-    # Both exports belong to the same daily SAP snapshot and expire together.
-    # The reconciled SAP records and all source metadata are retained.
-    source_purged_at = db.Column(db.DateTime, nullable=True)
+    source_document_id = db.Column(
+        db.BigInteger, db.ForeignKey("qc_sap_source_documents.id", ondelete="SET NULL"), nullable=True,
+    )
 
     inspection_lot_count = db.Column(db.Integer, nullable=False, default=0)
     notification_count = db.Column(db.Integer, nullable=False, default=0)
@@ -56,6 +95,13 @@ class QCSAPUploadBatch(db.Model):
     uploaded_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     uploader = db.relationship("User", foreign_keys=[uploaded_by])
+    source_document = db.relationship("QCSAPSourceDocument", back_populates="batches")
+
+    @property
+    def source_is_available(self) -> bool:
+        """Whether this batch's workbooks can still be downloaded."""
+        document = self.source_document
+        return document is not None and document.purged_at is None
 
 
 class QCSAPRecord(db.Model):
