@@ -59,6 +59,28 @@
       </form>
     </div></section>
 
+    <section class="cs-card"><div class="cs-card-body">
+      <div class="cs-section-heading cs-section-heading-flush">
+        <div><span>Excel</span><h2>Specifications against SAP LABIMS</h2><p>{{ document_total }} specifications, one sheet each: the corporate requirement written out, with the SAP Material Inspection Characteristics left blank beside it and a column to reconcile the two.</p></div>
+      </div>
+      <form method="get" action="{{ url_for('csc.export_specification_comparison_workbook') }}">
+        <div class="cs-field-grid">
+          <div class="cs-field cs-field-wide">
+            <label for="comparison-category">Chemical sub-group</label>
+            <select id="comparison-category" name="category">
+              <option value="">All sub-groups ({{ document_total }} sheets)</option>
+              {% for option in categories %}<option value="{{ option.code }}">{{ option.code }} — {{ option.label }} ({{ option.count }})</option>{% endfor %}
+            </select>
+            <small>Each sheet carries the specification's own parameters, then blank rows for a characteristic SAP holds and the specification does not.</small>
+          </div>
+        </div>
+
+        <div class="cs-editor-actions">
+          <button class="btn btn-primary" type="submit"><i class="bi bi-file-earmark-spreadsheet"></i> Download .xlsx</button>
+        </div>
+      </form>
+    </div></section>
+
     <aside class="cs-side">
       <section class="cs-panel">
         <h3>Register workbook</h3>

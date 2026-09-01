@@ -249,6 +249,34 @@ def export_register_workbook():
     )
 
 
+@csc_bp.route("/master-export/sap-comparison.xlsx")
+@login_required
+@module_access_required("csc")
+def export_specification_comparison_workbook():
+    """One sheet per specification, laid out for the SAP LABIMS comparison."""
+    from app.core.services.corporate_specifications import (
+        build_specification_comparison_workbook,
+    )
+
+    selected = (request.args.get("category") or "").strip().upper()
+    try:
+        stream, filename = build_specification_comparison_workbook(selected or None)
+    except ValueError as exc:
+        flash(str(exc), "warning")
+        return redirect(url_for("csc.master_export"))
+    except Exception:
+        logger.exception("Corporate specification SAP comparison export failed")
+        flash("The SAP comparison workbook could not be generated.", "danger")
+        return redirect(url_for("csc.master_export"))
+    return send_file(
+        stream,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        max_age=0,
+    )
+
+
 @csc_bp.route("/master-export/specifications.docx")
 @login_required
 @module_access_required("csc")

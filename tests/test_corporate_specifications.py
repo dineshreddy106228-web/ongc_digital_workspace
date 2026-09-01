@@ -370,3 +370,158 @@ def test_dossier_bundle_returns_one_docx_or_a_zip_of_dossiers(monkeypatch):
             "ONGC_DFC_01_2026_v2_dossier.docx",
             "ONGC_PC_02_2026_v4_dossier.docx",
         ]
+
+
+# ── SAP LABIMS comparison workbook ───────────────────────────────────────────
+
+
+def _stub_parameters(monkeypatch, by_record_id):
+    monkeypatch.setattr(
+        cs, "parameter_rows",
+        lambda record: [
+            {
+                "id": index,
+                "parameter_name": name,
+                "parameter_type": "Vital",
+                "requirement": requirement,
+                "unit_of_measure": "%",
+                "conditions": "",
+                "test_method": "IS 1234",
+                "remarks": "",
+                "sort_order": index,
+            }
+            for index, (name, requirement) in enumerate(by_record_id.get(record.id, []), start=1)
+        ],
+    )
+
+
+def _comparison_workbook(monkeypatch, register, records, counts, parameters, category=None):
+    from io import BytesIO
+    from openpyxl import load_workbook
+
+    _stub_catalogue(monkeypatch, register, records, counts)
+    _stub_parameters(monkeypatch, parameters)
+    stream, filename = cs.build_specification_comparison_workbook(category)
+    return load_workbook(BytesIO(stream.getvalue())), filename
+
+
+def test_comparison_workbook_gives_every_specification_its_own_sheet(monkeypatch):
+    workbook, filename = _comparison_workbook(
+        monkeypatch,
+        register=[
+            _register_row(1, "ONGC / DFC / 01 / 2026", "Barytes", "100101102", 5),
+            _register_row(2, "ONGC / PC / 04 / 2026", "Xylene", "100200300"),
+        ],
+        records=[
+            _record(11, "ONGC / DFC / 01 / 2026", "Barytes", "100101102"),
+            _record(12, "ONGC / PC / 04 / 2026", "Xylene", "100200300"),
+        ],
+        counts={11: 2, 12: 1},
+        parameters={
+            11: [("Specific gravity", "4.20 (Minimum)"), ("Moisture", "1.0 (Maximum)")],
+            12: [("Purity", "99.0 (Minimum)")],
+        },
+    )
+
+    assert workbook.sheetnames == ["Index", "DFC-01 Barytes", "PC-04 Xylene"]
+    assert filename.startswith("ONGC_Specifications_vs_SAP_LABIMS_ALL_")
+
+    index = workbook["Index"]
+    assert [row[0] for row in index.iter_rows(min_row=2, max_col=1, values_only=True)] == [
+        "DFC-01 Barytes", "PC-04 Xylene",
+    ]
+    assert index["A2"].hyperlink.target == "#'DFC-01 Barytes'!A1"
+
+    sheet = workbook["DFC-01 Barytes"]
+    assert [row[0] for row in sheet.iter_rows(min_row=1, max_row=6, max_col=1, values_only=True)] == [
+        "Specification No.", "Chemical Name", "Material Code",
+        "Chemical Sub-group", "Specification Version", "Standard Testing Days",
+    ]
+    assert sheet["B1"].value == "ONGC / DFC / 01 / 2026"
+    assert sheet["B6"].value == 5
+    # A blank row separates the identity block from the table it heads.
+    assert sheet["A7"].value is None
+    assert [str(area) for area in sheet.merged_cells.ranges] == ["A8:H8", "I8:N8", "O8:P8"]
+    assert sheet["A8"].value == "ONGC Corporate Specification"
+    assert sheet["I8"].value.startswith("SAP LABIMS — Material Inspection Characteristics")
+    assert sheet["O8"].value == "Reconciliation"
+
+
+def test_comparison_sheet_writes_the_requirement_and_leaves_the_sap_columns_empty(monkeypatch):
+    workbook, _ = _comparison_workbook(
+        monkeypatch,
+        register=[_register_row(1, "ONGC / DFC / 01 / 2026", "Barytes", "100101102")],
+        records=[_record(11, "ONGC / DFC / 01 / 2026", "Barytes", "100101102")],
+        counts={11: 2},
+        parameters={11: [("Specific gravity", "4.20 (Minimum)"), ("Moisture", "1.0 (Maximum)")]},
+    )
+    sheet = workbook["DFC-01 Barytes"]
+
+    assert [cell.value for cell in sheet[9]] == [
+        "S. No.", "Parameter", "Type", "Required Value", "Unit", "Conditions",
+        "Test Method", "Remarks",
+        "Characteristic", "Description", "Lower Limit", "Upper Limit", "Unit",
+        "Method / Procedure",
+        "Match?", "Reconciliation Note",
+    ]
+    assert [cell.value for cell in sheet[10]][:4] == [1, "Specific gravity", "Vital", "4.20 (Minimum)"]
+    # The SAP block and the reconciliation block are the reader's to fill in.
+    assert [cell.value for cell in sheet[10]][8:] == [None] * 8
+    # Frozen below the headings and right of the parameter name, so the SAP
+    # columns can be filled without losing sight of what they answer to.
+    assert sheet.freeze_panes == "C10"
+
+    invitation = sheet.cell(row=13, column=1).value
+    assert invitation.startswith("Characteristics held in SAP LABIMS only")
+
+
+def test_comparison_sheet_names_stay_legal_and_unique(monkeypatch):
+    long_name = "Calcium Carbonate Micronised Extra Fine Grade For Drilling Use"
+    workbook, _ = _comparison_workbook(
+        monkeypatch,
+        register=[
+            _register_row(1, "ONGC / DFC / 07 / 2026", long_name, "100000001"),
+            _register_row(2, "ONGC / DFC / 07 / 2026", long_name, "100000002"),
+        ],
+        records=[
+            _record(11, "ONGC / DFC / 07 / 2026", long_name, "100000001"),
+            _record(12, "ONGC / DFC / 07 / 2026", long_name, "100000002"),
+        ],
+        counts={11: 1, 12: 1},
+        parameters={11: [("Purity", "99")], 12: [("Purity", "99")]},
+    )
+
+    sheets = workbook.sheetnames[1:]
+    assert len(sheets) == 2
+    assert all(len(name) <= 31 for name in sheets)
+    assert not any(set(name) & set("[]:*?/\\") for name in sheets)
+    assert len({name.casefold() for name in sheets}) == 2
+    assert sheets[1].endswith("(2)")
+
+
+def test_comparison_workbook_covers_one_subgroup_and_skips_unparameterised_records(monkeypatch):
+    register = [
+        _register_row(1, "ONGC / DFC / 01 / 2026", "Barytes", "100101102"),
+        _register_row(2, "ONGC / PC / 04 / 2026", "Xylene", "100200300"),
+        _register_row(3, "ONGC / DFC / 09 / 2026", "Awaiting parameters", "100300400"),
+    ]
+    records = [
+        _record(11, "ONGC / DFC / 01 / 2026", "Barytes", "100101102"),
+        _record(12, "ONGC / PC / 04 / 2026", "Xylene", "100200300"),
+        _record(13, "ONGC / DFC / 09 / 2026", "Awaiting parameters", "100300400"),
+    ]
+    counts = {11: 1, 12: 1}
+    parameters = {11: [("Specific gravity", "4.20")], 12: [("Purity", "99.0")]}
+
+    workbook, filename = _comparison_workbook(
+        monkeypatch, register, records, counts, parameters, category="DFC",
+    )
+    assert workbook.sheetnames == ["Index", "DFC-01 Barytes"]
+    assert "_DFC_" in filename
+
+    import pytest
+
+    _stub_catalogue(monkeypatch, register, records, counts)
+    _stub_parameters(monkeypatch, parameters)
+    with pytest.raises(ValueError, match="No specifications with recorded parameters"):
+        cs.build_specification_comparison_workbook("WS")

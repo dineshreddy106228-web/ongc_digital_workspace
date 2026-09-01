@@ -1238,6 +1238,195 @@ def build_register_workbook() -> tuple[BytesIO, str]:
     return stream, f"ONGC_Corporate_Specification_Register_{stamp}.xlsx"
 
 
+# The comparison workbook's three column blocks.  The corporate requirement is
+# written out; the SAP block is left empty for the LABIMS characteristics to be
+# entered beside it, and the last block is where the two are reconciled.
+_ONGC_COLUMNS = (
+    "S. No.", "Parameter", "Type", "Required Value", "Unit", "Conditions",
+    "Test Method", "Remarks",
+)
+_SAP_COLUMNS = (
+    "Characteristic", "Description", "Lower Limit", "Upper Limit", "Unit",
+    "Method / Procedure",
+)
+_RECONCILIATION_COLUMNS = ("Match?", "Reconciliation Note")
+_COMPARISON_WIDTHS = (
+    8, 46, 12, 34, 12, 28, 26, 26,
+    18, 34, 14, 14, 12, 26,
+    12, 40,
+)
+_BANNER_FILLS = {
+    "ongc": PatternFill("solid", fgColor="0E766E"),
+    "sap": PatternFill("solid", fgColor="1D4ED8"),
+    "reconciliation": PatternFill("solid", fgColor="92400E"),
+}
+_LABEL_FONT = Font(bold=True)
+
+
+def _comparison_sheet_name(entry: dict[str, Any], used: set[str]) -> str:
+    """A unique, Excel-legal sheet name that still reads as the chemical.
+
+    Excel allows 31 characters and forbids ``[]:*?/\\``, which a specification
+    number contains.  The index sheet carries the full identity, so truncating
+    here loses nothing.
+    """
+    parts = [part.strip() for part in str(entry["spec_number"] or "").split("/")]
+    serial = parts[2] if len(parts) > 2 else ""
+    category = entry["category"] if entry["category"] != UNCATEGORISED_KEY else ""
+    prefix = "-".join(part for part in (category, serial) if part)
+    name = f"{prefix} {entry['chemical_name']}".strip() if prefix else str(entry["chemical_name"])
+    name = re.sub(r"[\[\]:*?/\\]", " ", name)
+    name = re.sub(r"\s+", " ", name).strip()[:31] or "Specification"
+    candidate, suffix = name, 2
+    while candidate.casefold() in used:
+        tail = f" ({suffix})"
+        candidate = f"{name[:31 - len(tail)].strip()}{tail}"
+        suffix += 1
+    used.add(candidate.casefold())
+    return candidate
+
+
+def _write_comparison_sheet(sheet: Any, entry: dict[str, Any]) -> None:
+    """One specification: its requirements, then room for the SAP characteristics."""
+    record = entry["record"]
+    identity = (
+        ("Specification No.", entry["spec_number"]),
+        ("Chemical Name", entry["chemical_name"]),
+        ("Material Code", entry["material_code"] or "Not recorded"),
+        ("Chemical Sub-group", f"{entry['category']} — {entry['category_label']}"),
+        ("Specification Version", f"v{entry['version']}" if entry["version"] else "Not recorded"),
+        ("Standard Testing Days", entry["standard_days"] if entry["standard_days"] is not None else "Not recorded"),
+    )
+    for label, value in identity:
+        sheet.append([label, value])
+        sheet.cell(row=sheet.max_row, column=1).font = _LABEL_FONT
+
+    # A blank row between the identity block and the table.  openpyxl ignores
+    # append([]), so the gap has to be made by moving the cursor instead.
+    banner_row = sheet.max_row + 2
+    blocks = (
+        ("ongc", "ONGC Corporate Specification", len(_ONGC_COLUMNS)),
+        ("sap", "SAP LABIMS — Material Inspection Characteristics (to be entered)", len(_SAP_COLUMNS)),
+        ("reconciliation", "Reconciliation", len(_RECONCILIATION_COLUMNS)),
+    )
+    column = 1
+    for key, title, span in blocks:
+        sheet.merge_cells(
+            start_row=banner_row, start_column=column,
+            end_row=banner_row, end_column=column + span - 1,
+        )
+        cell = sheet.cell(row=banner_row, column=column, value=title)
+        cell.fill = _BANNER_FILLS[key]
+        cell.font = _HEADER_FONT
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        column += span
+
+    sheet.append(list(_ONGC_COLUMNS + _SAP_COLUMNS + _RECONCILIATION_COLUMNS))
+    for cell in sheet[banner_row + 1]:
+        cell.fill = _HEADER_FILL
+        cell.font = _HEADER_FONT
+        cell.alignment = Alignment(vertical="center", wrap_text=True)
+
+    parameters = parameter_rows(record) if record is not None else []
+    for position, parameter in enumerate(parameters, start=1):
+        sheet.append([
+            position,
+            parameter["parameter_name"],
+            parameter["parameter_type"],
+            parameter["requirement"],
+            parameter["unit_of_measure"],
+            parameter["conditions"],
+            parameter["test_method"],
+            parameter["remarks"],
+        ])
+
+    if parameters:
+        note = sheet.cell(
+            row=sheet.max_row + 2, column=1,
+            value=(
+                "Characteristics held in SAP LABIMS only — no corporate requirement. "
+                "Add them below; the column headings above stay frozen in view."
+            ),
+        )
+        note.font = _LABEL_FONT
+
+    # Keep the serial and the parameter name in view while the SAP columns to
+    # their right are being filled in.
+    sheet.freeze_panes = sheet.cell(row=banner_row + 2, column=3)
+    for index, width in enumerate(_COMPARISON_WIDTHS, start=1):
+        sheet.column_dimensions[get_column_letter(index)].width = width
+
+
+def build_specification_comparison_workbook(
+    category: str | None = None,
+) -> tuple[BytesIO, str]:
+    """Every specification as its own sheet, laid out against SAP LABIMS.
+
+    The register workbook already lists all parameters on one sheet, which is
+    the right shape for reading the register but the wrong one for reconciling
+    it: a bench comparing ONGC requirements with the SAP inspection plan works
+    a chemical at a time.  This gives each specification its own sheet with the
+    corporate requirement written out and the SAP characteristics left blank
+    beside it.
+    """
+    entries: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for entry in catalogue():
+        if entry["record"] is None or not entry["has_parameters"]:
+            continue
+        if entry["record_id"] in seen:
+            continue
+        if category and entry["category"] != category:
+            continue
+        seen.add(entry["record_id"])
+        entries.append(entry)
+    if not entries:
+        raise ValueError("No specifications with recorded parameters matched that sub-group.")
+
+    workbook = Workbook()
+    index = workbook.active
+    index.title = "Index"
+
+    used_names: set[str] = set()
+    named = [(entry, _comparison_sheet_name(entry, used_names)) for entry in entries]
+
+    _write_sheet(
+        index,
+        [
+            "Sheet", "Chemical Sub-group", "Specification No.", "Chemical Name",
+            "Material Code", "Version", "Parameters", "Standard Testing Days",
+        ],
+        [
+            [
+                sheet_name,
+                f"{entry['category']} — {entry['category_label']}",
+                entry["spec_number"],
+                entry["chemical_name"],
+                entry["material_code"],
+                f"v{entry['version']}" if entry["version"] else "",
+                entry["parameter_count"],
+                entry["standard_days"] if entry["standard_days"] is not None else "",
+            ]
+            for entry, sheet_name in named
+        ],
+        [34, 34, 26, 52, 16, 10, 12, 20],
+    )
+    for offset, (_, sheet_name) in enumerate(named, start=2):
+        cell = index.cell(row=offset, column=1)
+        cell.hyperlink = f"#'{sheet_name}'!A1"
+        cell.style = "Hyperlink"
+
+    for entry, sheet_name in named:
+        _write_comparison_sheet(workbook.create_sheet(sheet_name), entry)
+
+    stream = BytesIO()
+    workbook.save(stream)
+    stream.seek(0)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M")
+    scope = category or "ALL"
+    return stream, f"ONGC_Specifications_vs_SAP_LABIMS_{scope}_{stamp}.xlsx"
+
+
 def _write_supporting_sheets(workbook: Workbook, entries: list[dict[str, Any]]) -> None:
     """Material master, properties, storage, impact and issue sheets — one row per specification."""
     from app.core.services.csc_master_data import (
