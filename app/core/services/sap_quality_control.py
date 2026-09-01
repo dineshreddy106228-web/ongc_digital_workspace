@@ -748,6 +748,55 @@ def _validate_central_sap_plants(
         )
 
 
+# How many identifiers each change category keeps in the batch summary.  The
+# counts are always exact; the samples exist so a reviewer can recognise what
+# moved without the summary growing with the size of the upload.
+_CHANGE_SAMPLE_LIMIT = 40
+CHANGE_CATEGORIES = (
+    ("new", "Newly raised in SAP"),
+    ("closed", "Closed in SAP since the last upload"),
+    ("reopened", "Reopened in SAP since the last upload"),
+    ("usage_decided", "Usage decision recorded since the last upload"),
+)
+
+
+def _record_label(row: dict[str, Any]) -> str:
+    return row.get("notification_no") or row.get("inspection_lot_number") or "Unidentified row"
+
+
+def _blank_change_log() -> dict[str, list[str]]:
+    return {key: [] for key, _ in CHANGE_CATEGORIES}
+
+
+def _note_record_change(
+    log: dict[str, list[str]],
+    row: dict[str, Any],
+    before: tuple[str, str | None] | None,
+) -> None:
+    """Record what this upload moved, judged against the row it replaces.
+
+    ``before`` is ``None`` for a source key the database has not seen.  The
+    comparison is deliberately limited to the two things a reviewer acts on:
+    whether SAP still calls the work open, and whether it has decided it.
+    """
+    if before is None:
+        log["new"].append(_record_label(row))
+        return
+    was_status, was_usage = before
+    now_status = row.get("official_status")
+    if was_status != now_status:
+        log["closed" if now_status == "completed" else "reopened"].append(_record_label(row))
+    if not _text(was_usage) and _text(row.get("usage_decision_code")):
+        log["usage_decided"].append(_record_label(row))
+
+
+def _change_summary(log: dict[str, list[str]]) -> dict[str, Any]:
+    return {
+        key: {"count": len(log[key]), "sample": sorted(log[key])[:_CHANGE_SAMPLE_LIMIT]}
+        for key, _ in CHANGE_CATEGORIES
+    }
+
+
 def _persist_sap_lab_snapshot(
     *,
     lab_code: str,
@@ -799,16 +848,22 @@ def _persist_sap_lab_snapshot(
         item.source_key: item
         for item in QCSAPRecord.query.filter_by(lab_code=lab_code).all()
     }
+    change_log = _blank_change_log()
     for row in rows:
         record = existing.get(row["source_key"])
+        before = None if record is None else (record.official_status, record.usage_decision_code)
         if record is None:
             record = QCSAPRecord(
                 source_key=row["source_key"], lab_code=lab_code, first_seen_batch_id=batch.id,
             )
             db.session.add(record)
+        _note_record_change(change_log, row, before)
         for column, value in row.items():
             setattr(record, column, value)
         record.last_seen_batch_id = batch.id
+
+    summary["changes"] = _change_summary(change_log)
+    batch.summary_json = json.dumps(summary)
     return batch
 
 
@@ -893,6 +948,123 @@ def import_central_sap_exports(
             excluded_rows={**inspections.excluded_rows, **notifications.excluded_rows},
         ))
     return batches
+
+
+def _reconcile_financial_year(
+    lab_codes: set[str], financial_year: str, keep_source_keys: set[str],
+) -> dict[str, Any]:
+    """Retire year records the rebuilt workbook no longer accounts for.
+
+    A record is only ever removed when nothing human is attached to it.  A
+    laboratory's returned follow-up and a QC-admin exclusion are decisions SAP
+    does not hold and cannot reproduce, so a record carrying either is kept and
+    reported instead of deleted -- the reviewer decides what to do with it.
+    """
+    stale = QCSAPRecord.query.filter(
+        QCSAPRecord.lab_code.in_(lab_codes),
+        QCSAPRecord.financial_year == financial_year,
+        QCSAPRecord.source_key.notin_(keep_source_keys) if keep_source_keys else True,
+    ).all()
+    removed: list[str] = []
+    retained: list[dict[str, Any]] = []
+    for record in stale:
+        if record.lab_updates or record.monitoring_dispositions:
+            retained.append({
+                "lab_code": record.lab_code,
+                "notification_no": record.notification_no,
+                "inspection_lot_number": record.inspection_lot_number,
+                "reason": (
+                    "laboratory follow-up recorded" if record.lab_updates
+                    else "QC-admin monitoring decision recorded"
+                ),
+            })
+            continue
+        removed.append(record.notification_no or record.inspection_lot_number or str(record.id))
+        db.session.delete(record)
+    return {
+        "removed_count": len(removed),
+        "removed_sample": sorted(removed)[:_CHANGE_SAMPLE_LIMIT],
+        "retained_count": len(retained),
+        "retained": retained[:_CHANGE_SAMPLE_LIMIT],
+    }
+
+
+def rebuild_sap_financial_year(
+    inspection_source: bytes,
+    inspection_filename: str,
+    notification_source: bytes,
+    notification_filename: str,
+    uploaded_by: int | None,
+    *,
+    as_of_date: date | None = None,
+    reconcile: bool = True,
+) -> dict[str, Any]:
+    """Reload a whole financial year from a full pair of SAP exports.
+
+    This is not the daily upload and is deliberately a separate act.  A year is
+    opened from the full notification history and the full inspection-lot
+    register, which are often pulled on different days, so the paired-date rule
+    the daily upload enforces is relaxed in favour of an as-of date the
+    operator states.  Nothing is wiped: SAP-sourced fields are replaced in
+    place, and only records the workbook no longer accounts for -- and that
+    carry no laboratory or QC-admin record of their own -- are retired.
+    """
+    inspections = parse_sap_inspection_workbook(
+        inspection_source, inspection_filename, expected_plant=None, allow_multiple_plants=True,
+    )
+    notifications = parse_sap_notification_workbook(
+        notification_source, notification_filename, expected_plant=None,
+        allow_multiple_plants=True,
+        from_date=financial_year_start(as_of_date) if as_of_date else None,
+    )
+    if as_of_date is None:
+        as_of_date = _paired_sap_as_of_date(inspections, notifications)
+    _validate_central_sap_plants(inspections.rows, notifications.rows)
+
+    financial_year = financial_year_label(as_of_date)
+    inspections_by_plant = _rows_by_plant(inspections.rows)
+    notifications_by_plant = _rows_by_plant(notifications.rows)
+
+    batches: list[QCSAPUploadBatch] = []
+    lab_codes: set[str] = set()
+    for plant_code in sorted(set(inspections_by_plant) | set(notifications_by_plant)):
+        lab_code = SAP_PLANT_LAB_CODES[plant_code]
+        get_sap_reporting_laboratory(lab_code)
+        lab_codes.add(lab_code)
+        batches.append(_persist_sap_lab_snapshot(
+            lab_code=lab_code,
+            plant_code=plant_code,
+            inspection_rows=inspections_by_plant.get(plant_code, []),
+            notification_rows=notifications_by_plant.get(plant_code, []),
+            as_of_date=as_of_date,
+            inspection_source=inspection_source,
+            inspection_filename=inspection_filename,
+            notification_source=notification_source,
+            notification_filename=notification_filename,
+            uploaded_by=uploaded_by,
+            excluded_rows={**inspections.excluded_rows, **notifications.excluded_rows},
+        ))
+
+    db.session.flush()
+    reconciliation = None
+    if reconcile and lab_codes:
+        keep = {
+            record.source_key
+            for record in QCSAPRecord.query.filter(
+                QCSAPRecord.lab_code.in_(lab_codes),
+                QCSAPRecord.last_seen_batch_id.in_([batch.id for batch in batches]),
+            ).all()
+        }
+        reconciliation = _reconcile_financial_year(lab_codes, financial_year, keep)
+
+    return {
+        "batches": batches,
+        "as_of_date": as_of_date,
+        "financial_year": financial_year,
+        "reconciliation": reconciliation,
+        "record_count": sum(batch.record_count for batch in batches),
+        "excluded_rows": {**inspections.excluded_rows, **notifications.excluded_rows},
+    }
 
 
 def import_sap_panvel_exports(
@@ -1498,6 +1670,9 @@ def sap_control_data() -> dict[str, Any]:
         cards.append({
             "laboratory": laboratory,
             "batch": batch,
+            # What the newest upload moved, so the reader can see the day's
+            # work rather than only the standing position.
+            "changes": _batch_summary(batch).get("changes") or {},
             "sap_open": sap_open,
             "excluded_from_monitoring": counts["excluded_from_monitoring"],
             "exclusion_review": counts["exclusion_review"],
@@ -1517,6 +1692,7 @@ def sap_control_data() -> dict[str, Any]:
         "sap_plant_mappings": sap_plant_mappings(),
         "all_laboratories": sorted(laboratories.values(), key=lambda item: item["name"]),
         "control_cards": cards,
+        "change_categories": CHANGE_CATEGORIES,
         "non_sap_entries": non_sap_entries,
         "non_sap_statuses": NON_SAP_STATUSES,
         "non_sap_status_labels": NON_SAP_STATUS_LABELS,

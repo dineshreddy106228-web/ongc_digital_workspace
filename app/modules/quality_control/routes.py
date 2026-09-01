@@ -334,6 +334,69 @@ def import_sap_control_exports():
     return redirect(url_for("quality_control.data_import"))
 
 
+@quality_control_bp.route("/sap-control/rebuild-year", methods=["POST"])
+@login_required
+@module_access_required("quality_control")
+@quality_control_admin_required
+def rebuild_sap_financial_year_exports():
+    """Reload a whole financial year from a full pair of SAP exports.
+
+    Kept separate from the daily upload on purpose: it accepts two exports
+    pulled on different days under an as-of date the operator states, which the
+    daily upload refuses precisely so a mismatched pair is never imported by
+    accident.
+    """
+    from datetime import datetime as _datetime
+
+    from app.core.services.sap_quality_control import rebuild_sap_financial_year
+
+    inspection = request.files.get("inspection_workbook")
+    notifications = request.files.get("notification_workbook")
+    try:
+        if not inspection or not inspection.filename or not notifications or not notifications.filename:
+            raise ValueError("Select both native SAP exports: Inspection Lots and Notifications.")
+        supported = (".xlsx", ".xls")
+        if not inspection.filename.lower().endswith(supported) or not notifications.filename.lower().endswith(supported):
+            raise ValueError("Upload the native SAP Excel exports (.xlsx or .xls).")
+        as_of_value = (request.form.get("as_of_date") or "").strip()
+        try:
+            as_of_date = _datetime.strptime(as_of_value, "%Y-%m-%d").date() if as_of_value else None
+        except ValueError:
+            raise ValueError("Enter the as-of date the exports represent.") from None
+
+        result = rebuild_sap_financial_year(
+            inspection.read(), inspection.filename,
+            notifications.read(), notifications.filename,
+            current_user.id, as_of_date=as_of_date,
+            reconcile=request.form.get("reconcile") == "1",
+        )
+        db.session.commit()
+    except ValueError as exc:
+        db.session.rollback()
+        flash(str(exc), "danger")
+        return redirect(url_for("quality_control.data_import"))
+    except Exception:
+        db.session.rollback()
+        logger.exception("SAP financial-year rebuild failed")
+        flash("The financial-year rebuild could not be completed. Confirm both native SAP exports.", "danger")
+        return redirect(url_for("quality_control.data_import"))
+
+    reconciliation = result["reconciliation"] or {}
+    message = (
+        f"Financial year {result['financial_year']} rebuilt as at {result['as_of_date']:%d %b %Y}: "
+        f"{result['record_count']} monitoring records across {len(result['batches'])} laboratories."
+    )
+    if reconciliation.get("removed_count"):
+        message += f" {reconciliation['removed_count']} record(s) no longer in SAP were retired."
+    if reconciliation.get("retained_count"):
+        message += (
+            f" {reconciliation['retained_count']} were kept because a laboratory "
+            "follow-up or QC-admin decision is recorded against them."
+        )
+    flash(message, "success sap-import-completed")
+    return redirect(url_for("quality_control.data_import"))
+
+
 @quality_control_bp.route("/sap-panvel/import", methods=["POST"])
 @login_required
 @module_access_required("quality_control")

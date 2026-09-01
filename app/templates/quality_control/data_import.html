@@ -48,9 +48,45 @@
         <label>Central Notifications / ZLABIMS export<input class="form-control" name="notification_workbook" type="file" accept=".xlsx,.xls" required></label>
         <button class="btn btn-primary" data-sap-import-submit type="submit"><i class="bi bi-cloud-arrow-up"></i> Import central SAP snapshot</button>
       </form>
+      <details class="qc-sap-update mt-3">
+        <summary>Rebuild a whole financial year from full exports</summary>
+        <p class="mod-card-sub mt-2">Use this once, to open a financial year — not for the daily snapshot. It accepts a notification history and an inspection-lot register pulled on different days, under the as-of date you state. SAP fields are replaced in place: laboratory follow-ups and QC-admin exclusions are never deleted, and a record the workbook no longer accounts for is only retired when nothing is recorded against it.</p>
+        <form class="qc-sap-upload-form is-year-rebuild" data-sap-import-form method="POST" enctype="multipart/form-data" action="{{ url_for('quality_control.rebuild_sap_financial_year_exports') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <label>Full Inspection Lots export<input class="form-control" name="inspection_workbook" type="file" accept=".xlsx,.xls" required></label>
+          <label>Full Notifications / ZLABIMS export<input class="form-control" name="notification_workbook" type="file" accept=".xlsx,.xls" required></label>
+          <label>As-of date<input class="form-control" name="as_of_date" type="date" required></label>
+          <label class="qc-sap-reconcile-choice"><input type="checkbox" name="reconcile" value="1" checked> Retire year records the exports no longer contain</label>
+          <button class="btn btn-secondary" data-sap-import-submit type="submit"><i class="bi bi-arrow-repeat"></i> Rebuild financial year</button>
+        </form>
+      </details>
       {% else %}<p class="mod-card-sub mb-0"><i class="bi bi-eye"></i> This is a read-only view. Assigned Quality Control module admins perform the daily upload.</p>{% endif %}
     </div>
   </section>
+
+  {% set changed = sap_control_cards | selectattr('batch') | selectattr('changes') | list %}
+  {% if changed %}
+  <section class="card">
+    <div class="card-body">
+      <div class="qc-section-title"><div><span class="qc-section-eyebrow"><i class="bi bi-clock-history"></i> Since the previous upload</span><h2 class="mod-card-title">What the latest import changed</h2><p class="mod-card-sub">Measured against the records already held, laboratory by laboratory. A record that SAP reported unchanged is not listed.</p></div></div>
+      <div class="mod-table-wrap"><table class="mod-table">
+        <thead><tr><th>Laboratory</th><th>As at</th>{% for key, label in change_categories %}<th>{{ label }}</th>{% endfor %}</tr></thead>
+        <tbody>
+        {% for item in changed %}
+          <tr>
+            <td><strong>{{ item.laboratory.name }}</strong></td>
+            <td>{{ item.batch.as_of_date.strftime('%d %b %Y') }}</td>
+            {% for key, label in change_categories %}
+            {% set entry = item.changes.get(key) or {} %}
+            <td>{% if entry.get('count') %}<strong>{{ entry.count }}</strong>{% if entry.get('sample') %}<div class="mod-cell-meta">{{ entry.sample[:5]|join(', ') }}{% if entry.count > 5 %} and {{ entry.count - 5 }} more{% endif %}</div>{% endif %}{% else %}—{% endif %}</td>
+            {% endfor %}
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+    </div>
+  </section>
+  {% endif %}
 
   <section class="card qc-sap-action-register">
     <div class="card-body">

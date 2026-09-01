@@ -528,3 +528,8 @@ a.qc-age-distribution-item:hover { filter: brightness(.97); }
     .qc-mr-tab { flex: 1 1 auto; }
     .qc-mr-canvas, .qc-mr-canvas.is-tall, .qc-mr-canvas.is-wide { height: 300px; }
 }
+
+/* The financial-year rebuild carries an as-of date and a reconcile choice, so it needs more room than the two-file daily upload grid. */
+.qc-sap-upload-form.is-year-rebuild{ grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); }
+.qc-sap-reconcile-choice{ grid-column:1/-1; display:flex; align-items:center; gap:.5rem; margin:0; color:var(--muted); font-size:.88rem; }
+.qc-sap-upload-form.is-year-rebuild > button{ grid-column:1/-1; justify-self:start; }

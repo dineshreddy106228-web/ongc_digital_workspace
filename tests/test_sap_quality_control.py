@@ -1544,3 +1544,171 @@ def test_a_laboratory_awaiting_its_first_import_claims_no_financial_year(sap_app
     from app.core.services.sap_quality_control import sap_lab_dashboard_data
 
     assert sap_lab_dashboard_data("rgl_panvel")["financial_year_scope"] is None
+
+
+def test_a_year_rebuild_replaces_sap_fields_without_touching_the_human_layer(sap_app):
+    """A rebuild is a refresh of SAP's facts, not a wipe.
+
+    The laboratory's returned follow-up and the QC-admin exclusion are the two
+    things SAP does not hold and cannot reproduce, so a rebuild that dropped
+    them would destroy the only copy.
+    """
+    from app.core.services.sap_quality_control import (
+        create_sap_lab_update, exclude_sap_record_from_monitoring,
+        import_sap_lab_exports, rebuild_sap_financial_year,
+    )
+    from app.models.quality_control.qc_sap_monitoring import QCSAPLabUpdate, QCSAPRecord
+
+    import_sap_lab_exports(
+        "rgl_panvel",
+        _year_inspection_export([
+            ["890000040001", "00001234", "10R2", "05.04.2026", "", "REL CALC", ""],
+            ["890000040002", "00005678", "10R2", "06.04.2026", "", "REL CALC", ""],
+        ]),
+        "SAP_INSP_20260430.xlsx",
+        _year_notification_export([
+            ["020000040001", "OPEN", "45000001", "10", "00001234", "Barytes", "MUDLAB", "10R2",
+             "890000040001", "REL CALC", "05.04.2026", "20.04.2026", "", "1"],
+            ["020000040002", "OPEN", "45000002", "10", "00005678", "Glycol", "OILLAB", "10R2",
+             "890000040002", "REL CALC", "06.04.2026", "20.04.2026", "", "1"],
+        ], title="Date : 30.04.2026"),
+        "SAP_ZLABIMS_20260430.xlsx", None,
+    )
+    db.session.commit()
+
+    followed = QCSAPRecord.query.filter_by(notification_no="020000040001").one()
+    excluded = QCSAPRecord.query.filter_by(notification_no="020000040002").one()
+    create_sap_lab_update(
+        followed.id,
+        {"activity_status": "under_testing", "action_owner": "Bench 2", "update_note": "Retest running"},
+        None, lab_code="rgl_panvel",
+    )
+    exclude_sap_record_from_monitoring(
+        excluded.id, {"exclusion_reason": "junk_notification", "note": "Raised in error"},
+        None, lab_code="rgl_panvel",
+    )
+    db.session.commit()
+
+    # The rebuild sees the first lot closed and decided, and no longer carries
+    # the second notification at all.
+    result = rebuild_sap_financial_year(
+        _year_inspection_export([
+            ["890000040001", "00001234", "10R2", "05.04.2026", "28.04.2026", "UD ICCO STUP", "A"],
+        ]),
+        "SAP_INSP_20260831.xlsx",
+        _year_notification_export([
+            ["020000040001", "COMP", "45000001", "10", "00001234", "Barytes", "MUDLAB", "10R2",
+             "890000040001", "UD ICCO", "05.04.2026", "20.04.2026", "28.04.2026", "1"],
+        ], title="Date : 01.09.2026"),
+        "SAP_ZLABIMS_20260901.xlsx", None, as_of_date=date(2026, 9, 1),
+    )
+    db.session.commit()
+
+    assert result["financial_year"] == "2026-27"
+    # SAP's own fields were replaced in place on the record that remains.
+    refreshed = QCSAPRecord.query.filter_by(notification_no="020000040001").one()
+    assert refreshed.id == followed.id
+    assert refreshed.official_status == "completed"
+    assert refreshed.usage_decision_code == "A"
+    assert QCSAPLabUpdate.query.filter_by(record_id=refreshed.id).count() == 1
+
+    # The excluded record is absent from the exports, but its QC-admin decision
+    # keeps it: it is reported for review rather than deleted.
+    reconciliation = result["reconciliation"]
+    assert reconciliation["removed_count"] == 0
+    assert reconciliation["retained_count"] == 1
+    assert reconciliation["retained"][0]["notification_no"] == "020000040002"
+    assert reconciliation["retained"][0]["reason"] == "QC-admin monitoring decision recorded"
+    assert QCSAPRecord.query.filter_by(notification_no="020000040002").count() == 1
+
+
+def test_a_year_rebuild_retires_only_records_nothing_is_recorded_against(sap_app):
+    from app.core.services.sap_quality_control import (
+        import_sap_lab_exports, rebuild_sap_financial_year,
+    )
+    from app.models.quality_control.qc_sap_monitoring import QCSAPRecord
+
+    import_sap_lab_exports(
+        "rgl_panvel",
+        _year_inspection_export([
+            ["890000040001", "00001234", "10R2", "05.04.2026", "", "REL CALC", ""],
+            ["890000040009", "00009999", "10R2", "07.04.2026", "", "REL CALC", ""],
+        ]),
+        "SAP_INSP_20260430.xlsx",
+        _year_notification_export([
+            ["020000040001", "OPEN", "45000001", "10", "00001234", "Barytes", "MUDLAB", "10R2",
+             "890000040001", "REL CALC", "05.04.2026", "20.04.2026", "", "1"],
+            ["020000040009", "OPEN", "45000009", "10", "00009999", "Withdrawn", "OILLAB", "10R2",
+             "890000040009", "REL CALC", "07.04.2026", "20.04.2026", "", "1"],
+        ], title="Date : 30.04.2026"),
+        "SAP_ZLABIMS_20260430.xlsx", None,
+    )
+    db.session.commit()
+    assert QCSAPRecord.query.count() == 2
+
+    result = rebuild_sap_financial_year(
+        _year_inspection_export([
+            ["890000040001", "00001234", "10R2", "05.04.2026", "", "REL CALC", ""],
+        ]),
+        "SAP_INSP_20260831.xlsx",
+        _year_notification_export([
+            ["020000040001", "OPEN", "45000001", "10", "00001234", "Barytes", "MUDLAB", "10R2",
+             "890000040001", "REL CALC", "05.04.2026", "20.04.2026", "", "1"],
+        ], title="Date : 01.09.2026"),
+        "SAP_ZLABIMS_20260901.xlsx", None, as_of_date=date(2026, 9, 1),
+    )
+    db.session.commit()
+
+    assert result["reconciliation"]["removed_count"] == 1
+    assert result["reconciliation"]["removed_sample"] == ["020000040009"]
+    assert [record.notification_no for record in QCSAPRecord.query.all()] == ["020000040001"]
+
+    # Left off, the same rebuild keeps everything the exports omit.
+    assert rebuild_sap_financial_year(
+        _year_inspection_export([
+            ["890000040001", "00001234", "10R2", "05.04.2026", "", "REL CALC", ""],
+        ]),
+        "SAP_INSP_20260831.xlsx",
+        _year_notification_export([
+            ["020000040001", "OPEN", "45000001", "10", "00001234", "Barytes", "MUDLAB", "10R2",
+             "890000040001", "REL CALC", "05.04.2026", "20.04.2026", "", "1"],
+        ], title="Date : 01.09.2026"),
+        "SAP_ZLABIMS_20260901.xlsx", None, as_of_date=date(2026, 9, 1), reconcile=False,
+    )["reconciliation"] is None
+
+
+def test_each_import_records_what_it_moved_since_the_records_already_held(sap_app):
+    import json
+
+    from app.core.services.sap_quality_control import import_sap_lab_exports
+
+    def upload(lot_status, usage, notif_status, completion, title, filename):
+        return import_sap_lab_exports(
+            "rgl_panvel",
+            _year_inspection_export([
+                ["890000040001", "00001234", "10R2", "05.04.2026", "", lot_status, usage],
+                ["890000040002", "00005678", "10R2", "06.04.2026", "", "REL CALC", ""],
+            ]),
+            filename,
+            _year_notification_export([
+                ["020000040001", notif_status, "45000001", "10", "00001234", "Barytes", "MUDLAB",
+                 "10R2", "890000040001", lot_status, "05.04.2026", "20.04.2026", completion, "1"],
+                ["020000040002", "OPEN", "45000002", "10", "00005678", "Glycol", "OILLAB",
+                 "10R2", "890000040002", "REL CALC", "06.04.2026", "20.04.2026", "", "1"],
+            ], title=title),
+            filename.replace("INSP", "ZLABIMS"), None,
+        )
+
+    first = upload("REL CALC", "", "OPEN", "", "Date : 30.04.2026", "SAP_INSP_20260430.xlsx")
+    db.session.commit()
+    changes = json.loads(first.summary_json)["changes"]
+    assert changes["new"]["count"] == 2
+    assert changes["closed"]["count"] == 0
+
+    second = upload("UD ICCO STUP", "A", "COMP", "28.04.2026", "Date : 01.09.2026", "SAP_INSP_20260901.xlsx")
+    db.session.commit()
+    changes = json.loads(second.summary_json)["changes"]
+    assert changes["new"]["count"] == 0
+    assert changes["closed"] == {"count": 1, "sample": ["020000040001"]}
+    assert changes["usage_decided"] == {"count": 1, "sample": ["020000040001"]}
+    assert changes["reopened"]["count"] == 0
