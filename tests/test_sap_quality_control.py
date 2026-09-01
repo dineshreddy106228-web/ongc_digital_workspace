@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 from io import BytesIO
+import json
 from pathlib import Path
 import re
 import sys
@@ -614,14 +615,19 @@ def test_central_sap_import_splits_rows_by_the_approved_plant_map(sap_app):
     assert jorhat_record.plant_code == "51R2"
 
 
-def test_central_sap_import_rejects_any_unmapped_plant_before_persisting(sap_app):
+def test_central_sap_import_rejects_a_wholly_foreign_export_before_persisting(sap_app):
+    """Rows from plants no laboratory owns are set aside; a report made only of
+    them is a different thing, and still stops the upload with nothing written."""
     from app.core.services.sap_quality_control import import_central_sap_exports
+    from app.models.quality_control.qc_sap_monitoring import QCSAPRecord, QCSAPUploadBatch
 
-    with pytest.raises(ValueError, match=r"unmapped plant row\(s\): 50R1 \(3\)"):
+    with pytest.raises(ValueError, match="no rows for an RGL or IDWE plant"):
         import_central_sap_exports(
             _inspection_export(plant="50R1"), "SAP_INSP_20260827.xlsx",
             _notification_export(plant="50R1"), "SAP_ZLABIMS_20260827.xlsx", None,
         )
+    assert QCSAPUploadBatch.query.count() == 0
+    assert QCSAPRecord.query.count() == 0
 
 
 def test_import_explains_when_a_notification_export_is_selected_as_inspection_lots():
@@ -1712,3 +1718,60 @@ def test_each_import_records_what_it_moved_since_the_records_already_held(sap_ap
     assert changes["closed"] == {"count": 1, "sample": ["020000040001"]}
     assert changes["usage_decided"] == {"count": 1, "sample": ["020000040001"]}
     assert changes["reopened"]["count"] == 0
+
+
+def test_a_central_export_sets_aside_plants_no_laboratory_owns(sap_app):
+    """A company-wide QA33 selection is not a broken export.
+
+    SAP raises laboratory lots at plants with no RGL or IDWE of their own.
+    Refusing the whole upload over them blocked the day's monitoring, so they
+    are set aside and counted instead.
+    """
+    from app.core.services.sap_quality_control import import_central_sap_exports
+    from app.models.quality_control.qc_sap_monitoring import QCSAPRecord
+
+    batches = import_central_sap_exports(
+        _year_inspection_export([
+            ["890000040001", "00001234", "10R2", "05.04.2026", "", "REL CALC", ""],
+            ["890000040002", "00005678", "42R2", "06.04.2026", "", "REL CALC", ""],
+            # Laboratory lots raised at plants outside the approved routing.
+            ["890000040003", "00009999", "22A1", "06.04.2026", "", "REL CALC", ""],
+            ["890000040004", "00009999", "20A1", "06.04.2026", "", "REL CALC", ""],
+        ]),
+        "SAP_INSP_20260901.xlsx",
+        _year_notification_export([
+            ["020000040001", "OPEN", "45000001", "10", "00001234", "Barytes", "MUDLAB", "10R2",
+             "890000040001", "REL CALC", "05.04.2026", "20.04.2026", "", "1"],
+            ["020000040002", "OPEN", "45000002", "10", "00005678", "Glycol", "QUALILAB", "42R2",
+             "890000040002", "REL CALC", "06.04.2026", "20.04.2026", "", "1"],
+        ], title="Date : 01.09.2026"),
+        "SAP_ZLABIMS_20260901.xlsx", None,
+    )
+    db.session.commit()
+
+    assert {batch.plant_code for batch in batches} == {"10R2", "42R2"}
+    assert json.loads(batches[0].summary_json)["excluded_rows"]["lots_outside_rgl_idwe"] == 2
+    assert QCSAPRecord.query.count() == 2
+    assert not QCSAPRecord.query.filter(
+        QCSAPRecord.inspection_lot_number.in_(["890000040003", "890000040004"])
+    ).count()
+
+
+def test_an_export_holding_no_laboratory_plant_at_all_still_stops_the_upload(sap_app):
+    """Setting aside foreign plants must not swallow a wholly wrong report."""
+    import pytest
+
+    from app.core.services.sap_quality_control import import_central_sap_exports
+
+    with pytest.raises(ValueError, match="no rows for an RGL or IDWE plant"):
+        import_central_sap_exports(
+            _year_inspection_export([
+                ["890000040003", "00009999", "22A1", "06.04.2026", "", "REL CALC", ""],
+            ]),
+            "SAP_INSP_20260901.xlsx",
+            _year_notification_export([
+                ["020000040001", "OPEN", "45000001", "10", "00001234", "Barytes", "MUDLAB", "10R2",
+                 "890000040001", "REL CALC", "05.04.2026", "20.04.2026", "", "1"],
+            ], title="Date : 01.09.2026"),
+            "SAP_ZLABIMS_20260901.xlsx", None,
+        )

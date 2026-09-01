@@ -273,6 +273,20 @@ def sap_lab_dashboard(lab_code: str):
     return redirect(url_for("quality_control.data_import"))
 
 
+def _sap_rows_set_aside(batch) -> int:
+    """How many rows an import left out because no laboratory owns their plant."""
+    import json
+
+    try:
+        summary = json.loads(batch.summary_json or "{}")
+    except (TypeError, ValueError):
+        return 0
+    excluded = summary.get("excluded_rows") or {}
+    return int(excluded.get("lots_outside_rgl_idwe", 0)) + int(
+        excluded.get("notifications_outside_rgl_idwe", 0)
+    )
+
+
 def _import_sap_snapshot(lab_code: str):
     from app.core.services.sap_quality_control import (
         SAP_CENTRAL_UPLOAD_CODE,
@@ -313,11 +327,19 @@ def import_sap_control_exports():
             laboratory_count = len(batches)
             record_count = sum(batch.record_count for batch in batches)
             as_of_date = max(batch.as_of_date for batch in batches)
-            flash(
+            message = (
                 f"Central SAP snapshot for {as_of_date:%d %b %Y} is now live: "
-                f"{laboratory_count} laboratories and {record_count} monitoring records refreshed.",
-                "success sap-import-completed",
+                f"{laboratory_count} laboratories and {record_count} monitoring records refreshed."
             )
+            # A central export covers the whole company, so say what was left
+            # out rather than letting the record count imply it took everything.
+            set_aside = _sap_rows_set_aside(batches[0]) if batches else 0
+            if set_aside:
+                message += (
+                    f" {set_aside} inspection-lot row(s) at plants with no RGL or IDWE "
+                    "laboratory were set aside."
+                )
+            flash(message, "success sap-import-completed")
             return redirect(url_for("quality_control.data_import"))
         batch = snapshot
         flash(

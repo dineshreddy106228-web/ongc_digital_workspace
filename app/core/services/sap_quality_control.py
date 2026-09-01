@@ -725,27 +725,47 @@ def _rows_by_plant(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]
     return grouped
 
 
-def _validate_central_sap_plants(
-    inspections: list[dict[str, Any]], notifications: list[dict[str, Any]],
-) -> None:
-    """Reject a central upload before any snapshot can be persisted incorrectly."""
-    problems: list[str] = []
-    for source_name, rows in (("Inspection Lots", inspections), ("Notifications", notifications)):
-        missing = sum(1 for row in rows if not row.get("plant_code"))
-        if missing:
-            problems.append(f"{source_name} has {missing} row(s) without a plant code")
-        unmapped = Counter(
-            row["plant_code"] for row in rows
-            if row.get("plant_code") and row["plant_code"] not in SAP_PLANT_LAB_CODES
-        )
-        if unmapped:
-            labels = ", ".join(f"{plant} ({count})" for plant, count in sorted(unmapped.items()))
-            problems.append(f"{source_name} has unmapped plant row(s): {labels}")
-    if problems:
+def _select_approved_plant_rows(
+    rows: list[dict[str, Any]], source_name: str,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """Keep the rows an RGL or IDWE laboratory is accountable for.
+
+    A central QA33 or ZLABIMS selection covers the whole company.  SAP raises
+    laboratory lots at plants that have no laboratory of their own, so those
+    rows are ordinary content rather than a broken export, and refusing the
+    whole upload over them only blocks the work.  They are set aside and
+    counted, so the import still reports exactly what it did not take.
+
+    An export holding nothing for any approved plant is a different matter:
+    that is the wrong report, and it still stops the upload.
+    """
+    kept: list[dict[str, Any]] = []
+    set_aside: Counter = Counter()
+    for row in rows:
+        plant_code = row.get("plant_code") or ""
+        if plant_code in SAP_PLANT_LAB_CODES:
+            kept.append(row)
+        else:
+            set_aside[plant_code or "no plant code"] += 1
+    if not kept:
+        listed = ", ".join(f"{plant} ({count})" for plant, count in sorted(set_aside.items()))
         raise ValueError(
-            "Central SAP upload stopped: " + "; ".join(problems) + ". "
-            "Correct the SAP export or obtain an approved plant mapping before importing."
+            f"The SAP {source_name} export holds no rows for an RGL or IDWE plant "
+            f"({listed or 'none'}). Check the selection used to run the export."
         )
+    return kept, dict(set_aside)
+
+
+def _plants_set_aside_summary(
+    inspection_set_aside: dict[str, int], notification_set_aside: dict[str, int],
+) -> dict[str, Any]:
+    """Flat counts for the batch summary, plus the plants behind them."""
+    summary: dict[str, Any] = {}
+    if inspection_set_aside:
+        summary["lots_outside_rgl_idwe"] = sum(inspection_set_aside.values())
+    if notification_set_aside:
+        summary["notifications_outside_rgl_idwe"] = sum(notification_set_aside.values())
+    return summary
 
 
 # How many identifiers each change category keeps in the batch summary.  The
@@ -925,10 +945,19 @@ def import_central_sap_exports(
     notifications = parse_sap_notification_workbook(
         notification_source, notification_filename, expected_plant=None, allow_multiple_plants=True,
     )
-    _validate_central_sap_plants(inspections.rows, notifications.rows)
+    inspection_rows, inspection_set_aside = _select_approved_plant_rows(
+        inspections.rows, "Inspection Lots",
+    )
+    notification_rows, notification_set_aside = _select_approved_plant_rows(
+        notifications.rows, "Notifications",
+    )
+    excluded_rows = {
+        **inspections.excluded_rows, **notifications.excluded_rows,
+        **_plants_set_aside_summary(inspection_set_aside, notification_set_aside),
+    }
     as_of_date = _paired_sap_as_of_date(inspections, notifications)
-    inspections_by_plant = _rows_by_plant(inspections.rows)
-    notifications_by_plant = _rows_by_plant(notifications.rows)
+    inspections_by_plant = _rows_by_plant(inspection_rows)
+    notifications_by_plant = _rows_by_plant(notification_rows)
 
     batches = []
     for plant_code in sorted(set(inspections_by_plant) | set(notifications_by_plant)):
@@ -945,7 +974,7 @@ def import_central_sap_exports(
             notification_source=notification_source,
             notification_filename=notification_filename,
             uploaded_by=uploaded_by,
-            excluded_rows={**inspections.excluded_rows, **notifications.excluded_rows},
+            excluded_rows=excluded_rows,
         ))
     return batches
 
@@ -1019,11 +1048,20 @@ def rebuild_sap_financial_year(
     )
     if as_of_date is None:
         as_of_date = _paired_sap_as_of_date(inspections, notifications)
-    _validate_central_sap_plants(inspections.rows, notifications.rows)
+    inspection_rows, inspection_set_aside = _select_approved_plant_rows(
+        inspections.rows, "Inspection Lots",
+    )
+    notification_rows, notification_set_aside = _select_approved_plant_rows(
+        notifications.rows, "Notifications",
+    )
+    excluded_rows = {
+        **inspections.excluded_rows, **notifications.excluded_rows,
+        **_plants_set_aside_summary(inspection_set_aside, notification_set_aside),
+    }
 
     financial_year = financial_year_label(as_of_date)
-    inspections_by_plant = _rows_by_plant(inspections.rows)
-    notifications_by_plant = _rows_by_plant(notifications.rows)
+    inspections_by_plant = _rows_by_plant(inspection_rows)
+    notifications_by_plant = _rows_by_plant(notification_rows)
 
     batches: list[QCSAPUploadBatch] = []
     lab_codes: set[str] = set()
@@ -1042,7 +1080,7 @@ def rebuild_sap_financial_year(
             notification_source=notification_source,
             notification_filename=notification_filename,
             uploaded_by=uploaded_by,
-            excluded_rows={**inspections.excluded_rows, **notifications.excluded_rows},
+            excluded_rows=excluded_rows,
         ))
 
     db.session.flush()
@@ -1063,7 +1101,7 @@ def rebuild_sap_financial_year(
         "financial_year": financial_year,
         "reconciliation": reconciliation,
         "record_count": sum(batch.record_count for batch in batches),
-        "excluded_rows": {**inspections.excluded_rows, **notifications.excluded_rows},
+        "excluded_rows": excluded_rows,
     }
 
 
