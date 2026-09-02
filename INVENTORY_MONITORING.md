@@ -181,7 +181,7 @@ book from the health and work-centre views — so the readers treat it as live,
 - **Largest movers** on the review is a table per phase — material, unit, the
   value at each of the two dates, and the movement — ranked by the size of the
   movement whichever way it went.
-- On **Inventory Health**, a slow-moving row that the source workbook also names
+- On the review's **health register**, a slow-moving row that the source workbook also names
   in its own non-moving, slow-moving, aged, surplus or transit register is
   shaded: the condition is confirmed twice over, by our reading of stock months
   and by the workbook's own registers.

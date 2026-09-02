@@ -15,7 +15,7 @@
   </div>
   <div class="mod-page-actions">
     {% if available_units %}<div class="im-unit-switcher im-wc-heading-switcher" aria-label="Inventory view"><span class="im-view-label">View</span><a class="{{ 'is-active' if not selected_unit else '' }}" href="{{ url_for('inventory.work_centre', work_center_id=centre.id) }}">Combined</a>{% for unit in available_units %}<a class="{{ 'is-active' if selected_unit == unit else '' }}" href="{{ url_for('inventory.work_centre', work_center_id=centre.id, unit=unit) }}">{{ unit }}</a>{% endfor %}</div>{% endif %}
-    <a class="btn btn-secondary" href="{{ url_for('inventory.health') }}"><i class="bi bi-heart-pulse"></i> Inventory Health</a>
+    <a class="btn btn-secondary" href="{{ url_for('inventory.portfolio') }}#register"><i class="bi bi-heart-pulse"></i> Health register</a>
   </div>
 </div>
 

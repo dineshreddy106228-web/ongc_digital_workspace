@@ -1,22 +1,24 @@
-{% extends "base.html" %}{% block title %}Inventory Portfolio Review{% endblock %}{% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory_monitoring.css') }}">{% endblock %}
+{% extends "base.html" %}{% block title %}Inventory Management Review{% endblock %}{% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory_monitoring.css') }}">{% endblock %}
 {% macro cr(v) %}₹ {{ '{:,.2f}'.format((v or 0) / 10000000) }} Cr{% endmacro %}
 {% macro delta(cur, prev) %}{% if prev is not none %}{% set d = (cur or 0) - (prev or 0) %}{% if d > 0 %}<span class="im-delta is-up"><i class="bi bi-arrow-up-short"></i>{{ cr(d) }}</span>{% elif d < 0 %}<span class="im-delta is-down"><i class="bi bi-arrow-down-short"></i>{{ cr(-d) }}</span>{% else %}<span class="im-delta is-flat">No change</span>{% endif %}{% else %}<span class="im-delta is-flat">New this period</span>{% endif %}{% endmacro %}
 {% macro share(value) %}<div class="im-share-cell"><div class="im-share-track"><i style="width:{{ value }}%"></i></div><b>{{ value }}%</b></div>{% endmacro %}
 {% from "inventory/_monitoring_nav.html" import monitoring_nav %}
+{% from "inventory/_spec_sections.html" import spec_heading, spec_more %}
 {% from "components/_deck_scope.html" import deck_scope %}
 {% block content %}<div class="page-wrapper mod-page im-page">
   {{ monitoring_nav('review') }}
   <div class="mod-page-head is-stacked-actions">
     <div>
       <div class="im-kicker">Executive workbench</div>
-      <h1 class="mod-page-title"><i class="bi bi-easel2"></i> Portfolio Management Review</h1>
-      <p class="mod-page-sub">Every monitored chemical across Groups 09 and 10 counted together: inventory position, movement against a chosen earlier period, working-capital risk and the exception register for the selected reporting date.</p>
+      <h1 class="mod-page-title"><i class="bi bi-easel2"></i> Inventory Management Review</h1>
+      <p class="mod-page-sub">Every monitored chemical across Groups 09 and 10 counted together: the inventory position for the selected reporting date, its movement against a chosen earlier period, and the health register of the lines behind it.</p>
     </div>
     <div class="mod-page-actions">
       <a class="btn btn-secondary" href="{{ url_for('inventory.landing') }}"><i class="bi bi-grid"></i> Monitoring home</a>
       {% if kpis %}<button type="button" class="btn btn-primary" data-deck-open="deckScope"><i class="bi bi-file-earmark-ppt"></i> Download presentation</button>{% endif %}
     </div>
   </div>
+  {# The period governs all three tabs, so it is chosen once, above them. #}
   <section class="card im-pf-period-card"><div class="card-body">
     <form class="im-pf-period" method="get" action="{{ url_for('inventory.portfolio') }}">
       <div class="im-pf-period-grid">
@@ -46,7 +48,20 @@
   <div class="im-empty"><i class="bi bi-inboxes"></i><strong>No published portfolio for this period</strong><span>Import and publish the Group 09 and Group 10 workbooks for a reporting date to build the management review.</span><a class="btn btn-primary btn-sm" href="{{ url_for('inventory.imports') }}">Import workbooks</a></div>
   {% else %}
 
-  <section class="mod-stats">
+  {# Three denominators, three tabs. The position is rupees held on one date,
+     movement is rupees against an earlier date over the assets common to both,
+     and the register counts material lines rather than money. A reader must not
+     carry a number across those lines, so the page keeps them apart rather than
+     trusting anyone to remember which is which. #}
+  <div class="im-mr-tabs" role="tablist" aria-label="Management view">
+    <button class="im-mr-tab is-active" type="button" role="tab" id="tab-position" aria-controls="panel-position" aria-selected="true" data-mr-tab="position"><i class="bi bi-clipboard-data"></i> Position <small>as on {{ reporting_date.strftime('%d %b %Y') }}</small></button>
+    <button class="im-mr-tab" type="button" role="tab" id="tab-movement" aria-controls="panel-movement" aria-selected="false" tabindex="-1" data-mr-tab="movement"><i class="bi bi-arrow-left-right"></i> Movement <small>{% if comparison %}against {{ comparison.previous_date.strftime('%d %b %Y') }}{% else %}no earlier period{% endif %}</small></button>
+    <button class="im-mr-tab" type="button" role="tab" id="tab-register" aria-controls="panel-register" aria-selected="false" tabindex="-1" data-mr-tab="register"><i class="bi bi-heart-pulse"></i> Health register <small>lines to act on</small></button>
+  </div>
+
+  {# ══ POSITION ══════════════════════════════════════════════════════ #}
+  <section class="im-mr-panel" id="panel-position" role="tabpanel" aria-labelledby="tab-position" data-mr-panel="position">
+  <section class="mod-stats" aria-label="Inventory position">
     <div class="mod-stat">
       <span>Total monitored inventory</span>
       <strong>{{ cr(kpis.total_value) }}</strong>
@@ -75,7 +90,13 @@
   </section>
 
   <section class="card im-pf-card"><div class="card-body">
-    <div class="im-section-heading"><div><span>Stock health</span><h2>Value by coverage band</h2><p>Every stock line banded by months of coverage against the configured thresholds.</p></div><a class="btn btn-outline-primary btn-sm" href="{{ url_for('inventory.health') }}">Open health register</a></div>
+    <div class="im-section-heading"><div><span>Stock health</span><h2>Value by coverage band</h2><p>Every stock line banded by months of coverage against the configured thresholds. Value and line count are two readings of the same stock, never a sum — a band holding a quarter of the money can hold a fortieth of the lines.</p></div>
+      {% if charts %}<div class="im-mr-seg" role="group" aria-label="Read the coverage bands by value or by line count">
+        <button class="im-mr-seg-btn is-active" type="button" data-mr-segment="value">By value</button>
+        <button class="im-mr-seg-btn" type="button" data-mr-segment="count">By line count</button>
+      </div>{% endif %}
+    </div>
+    {% if charts %}<div class="im-mr-canvas"><canvas id="imMix" aria-label="Inventory value by coverage band" role="img"></canvas></div>{% endif %}
     <div class="im-mix-bar" role="img" aria-label="Inventory value split by coverage band">
       {% for m in health_mix %}<i class="im-mix-{{ m.key }}" style="width:{{ m.share }}%" title="{{ m.label }}: {{ m.share }}%"></i>{% endfor %}
     </div>
@@ -86,6 +107,75 @@
     </div>
   </div></section>
 
+  {% if charts %}
+  <div class="im-mr-chart-grid">
+    <section class="card im-mr-chart-card"><div class="card-body">
+      <div class="im-section-heading"><div><span>Geography</span><h2>Value held by zone</h2><p>Every zone reporting stock this period{% if comparison %}, against {{ comparison.previous_date.strftime('%d %b %Y') }}{% endif %}. The zones add up to the portfolio exactly.</p></div></div>
+      <div class="im-mr-canvas is-tall"><canvas id="imZones" aria-label="Inventory value by zone" role="img"></canvas></div>
+      <div class="im-mr-chart-links" aria-label="Zone values">{% for z in zones[:12] %}<span>{{ z.zone }} <b>{{ cr(z.value) }}</b></span>{% endfor %}</div>
+    </div></section>
+
+    <section class="card im-mr-chart-card"><div class="card-body">
+      <div class="im-section-heading"><div><span>Concentration</span><h2>Largest holdings by asset</h2><p>The twelve assets holding most value. Click an asset to open its status page.</p></div></div>
+      <div class="im-mr-canvas is-tall"><canvas id="imCentres" aria-label="Inventory value by asset" role="img"></canvas></div>
+      {# A canvas takes no keyboard focus, so the same destinations are repeated
+         as real links underneath. #}
+      <div class="im-mr-chart-links" aria-label="Open an asset status page">
+        {% for c in centres[:12] %}<a href="{{ url_for('inventory.work_centre', work_center_id=c.id) }}">{{ c.name }} <b>{{ cr(c.value) }}</b></a>{% endfor %}
+      </div>
+    </div></section>
+  </div>
+  {% endif %}
+
+  <div class="im-two-col im-pf-two-col">
+    <section class="card im-pf-card"><div class="card-body">
+      <div class="im-section-heading"><div><span>Material concentration</span><h2>Top materials by value</h2></div></div>
+      <div class="im-table-wrap"><table class="im-pf-table">
+        <thead><tr><th scope="col">Material</th><th scope="col" class="im-uom-col">UoM</th><th scope="col">Group</th><th scope="col" class="im-num">Value</th><th scope="col" class="im-num">Share</th><th scope="col" class="im-num">Centres</th></tr></thead>
+        <tbody>
+          {% for m in top_materials %}<tr><td><span class="im-material-code">{{ m.code }}</span><small class="im-pf-desc">{{ m.description or '' }}</small></td><td class="im-uom-col"><span class="im-uom">{{ m.uom or '—' }}</span></td><td><span class="im-group-badge im-group-{{ m.group }}">{{ m.group }}</span></td><td class="im-num im-value">{{ cr(m.value) }}</td><td class="im-num">{{ m.share }}%</td><td class="im-num">{{ m.centres }}</td></tr>
+          {% else %}<tr class="im-pf-empty-row"><td colspan="6">No materials reported for this period.</td></tr>{% endfor %}
+        </tbody>
+      </table></div>
+    </div></section>
+    <section class="card im-pf-card"><div class="card-body">
+      <div class="im-section-heading"><div><span>Exception register</span><h2>Exception profile</h2></div></div>
+      {% if charts %}<div class="im-mr-canvas"><canvas id="imExceptions" aria-label="Open exceptions by severity" role="img"></canvas></div>{% endif %}
+      <div class="im-pf-sev">
+        {% for sev in ('critical', 'high', 'medium', 'low') %}{% if exception_severities.get(sev) %}<span class="im-severity im-{{ sev }}">{{ sev }} · {{ exception_severities[sev] }}</span>{% endif %}{% endfor %}
+        {% if not exception_severities %}<span class="im-pf-muted">No exceptions raised for this period.</span>{% endif %}
+      </div>
+      <div class="im-table-wrap"><table class="im-pf-table">
+        <thead><tr><th scope="col">Exception type</th><th scope="col" class="im-num">Count</th><th scope="col" class="im-num">Value</th></tr></thead>
+        <tbody>
+          {% for t in exception_types %}<tr><td>{{ t.type|replace('_', ' ')|capitalize }}</td><td class="im-num">{{ t.count }}</td><td class="im-num im-value">{{ cr(t.value) }}</td></tr>
+          {% else %}<tr class="im-pf-empty-row"><td colspan="3">No exceptions for this period.</td></tr>{% endfor %}
+        </tbody>
+      </table></div>
+    </div></section>
+  </div>
+
+  <section class="card im-pf-card"><div class="card-body">
+    <div class="im-section-heading"><div><span>Highest value first</span><h2>Exceptions requiring attention</h2><p>The largest open stock-coverage and source-register exceptions for this reporting date. Every line behind them is on the health register.</p></div><a class="btn btn-outline-primary btn-sm" data-mr-goto="register" href="#register">Open the health register</a></div>
+    <div class="im-table-wrap"><table class="im-pf-table">
+      <thead><tr><th scope="col">Severity</th><th scope="col">Exception</th><th scope="col">Work centre</th><th scope="col">Material</th><th scope="col" class="im-uom-col">UoM</th><th scope="col" class="im-num">Value</th><th scope="col" class="im-num">Months</th></tr></thead>
+      <tbody>
+        {% for item in exceptions %}<tr>
+          <td><span class="im-severity im-{{ item.severity }}">{{ item.severity }}</span></td>
+          <td>{{ item.exception_type|replace('_', ' ')|capitalize }}</td>
+          <td>{{ item.work_center.name if item.work_center else '—' }}</td>
+          <td>{% if item.material %}<span class="im-material-code">{{ item.material.material_code }}</span>{% else %}—{% endif %}</td>
+          <td class="im-uom-col"><span class="im-uom">{{ (item.material.uom if item.material else none) or '—' }}</span></td>
+          <td class="im-num im-value">{{ cr(item.inventory_value_inr) }}</td>
+          <td class="im-num">{{ item.stock_months if item.stock_months is not none else '—' }}</td>
+        </tr>{% else %}<tr class="im-pf-empty-row"><td colspan="7">No exceptions for this period.</td></tr>{% endfor %}
+      </tbody>
+    </table></div>
+  </div></section>
+  </section>
+
+  {# ══ MOVEMENT ══════════════════════════════════════════════════════ #}
+  <section class="im-mr-panel" id="panel-movement" role="tabpanel" aria-labelledby="tab-movement" data-mr-panel="movement" hidden>
   {# Movement is read per material and kept apart by phase: a kilolitre of brine
      and a tonne of cement are different trades, and averaging them hides both. #}
   <section class="card im-pf-card"><div class="card-body">
@@ -95,6 +185,11 @@
         <div><span>Like-for-like</span><strong>{{ cr(comparison.like_for_like_delta) }}</strong><small>{{ comparison.common_centres }} work centres reporting in both periods{% if comparison.like_for_like_change is not none %} · {{ '%+.1f'|format(comparison.like_for_like_change) }}%{% endif %}</small></div>
         <div class="{{ 'im-pf-scope-warn' if comparison.entrant_count or comparison.exit_count }}"><span>Scope difference</span><strong>{{ comparison.entrant_count }} in · {{ comparison.exit_count }} out</strong><small>{% if comparison.entrant_count or comparison.exit_count %}{{ cr(comparison.entrant_value) }} reported only now, {{ cr(comparison.exit_value) }} only on {{ comparison.previous_date.strftime('%d %b') }}{% else %}Both periods cover the same work centres{% endif %}</small></div>
       </div>
+      {% if charts %}
+      {# An asset that appears or disappears has not moved, it has changed the
+         scope, so it is reported above rather than drawn as a swing. #}
+      <div class="im-mr-canvas is-wide"><canvas id="imMovers" aria-label="Change in held value by asset, against the comparison period" role="img"></canvas></div>
+      {% endif %}
       <div class="im-mover-split">
         {% for phase, label, unit_note in [('liquid', 'Liquids', 'measured in litres, kilolitres or cubic metres'), ('solid', 'Solids', 'measured in kilograms or tonnes')] %}
         <div>
@@ -121,11 +216,12 @@
   </div></section>
 
   {# Twelve-month consumption comes from the workbook's own material summary
-     sheets, which are all-ONGC: they carry no work centre, so these two cards
-     always report the whole of ONGC even when the rest of the page is read for
-     one zone. #}
+     sheets, which are all-ONGC: they carry no work centre, so this card always
+     reports the whole of ONGC even when the rest of the page is read for one
+     zone. It is a year of flow set beside a position, never added to it. #}
   <section class="card im-pf-card"><div class="card-body">
     <div class="im-section-heading"><div><span>Consumption over twelve months</span><h2>Top materials by consumption value</h2><p>Every material consuming more than {{ cr(consumption.floor) }} of value over the twelve months to {{ reporting_date.strftime('%d %b %Y') }}, all ONGC and both groups. The twelve-month figure is SAP's own, read from the material summary sheet of the imported workbook — it is not derived from the imported snapshots.</p></div><strong>{{ consumption.by_value|length }} materials · {{ cr(consumption.by_value_total) }}</strong></div>
+    {% if charts and consumption.by_value %}<div class="im-mr-canvas is-wide"><canvas id="imConsumption" aria-label="Twelve-month consumption value against inventory held, by material" role="img"></canvas></div>{% endif %}
     <div class="im-table-wrap"><table class="im-pf-table" data-work-centre-filter="false">
       <thead><tr><th scope="col" class="im-rank">#</th><th scope="col">Material</th><th scope="col" class="im-uom-col">UoM</th><th scope="col">Grp</th><th scope="col">Phase</th><th scope="col" class="im-num">Consumption value</th><th scope="col" class="im-num">Share of consumption</th><th scope="col" class="im-num">Inventory held</th><th scope="col" class="im-num">Months</th></tr></thead>
       <tbody>
@@ -143,51 +239,40 @@
       </tbody>
     </table></div>
   </div></section>
+  </section>
 
-  <div class="im-two-col im-pf-two-col">
-    <section class="card im-pf-card"><div class="card-body">
-      <div class="im-section-heading"><div><span>Material concentration</span><h2>Top materials by value</h2></div></div>
-      <div class="im-table-wrap"><table class="im-pf-table">
-        <thead><tr><th scope="col">Material</th><th scope="col" class="im-uom-col">UoM</th><th scope="col">Group</th><th scope="col" class="im-num">Value</th><th scope="col" class="im-num">Share</th><th scope="col" class="im-num">Centres</th></tr></thead>
-        <tbody>
-          {% for m in top_materials %}<tr><td><span class="im-material-code">{{ m.code }}</span><small class="im-pf-desc">{{ m.description or '' }}</small></td><td class="im-uom-col"><span class="im-uom">{{ m.uom or '—' }}</span></td><td><span class="im-group-badge im-group-{{ m.group }}">{{ m.group }}</span></td><td class="im-num im-value">{{ cr(m.value) }}</td><td class="im-num">{{ m.share }}%</td><td class="im-num">{{ m.centres }}</td></tr>
-          {% else %}<tr class="im-pf-empty-row"><td colspan="6">No materials reported for this period.</td></tr>{% endfor %}
-        </tbody>
-      </table></div>
-    </div></section>
-    <section class="card im-pf-card"><div class="card-body">
-      <div class="im-section-heading"><div><span>Exception register</span><h2>Exception profile</h2></div></div>
-      <div class="im-pf-sev">
-        {% for sev in ('critical', 'high', 'medium', 'low') %}{% if exception_severities.get(sev) %}<span class="im-severity im-{{ sev }}">{{ sev }} · {{ exception_severities[sev] }}</span>{% endif %}{% endfor %}
-        {% if not exception_severities %}<span class="im-pf-muted">No exceptions raised for this period.</span>{% endif %}
-      </div>
-      <div class="im-table-wrap"><table class="im-pf-table">
-        <thead><tr><th scope="col">Exception type</th><th scope="col" class="im-num">Count</th><th scope="col" class="im-num">Value</th></tr></thead>
-        <tbody>
-          {% for t in exception_types %}<tr><td>{{ t.type|replace('_', ' ')|capitalize }}</td><td class="im-num">{{ t.count }}</td><td class="im-num im-value">{{ cr(t.value) }}</td></tr>
-          {% else %}<tr class="im-pf-empty-row"><td colspan="3">No exceptions for this period.</td></tr>{% endfor %}
-        </tbody>
-      </table></div>
-    </div></section>
-  </div>
+  {# ══ HEALTH REGISTER ═══════════════════════════════════════════════ #}
+  <section class="im-mr-panel" id="panel-register" role="tabpanel" aria-labelledby="tab-register" data-mr-panel="register" hidden>
+  <section class="mod-stats" aria-label="Health register">
+    <a class="mod-stat mod-stat-danger" href="#critical"><span>Critical low stock</span><strong>{{ health.groups.critical_low_stock|length }}</strong><small>materials needing immediate action · ≤ {{ health.thresholds.critical_low_stock_months }} months</small></a>
+    <a class="mod-stat" href="#low"><span>Low stock</span><strong>{{ health.groups.low_stock|length }}</strong><small>materials needing replenishment · ≤ {{ health.thresholds.low_stock_months }} months</small></a>
+    <a class="mod-stat" href="#slow"><span>Slow moving</span><strong>{{ health.groups.slow_moving_stock|length }}</strong><small>high coverage materials · ≥ {{ health.thresholds.slow_moving_months }} months</small></a>
+    <a class="mod-stat" href="#excess"><span>Excess stock</span><strong>{{ health.groups.excess_stock|length }}</strong><small>materially above operating need · ≥ {{ health.thresholds.excess_stock_months }} months</small></a>
+    <a class="mod-stat" href="#nonmoving"><span>Non-moving</span><strong>{{ health.source_findings.non_moving|length }}</strong><small>from the source inventory report</small></a>
+  </section>
 
+  {% if charts %}
   <section class="card im-pf-card"><div class="card-body">
-    <div class="im-section-heading"><div><span>Highest value first</span><h2>Exceptions requiring attention</h2><p>The largest open stock-coverage and source-register exceptions for this reporting date.</p></div></div>
-    <div class="im-table-wrap"><table class="im-pf-table">
-      <thead><tr><th scope="col">Severity</th><th scope="col">Exception</th><th scope="col">Work centre</th><th scope="col">Material</th><th scope="col" class="im-uom-col">UoM</th><th scope="col" class="im-num">Value</th><th scope="col" class="im-num">Months</th></tr></thead>
-      <tbody>
-        {% for item in exceptions %}<tr>
-          <td><span class="im-severity im-{{ item.severity }}">{{ item.severity }}</span></td>
-          <td>{{ item.exception_type|replace('_', ' ')|capitalize }}</td>
-          <td>{{ item.work_center.name if item.work_center else '—' }}</td>
-          <td>{% if item.material %}<span class="im-material-code">{{ item.material.material_code }}</span>{% else %}—{% endif %}</td>
-          <td class="im-uom-col"><span class="im-uom">{{ (item.material.uom if item.material else none) or '—' }}</span></td>
-          <td class="im-num im-value">{{ cr(item.inventory_value_inr) }}</td>
-          <td class="im-num">{{ item.stock_months if item.stock_months is not none else '—' }}</td>
-        </tr>{% else %}<tr class="im-pf-empty-row"><td colspan="7">No exceptions for this period.</td></tr>{% endfor %}
-      </tbody>
-    </table></div>
+    <div class="im-section-heading"><div><span>Where the exposure sits</span><h2>Lines outside healthy coverage, by asset</h2><p>The four bands do not overlap, so each bar is that asset's exposed line count exactly. Assets are ranked by the shortage bands first: a stock-out stops work, an overstock does not.</p></div><a class="btn btn-outline-primary btn-sm" href="{{ url_for('inventory.administration') }}">Coverage thresholds</a></div>
+    <div class="im-mr-canvas is-tall"><canvas id="imExposure" aria-label="Material lines outside healthy coverage by asset" role="img"></canvas></div>
   </div></section>
+  {% endif %}
+
+  {% for anchor, title, caption, key, tone in [('critical', 'Critical low stock', 'Stock coverage at or below the critical threshold.', 'critical_low_stock', 'critical'), ('low', 'Low stock', 'Stock coverage needs replenishment planning.', 'low_stock', 'low'), ('slow', 'Slow-moving stock', 'Coverage is high; review planned consumption and open orders.', 'slow_moving_stock', 'slow'), ('excess', 'Excess stock', 'Coverage is materially above normal operating need.', 'excess_stock', 'excess')] %}{% set records = health.groups[key] %}<section class="card im-health-register" id="{{ anchor }}"><div class="card-body"><div class="im-card-heading"><div><span class="im-health-label im-health-{{ tone }}">{{ title }}</span><h2>{{ title }}</h2><p>{{ caption }}</p><p class="im-row-legend"><span class="im-row-confirmed"><i></i> Shaded rows are also named in the source workbook's own non-moving, slow-moving, aged, surplus or transit registers — the condition is confirmed twice over.</span></p></div><strong>{{ records|length }} material records{% set omitted = health.spec_groups[key]|map(attribute='omitted')|sum %}{% if omitted %}<em>showing {{ records|length - omitted }} — up to {{ health.group_limit }} per specification category</em>{% endif %}</strong></div><div class="im-table-wrap im-health-table-wrap"><table class="table im-health-table"><thead><tr><th scope="col" class="im-material-col">Material</th><th scope="col" class="im-uom-col">UoM</th><th scope="col">Work centre</th><th scope="col" class="im-number-col">Months</th><th scope="col" class="im-number-col">Quantity</th><th scope="col" class="im-number-col">Inventory value</th></tr></thead><tbody>{% for group in health.spec_groups[key] %}{{ spec_heading(group, 6) }}{% for row in group.rows %}{% set confirmed = health.confirmed_conditions.get((row.material_id, row.work_center_id)) %}<tr class="{{ 'im-row-confirmed' if confirmed }}" {% if confirmed %}title="Also reported in the source workbook: {{ confirmed|join(', ') }}"{% endif %}><td><a class="im-material-code" href="{{ url_for('inventory.material', material_id=row.material_id) }}">{{ row.material_code }}</a><small>{{ row.material_description or '—' }}</small>{% if confirmed %}<em class="im-confirmed-note">Workbook-confirmed · {{ confirmed|join(' · ') }}</em>{% endif %}</td><td class="im-uom-col"><span class="im-uom">{{ (row.material.uom if row.material and row.material.uom else row.uom) or '—' }}</span></td><td><span class="im-work-centre-name">{{ row.work_center_name }}</span></td><td class="im-number-col"><span class="im-month-chip im-month-{{ tone }}">{{ row.stock_months }}</span></td><td class="im-number-col">{{ '{:,.2f}'.format(row.stock_qty or 0) }}<small>{{ row.uom or '—' }}</small></td><td class="im-number-col"><strong>₹ {{ '{:,.0f}'.format(row.inventory_value_inr or 0) }}</strong><small>INR</small></td></tr>{% endfor %}{{ spec_more(group, 6) }}{% else %}<tr><td colspan="6">No materials in this health category.</td></tr>{% endfor %}</tbody></table></div></div></section>{% endfor %}
+
+  <section class="im-source-findings" id="nonmoving"><div class="im-card-heading"><div><span class="im-kicker">Workbook-confirmed conditions</span><h2>Non-moving, aged, surplus and transit exposure</h2><p>These conditions are identified directly from the supporting sheets in the uploaded inventory workbook. Each count links to the coverage register its lines are shaded in — which is usually <strong>excess stock</strong>, not slow-moving: a chemical the workbook calls non-moving has little or no consumption, so its months of cover run past the excess threshold. The workbook's own "slow moving" list is its definition, not this page's {{ '{:g}'.format(health.thresholds.slow_moving_months) }}–{{ '{:g}'.format(health.thresholds.excess_stock_months) }} month band.</p></div></div>
+  {% if charts %}
+  {# One bar is one register, stacked by our band — that stack is exact. The
+     bars are not a total: a chemical the workbook calls non-moving is usually
+     also in its aged and surplus registers, so adding them up would count the
+     same drum three times. #}
+  <div class="im-mr-canvas is-wide"><canvas id="imSourceRegisters" aria-label="Where each workbook register's lines land in our coverage bands" role="img"></canvas></div>
+  {% endif %}
+  <div class="im-source-grid">{% for key, label, items in [('non_moving', 'Non-moving chemicals', health.source_findings.non_moving), ('slow_moving', 'Slow-moving (workbook register)', health.source_findings.slow_moving), ('aged_stock_over_one_year', 'Aged stock over one year', health.source_findings.aged_stock_over_one_year), ('surplus', 'Surplus stock', health.source_findings.surplus), ('material_in_transit_aged', 'Aged material in transit', health.source_findings.material_in_transit_aged)] %}<article><span>{{ label }}</span>
+  {# The count itself is the route to the coverage register where those rows are shaded. #}
+  {% if items %}<strong class="im-source-count">{% for band in health.source_bands[key] %}{% if band.anchor %}<a href="#{{ band.anchor }}">{{ band.count }} in {{ band.label|lower }}</a>{% else %}<span>{{ band.count }} {{ band.label|lower }}</span>{% endif %}{% endfor %}</strong>{% else %}<strong class="im-source-count">0</strong>{% endif %}
+  <small>{% if items %}Top: {{ items[0].material.material_code if items[0].material else '—' }} · {{ items[0].work_center.name if items[0].work_center else '—' }}{% else %}No reported cases{% endif %}</small></article>{% endfor %}</div></section>
+  </section>
 
   {# The deck is asked for, not assumed: all of ONGC, or the assets ticked in the
      chooser, drilled down zone first because that is how a region is reviewed. #}
@@ -216,3 +301,15 @@
 
   {% endif %}
 </div>{% endblock %}
+{% block scripts_extra %}
+{% if charts %}
+{# The data must be assigned before the module runs — it reads both globals at
+   load and does nothing if they are missing. #}
+{% set centre_urls = {} %}{% for c in centres[:12] %}{% set _ = centre_urls.update({c.name: url_for('inventory.work_centre', work_center_id=c.id)}) %}{% endfor %}
+<script nonce="{{ csp_nonce() }}">window.INVENTORY_MANAGEMENT_CHARTS = {{ charts|tojson }};
+window.INVENTORY_ASSET_URLS = {{ centre_urls|tojson }};
+</script>
+<script nonce="{{ csp_nonce() }}" src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script nonce="{{ csp_nonce() }}" src="{{ url_for('static', filename='js/inventory_management_charts.js') }}"></script>
+{% endif %}
+{% endblock %}

@@ -36,7 +36,17 @@ def landing():
 @login_required
 @module_access_required("inventory")
 def portfolio():
-    from app.core.services.inventory_monitoring import portfolio_data, scope_directory
+    """The single management screen: the position, its movement, and the register.
+
+    Management Review and Inventory Health were two pages reading one period out
+    of the same snapshot — the review banded stock by months of coverage and the
+    register listed the very lines in those bands, so neither page could be
+    acted on without the other open beside it.  They are one page now, tabbed so
+    the three denominators stay visibly apart, and the register follows the
+    period the reader selected instead of always reporting the latest import.
+    """
+    from app.core.services.inventory_management_charts import management_chart_series
+    from app.core.services.inventory_monitoring import inventory_health_data, portfolio_data, scope_directory
     selected = compare = None
     try:
         selected = _reporting_date(request.args.get("reporting_date"))
@@ -46,7 +56,12 @@ def portfolio():
     data = portfolio_data(selected, compare)
     if compare and data["previous_date"] != compare:
         flash("That comparison period is not published or is not earlier than the selected date; the closest earlier period is shown.", "warning")
-    return render_template("inventory/portfolio.html", scope_directory=scope_directory(data["reporting_date"]), **data)
+    health = inventory_health_data(data["reporting_date"])
+    return render_template(
+        "inventory/portfolio.html",
+        scope_directory=scope_directory(data["reporting_date"]),
+        health=health, charts=management_chart_series(data, health), **data,
+    )
 
 
 @inventory_bp.route("/management-review/presentation.pptx")
@@ -81,14 +96,6 @@ def download_management_presentation():
     else:
         return send_file(output, mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation", as_attachment=True, download_name=filename, max_age=0)
     return redirect(url_for("inventory.portfolio", reporting_date=selected.isoformat() if selected else None, compare_date=compare.isoformat() if compare else None))
-
-
-@inventory_bp.route("/health")
-@login_required
-@module_access_required("inventory")
-def health():
-    from app.core.services.inventory_monitoring import inventory_health_data
-    return render_template("inventory/health.html", **inventory_health_data())
 
 
 @inventory_bp.route("/imports", methods=["GET", "POST"])

@@ -1571,10 +1571,17 @@ def management_review_data(reporting_date: date | None = None, compare_date: dat
     return payload
 
 
-def inventory_health_data() -> dict[str, Any]:
-    """Return a plain-language health register for the latest active snapshot date."""
+def inventory_health_data(reporting_date: date | None = None) -> dict[str, Any]:
+    """A plain-language health register for one reporting period.
+
+    The period is the caller's, because the register now sits beside the
+    portfolio position on the management review and the two must answer for the
+    same date.  Left to itself it reads the latest active snapshot, which is not
+    always a published one: a date carrying only Group 09 is live but is not yet
+    a period the review will report.
+    """
     thresholds = _thresholds()
-    latest_date = db.session.query(func.max(InventoryMonitoringSnapshot.reporting_date)).join(
+    latest_date = reporting_date or db.session.query(func.max(InventoryMonitoringSnapshot.reporting_date)).join(
         InventoryMonitoringUploadBatch
     ).filter(_live_batch()).scalar()
     if latest_date is None:
