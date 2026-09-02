@@ -2579,6 +2579,21 @@ def add_task_update(task_id):
 
     task_can_close = _can_close_task(task)
 
+    def _render_add_update(form_data):
+        # The trail is on the page the update is written on, so the author can
+        # read what was last said without leaving the form to go and look.
+        return render_template(
+            "tasks/add_update.html",
+            task=task,
+            task_statuses=TASK_STATUSES,
+            can_close=task_can_close,
+            form_data=form_data,
+            updates=TaskUpdate.query.filter_by(task_id=task.id).order_by(
+                TaskUpdate.created_at.desc()
+            ).all(),
+            task_update_edit_window_hours=TASK_UPDATE_EDIT_WINDOW_HOURS,
+        )
+
     if request.method == "POST":
         update_text = request.form.get("update_text", "").strip()
         new_status = request.form.get("new_status", "").strip()
@@ -2604,13 +2619,7 @@ def add_task_update(task_id):
                 return jsonify({"ok": False, "errors": errors}), 400
             for err in errors:
                 flash(err, "danger")
-            return render_template(
-                "tasks/add_update.html",
-                task=task,
-                task_statuses=TASK_STATUSES,
-                can_close=task_can_close,
-                form_data=request.form,
-            )
+            return _render_add_update(request.form)
 
         try:
             old_status = None
@@ -2656,13 +2665,7 @@ def add_task_update(task_id):
                     }
                 ), 500
             _db_error("Could not add task update due to a database error.")
-            return render_template(
-                "tasks/add_update.html",
-                task=task,
-                task_statuses=TASK_STATUSES,
-                can_close=task_can_close,
-                form_data=request.form,
-            )
+            return _render_add_update(request.form)
 
         if _is_ajax_request():
             return jsonify(
@@ -2676,13 +2679,7 @@ def add_task_update(task_id):
         flash("Task update added successfully.", "success")
         return redirect(url_for("tasks.task_detail", task_id=task.id))
 
-    return render_template(
-        "tasks/add_update.html",
-        task=task,
-        task_statuses=TASK_STATUSES,
-        can_close=task_can_close,
-        form_data={},
-    )
+    return _render_add_update({})
 
 
 @office_bp.route("/<int:task_id>/updates/<int:update_id>/edit", methods=["GET", "POST"])

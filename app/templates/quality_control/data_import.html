@@ -96,7 +96,7 @@
         <tr><td><strong>{{ item.laboratory.name }}</strong><div class="mod-cell-meta">{{ item.laboratory.location }}</div></td>
           <td>{% if item.batch %}<strong>{{ item.batch.as_of_date.strftime('%d %b %Y') }}</strong><div class="mod-cell-meta">Plant {{ item.batch.plant_code }} · {{ item.batch.record_count }} records</div>{% else %}<span class="qc-sap-status is-awaiting_lab">Not uploaded</span>{% endif %}</td>
           <td><strong class="{{ 'text-danger' if item.sap_open else '' }}">{{ item.sap_open }}</strong></td><td>{{ item.excluded_from_monitoring }}</td><td>{% if item.exclusion_review %}<span class="qc-variance-badge">{{ item.exclusion_review }}</span>{% else %}0{% endif %}</td><td>{{ item.non_sap_pending }}</td>
-          <td><a class="btn btn-secondary btn-sm" href="{{ url_for('quality_control.sap_lab_dashboard', lab_code=item.laboratory.code) }}">Open control view</a>{% if item.batch %} <a class="btn btn-primary btn-sm" href="{{ url_for('quality_control.download_sap_lab_presentation', lab_code=item.laboratory.code) }}"><i class="bi bi-file-earmark-ppt"></i> Presentation</a>{% endif %}</td></tr>
+          <td><a class="btn btn-secondary btn-sm" href="{{ url_for('quality_control.sap_lab_dashboard', lab_code=item.laboratory.code) }}">Open control view</a>{% if item.batch %} <a class="btn btn-primary btn-sm" href="{{ url_for('quality_control.download_portfolio_management_presentation', lab=item.laboratory.code) }}"><i class="bi bi-file-earmark-ppt"></i> Presentation</a>{% endif %}</td></tr>
       {% endfor %}
       </tbody></table></div>
     </div>

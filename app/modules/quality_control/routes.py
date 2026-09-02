@@ -507,31 +507,6 @@ def reinstate_sap_record_for_monitoring(lab_code: str, record_id: int):
     return redirect(url_for("quality_control.sap_lab_dashboard", lab_code=lab_code) + f"#sap-record-{record_id}")
 
 
-@quality_control_bp.route("/sap-control/labs/<lab_code>/presentation.pptx")
-@login_required
-@module_access_required("quality_control")
-@laboratory_view_required
-def download_sap_lab_presentation(lab_code: str):
-    from app.core.services.qc_presentation import build_sap_lab_presentation
-    try:
-        output, filename = build_sap_lab_presentation(lab_code, current_app.static_folder)
-    except ValueError as exc:
-        flash(str(exc), "warning")
-    except Exception:
-        logger.exception("SAP QC presentation export failed for lab=%s", lab_code)
-        flash("The SAP management presentation could not be generated. Please try again.", "danger")
-    else:
-        return send_file(output, mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation", as_attachment=True, download_name=filename, max_age=0)
-    return redirect(url_for("quality_control.sap_lab_dashboard", lab_code=lab_code))
-
-
-@quality_control_bp.route("/sap-panvel/presentation.pptx")
-@login_required
-@module_access_required("quality_control")
-def download_sap_panvel_presentation():
-    return download_sap_lab_presentation("rgl_panvel")
-
-
 @quality_control_bp.route("/sap-control/labs/<lab_code>/uploads/<int:batch_id>/<source_kind>")
 @login_required
 @module_access_required("quality_control")

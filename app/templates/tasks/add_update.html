@@ -7,6 +7,43 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/office.css') }}">
 {% endblock %}
 
+{% macro update_entry(update) %}
+<li>
+  <div class="om-timeline-head">
+    <span class="om-timeline-who">
+      <i class="bi bi-person-circle"></i>
+      {{ update.updater.full_name if update.updater and update.updater.full_name else (update.updater.username if update.updater else '—') }}
+      {% if update.old_status and update.new_status %}
+      <span class="om-timeline-transition">
+        <span class="om-pill om-pill-status-{{ update.old_status|lower|replace(' ','-') }}">{{ update.old_status }}</span>
+        <i class="bi bi-arrow-right"></i>
+        <span class="om-pill om-pill-status-{{ update.new_status|lower|replace(' ','-') }}">{{ update.new_status }}</span>
+      </span>
+      {% elif update.new_status %}
+      <span class="om-pill om-pill-status-{{ update.new_status|lower|replace(' ','-') }}">{{ update.new_status }}</span>
+      {% endif %}
+    </span>
+    <span class="om-timeline-when">{{ update.created_at|datetime_ist('%d %b %Y · %I:%M %p') if update.created_at else '—' }}</span>
+  </div>
+
+  <div class="om-timeline-text">{{ update.update_text }}</div>
+
+  <div class="om-timeline-foot">
+    <span>
+      {%- if update.was_edited -%}
+      Edited{% if update.edited_at %} {{ update.edited_at|datetime_ist('%d %b %Y · %I:%M %p') }}{% endif %}
+      by {{ update.editor.full_name if update.editor and update.editor.full_name else (update.editor.username if update.editor else '—') }}
+      {%- endif -%}
+    </span>
+    {% if update.is_editable_by(current_user, task_update_edit_window_hours) %}
+    <a href="{{ url_for('tasks.edit_task_update', task_id=task.id, update_id=update.id) }}" class="btn btn-sm btn-secondary">Edit</a>
+    {% elif update.updated_by == current_user.id %}
+    <span>Edit window closed</span>
+    {% endif %}
+  </div>
+</li>
+{% endmacro %}
+
 {% block content %}
 <div class="page-wrapper mod-page om-page">
 
@@ -85,6 +122,50 @@
           <button type="submit" class="btn btn-primary">Add update</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  {# ── Earlier updates ──────────────────────────────────────
+     Written next to the form so a new note continues the trail rather than
+     repeating it; the newest leads and the rest sit in a drawer. #}
+  <div class="om-card om-form-narrow">
+    <div class="om-card-head">
+      <div>
+        <h2><i class="bi bi-clock-history"></i> Earlier updates</h2>
+        <p>Progress already recorded against this task, newest first.</p>
+      </div>
+      <span class="om-count-chip">{{ updates|length }}</span>
+    </div>
+    <div class="om-card-body">
+      {% if updates %}
+      {% set latest_update = updates[0] %}
+      {% set older_updates = updates[1:] %}
+      <ul class="om-timeline om-timeline-latest">
+        {% for update in [latest_update] %}
+        {{ update_entry(update) }}
+        {% endfor %}
+      </ul>
+
+      {% if older_updates %}
+      <details class="om-updates-drawer">
+        <summary>
+          <span><i class="bi bi-clock-history"></i> Older updates <b>({{ older_updates|length }})</b></span>
+          <span class="om-updates-drawer-chevron" aria-hidden="true"><i class="bi bi-chevron-down"></i></span>
+        </summary>
+        <ul class="om-timeline om-timeline-compact">
+          {% for update in older_updates %}
+          {{ update_entry(update) }}
+          {% endfor %}
+        </ul>
+      </details>
+      {% endif %}
+      {% else %}
+      <div class="om-empty">
+        <i class="bi bi-chat-left-text"></i>
+        <strong>No updates yet</strong>
+        <p>This will be the first progress note recorded against this task.</p>
+      </div>
+      {% endif %}
     </div>
   </div>
 

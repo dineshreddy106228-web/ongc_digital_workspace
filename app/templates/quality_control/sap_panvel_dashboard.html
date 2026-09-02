@@ -14,11 +14,7 @@
       <p class="mod-page-sub">Official inspection and notification status is read from SAP. Corporate Chemistry records the returned laboratory action; it never overwrites SAP.</p>
     </div>
     <div class="mod-page-actions">
-      {% if can_control %}<a class="btn btn-secondary" href="{{ url_for('quality_control.data_import') }}"><i class="bi bi-database-add"></i> Import centre</a>{% endif %}
-      {% if batch %}<a class="btn btn-primary" href="{{ url_for('quality_control.download_portfolio_management_presentation', lab=lab_code) }}"><i class="bi bi-file-earmark-ppt"></i> Download presentation</a>
-      {# The laboratory's own SAP deck is a different deck from the portfolio one
-         above. It lost its only link when the control tower's table went. #}
-      <a class="btn btn-secondary" href="{{ url_for('quality_control.download_sap_lab_presentation', lab_code=lab_code) }}"><i class="bi bi-file-earmark-ppt"></i> Laboratory SAP deck</a>{% endif %}
+      {% if batch %}<a class="btn btn-primary" href="{{ url_for('quality_control.download_portfolio_management_presentation', lab=lab_code) }}"><i class="bi bi-file-earmark-ppt"></i> Download presentation</a>{% endif %}
       {% if can_control and batch %}<a class="btn btn-secondary" href="{{ url_for('quality_control.download_portfolio_management_presentation') }}"><i class="bi bi-buildings"></i> All-labs presentation</a>{% endif %}
     </div>
   </div>

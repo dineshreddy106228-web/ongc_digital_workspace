@@ -376,279 +376,6 @@ def build_lab_brief_presentation(lab_code: str, static_folder: str) -> tuple[Byt
     return output, f"{laboratory['name']} Management Brief {batch.week_end:%d %b %Y}.pptx"
 
 
-def build_sap_lab_presentation(lab_code: str, static_folder: str) -> tuple[BytesIO, str]:
-    """Create one laboratory's daily review deck from its SAP snapshot.
-
-    The operational register is deliberately paginated rather than shortened:
-    every actionable SAP-open record appears. QC-admin exclusions remain in the
-    Corporate Chemistry audit register, and non-SAP work remains a separate
-    declared-exception section with a blank return table, never a substitute
-    for an SAP status.
-    """
-    from pptx import Presentation
-    from pptx.util import Inches
-    from app.core.services.sap_quality_control import sap_lab_dashboard_data
-
-    data = sap_lab_dashboard_data(lab_code)
-    batch = data["batch"]
-    if batch is None:
-        raise ValueError(f"Import paired SAP exports for {data['laboratory']['name']} before downloading a presentation.")
-    laboratory = data["laboratory"]
-
-    prs = Presentation()
-    prs.slide_width, prs.slide_height = Inches(13.333), Inches(7.5)
-    chrome = _DeckChrome(
-        prs, static_folder,
-        f"Source: SAP QM exports · {laboratory['name']} · as at {batch.as_of_date:%d %b %Y}",
-    )
-    navy, blue, red, green, grey = chrome.NAVY, chrome.BLUE, chrome.RED, chrome.GREEN, chrome.GREY
-
-    def concise(value, limit=52):
-        text = " ".join(str(value or "—").split())
-        return text if len(text) <= limit else f"{text[:limit + 1].rsplit(' ', 1)[0]}…"
-
-    def table(slide, headers, rows, widths, y=1.6, font_size=9):
-        if not rows:
-            chrome.add_text(slide, "No records require management attention in this view.", .8, 2.15, 11, .35, 18, green, True)
-            return
-        height = min(4.95, .36 * (len(rows) + 1))
-        shape = slide.shapes.add_table(len(rows) + 1, len(headers), Inches(.42), Inches(y), Inches(12.45), Inches(height)).table
-        for column, width in enumerate(widths):
-            shape.columns[column].width = Inches(width)
-        for col, label in enumerate(headers):
-            cell = shape.cell(0, col)
-            cell.text = str(label)
-            cell.fill.solid(); cell.fill.fore_color.rgb = chrome.color(navy)
-        for row_index, values in enumerate(rows, 1):
-            for col, value in enumerate(values):
-                cell = shape.cell(row_index, col)
-                cell.text = str(value)
-                cell.fill.solid(); cell.fill.fore_color.rgb = chrome.color("F8FBFE" if row_index % 2 == 0 else "FFFFFF")
-        for row_index, row in enumerate(shape.rows):
-            for cell in row.cells:
-                for paragraph in cell.text_frame.paragraphs:
-                    paragraph.font.size = chrome._Pt(font_size)
-                    paragraph.font.name = "Arial"
-                    paragraph.font.bold = row_index == 0
-                    paragraph.font.color.rgb = chrome.color("FFFFFF" if row_index == 0 else navy)
-
-    # 01 · Cover
-    slide = chrome.new_slide("SAP Quality Monitoring — Daily Management Review", 1)
-    chrome.add_text(slide, laboratory["name"], .65, 1.8, 9.2, .55, 38, navy, True)
-    chrome.add_text(slide, f"SAP position as at {batch.as_of_date:%d %B %Y}", .65, 2.52, 9.4, .35, 20, blue, True)
-    chrome.rectangle(slide, .65, 3.06, 2.0, .05, blue)
-    chrome.add_wrapped_text(
-        slide,
-        "Corporate Chemistry generated this presentation from native SAP Inspection Lots and Notifications exports. The returned laboratory action is a follow-up commitment only; SAP remains the official status.",
-        .65, 3.48, 9.7, .8, 17, grey,
-    )
-    chrome.add_text(slide, f"Plant {batch.plant_code} · {batch.record_count} monitoring records", .65, 5.18, 8.8, .28, 15, navy, True)
-
-    # 02 · The official position
-    kpis = data["kpis"]
-    slide = chrome.new_slide("Official SAP position", 2)
-    cards = [
-        (kpis["total"], "SAP monitoring records", navy),
-        (kpis["completed"], "Officially complete", green),
-        (kpis["open"], "Actionable SAP-open", red if kpis["open"] else green),
-        (kpis["stt_overdue"], "Open past STT", red if kpis["stt_overdue"] else green),
-        (kpis["awaiting_lab"], "Awaiting laboratory update", blue),
-        (kpis["awaiting_sap_confirmation"], "Lab complete; SAP pending", red if kpis["awaiting_sap_confirmation"] else green),
-    ]
-    for index, (value, label, tone) in enumerate(cards):
-        chrome.metric(slide, .7 + (index % 3) * 4.2, 1.65 + (index // 3) * 2.0, value, label, tone)
-    chrome.add_text(
-        slide,
-        f"Usage decisions: {kpis['accepted']} accepted (UD A), {kpis['rejected']} rejected (UD R), {kpis['excluded_from_monitoring']} QC-admin exclusion(s). Returned laboratory follow-up does not alter SAP status.",
-        .75, 5.78, 11.15, .52, 12, grey,
-    )
-
-    # 03 · Work-centre capacity and non-SAP follow-up allocation
-    slide = chrome.new_slide("Daily follow-up allocation", 3)
-    centre_rows = [
-        [
-            f"{item['name']} · non-SAP" if item["is_non_sap"] else item["name"],
-            item["open"],
-            "—" if item["is_non_sap"] else item["stt_overdue"],
-            item["awaiting_lab"],
-        ]
-        for item in data["work_centers"][:12]
-    ]
-    table(slide, ["Work center / source", "Items", "Past STT", "Awaiting action"], centre_rows, [6.1, 1.8, 2.0, 2.55], y=1.65, font_size=11)
-    if len(data["work_centers"]) > 12:
-        chrome.add_text(slide, f"+ {len(data['work_centers']) - 12} further work center(s) in the dashboard.", .65, 6.45, 8, .22, 10, grey)
-
-    # 04+ · Management exception register. The deck is a laboratory handoff,
-    # so every SAP-open item must be visible: continue the table instead of
-    # reducing the operational register to a top-ten sample.
-    open_pages = _paginated_rows(data["open_records"], 9)
-    for page_index, entries in enumerate(open_pages, start=4):
-        first = (page_index - 4) * 9 + 1
-        last = first + len(entries) - 1
-        suffix = f" ({first}–{last} of {len(data['open_records'])})" if data["open_records"] else ""
-        slide = chrome.new_slide(f"SAP-open action items{suffix}", page_index)
-        exception_rows = []
-        for item in entries:
-            record = item["record"]
-            if item["stt_due_date"]:
-                stt_due = item["stt_due_date"].strftime("%d %b %Y")
-                if item["stt_overdue"]:
-                    stt_due += f" · {item['stt_variance_days']} d over"
-            elif item["stt_days"] is not None:
-                stt_due = f"STT {item['stt_days']} d · no start"
-            else:
-                stt_due = "STT not defined"
-            reference = "\n".join(filter(None, [
-                f"Lot {record.inspection_lot_number}" if record.inspection_lot_number else None,
-                f"Notification {record.notification_no}" if record.notification_no else None,
-            ])) or "No SAP reference"
-            exception_rows.append([
-                reference,
-                concise(record.material_description or record.material_code or "Not recorded", 34),
-                concise(record.work_center or "Not assigned", 18),
-                stt_due,
-                "________________",
-                "________________",
-                "________________________________",
-            ])
-        table(
-            slide,
-            ["Inspection lot / notification", "Material", "Work center", "STT due", "Date of sampling", "Lab testing start date", "Lab follow-up"],
-            exception_rows,
-            [2.25, 2.45, 1.3, 1.4, 1.55, 1.65, 1.85],
-            y=1.48, font_size=8,
-        )
-        chrome.add_wrapped_text(
-            slide,
-            "SAP receipt date is the SAP Start of Inspection date. Fill only Sampling date, Lab testing start date and Lab follow-up. Sampling date monitors courier time; testing start monitors the laboratory queue.",
-            .65, 5.25, 11.8, .55, 9, grey,
-        )
-
-    next_page = 4 + len(open_pages)
-
-    # Notifications SAP has not routed to a work center. They already appear in
-    # the register above, but a work center is how a laboratory recognises an
-    # item as its own — without one, nobody owns the notification and it can
-    # sit open indefinitely. So they are repeated on their own page and the
-    # laboratory is asked one question about each: is it still live?
-    #
-    # A record with no notification number is an inspection lot on its own, not
-    # something the laboratory can confirm as active or inactive, so it is not
-    # asked about here.
-    unassigned = [
-        item for item in data["open_records"]
-        if not item["record"].work_center and item["record"].notification_no
-    ]
-    if unassigned:
-        for page, entries in enumerate(_paginated_rows(unassigned, 9)):
-            first = page * 9 + 1
-            suffix = f" ({first}–{first + len(entries) - 1} of {len(unassigned)})"
-            slide = chrome.new_slide(
-                f"Unassigned notifications — confirm active or inactive{suffix}", next_page,
-            )
-            rows = []
-            for item in entries:
-                record = item["record"]
-                reference = "\n".join(filter(None, [
-                    f"Notification {record.notification_no}",
-                    f"Lot {record.inspection_lot_number}" if record.inspection_lot_number else None,
-                ]))
-                if item["stt_due_date"]:
-                    stt_due = item["stt_due_date"].strftime("%d %b %Y")
-                    if item["stt_overdue"]:
-                        stt_due += f" · {item['stt_variance_days']} d over"
-                elif item["stt_days"] is not None:
-                    stt_due = f"STT {item['stt_days']} d · no start"
-                else:
-                    stt_due = "STT not defined"
-                rows.append([
-                    reference,
-                    concise(record.material_description or record.material_code or "Not recorded", 30),
-                    concise(record.sap_lot_status or record.sap_system_status or "Status not stated", 22),
-                    stt_due,
-                    "____________",
-                    "____________________",
-                ])
-            table(
-                slide,
-                [
-                    "Notification / inspection lot", "Material", "SAP status", "STT due",
-                    "Active / Inactive", "Laboratory remark",
-                ],
-                rows, [2.4, 3.0, 2.0, 1.45, 1.8, 1.8], y=1.48, font_size=8,
-            )
-            chrome.add_wrapped_text(
-                slide,
-                "SAP has not assigned a work center to these notifications. Mark each one Active if the laboratory is still to test it, or Inactive if it is closed, duplicated, wrongly raised or no longer required — and say which in the remark. Corporate Chemistry records an Inactive confirmation as a QC-admin exclusion; SAP itself is unchanged until its own next export.",
-                .65, 5.25, 11.8, .7, 9, grey,
-            )
-            next_page += 1
-
-    non_sap_entries = data["non_sap_entries"]
-    if non_sap_entries:
-        for entries in _paginated_rows(non_sap_entries, 9):
-            slide = chrome.new_slide("Active non-SAP samples — separate declared register", next_page)
-            rows = []
-            for item in entries:
-                sample = item["sample"]
-                eta = sample.expected_completion_date.strftime("%d %b") if sample.expected_completion_date else "—"
-                stage = data["non_sap_status_labels"].get(sample.current_status, sample.current_status)
-                if sample.reported_outcome:
-                    stage += f" · declared {sample.reported_outcome}"
-                rows.append([
-                    concise(sample.sample_reference, 20),
-                    concise(sample.chemical_name, 28),
-                    concise(stage, 34),
-                    eta,
-                    concise(sample.action_owner or sample.delay_reason or "—", 28),
-                ])
-            table(slide, ["Local reference", "Material / sample", "Declared stage", "ETA", "Owner / constraint"], rows, [2.05, 3.1, 2.95, 1.15, 3.0], y=1.55, font_size=9)
-            chrome.add_text(slide, "These are not SAP records and are not included in the SAP-open total.", .65, 6.45, 8.8, .2, 10, grey)
-            next_page += 1
-
-    # The blank register turns the delivered deck into a standard return form
-    # for the rare samples which have no SAP record yet.
-    slide = chrome.new_slide("Laboratory return table — non-SAP samples only", next_page)
-    blank_rows = [["", "", "", "", "", ""] for _ in range(7)]
-    table(
-        slide,
-        ["Local reference", "Material / sample", "Receipt date", "Current stage", "Expected completion", "Owner / delay reason"],
-        blank_rows, [1.85, 2.4, 1.35, 2.0, 1.85, 3.0], y=1.55, font_size=9,
-    )
-    chrome.add_wrapped_text(
-        slide,
-        "Complete this page only for samples absent from SAP. Return it to Corporate Chemistry.",
-        .65, 5.25, 11.6, .55, 13, grey,
-    )
-    next_page += 1
-
-    # Final · Data quality and the next management ask
-    slide = chrome.new_slide("Data controls and daily management ask", next_page)
-    chrome.metric(slide, .8, 1.7, kpis["unmatched_inspection"], "Inspection-lot-only records", blue)
-    chrome.metric(slide, 4.5, 1.7, kpis["unmatched_notification"], "Notification-only records", blue)
-    chrome.metric(slide, 8.2, 1.7, kpis["material_standard_coverage"], "Material standards linked", navy)
-    chrome.add_text(slide, "Daily operating discipline", .8, 3.55, 5.2, .3, 19, navy, True)
-    asks = [
-        "Import both SAP exports from one daily run and retain the source files.",
-        "Each laboratory records a returned status for every SAP-open item on its own dashboard; QC-admin exclusions remain separately auditable.",
-        "Use the non-SAP return table only for samples not present in SAP; SAP-open records close only after the next SAP export confirms them.",
-    ]
-    for index, ask in enumerate(asks):
-        chrome.rectangle(slide, .8, 4.05 + index * .58, .28, .28, blue)
-        chrome.add_text(slide, str(index + 1), .88, 4.09 + index * .58, .14, .14, 9, "FFFFFF", True)
-        chrome.add_text(slide, ask, 1.25, 4.05 + index * .58, 10.8, .3, 14, navy)
-
-    output = BytesIO()
-    prs.save(output)
-    output.seek(0)
-    return output, f"{laboratory['name']} SAP QC Presentation {batch.as_of_date:%d %b %Y}.pptx"
-
-
-def build_sap_panvel_presentation(static_folder: str) -> tuple[BytesIO, str]:
-    """Compatibility wrapper for the former Panvel download route and tests."""
-    return build_sap_lab_presentation("rgl_panvel", static_folder)
-
-
 def build_portfolio_management_presentation(static_folder: str, reporting_week_end=None, lab_codes: set[str] | None = None) -> tuple[BytesIO, str]:
     """Create an on-demand, consolidated management-review presentation.
 
@@ -794,9 +521,15 @@ def build_sap_portfolio_management_presentation(
     """Create the senior-management deck from the current SAP snapshots only."""
     from pptx import Presentation
     from pptx.util import Inches, Pt
-    from app.core.services.sap_quality_control import sap_management_data
+    from app.core.services.sap_quality_control import (
+        non_sap_register_data, sap_management_data,
+    )
 
     data = sap_management_data(lab_codes)
+    # The declared non-SAP register is read separately and stays separate: it
+    # never enters the SAP counts, but it is the rest of the bench's load and
+    # the management deck is now the only deck that carries it.
+    non_sap = non_sap_register_data(lab_codes)
     if not data["reporting_labs"]:
         raise ValueError("Import paired SAP exports for at least one laboratory before downloading the management presentation.")
 
@@ -941,6 +674,54 @@ def build_sap_portfolio_management_presentation(
                     concise(record.work_center or "Not assigned", 24), stt_due, concise(follow_up, 34),
                 ])
             table(slide, ["Inspection lot", "Notification", "Material", "Specification", "Work center", "STT due", "Lab follow-up"], rows, [1.35, 1.35, 2.25, 1.8, 1.65, 1.45, 2.6], y=1.48, font_size=8)
+
+    # Non-SAP register · declared samples with no SAP record, kept apart from
+    # every count above.
+    non_sap_kpis = non_sap["non_sap_kpis"]
+    if non_sap_kpis["total"]:
+        slide = chrome.new_slide("Non-SAP samples — separate declared register", page_index)
+        page_index += 1
+        cards = [
+            (non_sap_kpis["total"], "Declared non-SAP samples", blue),
+            (non_sap_kpis["pending"], "Still with the laboratory", red if non_sap_kpis["pending"] else green),
+            (non_sap_kpis["overdue"], "Past the declared ETA", red if non_sap_kpis["overdue"] else green),
+        ]
+        for index, (value, label, tone) in enumerate(cards):
+            chrome.metric(slide, .8 + index * 4.2, 1.62, value, label, tone)
+        # A declared result, never an SAP usage decision, so it is worded and
+        # counted apart from the UD figures earlier in the deck.
+        chrome.add_text(slide, f"Declared results to date: {non_sap_kpis['closed_pass']} pass · {non_sap_kpis['closed_fail']} fail.", .75, 3.15, 11.6, .28, 14, navy, True)
+        lab_rows = [[
+            item["laboratory"]["name"], item["total"], item["pending"],
+            item["overdue"], item["closed_pass"], item["closed_fail"],
+        ] for item in non_sap["non_sap_by_laboratory"]]
+        table(slide, ["Laboratory", "Declared", "Pending", "Past ETA", "Declared pass", "Declared fail"], lab_rows, [3.5, 1.7, 1.7, 1.7, 2.0, 1.85], y=3.6, font_size=10)
+        chrome.add_text(slide, "These samples are not in SAP and are excluded from every SAP figure in this deck.", .75, 6.65, 11.6, .25, 11, grey)
+
+        pending_entries = [item for item in non_sap["non_sap_entries"] if not item["is_closed"]]
+        total_pending = len(pending_entries)
+        for start, entries in enumerate(_paginated_rows(pending_entries, 10)):
+            first = start * 10 + 1
+            last = first + len(entries) - 1
+            suffix = f" ({first}–{last} of {total_pending})" if total_pending > 10 else ""
+            slide = chrome.new_slide(f"Non-SAP samples awaiting return{suffix}", page_index)
+            page_index += 1
+            rows = []
+            for item in entries:
+                sample = item["sample"]
+                eta = sample.expected_completion_date.strftime("%d %b %Y") if sample.expected_completion_date else "ETA not declared"
+                if item["is_overdue"]:
+                    eta += " · overdue"
+                rows.append([
+                    item["laboratory"]["name"],
+                    concise(sample.sample_reference, 18),
+                    concise(sample.chemical_name, 30),
+                    concise(item["status_label"], 26),
+                    eta,
+                    concise(sample.action_owner or sample.delay_reason or "—", 26),
+                ])
+            table(slide, ["Laboratory", "Local reference", "Material / sample", "Declared stage", "Expected completion", "Owner / constraint"], rows, [2.35, 1.85, 2.75, 2.15, 1.9, 1.45], y=1.55, font_size=9)
+            chrome.add_text(slide, "Laboratories record these returns on their own dashboard; this page reports what is outstanding.", .65, 6.5, 11.6, .25, 10, grey)
 
     slide = chrome.new_slide("SAP usage decisions and daily movement", page_index)
     for index, item in enumerate(data["usage_decisions"]):

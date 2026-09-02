@@ -189,7 +189,7 @@ def test_lab_dashboard_hides_corporate_only_actions_from_a_reporting_laboratory(
     """A reporting laboratory works its own list, not Corporate Chemistry's.
 
     Import, control-tower and all-labs actions belong to the corporate scope.
-    A laboratory downloads its own deck.
+    A laboratory downloads the management deck narrowed to its own bench.
     """
     from flask import render_template
     from app.core.services.sap_quality_control import import_sap_panvel_exports, sap_lab_dashboard_data
@@ -209,14 +209,15 @@ def test_lab_dashboard_hides_corporate_only_actions_from_a_reporting_laboratory(
             "quality_control/sap_panvel_dashboard.html", can_control=True, **data,
         )
 
-    for corporate_action in ("Import centre", "Upload at import centre", "All-labs presentation"):
+    for corporate_action in ("Upload at import centre", "All-labs presentation"):
         assert corporate_action not in lab_page
         assert corporate_action in corporate_page
     assert "Download presentation" in lab_page
     assert "Download presentation" in corporate_page
-    # A laboratory may take its own SAP deck; it is not a corporate-only action.
-    assert "Laboratory SAP deck" in lab_page
-    assert "Laboratory SAP deck" in corporate_page
+    # The separate laboratory deck is gone: a laboratory records its returns by
+    # logging in, and its non-SAP samples are reported in the management deck.
+    assert "Laboratory SAP deck" not in lab_page
+    assert "Laboratory SAP deck" not in corporate_page
     # The operating-rule notice was removed; its snapshot provenance is not.
     assert "SAP is the final word" not in lab_page
     assert "SAP is the final word" not in corporate_page
@@ -955,9 +956,7 @@ def test_management_separates_completed_notification_only_records_without_ud_det
 
 
 def test_sap_management_presentation_uses_the_current_snapshot(sap_app):
-    from app.core.services.qc_presentation import (
-        build_sap_panvel_presentation, build_sap_portfolio_management_presentation,
-    )
+    from app.core.services.qc_presentation import build_sap_portfolio_management_presentation
     from app.core.services.sap_quality_control import import_sap_panvel_exports
 
     import_sap_panvel_exports(
@@ -965,10 +964,6 @@ def test_sap_management_presentation_uses_the_current_snapshot(sap_app):
         _notification_export(), "SAP_NOTIFICATIONS_20260826.xlsx", None,
     )
     db.session.commit()
-    output, filename = build_sap_panvel_presentation(sap_app.static_folder)
-
-    assert filename == "RGL Panvel SAP QC Presentation 26 Aug 2026.pptx"
-    assert output.read(2) == b"PK"
 
     portfolio_output, portfolio_filename = build_sap_portfolio_management_presentation(sap_app.static_folder)
     assert portfolio_filename == "QC SAP Management Review 26 Aug 2026.pptx"
@@ -980,101 +975,79 @@ def test_sap_management_presentation_uses_the_current_snapshot(sap_app):
     assert single_lab_filename == "RGL Panvel Management Review 26 Aug 2026.pptx"
     assert single_lab_output.read(2) == b"PK"
 
-def test_lab_deck_lists_unassigned_notifications_for_an_active_inactive_call(sap_app):
-    """A notification SAP never routed to a work center gets its own page.
+def test_management_deck_carries_the_non_sap_register(sap_app):
+    """The laboratory deck is gone, so the management deck reports non-SAP work.
 
-    Without a work center nobody at the laboratory recognises the item as
-    theirs, so it can sit open indefinitely while still counting against the
-    bench. The deck already lists it among the action items; this page asks
-    the one question that clears it — is it still live?
+    It stays a separate register: the samples are listed and counted on their
+    own pages, and none of them reach the SAP figures on the pages before.
     """
     from pptx import Presentation
-    from app.core.services.qc_presentation import build_sap_lab_presentation
-    from app.core.services.sap_quality_control import (
-        import_sap_panvel_exports, sap_lab_dashboard_data,
-    )
+    from app.core.services.qc_presentation import build_sap_portfolio_management_presentation
+    from app.core.services.sap_quality_control import import_sap_panvel_exports
+    from app.models.quality_control.qc_sap_monitoring import QCNonSAPSample
 
     import_sap_panvel_exports(
         _inspection_export(), "SAP_INSPECTION_20260826.xlsx",
-        _notification_export(first_work_center=""), "SAP_NOTIFICATIONS_20260826.xlsx", None,
+        _notification_export(), "SAP_NOTIFICATIONS_20260826.xlsx", None,
     )
+    today = date.today()
+    db.session.add_all([
+        QCNonSAPSample(
+            lab_code="rgl_panvel", sample_reference="NS-LATE", chemical_name="Produced water",
+            current_status="under_testing", sample_receipt_date=today - timedelta(days=10),
+            expected_completion_date=today - timedelta(days=2),
+        ),
+        QCNonSAPSample(
+            lab_code="rgl_panvel", sample_reference="NS-DONE", chemical_name="Glycol",
+            current_status="closed_pass", reported_outcome="pass",
+        ),
+    ])
     db.session.commit()
 
-    data = sap_lab_dashboard_data("rgl_panvel")
-    unassigned = [
-        item for item in data["open_records"]
-        if not item["record"].work_center and item["record"].notification_no
-    ]
-    assigned = [item for item in data["open_records"] if item["record"].work_center]
-    # An inspection lot carrying no notification is not something a laboratory
-    # can call active or inactive, so it stays off this page.
-    lot_only = [
-        item for item in data["open_records"]
-        if not item["record"].work_center and not item["record"].notification_no
-    ]
-    assert unassigned, "the fixture must leave at least one open notification unrouted"
-    assert assigned, "and at least one routed, so the page is not simply everything"
-    assert lot_only, "and at least one lot-only record, which must be excluded"
-
-    output, _ = build_sap_lab_presentation("rgl_panvel", sap_app.static_folder)
-    pages = []
+    output, _ = build_sap_portfolio_management_presentation(sap_app.static_folder)
+    slides = []
     for slide in Presentation(output).slides:
         text = "\n".join(
             shape.text_frame.text for shape in slide.shapes
             if shape.has_text_frame and shape.text_frame.text.strip()
         )
-        if "Unassigned notifications" in text:
-            tables = [shape.table for shape in slide.shapes if shape.has_table]
-            pages.append((text, tables[0] if tables else None))
+        tables = [shape.table for shape in slide.shapes if shape.has_table]
+        slides.append((text, tables))
 
-    assert len(pages) == 1
-    text, table = pages[0]
-    assert table is not None
-    assert f"(1\u2013{len(unassigned)} of {len(unassigned)})" in text
+    summary = [item for item in slides if "separate declared register" in item[0]]
+    assert len(summary) == 1
+    assert "Declared non-SAP samples" in summary[0][0]
+    assert "excluded from every SAP figure" in summary[0][0]
 
-    header = [cell.text.strip() for cell in table.rows[0].cells]
-    assert "Active / Inactive" in header
-    assert "Laboratory remark" in header
-
-    # Every unrouted record, and only those.
-    body = [" | ".join(cell.text for cell in row.cells) for row in list(table.rows)[1:]]
-    assert len(body) == len(unassigned)
-    for item in unassigned:
-        reference = item["record"].notification_no or item["record"].inspection_lot_number
-        assert any(reference in line for line in body)
-    for item in assigned:
-        assert not any(item["record"].work_center in line for line in body)
-    for item in lot_only:
-        assert not any(item["record"].inspection_lot_number in line for line in body)
+    outstanding = [item for item in slides if "Non-SAP samples awaiting return" in item[0]]
+    assert len(outstanding) == 1
+    rows = [
+        " | ".join(cell.text for cell in row.cells)
+        for row in list(outstanding[0][1][0].rows)[1:]
+    ]
+    # Only work still with the laboratory is outstanding; a closed sample is not.
+    assert any("NS-LATE" in row for row in rows)
+    assert not any("NS-DONE" in row for row in rows)
+    assert any("overdue" in row for row in rows)
 
 
-def test_lab_deck_omits_the_unassigned_page_when_sap_routed_everything(sap_app):
-    """No unrouted record, no page — the deck does not carry an empty ask."""
+def test_management_deck_omits_the_non_sap_pages_when_the_register_is_empty(sap_app):
+    """No declared non-SAP work, no pages about it."""
     from pptx import Presentation
-    from app.core.services.qc_presentation import build_sap_lab_presentation
-    from app.core.services.sap_quality_control import (
-        import_sap_panvel_exports, sap_lab_dashboard_data,
-    )
+    from app.core.services.qc_presentation import build_sap_portfolio_management_presentation
+    from app.core.services.sap_quality_control import import_sap_panvel_exports
 
     import_sap_panvel_exports(
         _inspection_export(), "SAP_INSPECTION_20260826.xlsx",
         _notification_export(), "SAP_NOTIFICATIONS_20260826.xlsx", None,
     )
     db.session.commit()
-    for item in sap_lab_dashboard_data("rgl_panvel")["open_records"]:
-        if not item["record"].work_center:
-            item["record"].work_center = "MUDLAB"
-    db.session.commit()
-    assert not [
-        item for item in sap_lab_dashboard_data("rgl_panvel")["open_records"]
-        if not item["record"].work_center and item["record"].notification_no
-    ]
 
-    output, _ = build_sap_lab_presentation("rgl_panvel", sap_app.static_folder)
+    output, _ = build_sap_portfolio_management_presentation(sap_app.static_folder)
     for slide in Presentation(output).slides:
         for shape in slide.shapes:
             if shape.has_text_frame:
-                assert "Unassigned notifications" not in shape.text_frame.text
+                assert "non-SAP" not in shape.text_frame.text
 
 
 def test_register_reports_matches_before_the_display_cap(sap_app, monkeypatch):
