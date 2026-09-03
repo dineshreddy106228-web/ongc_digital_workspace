@@ -184,23 +184,11 @@ class Config:
         os.environ.get("ENABLE_INVENTORY"),
         default=True,
     )
-    ENABLE_MANPOWER_PLANNING = _as_bool(
-        os.environ.get("ENABLE_MANPOWER_PLANNING"),
-        default=False,
-    )
     ENABLE_CSC = _as_bool(
         os.environ.get("ENABLE_CSC"),
         default=True,
     )
-    ENABLE_REPORTS = _as_bool(
-        os.environ.get("ENABLE_REPORTS"),
-        default=False,
-    )
     ENABLE_QUALITY_CONTROL = _as_bool(
         os.environ.get("ENABLE_QUALITY_CONTROL"),
         default=True,
-    )
-    MANPOWER_SEED_PATH = os.environ.get(
-        "MANPOWER_SEED_PATH",
-        "data/manpower/Chemistry_Manpower_as_on_26_03_2026.xlsx",
     )

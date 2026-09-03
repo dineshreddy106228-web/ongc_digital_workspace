@@ -31,7 +31,6 @@ SHOWCASE_MODULE_KEYS = (
     "inventory",
     "quality_control",
     "csc_workflow",
-    "manpower_planning",
 )
 ADMIN_SHOWCASE_MODULE_KEYS = ("admin_users", "admin_backups")
 MODULE_ICON_MAP = {
@@ -39,10 +38,8 @@ MODULE_ICON_MAP = {
     "csc_workflow": "bi-file-earmark-ruled",
     "inventory": "bi-boxes",
     "quality_control": "bi-flask",
-    "manpower_planning": "bi-people-fill",
     "admin_users": "bi-person-gear",
     "admin_backups": "bi-database",
-    "reports": "bi-bar-chart-line",
     "forecasting": "bi-graph-up-arrow",
 }
 # Each module carries its own accent so the home grid reads as a set of
@@ -52,10 +49,8 @@ MODULE_ACCENT_MAP = {
     "csc_workflow": "csc",
     "inventory": "inventory",
     "quality_control": "qc",
-    "manpower_planning": "manpower",
     "admin_users": "admin",
     "admin_backups": "admin",
-    "reports": "reports",
     "forecasting": "forecasting",
 }
 INDIA_TIMEZONE = ZoneInfo("Asia/Kolkata")

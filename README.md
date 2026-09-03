@@ -1,7 +1,16 @@
 # ONGC Digital Workspace
 
 A modular institutional web application for ONGC offices.
-**Current version: 1.1** — Includes authentication, role-based access, audit logging, workspace-wide announcements & polls, and the CSC Workflow module under Material Master Management.
+**Current version: 1.1** — Includes authentication, role-based access, audit logging, and workspace-wide announcements & polls, alongside the four active business modules below.
+
+## Modules
+
+| Module | Description |
+|--------|-------------|
+| **Task Management** | Task tracking and office workflow management |
+| **Inventory Monitoring** | Chemical inventory monitoring, work-centre mapping, and exception intelligence |
+| **QC Laboratory Monitoring** | Daily quality-control monitoring, turnaround review, and management reporting |
+| **Corporate Specifications Management** | Specification register by chemical category, versioned parameter revisions, master export, and the MSDS Center |
 
 ## Stack
 
