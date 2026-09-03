@@ -43,3 +43,13 @@ storage/msds/
 .DS_Store
 
 .cache/
+
+# Dev scratch and local tooling — not part of the application
+.tmp/
+tmp/
+output/
+exports/
+.agents/
+.preview_shell/
+.claude/
+flask_output.log

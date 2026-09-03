@@ -25,18 +25,14 @@
     --module-csc: #665a86;
     --module-inventory: #8b643a;
     --module-qc: #39766e;
-    --module-manpower: #db2777;
     --module-admin: #4f46e5;
-    --module-reports: #0891b2;
     --module-forecasting: #059669;
     --module-default-on-accent: #ffffff;
     --module-office-on-accent: #ffffff;
     --module-csc-on-accent: #ffffff;
     --module-inventory-on-accent: #ffffff;
     --module-qc-on-accent: #ffffff;
-    --module-manpower-on-accent: #ffffff;
     --module-admin-on-accent: #ffffff;
-    --module-reports-on-accent: #ffffff;
     --module-forecasting-on-accent: #ffffff;
 
     /* Derived palette */
@@ -261,9 +257,7 @@
     --module-csc: #aaa0c7;
     --module-inventory: #d4ab79;
     --module-qc: #7eb8b0;
-    --module-manpower: #f472b6;
     --module-admin: #818cf8;
-    --module-reports: #38bdf8;
     --module-forecasting: #34d399;
     --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%239aa8b9' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
     /* Scope and chart hues. The light values are tuned for a white ground;
@@ -4914,9 +4908,7 @@ a.home-metric:hover { filter: brightness(.97) saturate(1.15); }
     --mod-csc: var(--module-csc);
     --mod-inventory: var(--module-inventory);
     --mod-qc: var(--module-qc);
-    --mod-manpower: var(--module-manpower);
     --mod-admin: var(--module-admin);
-    --mod-reports: var(--module-reports);
     --mod-forecasting: var(--module-forecasting);
 }
 
@@ -4925,9 +4917,7 @@ a.home-metric:hover { filter: brightness(.97) saturate(1.15); }
 .home-module-accent-csc { --module-accent: var(--mod-csc); }
 .home-module-accent-inventory { --module-accent: var(--mod-inventory); }
 .home-module-accent-qc { --module-accent: var(--mod-qc); }
-.home-module-accent-manpower { --module-accent: var(--mod-manpower); }
 .home-module-accent-admin { --module-accent: var(--mod-admin); }
-.home-module-accent-reports { --module-accent: var(--mod-reports); }
 .home-module-accent-forecasting { --module-accent: var(--mod-forecasting); }
 
 

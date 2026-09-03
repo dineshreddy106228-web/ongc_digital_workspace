@@ -576,9 +576,7 @@ a.mod-stat:hover {
 .module-theme-csc { --module-accent: var(--module-csc); --module-on-accent: var(--module-csc-on-accent); }
 .module-theme-inventory { --module-accent: var(--module-inventory); --module-on-accent: var(--module-inventory-on-accent); }
 .module-theme-qc { --module-accent: var(--module-qc); --module-on-accent: var(--module-qc-on-accent); }
-.module-theme-manpower { --module-accent: var(--module-manpower); --module-on-accent: var(--module-manpower-on-accent); }
 .module-theme-admin { --module-accent: var(--module-admin); --module-on-accent: var(--module-admin-on-accent); }
-.module-theme-reports { --module-accent: var(--module-reports); --module-on-accent: var(--module-reports-on-accent); }
 .module-theme-forecasting { --module-accent: var(--module-forecasting); --module-on-accent: var(--module-forecasting-on-accent); }
 
 /* Existing module-local variables now resolve to the Home tile hue as well. */
@@ -593,23 +591,6 @@ a.mod-stat:hover {
     --mod-hero-2: var(--module-tint);
     --mod-hero-3: color-mix(in srgb, var(--module-accent) 4%, var(--surface));
     --mod-on-accent: var(--module-on-accent);
-}
-
-.module-theme-manpower .mp-page {
-    --mp-accent: var(--module-accent);
-}
-
-.module-theme-manpower :is(
-    .mp-kpi-value, .mp-band-card-value, .mp-accordion-count,
-    .mp-location-count, .mp-location-total, .mp-inline-link
-) {
-    color: var(--module-accent-strong);
-}
-
-.module-theme-manpower :is(.mp-accordion-toggle, .mp-band-pill) {
-    border-color: var(--module-border);
-    background: var(--module-tint-strong);
-    color: var(--module-accent-strong);
 }
 
 /* Shared operational surfaces.  These selectors intentionally cover the

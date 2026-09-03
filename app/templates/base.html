@@ -10,12 +10,8 @@
     {% set module_theme = 'module-theme-csc' %}
 {% elif endpoint_name.startswith('quality_control.') %}
     {% set module_theme = 'module-theme-qc' %}
-{% elif endpoint_name.startswith('manpower.') %}
-    {% set module_theme = 'module-theme-manpower' %}
 {% elif endpoint_name.startswith('admin.') %}
     {% set module_theme = 'module-theme-admin' %}
-{% elif endpoint_name.startswith('reports.') %}
-    {% set module_theme = 'module-theme-reports' %}
 {% elif endpoint_name.startswith('forecasting.') %}
     {% set module_theme = 'module-theme-forecasting' %}
 {% endif %}

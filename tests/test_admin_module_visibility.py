@@ -1,8 +1,8 @@
 """User Management offers only the modules this deployment actually runs.
 
-Retired modules (Committee) and feature-off ones (Reports, Forecasting, Manpower
-Planning) are not offered for granting, but grants already stored against them
-survive an edit — hiding a module must not quietly revoke it.
+Retired modules (Committee, Manpower Planning, Reports) and feature-off ones
+(Forecasting) are not offered for granting, but grants already stored against
+them survive an edit — hiding a module must not quietly revoke it.
 """
 from __future__ import annotations
 
@@ -26,9 +26,7 @@ def admin_app(tmp_path):
         SQLALCHEMY_ENGINE_OPTIONS: dict = {}
         WTF_CSRF_ENABLED = False
         TESTING = True
-        # The three flags that are off in production today.
-        ENABLE_MANPOWER_PLANNING = False
-        ENABLE_REPORTS = False
+        # The one feature flag that is off in production today.
         ENABLE_FORECASTING = False
 
     app = create_app(_Config)
@@ -73,9 +71,10 @@ def test_feature_off_modules_are_not_offered_for_granting(admin_app):
     offered = _offered_module_codes()
 
     assert {"tasks", "inventory", "csc", "quality_control"} <= offered
-    assert not offered & {"manpower", "reports", "forecasting"}
-    # Committee was removed from the registry altogether, so it cannot be offered.
-    assert "committee" not in offered
+    assert not offered & {"forecasting"}
+    # Committee, Manpower Planning and Reports were removed from the registry
+    # altogether, so they cannot be offered.
+    assert not offered & {"committee", "manpower", "reports"}
 
 
 def test_the_module_admin_picker_offers_only_live_business_modules(admin_app):
