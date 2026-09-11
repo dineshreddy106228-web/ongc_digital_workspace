@@ -121,6 +121,42 @@ def test_catalogue_maps_one_record_onto_every_chemical_it_covers(monkeypatch):
     assert {entry["record_id"] for entry in entries} == {10}
 
 
+def test_specification_detail_uses_revised_record_name_for_main_heading(monkeypatch):
+    record = _record(
+        10,
+        "ONGC/WS/48/2015",
+        "INTERMEDIATE STRENGTH PROPPANT 20/40 @ 7500 PSI",
+        "100213268",
+        version=1,
+    )
+    entry = cs._entry(
+        ref="r-1",
+        chemical_name="Intermediate Strength Proppant (TYPE - I & II)",
+        specification_no="ONGC / WS / 48 / 2026",
+        material_code="100213268",
+        record=record,
+        on_register=True,
+    )
+    monkeypatch.setattr(cs, "catalogue", lambda: [entry])
+    monkeypatch.setattr(cs, "revision_child", lambda _record: None)
+    monkeypatch.setattr(cs, "merged_sections", lambda _record, _child=None: {})
+    monkeypatch.setattr(cs, "master_values", lambda _record, _child=None: {})
+    monkeypatch.setattr(cs, "parameter_rows", lambda _record: [])
+    monkeypatch.setattr(cs, "version_history", lambda _record: [])
+    monkeypatch.setattr(cs, "identity_rows", lambda _record, _values: [])
+    monkeypatch.setattr(cs, "identity_fields", lambda _record, _values: [])
+    monkeypatch.setattr(cs, "material_property_fields", lambda _record, _values: [])
+    monkeypatch.setattr(cs, "storage_fields", lambda _record, _values: [])
+    monkeypatch.setattr(cs, "impact_view", lambda _record: {})
+    monkeypatch.setattr(cs, "issue_flag_rows", lambda _record: [])
+
+    data = cs.specification_data("r-1")
+
+    assert data["display_chemical_name"] == record.chemical_name
+    # The catalogue identity remains unchanged for shared-specification mapping.
+    assert data["entry"]["chemical_name"] == "Intermediate Strength Proppant (TYPE - I & II)"
+
+
 def test_category_tiles_split_specified_from_awaiting_and_follow_the_register_order(monkeypatch):
     _stub_catalogue(
         monkeypatch,
@@ -338,6 +374,53 @@ def test_master_index_plan_uses_unique_position_bookmarks_and_group_page_breaks(
         ("group", 2), ("spec", 3), ("spec", 4), ("group", 5), ("spec", 6),
     ]
     assert groups[0]["bookmark"] != groups[1]["bookmark"]
+
+
+def test_master_export_selection_lists_each_parameterised_record_once(monkeypatch):
+    alpha = _record(10, "ONGC/WS/02/2026", "Revised Guar Gum Name", "1001", version=2)
+    beta = _record(11, "ONGC/PC/39/2026", "Xylol - Mixed Xylene", "1002", version=3)
+    entries = [
+        cs._entry(ref="r-1", chemical_name="Guar Gum Grade I", specification_no="ONGC / WS / 02 / 2026", material_code="1001", record=alpha, on_register=True, parameter_count=2),
+        cs._entry(ref="r-2", chemical_name="Guar Gum Grade II", specification_no="ONGC / WS / 02 / 2026", material_code="1001", record=alpha, on_register=True, parameter_count=2),
+        cs._entry(ref="r-3", chemical_name="Xylol (Industrial Xylene)", specification_no="ONGC / PC / 39 / 2026", material_code="1002", record=beta, on_register=True, parameter_count=1),
+        cs._entry(ref="r-4", chemical_name="Awaiting", specification_no="ONGC / PC / 40 / 2026", material_code="1003", record=None, on_register=True),
+    ]
+    monkeypatch.setattr(cs, "catalogue", lambda: entries)
+
+    groups = cs.master_export_selection()
+
+    assert [group["code"] for group in groups] == ["WS", "PC"]
+    assert sum(len(group["specifications"]) for group in groups) == 2
+    selected = [item for group in groups for item in group["specifications"]]
+    assert [item["ref"] for item in selected] == ["r-1", "r-3"]
+    assert selected[1]["chemical_name"] == "Xylol - Mixed Xylene"
+
+
+def test_master_export_bundles_can_be_limited_to_selected_references(monkeypatch):
+    class ExportRecord(SimpleNamespace):
+        def to_dict(self):
+            return {
+                "id": self.id,
+                "spec_number": self.spec_number,
+                "chemical_name": self.chemical_name,
+                "material_code": self.material_code,
+            }
+
+    alpha = ExportRecord(**vars(_record(10, "ONGC/DFC/01/2026", "Alpha", "1001", version=1)))
+    beta = ExportRecord(**vars(_record(11, "ONGC/PC/02/2026", "Beta", "1002", version=1)))
+    entries = [
+        cs._entry(ref="r-1", chemical_name="Alpha", specification_no=alpha.spec_number, material_code="1001", record=alpha, on_register=True, parameter_count=1),
+        cs._entry(ref="r-2", chemical_name="Beta", specification_no=beta.spec_number, material_code="1002", record=beta, on_register=True, parameter_count=1),
+    ]
+    monkeypatch.setattr(cs, "catalogue", lambda: entries)
+    monkeypatch.setattr(cs, "_sections", lambda _record: {})
+    monkeypatch.setattr(cs, "parameter_rows", lambda _record: [])
+    monkeypatch.setattr(cs, "issue_flag_rows", lambda _record: [])
+    monkeypatch.setattr(cs, "_impact_analysis_payload", lambda _record: None)
+
+    bundles = cs.export_bundles(refs=["r-2"])
+
+    assert [bundle["draft"]["chemical_name"] for bundle in bundles] == ["Beta"]
 
 
 def test_dossier_bundle_returns_one_docx_or_a_zip_of_dossiers(monkeypatch):

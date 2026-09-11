@@ -620,6 +620,13 @@ def specification_data(ref: str) -> dict[str, Any] | None:
     return {
         "entry": entry,
         "record": record,
+        # The register name identifies the catalogue row and can legitimately
+        # differ from the controlled name saved on the specification (including
+        # where several register chemicals share one specification).  On the
+        # detail page the specification record is authoritative.
+        "display_chemical_name": (
+            (record.chemical_name or "").strip() if record is not None else ""
+        ) or entry["chemical_name"],
         "parameters": parameter_rows(record) if record is not None else [],
         "test_procedure": sections.get(TEST_PROCEDURE_SECTION, "").strip(),
         "covered_materials": sections.get(MATERIAL_CODE_SECTION, "").strip(),
@@ -1517,15 +1524,21 @@ def _impact_analysis_payload(record: CSCDraft) -> dict[str, Any] | None:
     return analysis.to_dict() if analysis is not None else None
 
 
-def export_bundles(category: str | None = None) -> list[dict[str, Any]]:
+def export_bundles(
+    category: str | None = None,
+    refs: list[str] | tuple[str, ...] | set[str] | None = None,
+) -> list[dict[str, Any]]:
     """Specification payloads for the master Word document, one per specification record."""
     bundles: list[dict[str, Any]] = []
     seen: set[int] = set()
+    selected_refs = {str(ref).strip() for ref in refs or () if str(ref).strip()}
     for entry in catalogue():
         record = entry["record"]
         if record is None or record.id in seen or not entry["has_parameters"]:
             continue
         if category and entry["category"] != category:
+            continue
+        if selected_refs and entry["ref"] not in selected_refs:
             continue
         seen.add(record.id)
         payload = record.to_dict()
@@ -1563,6 +1576,37 @@ def export_bundles(category: str | None = None) -> list[dict[str, Any]]:
             }
         )
     return bundles
+
+
+def master_export_selection() -> list[dict[str, Any]]:
+    """Selectable specification records grouped for the Master Export screen."""
+    groups: dict[str, dict[str, Any]] = {}
+    seen: set[int] = set()
+    for entry in catalogue():
+        record = entry["record"]
+        if record is None or record.id in seen or not entry["has_parameters"]:
+            continue
+        seen.add(record.id)
+        group = groups.setdefault(
+            entry["category"],
+            {
+                "code": entry["category"],
+                "label": entry["category_label"],
+                "icon": CATEGORY_ICONS.get(entry["category"], "bi-clipboard-data"),
+                "specifications": [],
+            },
+        )
+        group["specifications"].append(
+            {
+                "ref": entry["ref"],
+                "chemical_name": (record.chemical_name or "").strip() or entry["chemical_name"],
+                "spec_number": (record.spec_number or "").strip() or entry["spec_number"],
+                "material_code": (record.material_code or "").strip() or entry["material_code"],
+                "version": entry["version"],
+            }
+        )
+    ordered = SPEC_SUBSET_ORDER + sorted(set(groups) - set(SPEC_SUBSET_ORDER))
+    return [groups[code] for code in ordered if code in groups]
 
 
 def export_categories() -> list[dict[str, Any]]:

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Master Data Export — Corporate Specifications — {{ app_name }}{% endblock %}
-{% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/corporate_specifications.css') }}">{% endblock %}
+{% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='css/corporate_specifications.css') }}"><script defer src="{{ url_for('static', filename='js/csc_master_export.js') }}"></script>{% endblock %}
 {% from "csc/_specs_nav.html" import specs_nav %}
 {% block content %}<div class="page-wrapper mod-page cs-page">
   {{ specs_nav('export') }}
@@ -32,9 +32,17 @@
       <div class="cs-section-heading cs-section-heading-flush">
         <div><span>Word</span><h2>Consolidated specification document</h2><p>{{ document_total }} specifications with parameters recorded, one ONGC Format A sheet each, ordered by sub-group and serial.</p></div>
       </div>
-      <form method="get" action="{{ url_for('csc.export_master_document') }}">
+      <form method="post" action="{{ url_for('csc.export_master_document') }}" data-master-export-form>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <fieldset class="cs-choice-set">
+          <legend>Specifications to include</legend>
+          <label class="cs-choice"><input type="radio" name="scope" value="category" checked data-export-scope>
+            <span><b>All or one sub-group</b><small>Use the sub-group menu below.</small></span></label>
+          <label class="cs-choice"><input type="radio" name="scope" value="selected" data-export-scope>
+            <span><b>Only selected specifications</b><small>Choose individual specifications from the grouped list.</small></span></label>
+        </fieldset>
         <div class="cs-field-grid">
-          <div class="cs-field cs-field-wide">
+          <div class="cs-field cs-field-wide" data-category-scope>
             <label for="category">Chemical sub-group</label>
             <select id="category" name="category">
               <option value="">All sub-groups ({{ document_total }} specifications)</option>
@@ -42,6 +50,14 @@
             </select>
             <small>Choosing one sub-group prints that sub-group's header page and its sheets only.</small>
           </div>
+        </div>
+
+        <div data-selected-scope hidden>
+          <div class="cs-dossier-tools"><label class="cs-field"><span>Find a specification</span><input type="search" data-export-search placeholder="Search chemical, specification or material code" aria-label="Search specifications"></label><div class="cs-dossier-actions"><button class="btn btn-secondary" type="button" data-export-expand>Expand all</button><button class="btn btn-secondary" type="button" data-export-collapse>Collapse all</button></div></div>
+          <p class="cs-choice-hint"><strong data-export-count>0</strong> <span data-export-count-label>specifications selected</span></p>
+          <section class="cs-dossier-groups" aria-label="Selectable specifications by chemical sub-group">{% for group in selection_groups %}{% set group_index = loop.index %}
+            <details class="cs-dossier-group" data-export-group><summary><span class="cs-dossier-group-icon"><i class="bi {{ group.icon }}"></i></span><span><b>{{ group.code }} · {{ group.label }}</b><small>{{ group.specifications|length }} specification{{ '' if group.specifications|length == 1 else 's' }}</small></span><i class="bi bi-chevron-down"></i></summary><div class="cs-dossier-group-body"><label class="cs-dossier-select-all"><input type="checkbox" data-export-select-all="{{ group_index }}"><span>Select all in this sub-group</span></label><div class="cs-dossier-items">{% for specification in group.specifications %}<label class="cs-dossier-item" data-export-item data-search="{{ specification.chemical_name|lower }} {{ specification.spec_number|lower }} {{ specification.material_code|lower }}"><input class="cs-dossier-check" type="checkbox" name="refs[]" value="{{ specification.ref }}" data-export-group-id="{{ group_index }}"><span><b>{{ specification.chemical_name }}</b><small>{{ specification.spec_number }}{% if specification.material_code %} · {{ specification.material_code }}{% endif %} · v{{ specification.version }}</small></span><i class="bi bi-file-earmark-word"></i></label>{% endfor %}</div></div></details>
+          {% endfor %}</section>
         </div>
 
         <fieldset class="cs-choice-set">

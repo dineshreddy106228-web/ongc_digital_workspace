@@ -214,13 +214,16 @@ def edit_specification(ref: str):
 @login_required
 @module_access_required("csc")
 def master_export():
-    from app.core.services.corporate_specifications import export_categories, landing_data
+    from app.core.services.corporate_specifications import (
+        export_categories, landing_data, master_export_selection,
+    )
 
     data = landing_data()
     categories = export_categories()
     return render_template(
         "csc/master_export.html",
         categories=categories,
+        selection_groups=master_export_selection(),
         chemical_total=data["chemical_total"],
         specification_total=data["specification_total"],
         document_total=sum(option["count"] for option in categories),
@@ -277,7 +280,7 @@ def export_specification_comparison_workbook():
     )
 
 
-@csc_bp.route("/master-export/specifications.docx")
+@csc_bp.route("/master-export/specifications.docx", methods=["GET", "POST"])
 @login_required
 @module_access_required("csc")
 def export_master_document():
@@ -290,10 +293,20 @@ def export_master_document():
     from app.core.services.corporate_specifications import export_bundles
     from app.core.services.csc_export import build_master_spec_document
 
-    selected = (request.args.get("category") or "").strip().upper()
-    include_type_labels = request.args.get("labels", "1") == "1"
+    values = request.form if request.method == "POST" else request.args
+    scope = (values.get("scope") or "category").strip().lower()
+    selected = (values.get("category") or "").strip().upper() if scope == "category" else ""
+    selected_refs = (
+        [ref.strip() for ref in request.form.getlist("refs[]") if ref.strip()]
+        if scope == "selected" and request.method == "POST"
+        else []
+    )
+    include_type_labels = values.get("labels", "1") == "1"
+    if scope == "selected" and not selected_refs:
+        flash("Select at least one specification for the Word document.", "warning")
+        return redirect(url_for("csc.master_export"))
     try:
-        bundles = export_bundles(selected or None)
+        bundles = export_bundles(selected or None, selected_refs or None)
         if not bundles:
             flash("No specifications with recorded parameters matched that category.", "warning")
             return redirect(url_for("csc.master_export"))
@@ -309,7 +322,7 @@ def export_master_document():
         flash("The master specification document could not be generated.", "danger")
         return redirect(url_for("csc.master_export"))
     filename = (
-        f"ONGC_Corporate_Specifications_{selected or 'ALL'}"
+        f"ONGC_Corporate_Specifications_{'SELECTED' if selected_refs else selected or 'ALL'}"
         f"{'' if include_type_labels else '_unlabelled'}"
         f"_{datetime.now().strftime('%Y%m%d_%H%M')}.docx"
     )

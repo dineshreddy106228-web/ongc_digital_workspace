@@ -15,7 +15,7 @@
   <div class="cs-title">
     <div>
       <span>{{ entry.category_label }}</span>
-      <h1>{{ entry.chemical_name }}</h1>
+      <h1>{{ display_chemical_name }}</h1>
       <p>{{ entry.spec_number }}{% if entry.material_code %} · Material code {{ entry.material_code }}{% endif %}{% if record %} · Version {{ entry.version }}{% endif %}</p>
     </div>
     <div class="cs-title-actions">
@@ -72,7 +72,7 @@
       <div class="cs-empty">
         <i class="bi bi-file-earmark-plus"></i>
         <strong>No parameters recorded yet</strong>
-        <p>{{ entry.chemical_name }} is on the corporate specification register as {{ entry.spec_number }}, but its parameters have not been entered into the system.{% if csc_is_module_admin %} Use the button above to enter them.{% else %} A module admin can enter them.{% endif %}</p>
+        <p>{{ display_chemical_name }} is on the corporate specification register as {{ entry.spec_number }}, but its parameters have not been entered into the system.{% if csc_is_module_admin %} Use the button above to enter them.{% else %} A module admin can enter them.{% endif %}</p>
       </div>
       {% endif %}
 
