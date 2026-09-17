@@ -104,6 +104,8 @@ def test_management_presentation_covers_every_register(monkeypatch, tmp_path):
     assert "Open PO / PR against high stock" in titles
     assert "Decisions sought from the review" in titles
     assert "Movement against the comparison period" in titles
+    assert "Inventory Management Review" in titles
+    assert "Thank You" in titles
     assert any("44 work centres reported stock in both" in title for title in titles)
 
 
@@ -196,6 +198,8 @@ def test_work_centre_presentation_covers_the_page_registers(monkeypatch, tmp_pat
     assert "Low stock" in titles and "Slow-moving stock" in titles and "Excess stock" in titles
     assert "Non-moving, aged, surplus and transit cases" in titles
     assert "Decisions sought for Ankleshwar DFS" in titles
+    assert "Inventory Work Centre Review" in titles
+    assert "Thank You" in titles
     assert not any("material group" in title.lower() for title in titles)
     assert any("4 materials were held at this centre on both" in title for title in titles)
 

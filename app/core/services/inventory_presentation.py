@@ -42,6 +42,10 @@ def _concise(value: Any, limit: int = 58) -> str:
 class _Deck:
     """Shared 16:9 chrome for the Inventory Monitoring decks, loaded only when an export is requested."""
 
+    GOLD = "D7A600"
+    TITLE_BLUE = "1F2A6B"
+    MODEL_RED = "B4151B"
+
     def __init__(self, static_folder: str, source_line: str) -> None:
         from pptx import Presentation
         from pptx.dml.color import RGBColor
@@ -55,6 +59,13 @@ class _Deck:
         self.source_line = source_line
         self.corporate_chemistry_logo = Path(static_folder) / "images" / "ongc-corporate-chemistry-logo.png"
         self.ongc_logo = Path(static_folder) / "images" / "ongc-official-logo.png"
+        self.cover_images = [
+            Path(static_folder) / "images" / "qc-presentation" / "onshore-well.png",
+            Path(static_folder) / "images" / "qc-presentation" / "seismic-section.jfif",
+            Path(static_folder) / "images" / "qc-presentation" / "subsurface-model.jfif",
+            Path(static_folder) / "images" / "qc-presentation" / "drilling-rig.jpeg",
+            Path(static_folder) / "images" / "qc-presentation" / "pumpjack.png",
+        ]
 
     def color(self, value: str) -> Any:
         return self._rgb.from_string(value)
@@ -75,34 +86,45 @@ class _Deck:
         shape.line.color.rgb = self.color(line or fill)
         return shape
 
+    def _gradient_rule(self, slide, y, *, x=0, width=13.333):
+        """Renderer-safe red-to-green model rule made from native shapes."""
+        stops = ((180, 21, 27), (241, 216, 194), (46, 111, 49))
+        segments = 96
+        segment_width = width / segments
+
+        def channel_mix(start, end, progress):
+            return round(start + (end - start) * progress)
+
+        for index in range(segments):
+            progress = index / (segments - 1)
+            if progress <= .5:
+                local, start, end = progress * 2, stops[0], stops[1]
+            else:
+                local, start, end = (progress - .5) * 2, stops[1], stops[2]
+            fill = "".join(
+                f"{channel_mix(start[channel], end[channel], local):02X}"
+                for channel in range(3)
+            )
+            self.rectangle(slide, x + index * segment_width, y, segment_width + .002, .065, fill)
+
     def background(self, slide):
         slide.background.fill.solid()
         slide.background.fill.fore_color.rgb = self.color("FFFFFF")
-        self.rectangle(slide, 0, 0, 13.333, .08, INK)
-        self.rectangle(slide, .42, 1.26, 12.45, .015, BORDER)
-        self.rectangle(slide, .42, 6.93, 12.45, .015, BORDER)
+        self.add_header_branding(slide)
+        self._gradient_rule(slide, .76)
 
     def add_header_branding(self, slide):
         """Keep the ONGC and Corporate Chemistry marks together in every header."""
         if self.ongc_logo.exists():
-            slide.shapes.add_picture(str(self.ongc_logo), self.inches(11.15), self.inches(.21), width=self.inches(.9), height=self.inches(.51))
+            slide.shapes.add_picture(str(self.ongc_logo), self.inches(.14), self.inches(.08), width=self.inches(1.28), height=self.inches(.72))
         if self.corporate_chemistry_logo.exists():
-            slide.shapes.add_picture(str(self.corporate_chemistry_logo), self.inches(12.24), self.inches(.16), width=self.inches(.55), height=self.inches(.55))
-
-    def add_cover_branding(self, slide):
-        self.rectangle(slide, 10.0, .46, 2.32, 1.2, "FFFFFF", BORDER)
-        if self.ongc_logo.exists():
-            slide.shapes.add_picture(str(self.ongc_logo), self.inches(10.16), self.inches(.68), width=self.inches(.9), height=self.inches(.51))
-        if self.corporate_chemistry_logo.exists():
-            slide.shapes.add_picture(str(self.corporate_chemistry_logo), self.inches(11.16), self.inches(.53), width=self.inches(1.05), height=self.inches(1.05))
+            slide.shapes.add_picture(str(self.corporate_chemistry_logo), self.inches(1.58), self.inches(.06), width=self.inches(.68), height=self.inches(.68))
 
     def header(self, slide, title):
         self.background(slide)
-        self.add_text(slide, KICKER, .42, .27, 8.6, .24, 11, TEAL, True)
-        self.add_text(slide, title, .42, .7, 11.35, .46, 26, INK, True)
-        self.add_header_branding(slide)
-        self.add_text(slide, self.source_line, .42, 7.08, 9.6, .16, 8, GREY)
-        self.add_text(slide, f"{len(self.prs.slides._sldIdLst):02d}", 12.5, 7.08, .25, .16, 8, GREY)
+        self.add_text(slide, title, .52, .95, 12.1, .48, 25, self.TITLE_BLUE, True)
+        self.add_text(slide, self.source_line, .52, 7.15, 10.9, .15, 8, GREY)
+        self.add_text(slide, f"{len(self.prs.slides._sldIdLst):02d}", 12.48, 7.15, .28, .15, 8, GREY)
 
     def new_slide(self, title):
         slide = self.prs.slides.add_slide(self.blank)
@@ -110,18 +132,51 @@ class _Deck:
         return slide
 
     def cover(self, kicker, title, period, subtitle):
+        from pptx.enum.text import PP_ALIGN
+
         slide = self.prs.slides.add_slide(self.blank)
-        self.background(slide)
         slide.background.fill.solid()
-        slide.background.fill.fore_color.rgb = self.color("E7F5F2")
-        self.rectangle(slide, 12.48, .08, .85, 6.85, "D2EBE6")
-        self.add_text(slide, kicker, .76, 1.28, 8.0, .28, 14, TEAL, True)
-        self.add_text(slide, title, .76, 1.82, 10.6, .8, 44, INK, True, wrap=True)
-        self.rectangle(slide, .76, 2.82, 1.15, .045, TEAL)
-        self.add_text(slide, period, .76, 3.14, 8.5, .36, 24, INK, True)
-        self.add_text(slide, subtitle, .76, 3.74, 10.4, .6, 16, GREY, wrap=True)
-        self.add_cover_branding(slide)
-        self.add_text(slide, "Office of Head Corporate Chemistry | Mumbai / Dehradun", .76, 6.45, 7.2, .2, 11, GREY)
+        slide.background.fill.fore_color.rgb = self.color(self.GOLD)
+
+        builder = slide.shapes.build_freeform(self.inches(0), self.inches(0))
+        builder.add_line_segments([
+            (self.inches(1.92), self.inches(0)),
+            (self.inches(0), self.inches(5.82)),
+        ], close=True)
+        wedge = builder.convert_to_shape()
+        wedge.fill.solid()
+        wedge.fill.fore_color.rgb = self.color("FFFFFF")
+        wedge.line.fill.background()
+
+        if self.ongc_logo.exists():
+            slide.shapes.add_picture(str(self.ongc_logo), self.inches(.06), self.inches(.06), width=self.inches(1.48), height=self.inches(.83))
+        if self.corporate_chemistry_logo.exists():
+            slide.shapes.add_picture(str(self.corporate_chemistry_logo), self.inches(.18), self.inches(1.03), width=self.inches(1.02), height=self.inches(1.02))
+
+        kicker_shape = self.add_text(slide, kicker, 3.0, 1.3, 8.4, .28, 13, "FFFFFF", True)
+        kicker_shape.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
+        title_shape = self.add_text(slide, title, 2.55, 1.82, 9.3, .65, 36, "FFFFFF", True)
+        title_shape.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
+        period_shape = self.add_text(slide, period, 3.15, 2.67, 8.1, .42, 19, "FFFFFF", True)
+        period_shape.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
+        self._gradient_rule(slide, 3.47, x=2.92, width=8.58)
+        subtitle_shape = self.add_text(slide, subtitle, 2.92, 3.75, 8.58, .82, 13, "FFFFFF", False, wrap=True)
+        subtitle_shape.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
+
+        existing_images = [path for path in self.cover_images if path.exists()]
+        if existing_images:
+            image_width = 13.333 / len(existing_images)
+            for index, image in enumerate(existing_images):
+                slide.shapes.add_picture(str(image), self.inches(index * image_width), self.inches(5.87), width=self.inches(image_width), height=self.inches(1.63))
+            self.rectangle(slide, 0, 5.72, 13.333, .09, self.MODEL_RED)
+        return slide
+
+    def closing(self):
+        from pptx.enum.text import PP_ALIGN
+
+        slide = self.new_slide("")
+        thanks = self.add_text(slide, "Thank You", 5.05, 3.18, 3.25, .65, 31, self.TITLE_BLUE, True)
+        thanks.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
         return slide
 
     def metric(self, slide, x, y, value, label, tone=INK, note=None):
@@ -183,11 +238,11 @@ class _Deck:
         ``sections`` names the specification category of each row; the category heading is
         written above its rows and repeated whenever a category continues on a new slide.
         """
-        offset = 1.45 if subtitle is None else 1.72
+        offset = 1.58 if subtitle is None else 1.92
         if not rows:
             slide = self.new_slide(title)
             if subtitle:
-                self.add_text(slide, subtitle, .42, 1.24, 12.2, .26, 12, GREY, wrap=True)
+                self.add_text(slide, subtitle, .52, 1.5, 12.0, .28, 11, GREY, wrap=True)
             self.table(slide, headers, [], widths, y=offset, font_size=font_size, empty_note=empty_note or "No lines fall in this register for the selected reporting date.")
             return
         if sections:
@@ -197,7 +252,7 @@ class _Deck:
             suffix = f" ({start + 1}–{end} of {len(rows)})" if len(rows) > rows_per_slide else ""
             slide = self.new_slide(f"{title}{suffix}")
             if subtitle:
-                self.add_text(slide, subtitle, .42, 1.24, 12.2, .26, 12, GREY, wrap=True)
+                self.add_text(slide, subtitle, .52, 1.5, 12.0, .28, 11, GREY, wrap=True)
             page = rows[start:end]
             if sections:
                 page, current = [], None
@@ -301,7 +356,7 @@ def build_management_review_presentation(static_folder: str, reporting_date: dat
         deck.add_text(slide, "This is the first published reporting period; movement analysis begins from the next published period.", .6, 6.2, 12.1, .3, 13, GREY, wrap=True)
 
     slide = deck.new_slide("Stock health by coverage band")
-    deck.add_text(slide, f"Thresholds in force: critical at or below {_months(thresholds['critical_low_stock_months'])} months, low at or below {_months(thresholds['low_stock_months'])} months, slow-moving from {_months(thresholds['slow_moving_months'])} months, excess from {_months(thresholds['excess_stock_months'])} months.", .42, 1.24, 12.2, .3, 12, GREY, wrap=True)
+    deck.add_text(slide, f"Thresholds in force: critical at or below {_months(thresholds['critical_low_stock_months'])} months, low at or below {_months(thresholds['low_stock_months'])} months, slow-moving from {_months(thresholds['slow_moving_months'])} months, excess from {_months(thresholds['excess_stock_months'])} months.", .52, 1.5, 12.0, .25, 11, GREY, wrap=True)
     deck.table(slide, ["Coverage band", "Stock lines", "Inventory value", "Share of value"], [
         [band["label"], f"{band['count']:,}", _crore(band["value"]), f"{band['share']}%"] for band in data["health_mix"]
     ], [4.35, 2.5, 3.1, 2.5], y=1.75, font_size=11, empty_note="No stock lines were classified for this reporting date.")
@@ -326,12 +381,12 @@ def build_management_review_presentation(static_folder: str, reporting_date: dat
     comparison = data.get("comparison")
     slide = deck.new_slide("Movement against the comparison period")
     if comparison:
-        deck.add_text(slide, f"Like-for-like movement over {comparison['gap_days']:,} days: {comparison['common_centres']:,} work centres reported stock in both {previous:%d %b %Y} and {selected:%d %b %Y}.", .42, 1.24, 12.2, .28, 12, GREY, wrap=True)
-        deck.add_text(slide, "Largest build-ups", .8, 1.8, 5.2, .3, 17, RED, True)
+        deck.add_text(slide, f"Like-for-like movement over {comparison['gap_days']:,} days: {comparison['common_centres']:,} work centres reported stock in both {previous:%d %b %Y} and {selected:%d %b %Y}.", .52, 1.5, 12.0, .25, 11, GREY, wrap=True)
+        deck.add_text(slide, "Largest build-ups", .8, 1.9, 5.2, .3, 17, RED, True)
         for index, mover in enumerate(data["movers"]["up"] or [{"name": "No work centre increased its holding.", "delta": None}]):
             deck.add_text(slide, mover["name"], .8, 2.25 + index * .45, 4.4, .28, 13, INK, wrap=True)
             deck.add_text(slide, _crore(mover["delta"]) if mover["delta"] is not None else "", 5.3, 2.25 + index * .45, 1.5, .28, 13, RED, True)
-        deck.add_text(slide, "Largest draw-downs", 7.1, 1.8, 5.2, .3, 17, TEAL, True)
+        deck.add_text(slide, "Largest draw-downs", 7.1, 1.9, 5.2, .3, 17, TEAL, True)
         for index, mover in enumerate(data["movers"]["down"] or [{"name": "No work centre reduced its holding.", "delta": None}]):
             deck.add_text(slide, mover["name"], 7.1, 2.25 + index * .45, 4.4, .28, 13, INK, wrap=True)
             deck.add_text(slide, _crore(-mover["delta"]) if mover["delta"] is not None else "", 11.6, 2.25 + index * .45, 1.5, .28, 13, TEAL, True)
@@ -401,6 +456,7 @@ def build_management_review_presentation(static_folder: str, reporting_date: dat
         deck.add_text(slide, f"{index + 1}", .8, 4.15 + index * .48, .25, .25, 15, TEAL, True)
         deck.add_text(slide, question, 1.2, 4.15 + index * .48, 11.4, .3, 13, INK, wrap=True)
 
+    deck.closing()
     return deck.save(f"{scope_stem} Inventory Management Review {selected:%d %b %Y}.pptx")
 
 
@@ -449,8 +505,9 @@ def build_work_centre_review_presentation(static_folder: str, work_center_id: in
         return rows, sections
 
     deck.cover(
-        f"WORK CENTRE REVIEW · {(centre.zone or 'Unassigned zone').upper()}", centre.name, f"Position as on {period_label}",
-        f"{_crore(kpis['total_value'])} of mapped chemicals — Groups 09 and 10 counted together — across {kpis['material_count']:,} materials · {unit_label} · {kpis['portfolio_share']}% of the all-ONGC monitored portfolio",
+        f"ONGC CORPORATE CHEMISTRY · {(centre.zone or 'Unassigned zone').upper()}",
+        "Inventory Work Centre Review", centre.name,
+        f"Position as on {period_label} · {_crore(kpis['total_value'])} of mapped chemicals — Groups 09 and 10 counted together — across {kpis['material_count']:,} materials · {unit_label} · {kpis['portfolio_share']}% of the all-ONGC monitored portfolio",
     )
 
     slide = deck.new_slide(f"{centre.name} | Position summary")
@@ -473,7 +530,7 @@ def build_work_centre_review_presentation(static_folder: str, work_center_id: in
     )
 
     slide = deck.new_slide("Stock health by coverage band")
-    deck.add_text(slide, f"Thresholds in force: critical at or below {_months(thresholds['critical_low_stock_months'])} months, low at or below {_months(thresholds['low_stock_months'])} months, slow-moving from {_months(thresholds['slow_moving_months'])} months, excess from {_months(thresholds['excess_stock_months'])} months.", .42, 1.24, 12.2, .3, 12, GREY, wrap=True)
+    deck.add_text(slide, f"Thresholds in force: critical at or below {_months(thresholds['critical_low_stock_months'])} months, low at or below {_months(thresholds['low_stock_months'])} months, slow-moving from {_months(thresholds['slow_moving_months'])} months, excess from {_months(thresholds['excess_stock_months'])} months.", .52, 1.5, 12.0, .25, 11, GREY, wrap=True)
     deck.table(slide, ["Coverage band", "Stock lines", "Inventory value", "Share of centre value", "Comparison period"], [
         [band["label"], f"{band['count']:,}", _crore(band["value"]), f"{band['share']}%",
          _crore(band["prev"]) if band["prev"] is not None else "—"]
@@ -482,12 +539,12 @@ def build_work_centre_review_presentation(static_folder: str, work_center_id: in
 
     slide = deck.new_slide("Movement against the comparison period")
     if comparison:
-        deck.add_text(slide, f"Like-for-like movement over {comparison['gap_days']:,} days: {comparison['common_materials']:,} materials were held at this centre on both {previous:%d %b %Y} and {selected:%d %b %Y}.", .42, 1.24, 12.2, .28, 12, GREY, wrap=True)
-        deck.add_text(slide, "Largest build-ups", .8, 1.8, 5.2, .3, 17, RED, True)
+        deck.add_text(slide, f"Like-for-like movement over {comparison['gap_days']:,} days: {comparison['common_materials']:,} materials were held at this centre on both {previous:%d %b %Y} and {selected:%d %b %Y}.", .52, 1.5, 12.0, .25, 11, GREY, wrap=True)
+        deck.add_text(slide, "Largest build-ups", .8, 1.9, 5.2, .3, 17, RED, True)
         for index, mover in enumerate(data["movers"]["up"] or [{"code": "", "description": "No material increased its holding.", "delta": None}]):
             deck.add_text(slide, f"{mover['code']} {_concise(mover['description'], 34)}".strip(), .8, 2.25 + index * .45, 4.4, .28, 12, INK, wrap=True)
             deck.add_text(slide, _crore(mover["delta"]) if mover["delta"] is not None else "", 5.3, 2.25 + index * .45, 1.5, .28, 12, RED, True)
-        deck.add_text(slide, "Largest draw-downs", 7.1, 1.8, 5.2, .3, 17, TEAL, True)
+        deck.add_text(slide, "Largest draw-downs", 7.1, 1.9, 5.2, .3, 17, TEAL, True)
         for index, mover in enumerate(data["movers"]["down"] or [{"code": "", "description": "No material reduced its holding.", "delta": None}]):
             deck.add_text(slide, f"{mover['code']} {_concise(mover['description'], 34)}".strip(), 7.1, 2.25 + index * .45, 4.4, .28, 12, INK, wrap=True)
             deck.add_text(slide, _crore(-mover["delta"]) if mover["delta"] is not None else "", 11.6, 2.25 + index * .45, 1.5, .28, 12, TEAL, True)
@@ -567,4 +624,5 @@ def build_work_centre_review_presentation(static_folder: str, work_center_id: in
         deck.add_text(slide, question, 1.2, 4.15 + index * .48, 11.4, .3, 13, INK, wrap=True)
 
     suffix = f" {data['selected_unit']}" if data["selected_unit"] else ""
+    deck.closing()
     return deck.save(f"{centre.name}{suffix} Inventory Review {selected:%d %b %Y}.pptx")
