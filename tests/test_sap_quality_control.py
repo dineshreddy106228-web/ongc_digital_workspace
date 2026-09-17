@@ -975,6 +975,52 @@ def test_sap_management_presentation_uses_the_current_snapshot(sap_app):
     assert single_lab_filename == "RGL Panvel Management Review 26 Aug 2026.pptx"
     assert single_lab_output.read(2) == b"PK"
 
+
+def test_sap_management_presentation_matches_weekly_review_model_and_lists_notification_dates(sap_app):
+    from pptx import Presentation
+    from app.core.services.qc_presentation import build_sap_portfolio_management_presentation
+    from app.core.services.sap_quality_control import import_sap_panvel_exports
+
+    import_sap_panvel_exports(
+        _inspection_export(), "SAP_INSPECTION_20260826.xlsx",
+        _notification_export(), "SAP_NOTIFICATIONS_20260826.xlsx", None,
+    )
+    db.session.commit()
+
+    output, _ = build_sap_portfolio_management_presentation(
+        sap_app.static_folder, {"rgl_panvel"},
+    )
+    presentation = Presentation(output)
+    slide_text = [
+        "\n".join(
+            shape.text_frame.text for shape in slide.shapes
+            if shape.has_text_frame and shape.text_frame.text.strip()
+        )
+        for slide in presentation.slides
+    ]
+    assert "Weekly QC Review" in slide_text[0]
+    assert "SAP position as on 26 August 2026" in slide_text[0]
+    assert "Thank You" in slide_text[-1]
+
+    action_tables = [
+        shape.table
+        for slide in presentation.slides
+        for shape in slide.shapes
+        if shape.has_table
+        and any(cell.text == "Notification date" for cell in shape.table.rows[0].cells)
+    ]
+    assert action_tables
+    assert all(
+        [cell.text for cell in table.rows[0].cells].index("Notification date") == 2
+        for table in action_tables
+    )
+    notification_dates = {
+        row.cells[2].text
+        for table in action_tables
+        for row in list(table.rows)[1:]
+    }
+    assert "01 Aug 2026" in notification_dates
+
 def test_management_deck_carries_the_non_sap_register(sap_app):
     """The laboratory deck is gone, so the management deck reports non-SAP work.
 

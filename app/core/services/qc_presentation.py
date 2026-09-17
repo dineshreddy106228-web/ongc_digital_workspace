@@ -108,6 +108,136 @@ class _DeckChrome:
         return slide
 
 
+class _WeeklyReviewChrome(_DeckChrome):
+    """QC review furniture matched to the supplied Weekly QC Review model."""
+
+    GOLD = "D7A600"
+    TITLE_BLUE = "1F2A6B"
+    MODEL_RED = "B4151B"
+    MODEL_GREEN = "2E6F31"
+
+    def __init__(self, prs, static_folder: str, source_line: str):
+        super().__init__(prs, static_folder, source_line)
+        self.cover_images = [
+            Path(static_folder) / "images" / "qc-presentation" / "onshore-well.png",
+            Path(static_folder) / "images" / "qc-presentation" / "seismic-section.jfif",
+            Path(static_folder) / "images" / "qc-presentation" / "subsurface-model.jfif",
+            Path(static_folder) / "images" / "qc-presentation" / "drilling-rig.jpeg",
+            Path(static_folder) / "images" / "qc-presentation" / "pumpjack.png",
+        ]
+
+    def _gradient_rule(self, slide, y, *, x=0, width=13.333):
+        """Add a renderer-safe red-to-green rule using native solid fills.
+
+        PowerPoint can discard hand-authored ``gradFill`` XML even when other
+        preview engines accept it.  Closely spaced native rectangles retain
+        the supplied model's visual gradient and display in desktop PowerPoint,
+        LibreOffice and browser previews alike.
+        """
+        stops = ((180, 21, 27), (241, 216, 194), (46, 111, 49))
+        segments = 96
+        segment_width = width / segments
+
+        def channel_mix(start, end, progress):
+            return round(start + (end - start) * progress)
+
+        for index in range(segments):
+            progress = index / (segments - 1)
+            if progress <= .5:
+                local = progress * 2
+                start, end = stops[0], stops[1]
+            else:
+                local = (progress - .5) * 2
+                start, end = stops[1], stops[2]
+            fill = "".join(
+                f"{channel_mix(start[channel], end[channel], local):02X}"
+                for channel in range(3)
+            )
+            self.rectangle(
+                slide, x + index * segment_width, y,
+                segment_width + .002, .065, fill,
+            )
+
+    def canvas_background(self, slide):
+        slide.background.fill.solid()
+        slide.background.fill.fore_color.rgb = self.color("FFFFFF")
+        if self.ongc_logo.exists():
+            slide.shapes.add_picture(
+                str(self.ongc_logo), self._Inches(.14), self._Inches(.08),
+                width=self._Inches(1.28), height=self._Inches(.72),
+            )
+        if self.corporate_chemistry_logo.exists():
+            slide.shapes.add_picture(
+                str(self.corporate_chemistry_logo), self._Inches(1.58), self._Inches(.06),
+                width=self._Inches(.68), height=self._Inches(.68),
+            )
+        self._gradient_rule(slide, .76)
+
+    def header(self, slide, title, page):
+        self.canvas_background(slide)
+        self.add_text(slide, title, .52, .95, 12.1, .48, 25, self.TITLE_BLUE, True)
+        self.add_text(slide, self.source_line, .52, 7.15, 10.9, .15, 8, self.GREY)
+        self.add_text(slide, f"{page:02d}", 12.48, 7.15, .28, .15, 8, self.GREY)
+
+    def cover(self, scope_label, as_of_label):
+        from pptx.enum.text import PP_ALIGN
+        from pptx.util import Inches
+
+        slide = self.prs.slides.add_slide(self.blank)
+        slide.background.fill.solid()
+        slide.background.fill.fore_color.rgb = self.color(self.GOLD)
+
+        # One clean triangular rail matches the model and avoids the stray gold
+        # triangle created when a rectangle and rotated triangle overlap.
+        builder = slide.shapes.build_freeform(Inches(0), Inches(0))
+        builder.add_line_segments([
+            (Inches(1.92), Inches(0)),
+            (Inches(0), Inches(5.82)),
+        ], close=True)
+        wedge = builder.convert_to_shape()
+        wedge.fill.solid()
+        wedge.fill.fore_color.rgb = self.color("FFFFFF")
+        wedge.line.fill.background()
+
+        if self.ongc_logo.exists():
+            slide.shapes.add_picture(
+                str(self.ongc_logo), Inches(.06), Inches(.06),
+                width=Inches(1.48), height=Inches(.83),
+            )
+        if self.corporate_chemistry_logo.exists():
+            slide.shapes.add_picture(
+                str(self.corporate_chemistry_logo), Inches(.18), Inches(1.03),
+                width=Inches(1.02), height=Inches(1.02),
+            )
+
+        title = self.add_text(slide, "Weekly QC Review", 3.65, 1.82, 6.7, .65, 38, "FFFFFF", True)
+        title.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
+        scope = self.add_text(slide, scope_label, 4.42, 2.62, 5.2, .4, 20, "FFFFFF", True)
+        scope.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
+        self._gradient_rule(slide, 3.7, x=2.92, width=8.58)
+        date_line = self.add_text(
+            slide, f"SAP position as on {as_of_label}",
+            2.92, 3.92, 8.58, .25, 11, "FFFFFF", True,
+        )
+        date_line.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
+
+        existing_images = [path for path in self.cover_images if path.exists()]
+        if existing_images:
+            image_width = 13.333 / len(existing_images)
+            for index, image in enumerate(existing_images):
+                slide.shapes.add_picture(
+                    str(image), Inches(index * image_width), Inches(5.87),
+                    width=Inches(image_width), height=Inches(1.63),
+                )
+            self.rectangle(slide, 0, 5.72, 13.333, .09, self.MODEL_RED)
+        return slide
+
+    def closing(self, page):
+        slide = self.new_slide("", page)
+        self.add_text(slide, "Thank You", 5.05, 3.18, 3.25, .65, 31, self.TITLE_BLUE, True)
+        return slide
+
+
 def _paginated_rows(rows, page_size: int):
     """Split an operational register without ever dropping the final rows."""
     if page_size < 1:
@@ -537,7 +667,7 @@ def build_sap_portfolio_management_presentation(
     prs.slide_width, prs.slide_height = Inches(13.333), Inches(7.5)
     scope_labs = data["scope_laboratories"]
     scope_label = "All SAP laboratories" if lab_codes is None else ", ".join(lab["name"] for lab in scope_labs)
-    chrome = _DeckChrome(
+    chrome = _WeeklyReviewChrome(
         prs, static_folder,
         f"Source: latest paired SAP Inspection Lots and Notifications exports · {data['source_as_of_label']}",
     )
@@ -578,19 +708,12 @@ def build_sap_portfolio_management_presentation(
                 paragraph.font.bold = True
                 paragraph.font.color.rgb = chrome.color("FFFFFF")
 
-    # 01 · Cover
-    slide = prs.slides.add_slide(chrome.blank)
-    chrome.canvas_background(slide)
-    slide.background.fill.solid()
-    slide.background.fill.fore_color.rgb = chrome.color("EAF4FF")
-    chrome.rectangle(slide, 12.48, .08, .85, 6.85, "D7EAFB")
-    chrome.add_text(slide, "QC LABORATORY MONITORING · SAP QM", .76, 1.28, 8.6, .28, 14, blue, True)
-    chrome.add_text(slide, "Management Review", .76, 1.82, 10.5, .7, 50, navy, True)
-    chrome.rectangle(slide, .76, 2.75, 1.15, .045, blue)
-    chrome.add_text(slide, data["source_as_of_label"], .76, 3.08, 8.6, .36, 24, navy, True)
-    chrome.add_wrapped_text(slide, f"Scope: {scope_label}. All figures and action registers are derived from the latest paired SAP exports; local workbook data is excluded.", .76, 3.68, 8.7, .7, 16, grey)
-    chrome.add_cover_branding(slide)
-    chrome.add_text(slide, "Office of Head Corporate Chemistry | Mumbai / Dehradun", .76, 6.45, 7.2, .2, 11, grey)
+    # 01 · Cover, following the supplied Weekly QC Review model.
+    cover_date = (
+        data["source_dates"][0].strftime("%d %B %Y")
+        if len(data["source_dates"]) == 1 else "latest paired SAP snapshots"
+    )
+    chrome.cover(scope_label, cover_date)
 
     # 02 · Position
     kpis = data["kpis"]
@@ -637,7 +760,11 @@ def build_sap_portfolio_management_presentation(
     page_index = 5
     if not action_groups:
         slide = chrome.new_slide("All actionable SAP-open items", page_index)
-        table(slide, ["Inspection lot", "Notification", "Material", "Specification", "Work center", "STT due", "Lab follow-up"], [], [1.35, 1.35, 2.25, 1.8, 1.65, 1.45, 2.6], y=1.48, font_size=8)
+        table(
+            slide,
+            ["Inspection lot", "Notification", "Notification date", "Material", "Specification", "Work center", "STT due", "Lab follow-up"],
+            [], [1.15, 1.15, 1.15, 1.85, 1.7, 1.4, 1.4, 2.65], y=1.55, font_size=8,
+        )
         page_index += 1
     for group in action_groups:
         total = len(group["entries"])
@@ -651,7 +778,7 @@ def build_sap_portfolio_management_presentation(
             chrome.add_text(
                 slide,
                 "Actionable SAP-open samples — grouped by laboratory and Corporate Specification sub-group.",
-                .45, 1.28, 10.6, .15, 8, grey,
+                .45, 1.39, 10.6, .1, 7, grey,
             )
             rows = []
             for item in entries:
@@ -669,11 +796,16 @@ def build_sap_portfolio_management_presentation(
                     follow_up += f" · ETA {update.expected_completion_date:%d %b}"
                 rows.append([
                     record.inspection_lot_number or "—", record.notification_no or "—",
+                    record.notification_start_date.strftime("%d %b %Y") if record.notification_start_date else "—",
                     concise(record.material_description, 31),
                     concise(item["specification_no"] or "Not in Corporate Specification", 28),
                     concise(record.work_center or "Not assigned", 24), stt_due, concise(follow_up, 34),
                 ])
-            table(slide, ["Inspection lot", "Notification", "Material", "Specification", "Work center", "STT due", "Lab follow-up"], rows, [1.35, 1.35, 2.25, 1.8, 1.65, 1.45, 2.6], y=1.48, font_size=8)
+            table(
+                slide,
+                ["Inspection lot", "Notification", "Notification date", "Material", "Specification", "Work center", "STT due", "Lab follow-up"],
+                rows, [1.15, 1.15, 1.15, 1.85, 1.7, 1.4, 1.4, 2.65], y=1.55, font_size=8,
+            )
 
     # Non-SAP register · declared samples with no SAP record, kept apart from
     # every count above.
@@ -734,6 +866,8 @@ def build_sap_portfolio_management_presentation(
     ] for item in data["trend"]]
     chrome.add_text(slide, "Change from the previous SAP snapshot", .8, 3.55, 5.6, .3, 18, navy, True)
     table(slide, ["Laboratory", "Current", "SAP-open", "Previous open", "Change"], movement_rows, [3.4, 2.0, 2.0, 2.35, 2.7], y=4.0, font_size=10)
+
+    chrome.closing(page_index + 1)
 
     output = BytesIO()
     prs.save(output)
