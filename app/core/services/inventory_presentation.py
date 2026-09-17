@@ -286,7 +286,13 @@ def _scope_labels(data: dict[str, Any], centre_ids: set[int] | None) -> tuple[st
     return heading, f"{len(names)} assets — {listed}", heading
 
 
-def build_management_review_presentation(static_folder: str, reporting_date: date | None = None, compare_date: date | None = None, centre_ids: set[int] | None = None) -> tuple[BytesIO, str]:
+def build_management_review_presentation(
+    static_folder: str,
+    reporting_date: date | None = None,
+    compare_date: date | None = None,
+    centre_ids: set[int] | None = None,
+    minimum_item_value_crore: Decimal = Decimal("1"),
+) -> tuple[BytesIO, str]:
     """Build the management-review deck for one published reporting date.
 
     ``centre_ids`` builds it for a chosen set of assets — a zone, a group of
@@ -302,10 +308,36 @@ def build_management_review_presentation(static_folder: str, reporting_date: dat
             if centre_ids is not None else
             "Publish Group 09 and Group 10 workbooks for a reporting date before downloading the presentation."
         )
+    minimum_item_value_crore = Decimal(str(minimum_item_value_crore))
+    if minimum_item_value_crore < 0:
+        raise ValueError("Minimum item value cannot be negative.")
+    minimum_item_value = minimum_item_value_crore * Decimal("10000000")
+    value_label = f"₹ {minimum_item_value_crore:,.2f} Cr"
     kpis, selected, previous, thresholds = data["kpis"], data["reporting_date"], data["previous_date"], data["thresholds"]
     period_label = selected.strftime("%d %B %Y")
     scope_heading, scope_note, scope_stem = _scope_labels(data, centre_ids)
-    deck = _Deck(static_folder, f"Source: Published Group 09 and Group 10 inventory snapshots as on {period_label} · Scope: {scope_note}")
+    deck = _Deck(static_folder, f"Source: Published Group 09 and Group 10 inventory snapshots as on {period_label} · Scope: {scope_note} · Item value above {value_label}")
+
+    def filtered_register(register):
+        rows = [
+            row for row in register.get("all_rows", register["rows"])
+            if (row.get("value") or Decimal("0")) > minimum_item_value
+        ]
+        return {
+            **register,
+            "rows": rows,
+            "count": len(rows),
+            "value": sum((row.get("value") or Decimal("0") for row in rows), Decimal("0")),
+            "omitted": 0,
+        }
+
+    presentation_materials = [
+        item for item in data.get("presentation_materials", data["high_value_materials"])
+        if (item.get("value") or Decimal("0")) > minimum_item_value
+    ]
+    presentation_material_total = sum((item["value"] for item in presentation_materials), Decimal("0"))
+    coverage_registers = [filtered_register(register) for register in data["coverage_registers"]]
+    supporting_registers = [filtered_register(register) for register in data["supporting_registers"]]
 
     def delta_note(current, prior, positive_is_bad=True):
         if prior is None:
@@ -332,7 +364,7 @@ def build_management_review_presentation(static_folder: str, reporting_date: dat
 
     deck.cover(
         f"INVENTORY MONITORING · GROUPS 09 AND 10 · {scope_heading.upper()}", "Inventory Management Review", f"Position as on {period_label}",
-        f"{_crore(kpis['total_value'])} of monitored chemicals — Groups 09 and 10 counted together — across {kpis['centre_count']:,} work centres and {kpis['material_count']:,} materials, {scope_note}",
+        f"{_crore(kpis['total_value'])} of monitored chemicals — Groups 09 and 10 counted together — across {kpis['centre_count']:,} work centres and {kpis['material_count']:,} materials, {scope_note}. Detailed items are above {value_label}",
     )
 
     slide = deck.new_slide("Executive summary")
@@ -343,7 +375,7 @@ def build_management_review_presentation(static_folder: str, reporting_date: dat
         (_crore(kpis["total_value"]), "Total monitored inventory", INK, total_note),
         (_crore(kpis["value_at_risk"]), "Working capital at risk", risk_tone if kpis["prev_value_at_risk"] is not None else AMBER, f"{kpis['at_risk_share']}% in slow-moving or excess bands"),
         (_crore(kpis["stockout_value"]), "Stock-out exposure", RED, f"{kpis['stockout_share']}% at or below low-stock coverage"),
-        (f"{len(data['high_value_materials']):,}", "Materials above ₹ 1 Cr", TEAL, f"{_crore(data['high_value_total'])} held in these materials"),
+        (f"{len(presentation_materials):,}", f"Materials above {value_label}", TEAL, f"{_crore(presentation_material_total)} held in these materials"),
         (f"{kpis['top5_share']}%", "Held by top five work centres", INK, f"{kpis['centre_count']:,} work centres reporting stock"),
         (f"{kpis['material_count']:,}", "Materials reporting stock", TEAL, f"Across {kpis['record_count']:,} stock lines in this period"),
     ]
@@ -408,23 +440,23 @@ def build_management_review_presentation(static_folder: str, reporting_date: dat
         deck.add_text(slide, "This is the first published reporting period. Movement analysis is available once a second period is published.", .8, 2.1, 11.2, .4, 17, GREY, wrap=True)
 
     deck.paginated_table(
-        "Materials above ₹ 1 Cr of inventory value",
+        f"Materials above {value_label} of inventory value",
         ["Material", "UoM", "Description", "Grp", "Inventory value", "Share", "Work centres", "Coverage range"],
         [[item["code"], item.get("uom") or "—", _concise(item["description"], 54), item["group"], _crore(item["value"]), f"{item['share']}%", f"{item['centres']:,}",
           "—" if item["months_low"] is None else f"{_months(item['months_low'])} – {_months(item['months_high'])} months"]
-         for item in data["high_value_materials"]],
+         for item in presentation_materials],
         [1.4, .55, 3.95, .6, 1.6, .9, 1.1, 2.35],
-        sections=[item["section"] for item in data["high_value_materials"]],
-        subtitle=f"All-ONGC holdings for every material whose total value crosses ₹ 1 Cr, in corporate specification order · {_crore(data['high_value_total'])} across {len(data['high_value_materials']):,} materials.",
-        empty_note="No single material crosses ₹ 1 Cr of inventory value at this reporting date.",
+        sections=[item["section"] for item in presentation_materials],
+        subtitle=f"Holdings for every material whose total value is above {value_label}, in corporate specification order · {_crore(presentation_material_total)} across {len(presentation_materials):,} materials.",
+        empty_note=f"No single material is above {value_label} of inventory value at this reporting date.",
     )
 
-    for register in data["coverage_registers"]:
+    for register in coverage_registers:
         deck.paginated_table(
             register["label"], REGISTER_HEADERS, register_rows(register), REGISTER_WIDTHS,
             subtitle=register_subtitle(register), sections=[row["section"] for row in register["rows"]],
         )
-    for register in data["supporting_registers"]:
+    for register in supporting_registers:
         deck.paginated_table(
             register["label"], SUPPORTING_HEADERS,
             [[row["code"], row.get("uom") or "—", _concise(row["description"], 48), row["group"] or "—", _concise(row["centre"], 32), _concise(row["zone"], 22), _crore(row["value"])] for row in register["rows"]],
@@ -435,10 +467,10 @@ def build_management_review_presentation(static_folder: str, reporting_date: dat
         )
 
     slide = deck.new_slide("Decisions sought from the review")
-    non_moving = next((item for item in data["supporting_registers"] if item["key"] == "non_moving"), {"count": 0, "value": Decimal("0")})
-    excess = next((item for item in data["coverage_registers"] if item["key"] == "excess_stock"), {"count": 0, "value": Decimal("0")})
-    critical = next((item for item in data["coverage_registers"] if item["key"] == "critical_low_stock"), {"count": 0, "value": Decimal("0")})
-    open_supply = next((item for item in data["coverage_registers"] if item["key"] == "open_supply_with_high_stock"), {"count": 0, "value": Decimal("0")})
+    non_moving = next((item for item in supporting_registers if item["key"] == "non_moving"), {"count": 0, "value": Decimal("0")})
+    excess = next((item for item in coverage_registers if item["key"] == "excess_stock"), {"count": 0, "value": Decimal("0")})
+    critical = next((item for item in coverage_registers if item["key"] == "critical_low_stock"), {"count": 0, "value": Decimal("0")})
+    open_supply = next((item for item in coverage_registers if item["key"] == "open_supply_with_high_stock"), {"count": 0, "value": Decimal("0")})
     for index, item in enumerate([
         (_crore(excess["value"]), "Excess stock to be redeployed", PURPLE, f"{excess['count']:,} stock lines at or above the excess threshold"),
         (_crore(non_moving["value"]), "Non-moving stock for disposal review", AMBER, f"{non_moving['count']:,} material lines in the source register"),
@@ -468,7 +500,13 @@ CENTRE_BAND_SLIDES = (
 )
 
 
-def build_work_centre_review_presentation(static_folder: str, work_center_id: int, unit: str | None = None, compare_date: date | None = None) -> tuple[BytesIO, str]:
+def build_work_centre_review_presentation(
+    static_folder: str,
+    work_center_id: int,
+    unit: str | None = None,
+    compare_date: date | None = None,
+    minimum_item_value_crore: Decimal = Decimal("1"),
+) -> tuple[BytesIO, str]:
     """Build the review deck for a single work centre, on the same registers the page shows."""
     from app.core.services.inventory_monitoring import work_center_review_data
 
@@ -477,9 +515,14 @@ def build_work_centre_review_presentation(static_folder: str, work_center_id: in
     selected, previous, comparison = data["reporting_date"], data["previous_date"], data["comparison"]
     if selected is None or not kpis["line_count"]:
         raise ValueError("This work centre has no mapped stock lines yet, so there is nothing to present.")
+    minimum_item_value_crore = Decimal(str(minimum_item_value_crore))
+    if minimum_item_value_crore < 0:
+        raise ValueError("Minimum item value cannot be negative.")
+    minimum_item_value = minimum_item_value_crore * Decimal("10000000")
+    value_label = f"₹ {minimum_item_value_crore:,.2f} Cr"
     unit_label = data["selected_unit"] or "Combined asset status"
     period_label = selected.strftime("%d %B %Y")
-    deck = _Deck(static_folder, f"Source: {centre.name} · {unit_label} · mapped Group 09 and Group 10 stock as on {period_label}")
+    deck = _Deck(static_folder, f"Source: {centre.name} · {unit_label} · mapped Group 09 and Group 10 stock as on {period_label} · Item value above {value_label}")
 
     quantities: dict[str, tuple[Any, str | None]] = {}
     for rows in data["groups"].values():
@@ -495,6 +538,8 @@ def build_work_centre_review_presentation(static_folder: str, work_center_id: in
         rows, sections = [], []
         for group in data["spec_groups"][key]:
             for record in group["rows"]:
+                if (record.inventory_value_inr or Decimal("0")) <= minimum_item_value:
+                    continue
                 rows.append([
                     record.material_code,
                     (record.material.uom if record.material and record.material.uom else record.uom) or "—",
@@ -507,7 +552,7 @@ def build_work_centre_review_presentation(static_folder: str, work_center_id: in
     deck.cover(
         f"ONGC CORPORATE CHEMISTRY · {(centre.zone or 'Unassigned zone').upper()}",
         "Inventory Work Centre Review", centre.name,
-        f"Position as on {period_label} · {_crore(kpis['total_value'])} of mapped chemicals — Groups 09 and 10 counted together — across {kpis['material_count']:,} materials · {unit_label} · {kpis['portfolio_share']}% of the all-ONGC monitored portfolio",
+        f"Position as on {period_label} · {_crore(kpis['total_value'])} of mapped chemicals — Groups 09 and 10 counted together — across {kpis['material_count']:,} materials · {unit_label}. Detailed items are above {value_label}",
     )
 
     slide = deck.new_slide(f"{centre.name} | Position summary")
@@ -569,24 +614,26 @@ def build_work_centre_review_presentation(static_folder: str, work_center_id: in
         "Materials held", ["Material", "UoM", "Description", "Grp", "Stock qty", "Inventory value", "Share of centre"],
         [[item["code"], quantities.get(item["code"], (None, None))[1] or "—", _concise(item["description"], 54), item["group"],
           _quantity(quantities.get(item["code"], (None, None))[0], None), _crore(item["value"]), f"{item['share']}%"]
-         for item in data["top_materials"]],
+         for item in data["top_materials"] if (item.get("value") or Decimal("0")) > minimum_item_value],
         [1.5, .55, 4.05, .6, 1.85, 1.95, 1.95],
-        sections=[item["section"] for item in data["top_materials"]],
-        subtitle=f"Every mapped material held at {centre.name}, in corporate specification order.",
-        empty_note="No mapped material is held at this work centre.",
+        sections=[item["section"] for item in data["top_materials"] if (item.get("value") or Decimal("0")) > minimum_item_value],
+        subtitle=f"Mapped materials at {centre.name} with inventory value above {value_label}, in corporate specification order.",
+        empty_note=f"No mapped material at this work centre is above {value_label}.",
     )
 
     for key, label, description in CENTRE_BAND_SLIDES:
         rows, sections = band_rows(key)
         deck.paginated_table(
             label, CENTRE_REGISTER_HEADERS, rows, CENTRE_REGISTER_WIDTHS, sections=sections,
-            subtitle=f"{description}  ·  {len(rows):,} materials  ·  {_crore(sum((record.inventory_value_inr or Decimal('0') for record in data['groups'][key]), Decimal('0')))}",
-            empty_note=f"No material at {centre.name} falls in the {label.lower()} band.",
+            subtitle=f"{description}  ·  {len(rows):,} materials above {value_label}  ·  {_crore(sum((record.inventory_value_inr or Decimal('0') for record in data['groups'][key] if (record.inventory_value_inr or Decimal('0')) > minimum_item_value), Decimal('0')))}",
+            empty_note=f"No material at {centre.name} in the {label.lower()} band is above {value_label}.",
         )
 
     source_rows, source_sections = [], []
     for group in data["source_spec_groups"]:
         for item in group["rows"]:
+            if (item.inventory_value_inr or Decimal("0")) <= minimum_item_value:
+                continue
             source_rows.append([
                 item.exception_type.replace("_", " ").title(),
                 item.material.material_code if item.material else "—",
@@ -600,12 +647,14 @@ def build_work_centre_review_presentation(static_folder: str, work_center_id: in
         ["Condition", "Material", "UoM", "Chemical / material name", "Source evidence"],
         source_rows, [2.2, 1.5, .55, 3.8, 4.4], sections=source_sections,
         subtitle="Reported directly by the source inventory workbook for this work centre, not inferred from stock months.",
-        empty_note=f"The source workbook reports no non-moving, aged, surplus or transit case at {centre.name}.",
+        empty_note=f"The source workbook reports no non-moving, aged, surplus or transit case above {value_label} at {centre.name}.",
     )
 
     slide = deck.new_slide(f"Decisions sought for {centre.name}")
-    critical, excess = data["groups"]["critical_low_stock"], data["groups"]["excess_stock"]
-    non_moving = next((item for item in data["source_summary"] if item["key"] == "non_moving"), {"count": 0, "value": Decimal("0")})
+    critical = [record for record in data["groups"]["critical_low_stock"] if (record.inventory_value_inr or Decimal("0")) > minimum_item_value]
+    excess = [record for record in data["groups"]["excess_stock"] if (record.inventory_value_inr or Decimal("0")) > minimum_item_value]
+    filtered_non_moving = [item for item in data["source_findings"] if item.exception_type == "non_moving" and (item.inventory_value_inr or Decimal("0")) > minimum_item_value]
+    non_moving = {"count": len(filtered_non_moving), "value": sum((item.inventory_value_inr or Decimal("0") for item in filtered_non_moving), Decimal("0"))}
     for index, item in enumerate([
         (_crore(sum((record.inventory_value_inr or Decimal("0") for record in excess), Decimal("0"))), "Excess stock to be redeployed", PURPLE, f"{len(excess):,} materials at or above the excess threshold"),
         (_crore(non_moving["value"]), "Non-moving stock for disposal review", AMBER, f"{non_moving['count']:,} materials in the source register"),

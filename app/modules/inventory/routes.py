@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import date
+from decimal import Decimal, InvalidOperation
 
 from flask import abort, current_app, flash, redirect, render_template, request, send_file, session, url_for
 from flask_login import current_user, login_required
@@ -22,6 +23,19 @@ def _reporting_date(value: str | None) -> date | None:
         return date.fromisoformat(value)
     except ValueError:
         raise ValueError("Reporting date must be in YYYY-MM-DD format.")
+
+
+def _minimum_item_value_crore(value: str | None) -> Decimal:
+    """Validate the user-selected presentation detail cutoff in crore."""
+    if value is None or not value.strip():
+        raise ValueError("Enter the minimum item value in ₹ Cr before downloading the presentation.")
+    try:
+        amount = Decimal(value.strip())
+    except InvalidOperation as exc:
+        raise ValueError("Minimum item value must be a valid number in ₹ Cr.") from exc
+    if not amount.is_finite() or amount < 0:
+        raise ValueError("Minimum item value must be zero or more.")
+    return amount
 
 
 @inventory_bp.route("/")
@@ -78,8 +92,10 @@ def download_management_presentation():
     try:
         selected = _reporting_date(request.args.get("reporting_date"))
         compare = _reporting_date(request.args.get("compare_date"))
+        minimum_item_value_crore = _minimum_item_value_crore(request.args.get("minimum_item_value_crore"))
     except ValueError:
-        flash("The requested reporting date was not recognised; the latest published period is used.", "warning")
+        flash("Enter a valid reporting date and minimum item value in ₹ Cr.", "warning")
+        return redirect(url_for("inventory.portfolio", reporting_date=selected.isoformat() if selected else None, compare_date=compare.isoformat() if compare else None))
     centre_ids = None
     if request.args.get("scope") == "assets":
         centre_ids = {int(value) for value in request.args.getlist("centre") if value.isdigit()}
@@ -87,7 +103,9 @@ def download_management_presentation():
             flash("Select at least one asset, or choose the all-ONGC deck.", "warning")
             return redirect(url_for("inventory.portfolio", reporting_date=selected.isoformat() if selected else None, compare_date=compare.isoformat() if compare else None))
     try:
-        output, filename = build_management_review_presentation(current_app.static_folder, selected, compare, centre_ids)
+        output, filename = build_management_review_presentation(
+            current_app.static_folder, selected, compare, centre_ids, minimum_item_value_crore,
+        )
     except ValueError as exc:
         flash(str(exc), "warning")
     except Exception:
@@ -215,12 +233,17 @@ def work_centre(work_center_id: int):
 def download_work_centre_presentation(work_center_id: int):
     from app.core.services.inventory_presentation import build_work_centre_review_presentation
     unit = request.args.get("unit")
+    compare = None
     try:
         compare = _reporting_date(request.args.get("compare_date"))
-    except ValueError:
-        compare = None
+        minimum_item_value_crore = _minimum_item_value_crore(request.args.get("minimum_item_value_crore"))
+    except ValueError as exc:
+        flash(str(exc), "warning")
+        return redirect(url_for("inventory.work_centre", work_center_id=work_center_id, unit=unit, compare_date=compare.isoformat() if compare else None))
     try:
-        output, filename = build_work_centre_review_presentation(current_app.static_folder, work_center_id, unit, compare)
+        output, filename = build_work_centre_review_presentation(
+            current_app.static_folder, work_center_id, unit, compare, minimum_item_value_crore,
+        )
     except ValueError as exc:
         flash(str(exc), "warning")
     except Exception:

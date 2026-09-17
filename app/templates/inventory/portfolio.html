@@ -284,6 +284,7 @@
       set_label='A set of assets', set_hint='Pick a zone or individual assets below. Ticking any asset selects this option.',
       set_value='assets',
       summary='All ONGC — ' ~ kpis.centre_count ~ ' work centres.',
+      minimum_value_crore='1.00',
       hidden={'reporting_date': reporting_date.isoformat() if reporting_date else '', 'compare_date': previous_date.isoformat() if previous_date else ''}) %}
     {% for zone in scope_directory %}
     <details class="mod-scope-group">

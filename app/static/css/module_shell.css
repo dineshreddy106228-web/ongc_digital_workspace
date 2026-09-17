@@ -1727,6 +1727,22 @@ body.mod-modal-open { overflow: hidden; }
 
 .mod-scope-choice small { display: block; margin-top: 2px; color: var(--muted); font-size: .78rem; }
 
+.mod-deck-value {
+    display: grid;
+    gap: 7px;
+    margin: 0 0 16px;
+    padding: 14px 16px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--mod-accent) 5%, var(--surface));
+    font-size: .88rem;
+    font-weight: 700;
+}
+
+.mod-deck-value-input { display: grid; grid-template-columns: auto minmax(120px, 220px) auto; gap: 8px; align-items: center; }
+.mod-deck-value-input b { color: var(--muted); }
+.mod-deck-value small { color: var(--muted); font-size: .76rem; font-weight: 400; }
+
 .mod-scope-list { display: grid; gap: 8px; }
 
 /* A group is a zone of assets, or any other heading a module drills down by. */

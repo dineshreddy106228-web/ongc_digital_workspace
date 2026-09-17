@@ -1459,11 +1459,16 @@ def _management_register(key: str, label: str, description: str, lines: list[dic
     """
     groups = specification_groups(lines, index, code_of=lambda row: row.get("code", ""), limit=MANAGEMENT_REGISTER_GROUP_LIMIT)
     rows = [{**row, "section": group["label"]} for group in groups for row in group["rows"]]
+    all_rows = [
+        {**row, "section": group["label"]}
+        for group in specification_groups(lines, index, code_of=lambda row: row.get("code", ""))
+        for row in group["rows"]
+    ]
     return {
         "key": key, "label": label, "description": description,
         "count": sum(group["total"] for group in groups),
         "value": sum((item["value"] or Decimal("0") for item in lines), Decimal("0")),
-        "rows": rows, "groups": groups,
+        "rows": rows, "all_rows": all_rows, "groups": groups,
         "omitted": sum(group["omitted"] for group in groups),
     }
 
@@ -1479,7 +1484,7 @@ def management_review_data(reporting_date: date | None = None, compare_date: dat
     payload: dict[str, Any] = {
         **base, "thresholds": thresholds, "high_value_floor": HIGH_VALUE_MATERIAL_FLOOR,
         "row_limit": MANAGEMENT_REGISTER_ROW_LIMIT, "group_limit": MANAGEMENT_REGISTER_GROUP_LIMIT,
-        "high_value_materials": [], "high_value_total": Decimal("0"),
+        "presentation_materials": [], "high_value_materials": [], "high_value_total": Decimal("0"),
         "centres_ranked": [], "coverage_registers": [], "supporting_registers": [],
     }
     selected = base["reporting_date"]
@@ -1526,6 +1531,11 @@ def management_review_data(reporting_date: date | None = None, compare_date: dat
             material["months_low"] = months if material["months_low"] is None else min(material["months_low"], months)
             material["months_high"] = months if material["months_high"] is None else max(material["months_high"], months)
 
+    payload["presentation_materials"] = [
+        {**item, "centres": len(material_centres[item["code"]]), "share": _share(item["value"], total), "section": group["label"]}
+        for group in specification_groups(materials.values(), code_of=lambda row: row["code"])
+        for item in group["rows"]
+    ]
     high_value = [item for item in materials.values() if item["value"] >= HIGH_VALUE_MATERIAL_FLOOR]
     payload["high_value_materials"] = [
         {**item, "centres": len(material_centres[item["code"]]), "share": _share(item["value"], total), "section": group["label"]}

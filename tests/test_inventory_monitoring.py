@@ -23,6 +23,20 @@ def test_decimal_parser_handles_empty_and_formatted_numbers():
     assert _decimal("") is None
 
 
+def test_presentation_item_value_cutoff_validation():
+    import pytest
+
+    from app.modules.inventory.routes import _minimum_item_value_crore
+
+    assert _minimum_item_value_crore("1.25") == Decimal("1.25")
+    with pytest.raises(ValueError):
+        _minimum_item_value_crore("")
+    with pytest.raises(ValueError):
+        _minimum_item_value_crore("-1")
+    with pytest.raises(ValueError):
+        _minimum_item_value_crore("not-a-number")
+
+
 def _register(key, label, count, months, value_crore):  # noqa: D401
     rows = [
         {
@@ -40,6 +54,19 @@ def _register(key, label, count, months, value_crore):  # noqa: D401
         "value": sum((row["value"] for row in rows), Decimal("0")), "rows": rows, "omitted": 0,
         "groups": [{"key": "DFC", "label": "Drilling Fluid Chemicals", "rows": rows, "total": count, "omitted": 0}],
     }
+
+
+def _presentation_text(output):
+    from pptx import Presentation
+
+    values = []
+    for slide in Presentation(output).slides:
+        for shape in slide.shapes:
+            if shape.has_text_frame and shape.text_frame.text:
+                values.append(shape.text_frame.text)
+            if shape.has_table:
+                values.extend(cell.text for row in shape.table.rows for cell in row.cells if cell.text)
+    return "\n".join(values)
 
 
 def _management_review_stub():
@@ -87,7 +114,7 @@ def test_management_presentation_covers_every_register(monkeypatch, tmp_path):
     from app.core.services.inventory_presentation import build_management_review_presentation
 
     monkeypatch.setattr(monitoring, "management_review_data", lambda reporting_date=None, compare_date=None, centre_ids=None: _management_review_stub())
-    output, filename = build_management_review_presentation(str(tmp_path))
+    output, filename = build_management_review_presentation(str(tmp_path), minimum_item_value_crore=Decimal("0.5"))
 
     assert filename == "ONGC Inventory Management Review 31 Jul 2026.pptx"
     titles = [
@@ -96,7 +123,7 @@ def test_management_presentation_covers_every_register(monkeypatch, tmp_path):
         for shape in slide.shapes
         if shape.has_text_frame and shape.text_frame.text
     ]
-    assert "Materials above ₹ 1 Cr of inventory value" in titles
+    assert "Materials above ₹ 0.50 Cr of inventory value" in titles
     assert "Not in Corporate Specification List" not in titles  # the stub has no unspecified material
     assert "Non-moving materials (1–13 of 33)" in titles
     assert "Critical low stock (1–13 of 18)" in titles
@@ -107,6 +134,19 @@ def test_management_presentation_covers_every_register(monkeypatch, tmp_path):
     assert "Inventory Management Review" in titles
     assert "Thank You" in titles
     assert any("44 work centres reported stock in both" in title for title in titles)
+    assert any("Item value above ₹ 0.50 Cr" in title for title in titles)
+
+
+def test_management_presentation_excludes_items_at_or_below_cutoff(monkeypatch, tmp_path):
+    import app.core.services.inventory_monitoring as monitoring
+    from app.core.services.inventory_presentation import build_management_review_presentation
+
+    monkeypatch.setattr(monitoring, "management_review_data", lambda reporting_date=None, compare_date=None, centre_ids=None: _management_review_stub())
+    output, _filename = build_management_review_presentation(str(tmp_path), minimum_item_value_crore=Decimal("3"))
+    text = _presentation_text(output)
+    assert "No single material is above ₹ 3.00 Cr" not in text  # the aggregated ₹60 Cr material remains
+    assert "BARYTES API GRADE SPECIFICATION" not in text
+    assert "No lines fall in this register" in text
 
 
 def test_management_presentation_requires_a_published_period(monkeypatch, tmp_path):
@@ -215,3 +255,17 @@ def test_work_centre_presentation_requires_stock(monkeypatch, tmp_path):
     monkeypatch.setattr(monitoring, "work_center_review_data", lambda work_center_id, unit=None, compare_date=None: empty)
     with pytest.raises(ValueError):
         build_work_centre_review_presentation(str(tmp_path), 1)
+
+
+def test_work_centre_presentation_filters_items_above_cutoff(monkeypatch, tmp_path):
+    import app.core.services.inventory_monitoring as monitoring
+    from app.core.services.inventory_presentation import build_work_centre_review_presentation
+
+    monkeypatch.setattr(monitoring, "work_center_review_data", lambda work_center_id, unit=None, compare_date=None: _work_centre_stub())
+    output, _filename = build_work_centre_review_presentation(
+        str(tmp_path), 1, minimum_item_value_crore=Decimal("3"),
+    )
+    text = _presentation_text(output)
+    assert "100002000" in text  # ₹4 Cr aggregated material remains
+    assert "100000000" not in text  # ₹2.2 Cr critical record is excluded
+    assert "Imported from Non Moving Inventory" not in text  # ₹0.97 Cr source finding is excluded
