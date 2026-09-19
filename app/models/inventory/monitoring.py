@@ -140,6 +140,48 @@ class InventoryMonitoringWorkCenterMaterial(db.Model):
     mapping_batch = db.relationship("InventoryMonitoringUploadBatch")
 
 
+class InventoryMonitoringWorkCenterUnitMaterial(db.Model):
+    """A material's DFS/ST assignment from the work-centre directory.
+
+    One asset can contain more than one operating unit.  Rajahmundry, for
+    example, has both DFS and ST lists, so this relationship deliberately keeps
+    the unit on each material instead of forcing one type onto the asset row.
+    It is separate from ``InventoryMonitoringWorkCenterMaterial``: that table
+    records what an inventory workbook says is held, while this table records
+    which unit owns the material.
+    """
+
+    __tablename__ = "inventory_monitoring_work_center_unit_materials"
+    __table_args__ = (
+        db.UniqueConstraint(
+            "work_center_id", "unit_type", "material_code", "mapping_batch_id",
+            name="uq_inventory_monitoring_unit_material_version",
+        ),
+        db.Index(
+            "ix_inventory_monitoring_unit_material_current",
+            "work_center_id", "is_current", "unit_type",
+        ),
+    )
+
+    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    work_center_id = db.Column(
+        db.BigInteger,
+        db.ForeignKey("inventory_monitoring_work_centers.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    unit_type = db.Column(db.String(80), nullable=False)
+    material_code = db.Column(db.String(64), nullable=False)
+    mapping_batch_id = db.Column(
+        db.BigInteger,
+        db.ForeignKey("inventory_monitoring_upload_batches.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    is_current = db.Column(db.Boolean, nullable=False, default=True)
+
+    work_center = db.relationship("InventoryMonitoringWorkCenter")
+    mapping_batch = db.relationship("InventoryMonitoringUploadBatch")
+
+
 class InventoryMonitoringRecord(db.Model):
     __tablename__ = "inventory_monitoring_records"
     __table_args__ = (

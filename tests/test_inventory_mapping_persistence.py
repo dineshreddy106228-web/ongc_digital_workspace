@@ -28,6 +28,20 @@ def _mapping_workbook(work_centre: str, codes: list[str]) -> bytes:
     return buffer.getvalue()
 
 
+def _multi_unit_mapping_workbook(work_centre: str) -> bytes:
+    frame = pd.DataFrame(
+        [
+            ["", "Southern", work_centre, "DFS", "090001043", "100101003"],
+            ["", "Southern", work_centre, "ST", "100000763", None],
+        ],
+        columns=["Sl", "Zone", "Work centre", "Type", "Material 1", "Material 2"],
+    )
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        frame.to_excel(writer, index=False)
+    return buffer.getvalue()
+
+
 def _inventory_workbook(rows: list[list], sheet: str = "09 Oil well cement - Inventory") -> bytes:
     frame = pd.DataFrame(rows, columns=["Material Code", "Material Description", "Work Centre", "Stock Qty", "UOM", "Inventory Value INR", "Stock Months"])
     buffer = BytesIO()
@@ -83,10 +97,50 @@ def test_every_imported_stock_line_maps_its_work_centre(inventory_app):
         InventoryMonitoringException.exception_type.in_(("held_not_mapped", "mapped_not_held", "unknown_mapping"))
     ).count() == 0
 
-    # A later mapping workbook is the work-centre directory only; it cannot unmap held stock.
+    # A later mapping workbook updates unit classification only; it cannot unmap held stock.
     import_workbook(_mapping_workbook("Ankleshwar DFS", ["090001043"]), "map_v2.xlsx", "mapping", None, 1)
     db.session.commit()
     assert _current_mapping_pairs() == {(centre.id, codes["090001043"]), (centre.id, codes["090002222"])}
+
+
+def test_one_asset_keeps_separate_dfs_and_st_material_lists(inventory_app):
+    from app.core.services.inventory_monitoring import (
+        _centre_records, _centre_units, import_workbook, landing_data,
+    )
+    from app.models.inventory.monitoring import InventoryMonitoringWorkCenter
+
+    import_workbook(
+        _multi_unit_mapping_workbook("Rajahmundry Asset"),
+        "work-centres.xlsx", "mapping", None, 1,
+    )
+    import_workbook(
+        _inventory_workbook([
+            ["090001043", "MUD CHEMICAL BARYTES", "Rajahmundry Asset", 400, "MT", 18000000, 9],
+            ["100101003", "BENTONITE POWDER", "Rajahmundry Asset", 200, "MT", 9000000, 6],
+        ]),
+        "09_All_Tables_20260731_110000.xlsx", "09", date(2026, 7, 31), 1,
+    )
+    import_workbook(
+        _inventory_workbook([
+            ["100000763", "DEMULSIFIER RAJAHMUNDRY ASSET", "Rajahmundry Asset", 20, "KL", 8000000, 5],
+        ], sheet="10 Chemi incl mud chemi - Inven"),
+        "10_All_Tables_20260731_110000.xlsx", "10", date(2026, 7, 31), 1,
+    )
+    db.session.commit()
+
+    centre = InventoryMonitoringWorkCenter.query.filter_by(name="Rajahmundry Asset").one()
+    _, units, dfs_codes = _centre_units(centre, "DFS")
+    _, _, st_codes = _centre_units(centre, "ST")
+
+    assert units == ["DFS", "ST"]
+    assert dfs_codes == {"090001043", "100101003"}
+    assert st_codes == {"100000763"}
+    assert {row.material_code for row in _centre_records(centre, dfs_codes)} == {
+        "090001043", "100101003",
+    }
+    assert {row.material_code for row in _centre_records(centre, st_codes)} == {"100000763"}
+    rajahmundry = next(item for item in landing_data()["map_assets"] if item["name"] == "Rajahmundry Asset")
+    assert rajahmundry["units"] == ["DFS", "ST"]
 
 
 def test_every_positive_quantity_or_value_holding_is_monitored(inventory_app):

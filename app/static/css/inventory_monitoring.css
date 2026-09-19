@@ -132,6 +132,20 @@
 }
 
 .im-asset-table input, .im-asset-table select { min-width: 150px; }
+.im-status-review { background: var(--tone-warn-bg); color: var(--tone-warn-fg); }
+.im-plant-directory-heading { display:flex; justify-content:space-between; gap:18px; align-items:end; margin:26px 0 12px; }
+.im-plant-directory-heading h3 { margin:0; color:var(--text); }
+.im-plant-directory-heading p { margin:5px 0 0; color:var(--muted); }
+.im-plant-rule { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+.im-plant-rule span { padding:5px 8px; border-radius:999px; background:var(--surface-alt); color:var(--mod-accent); font-size:.75rem; font-weight:700; white-space:nowrap; }
+.im-plant-directory-wrap { max-height:520px; }
+.im-region-directory-wrap { max-height:520px; }
+.im-region-directory td:first-child { min-width:240px; }
+.im-region-directory td:last-child { min-width:220px; }
+.im-plant-directory td:nth-child(2) { min-width:260px; }
+.im-plant-directory td:last-child { min-width:270px; }
+.im-plant-review-row { background:color-mix(in srgb, var(--tone-warn-bg) 35%, var(--surface))!important; }
+@media(max-width:760px){.im-plant-directory-heading{align-items:start;flex-direction:column}.im-plant-rule{justify-content:flex-start}}
 
 /* ── Unrecognised-plant alerts ─────────────────────────────────────────
    Raised by an import, settled in Administration. Warn-toned, because nothing

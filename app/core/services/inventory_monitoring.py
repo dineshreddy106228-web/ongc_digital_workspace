@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from sqlalchemy import func, or_, text
+from sqlalchemy import func, inspect, or_, text
 
 from app.core.services.csc_utils import (
     SPEC_SUBSET_LABELS,
@@ -29,6 +29,7 @@ from app.models.inventory.monitoring import (
     InventoryMonitoringPlantAlert, InventoryMonitoringRecord,
     InventoryMonitoringSnapshot, InventoryMonitoringThreshold, InventoryMonitoringUploadBatch,
     InventoryMonitoringWorkCenter, InventoryMonitoringWorkCenterMaterial,
+    InventoryMonitoringWorkCenterUnitMaterial,
 )
 
 STAGING_DIRECTORY = Path(tempfile.gettempdir()) / "inventory_monitoring_staging"
@@ -74,6 +75,22 @@ DEFAULT_THRESHOLDS = {
     "excess_stock_months": Decimal("12"),
 }
 
+PLANT_CODE_UNITS = {
+    "D": "DFS",
+    "A": "ST",
+    "W": "WS",
+    "P": "Plant",
+}
+
+ASSET_REGIONS = (
+    "Western Onshore",
+    "Western Offshore",
+    "Eastern",
+    "Southern",
+    "North Eastern",
+    "Frontier Basins",
+)
+
 
 def normalize_name(value: Any) -> str:
     return re.sub(r"\s+", " ", str(value or "").strip()).casefold()
@@ -88,6 +105,32 @@ def material_code(value: Any) -> str:
     if text.isdigit() and len(text) < 9:
         text = text.zfill(9)
     return text
+
+
+def plant_code_unit(value: Any) -> str | None:
+    """Operating unit declared by a SAP plant code.
+
+    ONGC's four-character plant codes use the third character for the operating
+    unit: D is Drilling Fluid Services, A is Surface Team, W is Well Services,
+    and P is a plant. Other markers are deliberately left for human review.
+    """
+    code = re.sub(r"\s+", "", str(value or "")).upper()
+    return PLANT_CODE_UNITS.get(code[2]) if len(code) >= 3 else None
+
+
+def canonical_asset_region(value: Any) -> str | None:
+    """Return the controlled region label used by the Asset Register."""
+    region = re.sub(r"\s+", " ", str(value or "")).strip()
+    aliases = {
+        "western": "Western Onshore",
+        "western onshore": "Western Onshore",
+        "western offshore": "Western Offshore",
+        "eastern": "Eastern",
+        "southern": "Southern",
+        "north eastern": "North Eastern",
+        "frontier basins": "Frontier Basins",
+    }
+    return aliases.get(region.casefold(), region or None)
 
 
 def _header(value: Any) -> str:
@@ -908,12 +951,31 @@ def import_workbook(source: bytes, filename: str, source_group: str, reporting_d
     batch = InventoryMonitoringUploadBatch(source_group=source_group, reporting_date=reporting_date or review["reporting_date"], source_filename=filename, source_checksum=checksum, source_file_size=len(source), source_data=source, row_count=review["row_count"], accepted_count=review["accepted_count"], rejected_count=review["rejected_count"], duplicate_count=review["duplicate_count"], warnings_json=json.dumps(review["warnings"]), validation_json=json.dumps(review, default=str), uploaded_by=uploaded_by)
     db.session.add(batch); db.session.flush()
     if source_group == "mapping":
-        # The workbook is the work-centre directory and the DFS / ST unit split. It no longer
-        # declares which material may be held where: an inventory import maps what is held.
+        # The workbook is the work-centre directory and the DFS / ST unit split. It does not
+        # declare what is held (inventory imports do that), but its per-unit material lists
+        # are required to split a combined asset such as Rajahmundry into DFS and ST views.
         directory = _read_mapping_directory(source)
         for row in directory:
             _get_work_center(row["work_center_name"], row["zone"], row["work_center_type"])
         db.session.flush()
+        InventoryMonitoringWorkCenterUnitMaterial.query.filter_by(is_current=True).update(
+            {"is_current": False}, synchronize_session=False,
+        )
+        seen_unit_materials: set[tuple[int, str, str]] = set()
+        for row in _read_mapping(source)[0]:
+            centre = _get_work_center(row["work_center_name"])
+            unit_type = (row["work_center_type"] or "").strip()
+            key = (centre.id, unit_type, row["material_code"])
+            if not unit_type or key in seen_unit_materials:
+                continue
+            seen_unit_materials.add(key)
+            db.session.add(InventoryMonitoringWorkCenterUnitMaterial(
+                work_center_id=centre.id,
+                unit_type=unit_type,
+                material_code=row["material_code"],
+                mapping_batch_id=batch.id,
+                is_current=True,
+            ))
         workbook_batches = db.session.query(InventoryMonitoringUploadBatch.id).filter(
             InventoryMonitoringUploadBatch.source_group == "mapping"
         ).subquery()
@@ -992,6 +1054,12 @@ def landing_data() -> dict[str, Any]:
     total = records.with_entities(func.coalesce(func.sum(InventoryMonitoringRecord.inventory_value_inr), 0)).scalar() if latest_date else 0
     centres = InventoryMonitoringWorkCenter.query.order_by(InventoryMonitoringWorkCenter.zone, InventoryMonitoringWorkCenter.name).all()
     exception_counts = dict(db.session.query(InventoryMonitoringException.work_center_id, func.count(InventoryMonitoringException.id)).join(InventoryMonitoringSnapshot).filter(InventoryMonitoringSnapshot.reporting_date == latest_date).group_by(InventoryMonitoringException.work_center_id).all()) if latest_date else {}
+    unit_rows = InventoryMonitoringWorkCenterUnitMaterial.query.filter_by(is_current=True).all()
+    units_by_centre: dict[int, list[str]] = defaultdict(list)
+    for unit_row in unit_rows:
+        target = _merge_target(unit_row.work_center)
+        if unit_row.unit_type not in units_by_centre[target.id]:
+            units_by_centre[target.id].append(unit_row.unit_type)
     grouped_directory: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
     for centre in centres:
         # A merged asset is one entry on the navigator, listed under its
@@ -1004,7 +1072,7 @@ def landing_data() -> dict[str, Any]:
             "id": asset.id,
             "name": name,
             "reported_name": centre.name,
-            "work_center_type": centre.work_center_type or asset.work_center_type or "Work centre",
+            "units": units_by_centre.get(asset.id) or [centre.work_center_type or asset.work_center_type or "Work centre"],
             "exception_count": exception_counts.get(asset.id, 0),
         })
     directory = [
@@ -1015,7 +1083,7 @@ def landing_data() -> dict[str, Any]:
                     "name": asset,
                     "work_centres": sorted(
                         entries,
-                        key=lambda item: ({"DFS": 0, "ST": 1}.get(item["work_center_type"], 2), item["work_center_type"].casefold()),
+                        key=lambda item: item["reported_name"].casefold(),
                     ),
                 }
                 for asset, entries in sorted(assets.items(), key=lambda item: item[0].casefold())
@@ -1031,7 +1099,9 @@ def landing_data() -> dict[str, Any]:
             "id": next((entry["id"] for entry in asset["work_centres"] if entry["id"]), None),
             "name": asset["name"],
             "zone": zone["zone"],
-            "units": list(dict.fromkeys(entry["work_center_type"] for entry in asset["work_centres"])),
+            "units": list(dict.fromkeys(
+                unit for entry in asset["work_centres"] for unit in entry["units"]
+            )),
             "aliases": list(dict.fromkeys(
                 entry["reported_name"] for entry in asset["work_centres"] if entry["reported_name"] != asset["name"]
             )),
@@ -1672,6 +1742,64 @@ def inventory_health_data(reporting_date: date | None = None) -> dict[str, Any]:
     }
 
 
+def inventory_plant_code_directory(
+    centres: list[InventoryMonitoringWorkCenter] | None = None,
+) -> list[dict[str, Any]]:
+    """Plant codes already present in Inventory imports, ready for assignment.
+
+    The current monitoring workbooks identify a Work Centre but do not carry a
+    plant-code column. The older Inventory usage, consumption and procurement
+    imports do, so the Asset Register reads their distinct codes directly from
+    the database instead of requiring an administrator to retype a separate
+    master list.
+    """
+    inspector = inspect(db.engine)
+    labels: dict[str, tuple[int, str]] = {}
+    codes: set[str] = set()
+
+    if inspector.has_table("inventory_records"):
+        for raw_plant, occurrences in db.session.execute(text(
+            "SELECT plant, COUNT(*) AS occurrences FROM inventory_records "
+            "WHERE plant IS NOT NULL AND plant <> '' GROUP BY plant"
+        )).all():
+            raw = str(raw_plant or "").strip()
+            code, _separator, description = raw.partition(" ")
+            code = code.strip().upper()
+            if not code:
+                continue
+            codes.add(code)
+            current = labels.get(code)
+            if description.strip() and (current is None or int(occurrences or 0) > current[0]):
+                labels[code] = (int(occurrences or 0), description.strip())
+
+    for table_name in ("inventory_consumption_seed_rows", "inventory_procurement_seed_rows"):
+        if not inspector.has_table(table_name):
+            continue
+        for plant, reporting_plant in db.session.execute(text(
+            f"SELECT DISTINCT plant, reporting_plant FROM {table_name}"
+        )).all():
+            for value in (plant, reporting_plant):
+                code = str(value or "").strip().upper()
+                if code:
+                    codes.add(code)
+
+    centres = centres if centres is not None else InventoryMonitoringWorkCenter.query.all()
+    owners: dict[str, list[InventoryMonitoringWorkCenter]] = defaultdict(list)
+    for centre in centres:
+        for code in centre.plant_codes:
+            owners[code].append(centre)
+
+    unit_order = {"DFS": 0, "ST": 1, "WS": 2, "Plant": 3, None: 4}
+    return sorted(({
+        "code": code,
+        "description": labels.get(code, (0, ""))[1],
+        "unit": plant_code_unit(code),
+        "owners": owners.get(code, []),
+        "owner": owners.get(code, [None])[0],
+        "has_duplicate_owners": len(owners.get(code, [])) > 1,
+    } for code in codes), key=lambda item: (unit_order[item["unit"]], item["code"]))
+
+
 def asset_administration_data() -> dict[str, Any]:
     """Every asset with the SAP plant codes reporting into it, and the plants nothing claims.
 
@@ -1683,23 +1811,42 @@ def asset_administration_data() -> dict[str, Any]:
         InventoryMonitoringWorkCenter.zone, InventoryMonitoringWorkCenter.name
     ).all()
     by_id = {centre.id: centre for centre in centres}
+    mapped_units: dict[int, set[str]] = defaultdict(set)
+    for centre_id, unit_type in db.session.query(
+        InventoryMonitoringWorkCenterUnitMaterial.work_center_id,
+        InventoryMonitoringWorkCenterUnitMaterial.unit_type,
+    ).filter_by(is_current=True).distinct().all():
+        if unit_type:
+            mapped_units[centre_id].add(unit_type)
     latest_date = db.session.query(func.max(InventoryMonitoringSnapshot.reporting_date)).filter_by(is_published=True).scalar()
     values = dict(db.session.query(
         InventoryMonitoringRecord.work_center_id, func.coalesce(func.sum(InventoryMonitoringRecord.inventory_value_inr), 0)
     ).join(InventoryMonitoringSnapshot, InventoryMonitoringRecord.snapshot_id == InventoryMonitoringSnapshot.id).filter(
         InventoryMonitoringSnapshot.reporting_date == latest_date, InventoryMonitoringSnapshot.is_published.is_(True),
     ).group_by(InventoryMonitoringRecord.work_center_id).all()) if latest_date else {}
-    assets = [
-        {
+    assets = []
+    for centre in centres:
+        plant_units = {plant_code_unit(code) for code in centre.plant_codes}
+        plant_units.discard(None)
+        units = plant_units or mapped_units.get(centre.id, set())
+        if not units and centre.work_center_type:
+            units = {centre.work_center_type}
+        assets.append({
             "centre": centre, "plant_codes": centre.plant_codes,
+            "region": canonical_asset_region(centre.zone),
+            "units": sorted(units, key=lambda value: ({"DFS": 0, "ST": 1, "WS": 2, "Plant": 3}.get(value, 4), value)),
+            "review_plant_codes": [code for code in centre.plant_codes if plant_code_unit(code) is None],
             "merged_into": by_id.get(centre.merged_into_id),
             "value": values.get(centre.id, Decimal("0")),
-        }
-        for centre in centres
-    ]
+        })
+    plant_directory = inventory_plant_code_directory(centres)
     return {
         "assets": assets,
+        "region_options": ASSET_REGIONS,
         "merge_options": [centre for centre in centres if centre.merged_into_id is None],
+        "plant_directory": plant_directory,
+        "unassigned_plant_count": sum(1 for item in plant_directory if not item["owners"]),
+        "review_plant_count": sum(1 for item in plant_directory if item["unit"] is None),
         "plant_alerts": InventoryMonitoringPlantAlert.query.filter_by(status="open").order_by(
             InventoryMonitoringPlantAlert.inventory_value_inr.desc()
         ).all(),
@@ -1718,6 +1865,13 @@ def save_asset_plant_codes(form: Any) -> list[str]:
     """
     changes: list[str] = []
     for centre in InventoryMonitoringWorkCenter.query.all():
+        region_field = form.get(f"region-{centre.id}")
+        if region_field is not None:
+            region = canonical_asset_region(region_field)
+            previous_region = centre.zone
+            if previous_region != region:
+                changes.append(f"{centre.name}: region {previous_region or 'unassigned'} → {region or 'unassigned'}")
+                centre.zone = region
         codes_field = form.get(f"plant_codes-{centre.id}")
         if codes_field is not None:
             codes = ",".join(dict.fromkeys(
@@ -1739,6 +1893,38 @@ def save_asset_plant_codes(form: Any) -> list[str]:
                     f"{centre.name}: merged into {successor.name}" if successor else f"{centre.name}: merge cleared"
                 )
                 centre.merged_into_id = target
+
+    centres = InventoryMonitoringWorkCenter.query.all()
+    by_id = {centre.id: centre for centre in centres}
+    for item in inventory_plant_code_directory(centres):
+        code = item["code"]
+        field = f"plant-owner-{code}"
+        if field not in form:
+            continue
+        raw_owner = (form.get(field) or "").strip()
+        owner_id = int(raw_owner) if raw_owner.isdigit() else None
+        if raw_owner and owner_id not in by_id:
+            raise ValueError(f"The asset selected for plant {code} no longer exists.")
+        previous = [centre for centre in centres if code in centre.plant_codes]
+        selected = by_id.get(owner_id)
+        if len(previous) == 1 and previous[0] is selected:
+            continue
+        for centre in previous:
+            centre.sap_plant_codes = ",".join(value for value in centre.plant_codes if value != code) or None
+        if selected is not None:
+            selected.sap_plant_codes = ",".join(dict.fromkeys(selected.plant_codes + [code]))
+        before = ", ".join(centre.name for centre in previous) or "unassigned"
+        after = selected.name if selected is not None else "unassigned"
+        changes.append(f"{code} ({plant_code_unit(code) or 'review'}): {before} → {after}")
+
+    duplicate_owners: dict[str, list[str]] = defaultdict(list)
+    for centre in centres:
+        for code in centre.plant_codes:
+            duplicate_owners[code].append(centre.name)
+    duplicates = {code: names for code, names in duplicate_owners.items() if len(names) > 1}
+    if duplicates:
+        code, names = next(iter(duplicates.items()))
+        raise ValueError(f"Plant {code} is assigned to more than one asset: {', '.join(names)}.")
     return changes
 
 
@@ -1794,18 +1980,34 @@ def _centre_units(centre: InventoryMonitoringWorkCenter, unit: str | None) -> tu
     15-day rollback window.
     """
     selected_unit = (unit or "").strip() or None
-    available_units = [centre.work_center_type] if centre.work_center_type else []
+    assignments = InventoryMonitoringWorkCenterUnitMaterial.query.filter_by(
+        work_center_id=centre.id, is_current=True,
+    ).all()
+    available_units = sorted(
+        {assignment.unit_type for assignment in assignments},
+        key=lambda value: ({"DFS": 0, "ST": 1}.get(value, 2), value.casefold()),
+    )
+    if not available_units and centre.work_center_type:
+        available_units = [centre.work_center_type]
     selected_unit_codes: set[str] | None = None
     if selected_unit:
         if selected_unit not in available_units:
             raise ValueError("That mapped unit is not available for this asset.")
         selected_unit_codes = {
-            mapping.material.material_code
-            for mapping in InventoryMonitoringWorkCenterMaterial.query.filter_by(
-                work_center_id=centre.id, is_current=True,
-            ).all()
-            if mapping.material is not None
+            assignment.material_code
+            for assignment in assignments
+            if assignment.unit_type == selected_unit
         }
+        # Compatibility for installations whose historical directory payload
+        # had already expired before unit assignments could be persisted.
+        if not assignments:
+            selected_unit_codes = {
+                mapping.material.material_code
+                for mapping in InventoryMonitoringWorkCenterMaterial.query.filter_by(
+                    work_center_id=centre.id, is_current=True,
+                ).all()
+                if mapping.material is not None
+            }
     return selected_unit, available_units, selected_unit_codes
 
 

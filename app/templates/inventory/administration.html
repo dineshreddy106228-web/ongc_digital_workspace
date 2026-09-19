@@ -66,7 +66,7 @@
 {% endif %}
 
 <section class="card" style="margin-top:1rem"><div class="card-body">
-  <div class="im-card-heading"><div><span class="im-kicker">Asset register</span><h2>Assets and their SAP plant codes</h2><p>SAP keeps a plant code per legacy asset, so a merger leaves two codes reporting into one place — N&amp;H and B&amp;S merged into NH-BS while 12A1 and 13A1 stayed apart. Put every code that reports into an asset on that asset's row, and point a merged asset at the one that absorbed it: the registers then read as one asset without anything being renamed in SAP.</p></div>{% if reporting_date %}<strong>Values as on {{ reporting_date.strftime('%d %b %Y') }}</strong>{% endif %}</div>
+  <div class="im-card-heading"><div><span class="im-kicker">Asset register</span><h2>Assets and their SAP plant codes</h2><p>Assign the plant codes already found in Inventory data. The code sets the operating unit: D = DFS, A = ST, W = WS and P = Plant. Other code families stay marked for review. A merged asset can retain every legacy code while the absorbed asset points to its successor.</p></div>{% if reporting_date %}<strong>Values as on {{ reporting_date.strftime('%d %b %Y') }}</strong>{% endif %}</div>
   <form method="post" action="{{ url_for('inventory.save_assets') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="im-table-wrap"><table class="table im-health-table im-asset-table">
@@ -75,8 +75,8 @@
         {% for row in assets %}
         <tr class="{{ 'im-row-merged' if row.merged_into }}">
           <td><strong>{{ row.centre.name }}</strong>{% if row.merged_into %}<small>Reported stock is counted under {{ row.merged_into.name }}</small>{% endif %}</td>
-          <td>{{ row.centre.zone or '—' }}</td>
-          <td>{{ row.centre.work_center_type or '—' }}</td>
+          <td>{{ row.region or '—' }}</td>
+          <td>{% for unit in row.units %}<span class="im-status {{ 'im-status-muted' if unit not in ['DFS', 'ST', 'WS', 'Plant'] else 'im-status-success' }}">{{ unit }}</span>{% else %}—{% endfor %}{% if row.review_plant_codes %}<span class="im-status im-status-review">Review</span>{% endif %}</td>
           <td>{% if can_edit %}<input class="form-control form-control-sm" name="plant_codes-{{ row.centre.id }}" value="{{ row.plant_codes|join(', ') }}" placeholder="e.g. 12A1, 13A1" aria-label="SAP plant codes for {{ row.centre.name }}">{% else %}{% for code in row.plant_codes %}<span class="im-plant-code">{{ code }}</span>{% else %}<span class="im-status im-status-muted">None recorded</span>{% endfor %}{% endif %}</td>
           <td>{% if can_edit %}<select class="form-select form-select-sm" name="merged_into-{{ row.centre.id }}" aria-label="Asset {{ row.centre.name }} merged into"><option value="">Not merged</option>{% for centre in merge_options %}{% if centre.id != row.centre.id %}<option value="{{ centre.id }}" {{ 'selected' if row.merged_into and row.merged_into.id == centre.id }}>{{ centre.name }}</option>{% endif %}{% endfor %}</select>{% else %}{{ row.merged_into.name if row.merged_into else '—' }}{% endif %}</td>
           <td class="im-number-col">₹ {{ '{:,.2f}'.format((row.value or 0) / 10000000) }} Cr</td>
@@ -85,6 +85,31 @@
         <tr><td colspan="6">No assets have been imported yet.</td></tr>
         {% endfor %}
       </tbody>
+    </table></div>
+    <div class="im-plant-directory-heading">
+      <div><h3>Region assignment</h3><p>Place every asset in its operating region. Western assets are kept explicitly separate as Onshore or Offshore.</p></div>
+    </div>
+    <div class="im-table-wrap im-region-directory-wrap"><table class="table im-health-table im-region-directory">
+      <thead><tr><th scope="col">Asset</th><th scope="col">Plant codes</th><th scope="col">Operating units</th><th scope="col">Region</th></tr></thead>
+      <tbody>{% for row in assets %}<tr class="{{ 'im-row-merged' if row.merged_into }}">
+        <td><strong>{{ row.centre.name }}</strong>{% if row.merged_into %}<small>Merged into {{ row.merged_into.name }}</small>{% endif %}</td>
+        <td>{% for code in row.plant_codes %}<span class="im-plant-code">{{ code }}</span>{% else %}<span class="im-status im-status-muted">None assigned</span>{% endfor %}</td>
+        <td>{% for unit in row.units %}<span class="im-status im-status-success">{{ unit }}</span>{% else %}—{% endfor %}</td>
+        <td>{% if can_edit %}<select class="form-select form-select-sm" name="region-{{ row.centre.id }}" aria-label="Region for {{ row.centre.name }}"><option value="">Unassigned</option>{% for region in region_options %}<option value="{{ region }}" {{ 'selected' if row.region == region }}>{{ region }}</option>{% endfor %}{% if row.region and row.region not in region_options %}<option value="{{ row.region }}" selected>{{ row.region }} (existing)</option>{% endif %}</select>{% else %}{{ row.region or 'Unassigned' }}{% endif %}</td>
+      </tr>{% else %}<tr><td colspan="4">No assets have been imported yet.</td></tr>{% endfor %}</tbody>
+    </table></div>
+    <div class="im-plant-directory-heading">
+      <div><h3>Plant-code directory</h3><p>{{ plant_directory|length }} codes found in Inventory imports · {{ unassigned_plant_count }} unassigned · {{ review_plant_count }} need unit review.</p></div>
+      <div class="im-plant-rule"><span>D → DFS</span><span>A → ST</span><span>W → WS</span><span>P → Plant</span></div>
+    </div>
+    <div class="im-table-wrap im-plant-directory-wrap"><table class="table im-health-table im-plant-directory">
+      <thead><tr><th scope="col">SAP plant code</th><th scope="col">Imported description</th><th scope="col">Unit</th><th scope="col">Assigned asset</th></tr></thead>
+      <tbody>{% for plant in plant_directory %}<tr class="{{ 'im-plant-review-row' if not plant.unit }}">
+        <td><span class="im-plant-code">{{ plant.code }}</span>{% if plant.has_duplicate_owners %}<small class="text-danger">Assigned more than once</small>{% endif %}</td>
+        <td>{{ plant.description or '—' }}</td>
+        <td><span class="im-status {{ 'im-status-success' if plant.unit else 'im-status-review' }}">{{ plant.unit or 'Review' }}</span></td>
+        <td>{% if can_edit %}<select class="form-select form-select-sm" name="plant-owner-{{ plant.code }}" aria-label="Asset for plant {{ plant.code }}"><option value="">Unassigned</option>{% for centre in merge_options %}<option value="{{ centre.id }}" {{ 'selected' if plant.owner and plant.owner.id == centre.id }}>{{ centre.name }}{% if centre.zone %} · {{ centre.zone }}{% endif %}</option>{% endfor %}</select>{% else %}{{ plant.owner.name if plant.owner else 'Unassigned' }}{% endif %}</td>
+      </tr>{% else %}<tr><td colspan="4">No plant codes were found in the Inventory database.</td></tr>{% endfor %}</tbody>
     </table></div>
     {% if can_edit %}<div class="im-settings-actions"><button class="btn btn-primary"><i class="bi bi-check2-circle"></i> Save asset register</button></div>{% endif %}
   </form>

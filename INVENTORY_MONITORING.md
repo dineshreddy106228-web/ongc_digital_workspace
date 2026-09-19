@@ -196,10 +196,14 @@ corporate specification are already shown separately, under **Not in Corporate
 Specification List**, which is where an unfamiliar code surfaces.
 
 The last imported mapping workbook remains the **work-centre directory**: it
-supplies zones, work-centre names and the DFS / ST unit split used by the asset
-map and the unit filter. It no longer declares which material may be held where,
-and it is no longer uploaded — the directory is read from the batch already
-retained, and anything new arrives through the unrecognised-plant alerts.
+supplies zones, work-centre names and the per-material DFS / ST unit split used
+by the asset map and the unit filter. One asset can therefore expose both units;
+for example, Rajahmundry's drilling-fluid materials remain under DFS while its
+surface-treatment materials remain under ST. The list does not decide whether a
+material is actually held — that still comes only from the imported inventory —
+and it is no longer uploaded. Its unit assignments are persisted before the
+retained workbook payload leaves the rollback window, and anything new arrives
+through the unrecognised-plant alerts.
 
 The material register's **mapped plant / work centre** column is read straight
 from the latest published Group 09 and Group 10 workbooks — wherever they report

@@ -82,6 +82,20 @@ def test_units_are_read_as_volume_or_weight_and_never_averaged_together():
     assert normalized_quantity(12, "NO") is None
 
 
+def test_plant_code_third_character_sets_the_operating_unit():
+    from app.core.services.inventory_monitoring import canonical_asset_region, plant_code_unit
+
+    assert plant_code_unit("10D1") == "DFS"
+    assert plant_code_unit("11A1") == "ST"
+    assert plant_code_unit("10W1") == "WS"
+    assert plant_code_unit("21P1") == "Plant"
+    # Letters elsewhere in a subordinate code do not silently classify it.
+    assert plant_code_unit("11FA") is None
+    assert plant_code_unit("23R2") is None
+    assert canonical_asset_region("Western") == "Western Onshore"
+    assert canonical_asset_region("western offshore") == "Western Offshore"
+
+
 def test_consumption_value_is_read_from_the_workbook(inventory_app):
     from app.core.services.inventory_monitoring import consumption_leaders
 
