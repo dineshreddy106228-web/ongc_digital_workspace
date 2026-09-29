@@ -8,6 +8,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 from app.models.quality_control.qc_sample import QCSample
 from app.models.quality_control.qc_testing_standard import QCTestingStandard
+from app.core.services.qc_data_scope import QC_DATA_START_DATE
 
 
 # Deck chrome shared by every QC export: one navy rule at the top, a thin border
@@ -343,7 +344,7 @@ def build_lab_performance_presentation(lab_code: str, static_folder: str, notifi
     def stt(sample): return standards.get(_normalized_chemical(sample.chemical_name)) or CLOSED_SAMPLE_REVIEW_STT_DAYS
     late, within = [s for s in completed if s.turnaround_days > stt(s)], [s for s in completed if s.turnaround_days <= stt(s)]
     prs = Presentation(); prs.slide_width = Inches(13.333); prs.slide_height = Inches(7.5)
-    chrome = _DeckChrome(prs, static_folder, f"Source: {data['laboratory']['name']} QC data \u00b7 {data['month_label']}")
+    chrome = _DeckChrome(prs, static_folder, f"Source: {data['laboratory']['name']} QC data · From {QC_DATA_START_DATE:%d %b %Y} · {data['month_label']}")
     blank = chrome.blank
     navy, blue, red, green, grey = chrome.NAVY, chrome.BLUE, chrome.RED, chrome.GREEN, chrome.GREY
     border = chrome.BORDER
@@ -452,7 +453,7 @@ def build_lab_brief_presentation(lab_code: str, static_folder: str, notification
     prs.slide_width, prs.slide_height = Inches(13.333), Inches(7.5)
     chrome = _DeckChrome(
         prs, static_folder,
-        f"Source: {laboratory['name']} local status workbook \u00b7 {batch.report_label}",
+        f"Source: {laboratory['name']} local status workbook · From {QC_DATA_START_DATE:%d %b %Y} · {batch.report_label}",
     )
     navy, blue, red, green, grey = chrome.NAVY, chrome.BLUE, chrome.RED, chrome.GREEN, chrome.GREY
 
@@ -677,7 +678,7 @@ def build_sap_portfolio_management_presentation(
     from pptx import Presentation
     from pptx.util import Inches, Pt
     from app.core.services.sap_quality_control import (
-        non_sap_register_data, sap_management_data,
+        SAP_MONITORING_START_DATE, non_sap_register_data, sap_management_data,
     )
 
     data = sap_management_data(lab_codes, notification_date_from)
@@ -694,7 +695,7 @@ def build_sap_portfolio_management_presentation(
     scope_label = "All SAP laboratories" if lab_codes is None else ", ".join(lab["name"] for lab in scope_labs)
     chrome = _WeeklyReviewChrome(
         prs, static_folder,
-        f"Source: latest paired SAP Inspection Lots and Notifications exports · {data['source_as_of_label']}"
+        f"Source: latest paired SAP Inspection Lots and Notifications exports · Data from {SAP_MONITORING_START_DATE:%d %b %Y} · {data['source_as_of_label']}"
         + (f" · Notifications from {notification_date_from:%d %b %Y}" if notification_date_from else ""),
     )
     navy, blue, red, green, grey = chrome.NAVY, chrome.BLUE, chrome.RED, chrome.GREEN, chrome.GREY

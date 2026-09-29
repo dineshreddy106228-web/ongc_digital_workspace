@@ -7,9 +7,9 @@
   {{ qc_nav('review') }}
   <div class="mod-page-head is-stacked-actions">
     <div>
-      <div class="qc-lab-eyebrow"><span class="qc-live-dot"></span> Corporate Chemistry · SAP-authoritative daily review</div>
+      <div class="qc-lab-eyebrow"><span class="qc-live-dot"></span> Corporate Chemistry · SAP-authoritative daily review · Data from {{ qc_data_start_date.strftime('%d.%m.%Y') }}</div>
       <h1 class="mod-page-title"><i class="bi bi-easel2"></i> QC Management Review &amp; Analytics</h1>
-      <p class="mod-page-sub">{{ source_as_of_label }}.{% if financial_year_scope %} Financial year {{ financial_year_scope.label }} — {{ financial_year_scope.note }}.{% endif %} The position is read from each laboratory's records for that year, refreshed by the latest paired SAP Inspection Lots and Notifications export; the performance tab reads the whole recorded load.</p>
+      <p class="mod-page-sub">{{ source_as_of_label }}.{% if financial_year_scope %} Financial year {{ financial_year_scope.label }} — {{ financial_year_scope.note }}.{% endif %} The position, performance analytics, and non-SAP register use records dated from {{ qc_data_start_date.strftime('%d.%m.%Y') }}.</p>
     </div>
     <div class="mod-page-actions">
       <a class="btn btn-secondary" href="{{ url_for('quality_control.landing') }}"><i class="bi bi-grid"></i> Monitoring home</a>
@@ -24,11 +24,11 @@
   {% if missing_snapshots %}<div class="qc-period-missing-notice qc-review-missing-notice"><i class="bi bi-exclamation-triangle-fill"></i><span><strong>{{ missing_snapshots|length }} configured SAP laboratory{{ '' if missing_snapshots|length == 1 else 'ies' }} have no snapshot yet.</strong> {% for review in missing_snapshots %}{{ review.laboratory.name }}{% if not loop.last %}; {% endif %}{% endfor %}. They are not represented in the figures below.</span></div>{% endif %}
 
   {# Three denominators, three tabs. The position is one snapshot, performance
-     is every record ever imported, and the non-SAP register is not SAP data at
+     is the recorded load since the reporting boundary, and the non-SAP register is not SAP data at
      all — tabs keep a reader from carrying a number across that line. #}
   <div class="qc-mr-tabs" role="tablist" aria-label="Management view">
     <button class="qc-mr-tab is-active" type="button" role="tab" id="tab-position" aria-controls="panel-position" aria-selected="true" data-mr-tab="position"><i class="bi bi-clipboard-pulse"></i> Position <small>current SAP snapshot</small></button>
-    <button class="qc-mr-tab" type="button" role="tab" id="tab-performance" aria-controls="panel-performance" aria-selected="false" tabindex="-1" data-mr-tab="performance"><i class="bi bi-graph-up"></i> Performance <small>whole recorded load</small></button>
+    <button class="qc-mr-tab" type="button" role="tab" id="tab-performance" aria-controls="panel-performance" aria-selected="false" tabindex="-1" data-mr-tab="performance"><i class="bi bi-graph-up"></i> Performance <small>from {{ qc_data_start_date.strftime('%d.%m.%Y') }}</small></button>
     <button class="qc-mr-tab" type="button" role="tab" id="tab-non-sap" aria-controls="panel-non-sap" aria-selected="false" tabindex="-1" data-mr-tab="non-sap"><i class="bi bi-clipboard-plus"></i> Non-SAP register <small>lab-declared work</small></button>
   </div>
 
@@ -127,7 +127,7 @@
   </div></section>
 
   <section class="card qc-analytics-section"><div class="card-body">
-    <div class="qc-review-section-heading"><div><h2>Chemicals by sample load</h2><p class="mod-card-sub">Which materials the laboratories actually spend their capacity on, across the whole recorded load.</p></div><span class="qc-lab-count">Top {{ portfolio.materials_by_load|length }} of {{ portfolio.material_total }}</span></div>
+    <div class="qc-review-section-heading"><div><h2>Chemicals by sample load</h2><p class="mod-card-sub">Which materials the laboratories actually spend their capacity on, for records dated from {{ qc_data_start_date.strftime('%d.%m.%Y') }}.</p></div><span class="qc-lab-count">Top {{ portfolio.materials_by_load|length }} of {{ portfolio.material_total }}</span></div>
     {% if charts %}<div class="qc-mr-canvas is-tall"><canvas id="mrMaterialLoad" aria-label="Leading materials by recorded sample load" role="img"></canvas></div>{% endif %}
     <div class="mod-table-wrap"><table class="mod-table"><thead><tr><th scope="col">Material</th><th scope="col">Corporate Specification</th><th scope="col">Samples</th><th scope="col">Laboratories</th><th scope="col">Rejection rate</th><th scope="col">Median turnaround</th></tr></thead><tbody>
     {% for item in portfolio.materials_by_load %}<tr>

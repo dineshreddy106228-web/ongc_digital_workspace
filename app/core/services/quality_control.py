@@ -20,6 +20,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import undefer
 
 from app.extensions import db
+from app.core.services.qc_data_scope import QC_DATA_START_DATE
 from app.models.quality_control.qc_sample import QCSample
 from app.models.quality_control.qc_testing_standard import QCTestingStandard
 from app.models.quality_control.qc_upload_batch import QCUploadBatch
@@ -665,10 +666,14 @@ def laboratory_landing_data() -> list[dict[str, Any]]:
     for lab in LABORATORIES.values():
         if lab["code"] in IDWE_WORKSTREAM_CODES:
             continue
-        local_batch = QCUploadBatch.query.filter_by(lab_code=lab["code"]).order_by(QCUploadBatch.week_end.desc()).first()
+        local_batch = QCUploadBatch.query.filter_by(lab_code=lab["code"]).filter(
+            QCUploadBatch.week_end >= QC_DATA_START_DATE,
+        ).order_by(QCUploadBatch.week_end.desc()).first()
         is_sap_monitoring = lab["code"] in SAP_REPORTING_LAB_CODES
         sap_batch = (
-            QCSAPUploadBatch.query.filter_by(lab_code=lab["code"]).order_by(
+            QCSAPUploadBatch.query.filter_by(lab_code=lab["code"]).filter(
+                QCSAPUploadBatch.as_of_date >= QC_DATA_START_DATE,
+            ).order_by(
                 QCSAPUploadBatch.as_of_date.desc(), QCSAPUploadBatch.id.desc(),
             ).first()
             if is_sap_monitoring else None
@@ -788,13 +793,19 @@ def laboratory_navigator_data(
 
 def latest_dashboard_data(lab_code: str) -> dict[str, Any]:
     laboratory = get_laboratory(lab_code)
-    batch = QCUploadBatch.query.filter_by(lab_code=lab_code).order_by(QCUploadBatch.week_end.desc()).first()
+    batch = QCUploadBatch.query.filter_by(lab_code=lab_code).filter(
+        QCUploadBatch.week_end >= QC_DATA_START_DATE,
+    ).order_by(QCUploadBatch.week_end.desc()).first()
     if batch is None:
         return {"laboratory": laboratory, "batch": None, "summary": build_summary([]), "samples": [], "materials": [], "history": []}
-    samples = QCSample.query.filter_by(last_seen_batch_id=batch.id).order_by(QCSample.sample_receipt_date.asc(), QCSample.chemical_name.asc()).all()
+    samples = QCSample.query.filter_by(last_seen_batch_id=batch.id).filter(
+        QCSample.sample_receipt_date >= QC_DATA_START_DATE,
+    ).order_by(QCSample.sample_receipt_date.asc(), QCSample.chemical_name.asc()).all()
     summary = build_summary(samples, date.today())
     standards = {item.normalized_name: item for item in QCTestingStandard.query.all()}
-    canonical_samples = QCSample.query.filter_by(lab_code=lab_code).order_by(QCSample.sample_receipt_date.asc(), QCSample.id.asc()).all()
+    canonical_samples = QCSample.query.filter_by(lab_code=lab_code).filter(
+        QCSample.sample_receipt_date >= QC_DATA_START_DATE,
+    ).order_by(QCSample.sample_receipt_date.asc(), QCSample.id.asc()).all()
     management_metrics = calculate_management_metrics(
         canonical_samples,
         standards,
@@ -846,11 +857,13 @@ def latest_dashboard_data(lab_code: str) -> dict[str, Any]:
     month_intake = QCSample.query.filter(
         QCSample.lab_code == lab_code,
         QCSample.sample_receipt_date >= month_start,
+        QCSample.sample_receipt_date >= QC_DATA_START_DATE,
         QCSample.sample_receipt_date < next_month,
     ).count()
     month_closed_samples = QCSample.query.filter(
         QCSample.lab_code == lab_code,
         QCSample.report_issue_date >= month_start,
+        QCSample.sample_receipt_date >= QC_DATA_START_DATE,
         QCSample.report_issue_date < next_month,
     ).all()
     month_stt = stt_performance(month_closed_samples)
@@ -861,7 +874,9 @@ def latest_dashboard_data(lab_code: str) -> dict[str, Any]:
     materials: dict[str, int] = {}
     for sample in samples:
         materials[sample.chemical_name] = materials.get(sample.chemical_name, 0) + 1
-    history = QCUploadBatch.query.filter_by(lab_code=lab_code).order_by(QCUploadBatch.week_end.desc()).limit(12).all()
+    history = QCUploadBatch.query.filter_by(lab_code=lab_code).filter(
+        QCUploadBatch.week_end >= QC_DATA_START_DATE,
+    ).order_by(QCUploadBatch.week_end.desc()).limit(12).all()
     return {
         "laboratory": laboratory,
         "batch": batch,
@@ -915,7 +930,7 @@ def portfolio_management_data(reporting_week_end: date | None = None, lab_codes:
         .distinct()
         .order_by(QCUploadBatch.week_end.desc())
         .all()
-        if item[0] is not None
+        if item[0] is not None and item[0] >= QC_DATA_START_DATE
     ]
     selected_week_end = reporting_week_end if reporting_week_end in available_week_ends else (available_week_ends[0] if available_week_ends else None)
     submission_counts = {
@@ -931,6 +946,7 @@ def portfolio_management_data(reporting_week_end: date | None = None, lab_codes:
     for laboratory in in_scope:
         latest_available_batch = (
             QCUploadBatch.query.filter_by(lab_code=laboratory["code"])
+            .filter(QCUploadBatch.week_end >= QC_DATA_START_DATE)
             .order_by(QCUploadBatch.week_end.desc())
             .first()
         )
@@ -942,6 +958,7 @@ def portfolio_management_data(reporting_week_end: date | None = None, lab_codes:
         )
         samples = (
             QCSample.query.filter_by(last_seen_batch_id=batch.id)
+            .filter(QCSample.sample_receipt_date >= QC_DATA_START_DATE)
             .order_by(QCSample.sample_receipt_date.asc(), QCSample.chemical_name.asc())
             .all()
             if batch
@@ -952,16 +969,20 @@ def portfolio_management_data(reporting_week_end: date | None = None, lab_codes:
             QCUploadBatch.query.filter(
                 QCUploadBatch.lab_code == laboratory["code"],
                 QCUploadBatch.week_end < selected_week_end,
+                QCUploadBatch.week_end >= QC_DATA_START_DATE,
             )
             .order_by(QCUploadBatch.week_end.desc())
             .first()
             if batch and selected_week_end
             else None
         )
-        try:
-            previous_summary = json.loads(previous_batch.summary_json or "{}") if previous_batch else None
-        except (TypeError, json.JSONDecodeError):
-            previous_summary = None
+        previous_samples = (
+            QCSample.query.filter_by(last_seen_batch_id=previous_batch.id)
+            .filter(QCSample.sample_receipt_date >= QC_DATA_START_DATE)
+            .all()
+            if previous_batch else []
+        )
+        previous_summary = build_summary(previous_samples) if previous_batch else None
         laboratory_reviews.append({
             "laboratory": laboratory,
             "batch": batch,
@@ -1100,7 +1121,9 @@ def import_testing_standards_workbook(source: bytes, updated_by: int | None) -> 
 
 def management_analytics_data() -> dict[str, Any]:
     """Provide cumulative performance, risk, and standards analytics for management."""
-    samples = QCSample.query.order_by(QCSample.sample_receipt_date.asc(), QCSample.id.asc()).all()
+    samples = QCSample.query.filter(
+        QCSample.sample_receipt_date >= QC_DATA_START_DATE,
+    ).order_by(QCSample.sample_receipt_date.asc(), QCSample.id.asc()).all()
     standards = {item.normalized_name: item for item in QCTestingStandard.query.all()}
 
     def standard_performance(rows: list[QCSample]) -> dict[str, Any]:
@@ -1536,7 +1559,7 @@ def search_samples(
     lab_code: str = "", chemical_name: str = "", specification_no: str = "", status: str = "", view: str = "",
     period_start: date | None = None, period_end: date | None = None, as_of: date | None = None,
 ) -> list[QCSample]:
-    statement = QCSample.query
+    statement = QCSample.query.filter(QCSample.sample_receipt_date >= QC_DATA_START_DATE)
     if lab_code:
         get_laboratory(lab_code)
         statement = statement.filter(QCSample.lab_code == lab_code)
@@ -1563,7 +1586,9 @@ def search_samples(
 
 
 def history_filter_options(lab_code: str = "") -> dict[str, list]:
-    statement = db.session.query(QCSample.chemical_name).distinct()
+    statement = db.session.query(QCSample.chemical_name).filter(
+        QCSample.sample_receipt_date >= QC_DATA_START_DATE,
+    ).distinct()
     if lab_code:
         get_laboratory(lab_code)
         statement = statement.filter(QCSample.lab_code == lab_code)

@@ -6,7 +6,7 @@
 {{ qc_nav('') }}
 <div class="mod-page-head">
   <div>
-    <div class="qc-lab-eyebrow"><span class="qc-live-dot"></span> Current laboratory operating view{% if batch %} · latest reporting period {{ batch.week_start.strftime('%d %b') }} – {{ batch.week_end.strftime('%d %b %Y') }}{% endif %}</div>
+    <div class="qc-lab-eyebrow"><span class="qc-live-dot"></span> Current laboratory operating view · Data from {{ qc_data_start_date.strftime('%d.%m.%Y') }}{% if batch %} · latest reporting period {{ batch.week_start.strftime('%d %b') }} – {{ batch.week_end.strftime('%d %b %Y') }}{% endif %}</div>
     <h1 class="mod-page-title"><i class="bi bi-flask"></i> {{ laboratory.name }}</h1>
     <p class="mod-page-sub">{{ laboratory.location }} · Current delivery, monthly performance, and Standard Testing Time (STT) exceptions in one view.</p>
   </div>

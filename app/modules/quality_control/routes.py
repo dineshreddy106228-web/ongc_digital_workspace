@@ -24,9 +24,11 @@ logger = logging.getLogger(__name__)
 def inject_quality_control_scope():
     """Expose the corporate-scope flag to every template in this module."""
     from app.core.services.sap_quality_control import source_completeness_label
+    from app.core.services.qc_data_scope import QC_DATA_START_DATE
     return {
         "qc_can_control": _can_control_quality_monitoring(),
         "qc_source_label": source_completeness_label,
+        "qc_data_start_date": QC_DATA_START_DATE,
     }
 
 

@@ -18,10 +18,11 @@ from typing import Any
 
 import pandas as pd
 
-from sqlalchemy import case, event, func, or_
+from sqlalchemy import and_, case, event, func, or_
 from sqlalchemy.orm import undefer
 
 from app.extensions import db
+from app.core.services.qc_data_scope import QC_DATA_START_DATE
 from app.models.quality_control.qc_sap_monitoring import (
     QCNonSAPSample,
     QCNonSAPSampleUpdate,
@@ -36,6 +37,7 @@ from app.models.quality_control.qc_sap_monitoring import (
 PANVEL_LAB_CODE = "rgl_panvel"
 PANVEL_PLANT_CODE = "10R2"
 SAP_XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+SAP_MONITORING_START_DATE = QC_DATA_START_DATE
 # Corporate Chemistry's approved SAP QM routing.  A central SAP export may
 # contain many plants, but rows are never assigned to a laboratory by a name,
 # work centre, or user choice: the plant code below is the sole authority.
@@ -247,8 +249,9 @@ def financial_year_label(value: date) -> str:
 
 
 def financial_year_start(value: date) -> date:
-    """The 1 April that opens the financial year the given date falls in."""
-    return date(value.year if value.month >= 4 else value.year - 1, 4, 1)
+    """Return the current financial-year boundary, no earlier than 1 Sep 2026."""
+    year_start = date(value.year if value.month >= 4 else value.year - 1, 4, 1)
+    return max(year_start, SAP_MONITORING_START_DATE)
 
 
 def _find_as_of_date(raw: pd.DataFrame, filename: str | None = None) -> date | None:
@@ -494,6 +497,32 @@ def parse_sap_notification_workbook(
     if undated:
         excluded["no_start_date"] = undated
     return SAPExportPayload(rows=rows, as_of_date=payload.as_of_date, excluded_rows=excluded)
+
+
+def _rows_in_monitoring_scope(
+    inspection_rows: list[dict[str, Any]],
+    notification_rows: list[dict[str, Any]],
+    start_date: date,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Keep notifications from the reporting boundary and their paired lots."""
+    scoped_notifications = [
+        row for row in notification_rows
+        if row.get("notification_start_date") and row["notification_start_date"] >= start_date
+    ]
+    notification_lots = {
+        row.get("inspection_lot_number")
+        for row in scoped_notifications
+        if row.get("inspection_lot_number")
+    }
+    scoped_inspections = [
+        row for row in inspection_rows
+        if row.get("inspection_lot_number") in notification_lots
+        or (
+            row.get("start_inspection_date")
+            and row["start_inspection_date"] >= start_date
+        )
+    ]
+    return scoped_inspections, scoped_notifications
 
 
 def _validate_sap_plants(
@@ -949,6 +978,7 @@ def _persist_sap_lab_snapshot(
 
     summary = _summary(rows, as_of_date)
     summary["financial_year"] = financial_year_label(as_of_date)
+    summary["monitoring_start_date"] = financial_year_start(as_of_date).isoformat()
     summary["excluded_rows"] = dict(excluded_rows or {})
     batch = QCSAPUploadBatch(
         lab_code=lab_code,
@@ -1026,11 +1056,14 @@ def import_sap_lab_exports(
         )
     as_of_date = _paired_sap_as_of_date(inspections, notifications)
     _assert_sap_snapshot_is_current({lab_code}, as_of_date)
+    inspection_rows, notification_rows = _rows_in_monitoring_scope(
+        inspections.rows, notifications.rows, financial_year_start(as_of_date),
+    )
     batch = _persist_sap_lab_snapshot(
         lab_code=lab_code,
         plant_code=inspection_plant,
-        inspection_rows=inspections.rows,
-        notification_rows=notifications.rows,
+        inspection_rows=inspection_rows,
+        notification_rows=notification_rows,
         as_of_date=as_of_date,
         source_document=store_sap_source_document(
             inspection_source, inspection_filename,
@@ -1057,17 +1090,20 @@ def import_central_sap_exports(
     notifications = parse_sap_notification_workbook(
         notification_source, notification_filename, expected_plant=None, allow_multiple_plants=True,
     )
+    as_of_date = _paired_sap_as_of_date(inspections, notifications)
+    scoped_inspections, scoped_notifications = _rows_in_monitoring_scope(
+        inspections.rows, notifications.rows, financial_year_start(as_of_date),
+    )
     inspection_rows, inspection_set_aside = _select_approved_plant_rows(
-        inspections.rows, "Inspection Lots",
+        scoped_inspections, "Inspection Lots",
     )
     notification_rows, notification_set_aside = _select_approved_plant_rows(
-        notifications.rows, "Notifications",
+        scoped_notifications, "Notifications",
     )
     excluded_rows = {
         **inspections.excluded_rows, **notifications.excluded_rows,
         **_plants_set_aside_summary(inspection_set_aside, notification_set_aside),
     }
-    as_of_date = _paired_sap_as_of_date(inspections, notifications)
     inspections_by_plant = _rows_by_plant(inspection_rows)
     notifications_by_plant = _rows_by_plant(notification_rows)
     plant_codes = sorted(set(inspections_by_plant) | set(notifications_by_plant))
@@ -1109,6 +1145,13 @@ def _reconcile_financial_year(
     stale = QCSAPRecord.query.filter(
         QCSAPRecord.lab_code.in_(lab_codes),
         QCSAPRecord.financial_year == financial_year,
+        or_(
+            QCSAPRecord.notification_start_date >= SAP_MONITORING_START_DATE,
+            and_(
+                QCSAPRecord.notification_start_date.is_(None),
+                QCSAPRecord.start_inspection_date >= SAP_MONITORING_START_DATE,
+            ),
+        ),
         QCSAPRecord.source_key.notin_(keep_source_keys) if keep_source_keys else True,
     ).all()
     removed: list[str] = []
@@ -1165,11 +1208,15 @@ def rebuild_sap_financial_year(
     )
     if as_of_date is None:
         as_of_date = _paired_sap_as_of_date(inspections, notifications)
+    start_date = financial_year_start(as_of_date)
+    scoped_inspections, notification_rows_in_scope = _rows_in_monitoring_scope(
+        inspections.rows, notifications.rows, start_date,
+    )
     inspection_rows, inspection_set_aside = _select_approved_plant_rows(
-        inspections.rows, "Inspection Lots",
+        scoped_inspections, "Inspection Lots",
     )
     notification_rows, notification_set_aside = _select_approved_plant_rows(
-        notifications.rows, "Notifications",
+        notification_rows_in_scope, "Notifications",
     )
     excluded_rows = {
         **inspections.excluded_rows, **notifications.excluded_rows,
@@ -1267,14 +1314,24 @@ def financial_year_records(lab_code: str, batch: QCSAPUploadBatch):
     the year.  Every screen reads the year the batch falls in, which keeps the
     base data loaded at the start of that year in view.
     """
+    start_date = financial_year_start(batch.as_of_date)
+    notification_or_inspection_start = or_(
+        QCSAPRecord.notification_start_date >= start_date,
+        and_(
+            QCSAPRecord.notification_start_date.is_(None),
+            QCSAPRecord.start_inspection_date >= start_date,
+        ),
+    )
     return QCSAPRecord.query.filter_by(
         lab_code=lab_code, financial_year=financial_year_label(batch.as_of_date),
-    )
+    ).filter(notification_or_inspection_start)
 
 
 def latest_sap_batch(lab_code: str) -> QCSAPUploadBatch | None:
     get_sap_reporting_laboratory(lab_code)
-    return QCSAPUploadBatch.query.filter_by(lab_code=lab_code).order_by(
+    return QCSAPUploadBatch.query.filter_by(lab_code=lab_code).filter(
+        QCSAPUploadBatch.as_of_date >= SAP_MONITORING_START_DATE,
+    ).order_by(
         QCSAPUploadBatch.as_of_date.desc(), QCSAPUploadBatch.id.desc(),
     ).first()
 
@@ -1432,7 +1489,9 @@ def _latest_non_sap_updates(samples: list[QCNonSAPSample]) -> dict[int, QCNonSAP
 
 
 def _non_sap_entries(lab_code: str, *, include_closed: bool = False) -> list[dict[str, Any]]:
-    query = QCNonSAPSample.query.filter_by(lab_code=lab_code)
+    query = QCNonSAPSample.query.filter_by(lab_code=lab_code).filter(
+        QCNonSAPSample.sample_receipt_date >= SAP_MONITORING_START_DATE,
+    )
     if not include_closed:
         query = query.filter(~QCNonSAPSample.current_status.in_(NON_SAP_CLOSED_STATUSES))
     samples = query.order_by(
@@ -1558,6 +1617,12 @@ def sap_lab_dashboard_data(lab_code: str) -> dict[str, Any]:
         "non_sap_pending": len(non_sap_entries),
         "combined_pending": len(open_entries) + len(non_sap_entries),
     }
+    kpis["unmatched_inspection"] = sum(
+        record.source_completeness == "inspection_lot_only" for record in records
+    )
+    kpis["unmatched_notification"] = sum(
+        record.source_completeness == "notification_only" for record in records
+    )
     usage_decisions = Counter(record.usage_decision_code or "Not recorded" for record in records)
     return {
         "laboratory": laboratory,
@@ -1589,7 +1654,9 @@ def sap_lab_dashboard_data(lab_code: str) -> dict[str, Any]:
             key=lambda item: (item["is_non_sap"], -item["stt_overdue"], -item["open"], item["name"]),
         ),
         "usage_decisions": sorted(({"label": label, "count": count} for label, count in usage_decisions.items()), key=lambda item: (-item["count"], item["label"])),
-        "recent_batches": QCSAPUploadBatch.query.filter_by(lab_code=lab_code).order_by(
+        "recent_batches": QCSAPUploadBatch.query.filter_by(lab_code=lab_code).filter(
+            QCSAPUploadBatch.as_of_date >= financial_year_start(batch.as_of_date),
+        ).order_by(
             QCSAPUploadBatch.as_of_date.desc(), QCSAPUploadBatch.id.desc(),
         ).limit(SAP_SOURCE_AUDIT_TRAIL_LIMIT).all(),
         "source_audit_trail_limit": SAP_SOURCE_AUDIT_TRAIL_LIMIT,
@@ -1697,8 +1764,17 @@ def sap_sample_register_data(
     total_matching: int | None = None
     if current_batches and can_use_sql_window:
         year_conditions = [
-            (QCSAPRecord.lab_code == code)
-            & (QCSAPRecord.financial_year == financial_year_label(batch.as_of_date))
+            and_(
+                QCSAPRecord.lab_code == code,
+                QCSAPRecord.financial_year == financial_year_label(batch.as_of_date),
+                or_(
+                    QCSAPRecord.notification_start_date >= financial_year_start(batch.as_of_date),
+                    and_(
+                        QCSAPRecord.notification_start_date.is_(None),
+                        QCSAPRecord.start_inspection_date >= financial_year_start(batch.as_of_date),
+                    ),
+                ),
+            )
             for code, batch in current_batches.items()
         ]
         statement = QCSAPRecord.query.filter(or_(*year_conditions))
@@ -1901,14 +1977,21 @@ def sap_control_data() -> dict[str, Any]:
         counts = _sap_monitoring_counts(lab_code, batch)
         sap_open = counts["sap_open"]
         non_sap_pending = QCNonSAPSample.query.filter_by(lab_code=lab_code).filter(
+            QCNonSAPSample.sample_receipt_date >= SAP_MONITORING_START_DATE,
             ~QCNonSAPSample.current_status.in_(NON_SAP_CLOSED_STATUSES)
         ).count()
         cards.append({
             "laboratory": laboratory,
             "batch": batch,
+            "record_count": financial_year_records(lab_code, batch).count() if batch else 0,
             # What the newest upload moved, so the reader can see the day's
             # work rather than only the standing position.
-            "changes": _batch_summary(batch).get("changes") or {},
+            "changes": (
+                _batch_summary(batch).get("changes") or {}
+                if _batch_summary(batch).get("monitoring_start_date")
+                == financial_year_start(batch.as_of_date).isoformat()
+                else {}
+            ),
             "sap_open": sap_open,
             "excluded_from_monitoring": counts["excluded_from_monitoring"],
             "exclusion_review": counts["exclusion_review"],
@@ -2110,12 +2193,15 @@ def sap_management_data(lab_codes: set[str] | None = None, notification_date_fro
         records = financial_year_records(laboratory["code"], batch).order_by(
             QCSAPRecord.id.asc(),
         ).all()
-        if notification_date_from:
-            records = [
-                record for record in records
-                if record.notification_start_date is not None
-                and record.notification_start_date >= notification_date_from
-            ]
+        effective_start = max(
+            SAP_MONITORING_START_DATE,
+            notification_date_from or SAP_MONITORING_START_DATE,
+        )
+        records = [
+            record for record in records
+            if (record.notification_start_date or record.start_inspection_date)
+            and (record.notification_start_date or record.start_inspection_date) >= effective_start
+        ]
         updates = _latest_lab_updates(records)
         dispositions = _latest_monitoring_dispositions(records)
         kpis = {
@@ -2176,15 +2262,28 @@ def sap_management_data(lab_codes: set[str] | None = None, notification_date_fro
                 action_entries.append(entry)
             if completed_without_ud_details:
                 completed_without_ud_entries.append(entry)
-        previous_batch = QCSAPUploadBatch.query.filter_by(lab_code=laboratory["code"]).order_by(
+        scope_start = financial_year_start(batch.as_of_date)
+        previous_batch = QCSAPUploadBatch.query.filter_by(lab_code=laboratory["code"]).filter(
+            QCSAPUploadBatch.as_of_date >= scope_start,
+        ).order_by(
             QCSAPUploadBatch.as_of_date.desc(), QCSAPUploadBatch.id.desc(),
         ).offset(1).first()
+        previous_summary = _batch_summary(previous_batch) if previous_batch else None
+        if previous_summary and previous_summary.get("monitoring_start_date") != scope_start.isoformat():
+            previous_summary = None
+        summary = _batch_summary(batch)
+        summary.update({
+            "total_records": len(records),
+            "open_records": sum(record.official_status == "open" for record in records),
+            "completed_records": sum(record.official_status == "completed" for record in records),
+            "monitoring_start_date": scope_start.isoformat(),
+        })
         laboratory_reviews.append({
             "laboratory": laboratory,
             "batch": batch,
             "records": entries,
-            "summary": _batch_summary(batch),
-            "previous_summary": _batch_summary(previous_batch) if previous_batch else None,
+            "summary": summary,
+            "previous_summary": previous_summary,
             "previous_batch": previous_batch,
             "kpis": kpis,
         })
@@ -2603,7 +2702,14 @@ def _portfolio_load_groups(lab_codes: list[str]) -> list[Any]:
         QCSAPRecord.turnaround_days,
         func.count(QCSAPRecord.id).label("sample_count"),
     ).filter(
-        QCSAPRecord.lab_code.in_(lab_codes)
+        QCSAPRecord.lab_code.in_(lab_codes),
+        or_(
+            QCSAPRecord.notification_start_date >= SAP_MONITORING_START_DATE,
+            and_(
+                QCSAPRecord.notification_start_date.is_(None),
+                QCSAPRecord.start_inspection_date >= SAP_MONITORING_START_DATE,
+            ),
+        ),
     ).group_by(
         QCSAPRecord.lab_code,
         QCSAPRecord.material_code,

@@ -7,7 +7,7 @@
 
 <div class="mod-page-head">
   <div>
-    <div class="qc-lab-eyebrow">ONGC Laboratories · {{ laboratory.name }}{% if laboratory.location %} · {{ laboratory.location }}{% endif %}</div>
+    <div class="qc-lab-eyebrow">Data from {{ qc_data_start_date.strftime('%d.%m.%Y') }} · ONGC Laboratories · {{ laboratory.name }}{% if laboratory.location %} · {{ laboratory.location }}{% endif %}</div>
     <h1 class="mod-page-title"><i class="bi bi-easel2"></i> Management Brief</h1>
     <p class="mod-page-sub">{{ batch.report_label if batch else 'No local reporting record has been imported' }}</p>
   </div>
