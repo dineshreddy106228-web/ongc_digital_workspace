@@ -787,8 +787,8 @@ def build_sap_portfolio_management_presentation(
         slide = chrome.new_slide("SAP notification register", page_index)
         table(
             slide,
-            ["Inspection lot", "Notification", "Notification date", "UD", "Material", "Specification", "Work center", "STT due", "Lab follow-up"],
-            [], [1.0, 1.05, 1.05, 1.2, 1.5, 1.45, 1.15, 1.2, 2.85], y=1.55, font_size=8,
+            ["Inspection lot", "Notification", "Notification date", "Material", "Specification", "STT due", "UD", "Lab follow-up"],
+            [], [1.05, 1.05, 1.15, 1.8, 1.75, 1.3, 1.35, 3.0], y=1.55, font_size=8,
         )
         page_index += 1
     for group in action_groups:
@@ -827,15 +827,14 @@ def build_sap_portfolio_management_presentation(
                 rows.append([
                     record.inspection_lot_number or "—", record.notification_no or "—",
                     record.notification_start_date.strftime("%d %b %Y") if record.notification_start_date else "—",
-                    usage_decision_label,
                     concise(record.material_description, 31),
                     concise(item["specification_no"] or "Not in Corporate Specification", 28),
-                    concise(record.work_center or "Not assigned", 24), stt_due, concise(follow_up, 34),
+                    stt_due, usage_decision_label, concise(follow_up, 34),
                 ])
             table(
                 slide,
-                ["Inspection lot", "Notification", "Notification date", "UD", "Material", "Specification", "Work center", "STT due", "Lab follow-up"],
-                rows, [1.0, 1.05, 1.05, 1.2, 1.5, 1.45, 1.15, 1.2, 2.85], y=1.55, font_size=8,
+                ["Inspection lot", "Notification", "Notification date", "Material", "Specification", "STT due", "UD", "Lab follow-up"],
+                rows, [1.05, 1.05, 1.15, 1.8, 1.75, 1.3, 1.35, 3.0], y=1.55, font_size=8,
             )
 
     # Non-SAP register · declared samples with no SAP record, kept apart from
