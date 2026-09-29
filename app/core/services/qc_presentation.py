@@ -178,7 +178,7 @@ class _WeeklyReviewChrome(_DeckChrome):
     def header(self, slide, title, page):
         self.canvas_background(slide)
         self.add_text(slide, title, .52, .95, 12.1, .48, 25, self.TITLE_BLUE, True)
-        self.add_text(slide, self.source_line, .52, 7.15, 10.9, .15, 8, self.GREY)
+        self.add_text(slide, self.source_line, .52, 7.15, 10.9, .15, 8, self.MODEL_RED)
         self.add_text(slide, f"{page:02d}", 12.48, 7.15, .28, .15, 8, self.GREY)
 
     def cover(self, scope_label, as_of_label):
@@ -702,10 +702,14 @@ def build_sap_portfolio_management_presentation(
     prs.slide_width, prs.slide_height = Inches(13.333), Inches(7.5)
     scope_labs = data["scope_laboratories"]
     scope_label = "All SAP laboratories" if lab_codes is None else ", ".join(lab["name"] for lab in scope_labs)
+    position_label = (
+        f"SAP position as on {data['source_dates'][0]:%d %B %Y}"
+        if len(data["source_dates"]) == 1
+        else "SAP position as on each laboratory's latest snapshot"
+    )
     chrome = _WeeklyReviewChrome(
         prs, static_folder,
-        f"Source: latest paired SAP Inspection Lots and Notifications exports · Data from {SAP_MONITORING_START_DATE:%d %b %Y} · {data['source_as_of_label']}"
-        + (f" · Notifications from {notification_date_from:%d %b %Y}" if notification_date_from else ""),
+        position_label,
     )
     navy, blue, red, green, grey = chrome.NAVY, chrome.BLUE, chrome.RED, chrome.GREEN, chrome.GREY
 
@@ -780,17 +784,34 @@ def build_sap_portfolio_management_presentation(
         group["total"] += 1
         group[status] += 1
         if record.completion_date and record.completion_date >= record.notification_start_date:
-            completion_times.append((
-                (record.completion_date - record.notification_start_date).days,
-                record.notification_no,
-                record.material_description or "Material not stated in SAP",
-            ))
+            completion_times.append({
+                "days": (record.completion_date - record.notification_start_date).days,
+                "notification": record.notification_no,
+                "material": record.material_description or "Material not stated in SAP",
+                "notification_date": record.notification_start_date,
+                "completion_date": record.completion_date,
+                "laboratory": entry["laboratory"]["name"],
+            })
+
+    def summary_bar_chart(slide, title, rows, x, y, width, color, *, label_width=1.65, max_rows=5):
+        chrome.add_text(slide, title, x, y, width, .24, 13, navy, True)
+        chart_rows = rows[:max_rows]
+        max_value = max((value for _, value in chart_rows), default=0)
+        for index, (label, value) in enumerate(chart_rows):
+            row_y = y + .4 + index * .43
+            chrome.add_text(slide, concise(label, 38), x, row_y, label_width, .2, 8, grey)
+            bar_x = x + label_width + .08
+            bar_max_width = max(.25, width - label_width - .52)
+            bar_width = bar_max_width * value / max_value if max_value else 0
+            if bar_width:
+                chrome.rectangle(slide, bar_x, row_y + .015, bar_width, .17, color)
+            chrome.add_text(slide, str(value), x + width - .32, row_y - .01, .3, .2, 8, navy, True)
 
     summary = chrome.new_slide("Executive summary", 2)
     chrome.add_text(
         summary,
         f"Notifications created on or after {effective_date_from:%d %b %Y} · {len(notification_entries):,} total",
-        .55, 1.42, 9.3, .22, 12, grey, True,
+        .62, 1.48, 10.5, .22, 12, grey, True,
     )
     summary_cards = [
         (len(notification_entries), "Total samples", navy),
@@ -800,17 +821,43 @@ def build_sap_portfolio_management_presentation(
     ]
     for index, (value, label, tone) in enumerate(summary_cards):
         x = .55 + index * 3.18
-        chrome.rectangle(summary, x, 1.78, 2.92, .78, "F2F4F7" if tone == navy else "EAF7F0" if tone == green else "FCEBEC" if tone == red else "EAF4FF", chrome.BORDER)
+        fill = "F2F4F7" if tone == navy else "EAF7F0" if tone == green else "FCEBEC" if tone == red else "EAF4FF"
+        chrome.rectangle(summary, x, 1.78, 2.92, .78, fill, chrome.BORDER)
         chrome.add_text(summary, f"{value:,}", x + .16, 1.88, 2.55, .3, 23, tone, True)
         chrome.add_text(summary, label, x + .16, 2.23, 2.55, .2, 10, navy, True)
+
+    summary_bar_chart(
+        summary, "Status breakdown",
+        [(label, status_counts[label]) for label in ("Accepted", "Rejected", "Under Testing")],
+        .75, 3.02, 11.8, blue, label_width=2.25, max_rows=3,
+    )
+    completed_days = [item["days"] for item in completion_times]
+    longest_completed = max(completion_times, key=lambda item: item["days"], default=None)
+    insight_y = 4.85
+    if longest_completed:
+        chrome.add_text(summary, "Longest completion", .82, insight_y, 3.1, .25, 13, navy, True)
+        chrome.add_wrapped_text(
+            summary,
+            f"{longest_completed['days']} days · Notification {longest_completed['notification']} · {concise(longest_completed['material'], 70)}",
+            .82, insight_y + .37, 10.9, .42, 15, red, True,
+        )
+        chrome.add_text(
+            summary,
+            f"{len(completion_times):,} completed notifications with both dates · Average {sum(completed_days) / len(completed_days):.1f} days",
+            .82, insight_y + .92, 10.9, .24, 11, grey,
+        )
+    else:
+        chrome.add_text(summary, "No completed notifications have both notification and completion dates in this scope.", .82, insight_y, 11.5, .3, 12, grey)
 
     group_rows = [
         [label, values["total"], values["Accepted"], values["Rejected"], values["Under Testing"]]
         for label, values in sorted(groups_by_label.items(), key=lambda pair: (-pair[1]["total"], pair[0].casefold()))
     ]
+    group_slide = chrome.new_slide("Sample group status", 3)
+    chrome.add_text(group_slide, "Notification counts by Corporate Specification group and usage decision.", .62, 1.48, 11.0, .22, 11, grey)
     if group_rows:
-        shape = summary.shapes.add_table(
-            len(group_rows) + 1, 5, Inches(.55), Inches(2.78), Inches(6.25), Inches(3.55),
+        shape = group_slide.shapes.add_table(
+            len(group_rows) + 1, 5, Inches(.55), Inches(1.95), Inches(6.25), Inches(min(4.85, .4 * (len(group_rows) + 1))),
         )
         group_table = shape.table
         for index, width in enumerate([2.45, .78, .93, .9, 1.19]):
@@ -824,46 +871,40 @@ def build_sap_portfolio_management_presentation(
                 cell.text_frame.word_wrap = True
                 for paragraph in cell.text_frame.paragraphs:
                     paragraph.font.name = "Arial"
-                    paragraph.font.size = Pt(8 if row_index else 8)
+                    paragraph.font.size = Pt(8)
                     paragraph.font.color.rgb = chrome.color("FFFFFF" if row_index == 0 else navy)
                     paragraph.font.bold = row_index == 0
-
-    def summary_bar_chart(slide, title, rows, x, y, width, color, *, label_width=1.65, max_rows=5):
-        chrome.add_text(slide, title, x, y, width, .24, 13, navy, True)
-        chart_rows = rows[:max_rows]
-        max_value = max((value for _, value in chart_rows), default=0)
-        for index, (label, value) in enumerate(chart_rows):
-            row_y = y + .4 + index * .43
-            chrome.add_text(slide, concise(label, 20), x, row_y, label_width, .2, 8, grey)
-            bar_x = x + label_width + .08
-            bar_max_width = max(.25, width - label_width - .52)
-            bar_width = bar_max_width * value / max_value if max_value else 0
-            if bar_width:
-                chrome.rectangle(slide, bar_x, row_y + .015, bar_width, .17, color)
-            chrome.add_text(slide, str(value), x + width - .32, row_y - .01, .3, .2, 8, navy, True)
-
-    summary_bar_chart(
-        summary, "Status breakdown",
-        [(label, status_counts[label]) for label in ("Accepted", "Rejected", "Under Testing")],
-        7.15, 2.82, 5.55, blue, label_width=1.7, max_rows=3,
-    )
-    summary_bar_chart(
-        summary, "Samples by group · top five",
-        [(label, values["total"]) for label, values in sorted(groups_by_label.items(), key=lambda pair: (-pair[1]["total"], pair[0].casefold()))],
-        7.15, 4.15, 5.55, green, label_width=2.15, max_rows=5,
-    )
-    longest_text = "No completed notifications have both notification and completion dates in this scope."
-    if completion_times:
-        longest_days, longest_notification, longest_material = max(completion_times)
-        longest_text = (
-            f"Longest completion: {longest_days} days · Notification {longest_notification} · "
-            f"{concise(longest_material, 55)}"
+        summary_bar_chart(
+            group_slide, "Samples by group",
+            [(label, values["total"]) for label, values in sorted(groups_by_label.items(), key=lambda pair: (-pair[1]["total"], pair[0].casefold()))],
+            7.15, 1.95, 5.5, green, label_width=2.3, max_rows=9,
         )
-    chrome.add_wrapped_text(summary, longest_text, .62, 6.47, 12.0, .4, 11, navy, True)
+    else:
+        chrome.add_text(group_slide, "No notifications match the selected date.", .8, 2.1, 10.5, .35, 18, green, True)
 
-    # 03 · Position
+    completion_slide = chrome.new_slide("Notification completion time", 4)
+    chrome.add_text(completion_slide, "Calendar days from notification creation to notification completion.", .62, 1.48, 11.0, .22, 11, grey)
+    if completion_times:
+        completed_days.sort()
+        average_days = sum(completed_days) / len(completed_days)
+        chrome.metric(completion_slide, .9, 2.02, f"{len(completion_times):,}", "Completed with both dates", blue)
+        chrome.metric(completion_slide, 4.65, 2.02, f"{average_days:.1f}", "Average days to complete", green)
+        chrome.metric(completion_slide, 8.4, 2.02, f"{longest_completed['days']:,}", "Longest completion · days", red)
+        longest_rows = sorted(completion_times, key=lambda item: (-item["days"], item["notification"]))[:7]
+        duration_chart_rows = [
+            (f"{item['notification']} · {item['material']}", item["days"])
+            for item in longest_rows
+        ]
+        summary_bar_chart(
+            completion_slide, "Longest notification completion times",
+            duration_chart_rows, .75, 3.83, 11.8, red, label_width=4.2, max_rows=7,
+        )
+    else:
+        chrome.add_text(completion_slide, "No completed notifications have both dates in this scope.", .8, 2.1, 10.5, .35, 18, green, True)
+
+    # 05 · Position
     kpis = data["kpis"]
-    slide = chrome.new_slide("Official SAP position", 3)
+    slide = chrome.new_slide("Official SAP position", 5)
     cards = [
         (kpis["total"], "SAP monitoring records", blue),
         (kpis["actionable_open"], "Actionable SAP-open", red if kpis["actionable_open"] else green),
@@ -876,8 +917,8 @@ def build_sap_portfolio_management_presentation(
         chrome.metric(slide, .7 + (index % 3) * 4.2, 1.65 + (index // 3) * 2.0, value, label, tone)
     chrome.add_text(slide, f"Snapshot coverage: {data['reporting_labs']} of {data['configured_labs']} configured SAP laboratories. QC-admin exclusions: {kpis['excluded']}; exclusions requiring renewed review: {kpis['exclusion_review']}.", .75, 5.9, 11.6, .3, 13, grey)
 
-    # 04 · Laboratory overview
-    slide = chrome.new_slide("Laboratory SAP snapshot coverage", 4)
+    # 06 · Laboratory overview
+    slide = chrome.new_slide("Laboratory SAP snapshot coverage", 6)
     lab_rows = []
     for review in data["laboratory_reviews"]:
         if review["batch"] is None:
@@ -891,8 +932,8 @@ def build_sap_portfolio_management_presentation(
         ])
     table(slide, ["Laboratory", "Plant", "SAP as of", "Records", "Actionable open", "Past STT", "Awaiting lab"], lab_rows, [2.8, 1.0, 1.45, 1.15, 1.65, 1.25, 1.15], y=1.55, font_size=9)
 
-    # 05 · Work-centre exposure
-    slide = chrome.new_slide("Open workload by SAP work center", 5)
+    # 07 · Work-centre exposure
+    slide = chrome.new_slide("Open workload by SAP work center", 7)
     centre_rows = [[
         item["name"], ", ".join(item["laboratories"]), item["open"],
         item["stt_overdue"], item["awaiting_lab"],
@@ -903,7 +944,7 @@ def build_sap_portfolio_management_presentation(
     # Specification sub-group so accepted, rejected, and open notifications
     # remain visible together.
     action_groups = _sap_presentation_action_groups(data)
-    page_index = 6
+    page_index = 8
     if not action_groups:
         slide = chrome.new_slide("SAP notification register", page_index)
         table(
@@ -964,7 +1005,10 @@ def build_sap_portfolio_management_presentation(
                 slide,
                 ["Inspection lot", "Notification", "Notification date", "Material", "Specification", "STT due", "UD", "Lab follow-up"],
                 rows, [1.05, 1.05, 1.15, 2.5, 1.45, 1.25, 1.35, 2.65],
-                y=1.55, font_size=8, height=5.15,
+                # Keep the same row height on a short final page as on a full
+                # page. A fixed 5.15-inch table makes PowerPoint stretch one
+                # or two remaining records to fill the entire body area.
+                y=1.55, font_size=8, height=5.15 * (len(rows) + 1) / 11,
             )
 
     # Non-SAP register · declared samples with no SAP record, kept apart from
