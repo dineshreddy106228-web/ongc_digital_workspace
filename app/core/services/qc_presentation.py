@@ -246,7 +246,7 @@ def _paginated_rows(rows, page_size: int):
 
 
 def _sap_presentation_action_groups(data):
-    """Order SAP-open samples by laboratory, then corporate-specification group.
+    """Order SAP notifications by laboratory, then corporate-specification group.
 
     The all-laboratories deck is read as a hand-off pack. A mixed, globally
     overdue-sorted register makes it difficult for an RGL to find its own
@@ -266,13 +266,17 @@ def _sap_presentation_action_groups(data):
     labels: dict[tuple[str, str], str] = {}
     laboratories: dict[str, dict] = {}
 
-    for entry in data["action_entries"]:
-        laboratory = entry["laboratory"]
-        subgroup_key = entry["subgroup_key"] or CORPORATE_SPECIFICATION_UNMATCHED_KEY
-        key = (laboratory["code"], subgroup_key)
-        grouped.setdefault(key, []).append(entry)
-        labels[key] = entry["subgroup_label"]
-        laboratories[laboratory["code"]] = laboratory
+    for review in data["laboratory_reviews"]:
+        for entry in review["records"]:
+            record = entry["record"]
+            if not record.notification_no:
+                continue
+            laboratory = entry["laboratory"]
+            subgroup_key = entry["subgroup_key"] or CORPORATE_SPECIFICATION_UNMATCHED_KEY
+            key = (laboratory["code"], subgroup_key)
+            grouped.setdefault(key, []).append(entry)
+            labels[key] = entry["subgroup_label"]
+            laboratories[laboratory["code"]] = laboratory
 
     groups = []
     for key in sorted(
@@ -774,17 +778,17 @@ def build_sap_portfolio_management_presentation(
     ] for item in data["work_centers"][:14]]
     table(slide, ["SAP work center", "Laboratories", "Open", "Past STT", "No lab update"], centre_rows, [3.7, 3.65, 1.35, 1.65, 2.1], y=1.55, font_size=10)
 
-    # 05+ · Complete current action register, grouped for each laboratory's
-    # hand-off by Corporate Specification sub-group rather than as one mixed
-    # cross-laboratory queue.
+    # 05+ · Notification register, grouped by laboratory and Corporate
+    # Specification sub-group so accepted, rejected, and open notifications
+    # remain visible together.
     action_groups = _sap_presentation_action_groups(data)
     page_index = 5
     if not action_groups:
-        slide = chrome.new_slide("All actionable SAP-open items", page_index)
+        slide = chrome.new_slide("SAP notification register", page_index)
         table(
             slide,
-            ["Inspection lot", "Notification", "Notification date", "Material", "Specification", "Work center", "STT due", "Lab follow-up"],
-            [], [1.15, 1.15, 1.15, 1.85, 1.7, 1.4, 1.4, 2.65], y=1.55, font_size=8,
+            ["Inspection lot", "Notification", "Notification date", "UD", "Material", "Specification", "Work center", "STT due", "Lab follow-up"],
+            [], [1.0, 1.05, 1.05, 1.2, 1.5, 1.45, 1.15, 1.2, 2.85], y=1.55, font_size=8,
         )
         page_index += 1
     for group in action_groups:
@@ -798,7 +802,7 @@ def build_sap_portfolio_management_presentation(
             page_index += 1
             chrome.add_text(
                 slide,
-                "Actionable SAP-open samples — grouped by laboratory and Corporate Specification sub-group.",
+                "SAP notifications — grouped by laboratory and Corporate Specification sub-group.",
                 .45, 1.39, 10.6, .1, 7, grey,
             )
             rows = []
@@ -815,17 +819,23 @@ def build_sap_portfolio_management_presentation(
                 follow_up = item["reconciliation_label"]
                 if update and update.expected_completion_date:
                     follow_up += f" · ETA {update.expected_completion_date:%d %b}"
+                usage_decision = (record.usage_decision_code or "").strip().upper()
+                usage_decision_label = {
+                    "A": "Accepted",
+                    "R": "Rejected",
+                }.get(usage_decision, "Under Testing")
                 rows.append([
                     record.inspection_lot_number or "—", record.notification_no or "—",
                     record.notification_start_date.strftime("%d %b %Y") if record.notification_start_date else "—",
+                    usage_decision_label,
                     concise(record.material_description, 31),
                     concise(item["specification_no"] or "Not in Corporate Specification", 28),
                     concise(record.work_center or "Not assigned", 24), stt_due, concise(follow_up, 34),
                 ])
             table(
                 slide,
-                ["Inspection lot", "Notification", "Notification date", "Material", "Specification", "Work center", "STT due", "Lab follow-up"],
-                rows, [1.15, 1.15, 1.15, 1.85, 1.7, 1.4, 1.4, 2.65], y=1.55, font_size=8,
+                ["Inspection lot", "Notification", "Notification date", "UD", "Material", "Specification", "Work center", "STT due", "Lab follow-up"],
+                rows, [1.0, 1.05, 1.05, 1.2, 1.5, 1.45, 1.15, 1.2, 2.85], y=1.55, font_size=8,
             )
 
     # Non-SAP register · declared samples with no SAP record, kept apart from
