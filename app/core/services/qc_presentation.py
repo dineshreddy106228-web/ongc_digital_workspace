@@ -248,13 +248,11 @@ def _paginated_rows(rows, page_size: int):
 
 
 def _sap_presentation_action_groups(data):
-    """Order SAP notifications by laboratory, then corporate-specification group.
+    """Order SAP notification groups and rows by newest notification date.
 
-    The all-laboratories deck is read as a hand-off pack. A mixed, globally
-    overdue-sorted register makes it difficult for an RGL to find its own
-    Drilling Fluid, Production Chemical and other queues. Keep the approved
-    SAP laboratory order first, followed by the Corporate Specification
-    category order; overdue items still lead within each section.
+    Keep the laboratory and specification sections intact, ordered by each
+    section's latest notification date. Within each section, notification rows
+    are newest first.
     """
     from app.core.services.csc_utils import SPEC_SUBSET_ORDER
     from app.core.services.sap_quality_control import CORPORATE_SPECIFICATION_UNMATCHED_KEY
@@ -292,21 +290,32 @@ def _sap_presentation_action_groups(data):
         entries = sorted(
             grouped[key],
             key=lambda entry: (
-                not entry["stt_overdue"],
-                entry["stt_due_date"] or date.max,
-                entry["specification_no"] or "",
-                (entry["record"].material_description or "").casefold(),
+                entry["record"].notification_start_date or date.min,
                 entry["record"].notification_no or "",
                 entry["record"].id,
             ),
+            reverse=True,
         )
         groups.append({
             "laboratory": laboratories[key[0]],
             "subgroup_key": key[1],
             "subgroup_label": labels[key],
+            "latest_notification_date": max(
+                (entry["record"].notification_start_date for entry in grouped[key]
+                 if entry["record"].notification_start_date),
+                default=date.min,
+            ),
             "entries": entries,
         })
-    return groups
+    return sorted(
+        groups,
+        key=lambda group: (
+            group["latest_notification_date"],
+            group["laboratory"]["name"].casefold(),
+            group["subgroup_label"].casefold(),
+        ),
+        reverse=True,
+    )
 
 
 def build_lab_performance_presentation(lab_code: str, static_folder: str, notification_date_from: date | None = None) -> tuple[BytesIO, str]:
@@ -743,9 +752,118 @@ def build_sap_portfolio_management_presentation(
     )
     chrome.cover(scope_label, cover_date)
 
-    # 02 · Position
+    # 02 · Executive summary for the selected notification creation window.
+    # The summary deliberately counts SAP notification rows only; declared
+    # non-SAP samples remain separate in their own section later in the deck.
+    effective_date_from = max(
+        SAP_MONITORING_START_DATE,
+        notification_date_from or SAP_MONITORING_START_DATE,
+    )
+    notification_entries = [
+        entry
+        for review in data["laboratory_reviews"]
+        for entry in review["records"]
+        if entry["record"].notification_no
+        and entry["record"].notification_start_date
+        and entry["record"].notification_start_date >= effective_date_from
+    ]
+    status_counts = {"Accepted": 0, "Rejected": 0, "Under Testing": 0}
+    groups_by_label = {}
+    completion_times = []
+    for entry in notification_entries:
+        record = entry["record"]
+        usage_decision = (record.usage_decision_code or "").strip().upper()
+        status = {"A": "Accepted", "R": "Rejected"}.get(usage_decision, "Under Testing")
+        status_counts[status] += 1
+        label = entry["subgroup_label"] or "Not grouped"
+        group = groups_by_label.setdefault(label, {"total": 0, **{key: 0 for key in status_counts}})
+        group["total"] += 1
+        group[status] += 1
+        if record.completion_date and record.completion_date >= record.notification_start_date:
+            completion_times.append((
+                (record.completion_date - record.notification_start_date).days,
+                record.notification_no,
+                record.material_description or "Material not stated in SAP",
+            ))
+
+    summary = chrome.new_slide("Executive summary", 2)
+    chrome.add_text(
+        summary,
+        f"Notifications created on or after {effective_date_from:%d %b %Y} · {len(notification_entries):,} total",
+        .55, 1.42, 9.3, .22, 12, grey, True,
+    )
+    summary_cards = [
+        (len(notification_entries), "Total samples", navy),
+        (status_counts["Accepted"], "Accepted", green),
+        (status_counts["Rejected"], "Rejected", red),
+        (status_counts["Under Testing"], "Under Testing", blue),
+    ]
+    for index, (value, label, tone) in enumerate(summary_cards):
+        x = .55 + index * 3.18
+        chrome.rectangle(summary, x, 1.78, 2.92, .78, "F2F4F7" if tone == navy else "EAF7F0" if tone == green else "FCEBEC" if tone == red else "EAF4FF", chrome.BORDER)
+        chrome.add_text(summary, f"{value:,}", x + .16, 1.88, 2.55, .3, 23, tone, True)
+        chrome.add_text(summary, label, x + .16, 2.23, 2.55, .2, 10, navy, True)
+
+    group_rows = [
+        [label, values["total"], values["Accepted"], values["Rejected"], values["Under Testing"]]
+        for label, values in sorted(groups_by_label.items(), key=lambda pair: (-pair[1]["total"], pair[0].casefold()))
+    ]
+    if group_rows:
+        shape = summary.shapes.add_table(
+            len(group_rows) + 1, 5, Inches(.55), Inches(2.78), Inches(6.25), Inches(3.55),
+        )
+        group_table = shape.table
+        for index, width in enumerate([2.45, .78, .93, .9, 1.19]):
+            group_table.columns[index].width = Inches(width)
+        for row_index, values in enumerate([["Sample group", "Total", "Accepted", "Rejected", "Testing"], *group_rows]):
+            for column, value in enumerate(values):
+                cell = group_table.cell(row_index, column)
+                cell.text = str(value)
+                cell.fill.solid()
+                cell.fill.fore_color.rgb = chrome.color(navy if row_index == 0 else ("F8FBFE" if row_index % 2 == 0 else "FFFFFF"))
+                cell.text_frame.word_wrap = True
+                for paragraph in cell.text_frame.paragraphs:
+                    paragraph.font.name = "Arial"
+                    paragraph.font.size = Pt(8 if row_index else 8)
+                    paragraph.font.color.rgb = chrome.color("FFFFFF" if row_index == 0 else navy)
+                    paragraph.font.bold = row_index == 0
+
+    def summary_bar_chart(slide, title, rows, x, y, width, color, *, label_width=1.65, max_rows=5):
+        chrome.add_text(slide, title, x, y, width, .24, 13, navy, True)
+        chart_rows = rows[:max_rows]
+        max_value = max((value for _, value in chart_rows), default=0)
+        for index, (label, value) in enumerate(chart_rows):
+            row_y = y + .4 + index * .43
+            chrome.add_text(slide, concise(label, 20), x, row_y, label_width, .2, 8, grey)
+            bar_x = x + label_width + .08
+            bar_max_width = max(.25, width - label_width - .52)
+            bar_width = bar_max_width * value / max_value if max_value else 0
+            if bar_width:
+                chrome.rectangle(slide, bar_x, row_y + .015, bar_width, .17, color)
+            chrome.add_text(slide, str(value), x + width - .32, row_y - .01, .3, .2, 8, navy, True)
+
+    summary_bar_chart(
+        summary, "Status breakdown",
+        [(label, status_counts[label]) for label in ("Accepted", "Rejected", "Under Testing")],
+        7.15, 2.82, 5.55, blue, label_width=1.7, max_rows=3,
+    )
+    summary_bar_chart(
+        summary, "Samples by group · top five",
+        [(label, values["total"]) for label, values in sorted(groups_by_label.items(), key=lambda pair: (-pair[1]["total"], pair[0].casefold()))],
+        7.15, 4.15, 5.55, green, label_width=2.15, max_rows=5,
+    )
+    longest_text = "No completed notifications have both notification and completion dates in this scope."
+    if completion_times:
+        longest_days, longest_notification, longest_material = max(completion_times)
+        longest_text = (
+            f"Longest completion: {longest_days} days · Notification {longest_notification} · "
+            f"{concise(longest_material, 55)}"
+        )
+    chrome.add_wrapped_text(summary, longest_text, .62, 6.47, 12.0, .4, 11, navy, True)
+
+    # 03 · Position
     kpis = data["kpis"]
-    slide = chrome.new_slide("Official SAP position", 2)
+    slide = chrome.new_slide("Official SAP position", 3)
     cards = [
         (kpis["total"], "SAP monitoring records", blue),
         (kpis["actionable_open"], "Actionable SAP-open", red if kpis["actionable_open"] else green),
@@ -758,8 +876,8 @@ def build_sap_portfolio_management_presentation(
         chrome.metric(slide, .7 + (index % 3) * 4.2, 1.65 + (index // 3) * 2.0, value, label, tone)
     chrome.add_text(slide, f"Snapshot coverage: {data['reporting_labs']} of {data['configured_labs']} configured SAP laboratories. QC-admin exclusions: {kpis['excluded']}; exclusions requiring renewed review: {kpis['exclusion_review']}.", .75, 5.9, 11.6, .3, 13, grey)
 
-    # 03 · Laboratory overview
-    slide = chrome.new_slide("Laboratory SAP snapshot coverage", 3)
+    # 04 · Laboratory overview
+    slide = chrome.new_slide("Laboratory SAP snapshot coverage", 4)
     lab_rows = []
     for review in data["laboratory_reviews"]:
         if review["batch"] is None:
@@ -773,8 +891,8 @@ def build_sap_portfolio_management_presentation(
         ])
     table(slide, ["Laboratory", "Plant", "SAP as of", "Records", "Actionable open", "Past STT", "Awaiting lab"], lab_rows, [2.8, 1.0, 1.45, 1.15, 1.65, 1.25, 1.15], y=1.55, font_size=9)
 
-    # 04 · Work-centre exposure
-    slide = chrome.new_slide("Open workload by SAP work center", 4)
+    # 05 · Work-centre exposure
+    slide = chrome.new_slide("Open workload by SAP work center", 5)
     centre_rows = [[
         item["name"], ", ".join(item["laboratories"]), item["open"],
         item["stt_overdue"], item["awaiting_lab"],
@@ -785,7 +903,7 @@ def build_sap_portfolio_management_presentation(
     # Specification sub-group so accepted, rejected, and open notifications
     # remain visible together.
     action_groups = _sap_presentation_action_groups(data)
-    page_index = 5
+    page_index = 6
     if not action_groups:
         slide = chrome.new_slide("SAP notification register", page_index)
         table(
