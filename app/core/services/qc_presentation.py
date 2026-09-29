@@ -703,11 +703,11 @@ def build_sap_portfolio_management_presentation(
         text = " ".join(str(value or "—").split())
         return text if len(text) <= limit else f"{text[:limit].rsplit(' ', 1)[0]}…"
 
-    def table(slide, headers, rows, widths, *, y=1.5, font_size=9):
+    def table(slide, headers, rows, widths, *, y=1.5, font_size=9, height=None):
         if not rows:
             chrome.add_text(slide, "No SAP records are available for this view.", .8, 2.1, 10.5, .35, 18, green, True)
             return
-        height = min(5.15, .34 * (len(rows) + 1))
+        height = height or min(5.15, .34 * (len(rows) + 1))
         shape = slide.shapes.add_table(len(rows) + 1, len(headers), Inches(.42), Inches(y), Inches(12.45), Inches(height))
         table_shape = shape.table
         for index, width in enumerate(widths):
@@ -725,6 +725,7 @@ def build_sap_portfolio_management_presentation(
                 cell.fill.fore_color.rgb = chrome.color("F8FBFE" if row_index % 2 == 0 else "FFFFFF")
         for row in table_shape.rows:
             for cell in row.cells:
+                cell.text_frame.word_wrap = True
                 for paragraph in cell.text_frame.paragraphs:
                     paragraph.font.size = Pt(font_size)
                     paragraph.font.name = "Arial"
@@ -836,14 +837,15 @@ def build_sap_portfolio_management_presentation(
                 rows.append([
                     record.inspection_lot_number or "—", record.notification_no or "—",
                     record.notification_start_date.strftime("%d %b %Y") if record.notification_start_date else "—",
-                    concise(record.material_description, 31),
+                    record.material_description or "Material not stated in SAP",
                     concise(item["specification_no"] or "Not in Corporate Specification", 28),
                     stt_due, usage_decision_label, concise(follow_up, 34),
                 ])
             table(
                 slide,
                 ["Inspection lot", "Notification", "Notification date", "Material", "Specification", "STT due", "UD", "Lab follow-up"],
-                rows, [1.05, 1.05, 1.15, 1.8, 1.75, 1.3, 1.35, 3.0], y=1.55, font_size=8,
+                rows, [1.05, 1.05, 1.15, 2.5, 1.45, 1.25, 1.35, 2.65],
+                y=1.55, font_size=8, height=5.15,
             )
 
     # Non-SAP register · declared samples with no SAP record, kept apart from
