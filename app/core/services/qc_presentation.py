@@ -807,7 +807,7 @@ def build_sap_portfolio_management_presentation(
             )
             rows = []
             for item in entries:
-                record, update = item["record"], item["lab_update"]
+                record = item["record"]
                 if item["stt_due_date"]:
                     stt_due = item["stt_due_date"].strftime("%d %b %Y")
                     if item["stt_overdue"]:
@@ -816,14 +816,22 @@ def build_sap_portfolio_management_presentation(
                     stt_due = f"STT {item['stt_days']} d · no start"
                 else:
                     stt_due = "STT not defined"
-                follow_up = item["reconciliation_label"]
-                if update and update.expected_completion_date:
-                    follow_up += f" · ETA {update.expected_completion_date:%d %b}"
                 usage_decision = (record.usage_decision_code or "").strip().upper()
                 usage_decision_label = {
                     "A": "Accepted",
                     "R": "Rejected",
                 }.get(usage_decision, "Under Testing")
+                if usage_decision in {"A", "R"}:
+                    ud_date = record.end_inspection_date
+                    start_date = record.start_inspection_date or record.notification_start_date
+                    if ud_date:
+                        follow_up = f"Completed · {ud_date:%d %b %Y}"
+                        if start_date and ud_date >= start_date:
+                            follow_up += f" · {(ud_date - start_date).days} days"
+                    else:
+                        follow_up = "Completed · UD date not recorded"
+                else:
+                    follow_up = "Lab follow-up requested"
                 rows.append([
                     record.inspection_lot_number or "—", record.notification_no or "—",
                     record.notification_start_date.strftime("%d %b %Y") if record.notification_start_date else "—",
