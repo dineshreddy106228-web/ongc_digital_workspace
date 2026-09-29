@@ -12,7 +12,7 @@
   </div>
   <div class="mod-page-actions">
     <a class="btn btn-secondary" href="{{ url_for('quality_control.landing') }}"><i class="bi bi-grid"></i> Laboratories</a>
-    {% if batch %}<a class="btn btn-primary" href="{{ url_for('quality_control.download_lab_presentation', lab_code=laboratory.code) }}"><i class="bi bi-file-earmark-ppt"></i> Download presentation</a>{% endif %}
+    {% if batch %}<form method="get" action="{{ url_for('quality_control.download_lab_presentation', lab_code=laboratory.code) }}" class="qc-presentation-scope-form"><label><span>Notifications received on or after</span><input class="form-control" type="date" name="notification_date_from"></label><button class="btn btn-primary" type="submit"><i class="bi bi-file-earmark-ppt"></i> Download presentation</button></form>{% endif %}
   </div>
 </div>
 {% include "quality_control/_subnav.html" %}

@@ -15,6 +15,7 @@
       <a class="btn btn-secondary" href="{{ url_for('quality_control.landing') }}"><i class="bi bi-grid"></i> Monitoring home</a>
       <form class="qc-presentation-scope-form" method="get" action="{{ url_for('quality_control.download_portfolio_management_presentation') }}">
         <label for="presentationLab"><span>Presentation scope</span><select id="presentationLab" class="form-select" name="lab"><option value="">All reporting laboratories</option>{% for review in laboratory_reviews if review.batch %}<option value="{{ review.laboratory.code }}">{{ review.laboratory.name }}</option>{% endfor %}</select></label>
+        <label for="notificationDateFrom"><span>Notifications created on or after</span><input id="notificationDateFrom" class="form-control" type="date" name="notification_date_from"></label>
         <button class="btn btn-primary" type="submit"><i class="bi bi-file-earmark-ppt"></i> Download presentation</button>
       </form>
     </div>

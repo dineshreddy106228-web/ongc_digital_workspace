@@ -2068,7 +2068,7 @@ def non_sap_register_data(lab_codes: set[str] | None = None) -> dict[str, Any]:
     }
 
 
-def sap_management_data(lab_codes: set[str] | None = None) -> dict[str, Any]:
+def sap_management_data(lab_codes: set[str] | None = None, notification_date_from: date | None = None) -> dict[str, Any]:
     """Build the management view exclusively from each laboratory's latest SAP snapshot.
 
     A row enters this view only when it was present in the most recent SAP
@@ -2110,6 +2110,12 @@ def sap_management_data(lab_codes: set[str] | None = None) -> dict[str, Any]:
         records = financial_year_records(laboratory["code"], batch).order_by(
             QCSAPRecord.id.asc(),
         ).all()
+        if notification_date_from:
+            records = [
+                record for record in records
+                if record.notification_start_date is not None
+                and record.notification_start_date >= notification_date_from
+            ]
         updates = _latest_lab_updates(records)
         dispositions = _latest_monitoring_dispositions(records)
         kpis = {

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import wraps
+from datetime import date
 from io import BytesIO
 import logging
 from pathlib import Path
@@ -796,8 +797,16 @@ def download_portfolio_management_presentation():
             "management presentation to build.", "warning",
         )
         return redirect(url_for("quality_control.landing"))
+    date_value = request.args.get("notification_date_from", "").strip()
     try:
-        output, filename = build_sap_portfolio_management_presentation(current_app.static_folder, lab_codes)
+        notification_date_from = date.fromisoformat(date_value) if date_value else None
+    except ValueError:
+        flash("Enter a valid notification start date.", "warning")
+        return redirect(fallback)
+    try:
+        output, filename = build_sap_portfolio_management_presentation(
+            current_app.static_folder, lab_codes, notification_date_from,
+        )
     except ValueError as exc:
         flash(str(exc), "warning")
     except Exception:
@@ -917,8 +926,14 @@ def management_brief(lab_code: str):
 @laboratory_view_required
 def download_brief_presentation(lab_code: str):
     from app.core.services.qc_presentation import build_lab_brief_presentation
+    date_value = request.args.get("notification_date_from", "").strip()
     try:
-        output, filename = build_lab_brief_presentation(lab_code, current_app.static_folder)
+        notification_date_from = date.fromisoformat(date_value) if date_value else None
+    except ValueError:
+        flash("Enter a valid notification start date.", "warning")
+        return redirect(url_for("quality_control.management_brief", lab_code=lab_code))
+    try:
+        output, filename = build_lab_brief_presentation(lab_code, current_app.static_folder, notification_date_from)
     except ValueError as exc:
         flash(str(exc), "warning")
         return redirect(url_for("quality_control.management_brief", lab_code=lab_code))
@@ -935,8 +950,14 @@ def download_brief_presentation(lab_code: str):
 @laboratory_view_required
 def download_lab_presentation(lab_code: str):
     from app.core.services.qc_presentation import build_lab_performance_presentation
+    date_value = request.args.get("notification_date_from", "").strip()
     try:
-        output, filename = build_lab_performance_presentation(lab_code, current_app.static_folder)
+        notification_date_from = date.fromisoformat(date_value) if date_value else None
+    except ValueError:
+        flash("Enter a valid notification start date.", "warning")
+        return redirect(url_for("quality_control.laboratory_dashboard", lab_code=lab_code))
+    try:
+        output, filename = build_lab_performance_presentation(lab_code, current_app.static_folder, notification_date_from)
     except ValueError as exc:
         flash(str(exc), "warning")
         return redirect(url_for("quality_control.laboratory_dashboard", lab_code=lab_code))

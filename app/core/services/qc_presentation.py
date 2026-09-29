@@ -303,7 +303,7 @@ def _sap_presentation_action_groups(data):
     return groups
 
 
-def build_lab_performance_presentation(lab_code: str, static_folder: str) -> tuple[BytesIO, str]:
+def build_lab_performance_presentation(lab_code: str, static_folder: str, notification_date_from: date | None = None) -> tuple[BytesIO, str]:
     """Create a lab-specific review deck without loading PPTX libraries at startup."""
     from pptx import Presentation
     from pptx.dml.color import RGBColor
@@ -312,13 +312,28 @@ def build_lab_performance_presentation(lab_code: str, static_folder: str) -> tup
     from app.core.services.quality_control import CLOSED_SAMPLE_REVIEW_STT_DAYS, _normalized_chemical, latest_dashboard_data
 
     data = latest_dashboard_data(lab_code)
+    if notification_date_from:
+        data["samples"] = [s for s in data["samples"] if s.sample_receipt_date and s.sample_receipt_date >= notification_date_from]
+        data["overdue_samples"] = [s for s in data["overdue_samples"] if s.sample_receipt_date and s.sample_receipt_date >= notification_date_from]
+        from app.core.services.quality_control import build_summary
+        data["summary"] = build_summary(data["samples"], date.today())
     batch = data["batch"]
     if batch is None:
         raise ValueError("Import a local status workbook before downloading a presentation.")
     standards = {item.normalized_name: item.standard_days for item in QCTestingStandard.query.all()}
     month_start = batch.week_end.replace(day=1)
     next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
-    completed = QCSample.query.filter(QCSample.lab_code == lab_code, QCSample.report_issue_date >= month_start, QCSample.report_issue_date < next_month).all()
+    if notification_date_from:
+        intake_query = QCSample.query.filter(
+            QCSample.lab_code == lab_code,
+            QCSample.sample_receipt_date >= max(month_start, notification_date_from),
+            QCSample.sample_receipt_date < next_month,
+        )
+        data["month_intake"] = intake_query.count()
+    completed_query = QCSample.query.filter(QCSample.lab_code == lab_code, QCSample.report_issue_date >= month_start, QCSample.report_issue_date < next_month)
+    if notification_date_from:
+        completed_query = completed_query.filter(QCSample.sample_receipt_date >= notification_date_from)
+    completed = completed_query.all()
     completed = [s for s in completed if s.result_status in {"pass", "fail", "report_issued"} and s.turnaround_days is not None]
     def stt(sample): return standards.get(_normalized_chemical(sample.chemical_name)) or CLOSED_SAMPLE_REVIEW_STT_DAYS
     late, within = [s for s in completed if s.turnaround_days > stt(s)], [s for s in completed if s.turnaround_days <= stt(s)]
@@ -407,7 +422,7 @@ def build_lab_performance_presentation(lab_code: str, static_folder: str) -> tup
     output=BytesIO(); prs.save(output); output.seek(0); return output, f"{data['laboratory']['name']} Performance Review {month_start:%b %Y}.pptx"
 
 
-def build_lab_brief_presentation(lab_code: str, static_folder: str) -> tuple[BytesIO, str]:
+def build_lab_brief_presentation(lab_code: str, static_folder: str, notification_date_from: date | None = None) -> tuple[BytesIO, str]:
     """The local-reporting management brief as a deck, mirroring the page section for section.
 
     Deliberately narrower than the performance review: this is the one reporting
@@ -419,6 +434,10 @@ def build_lab_brief_presentation(lab_code: str, static_folder: str) -> tuple[Byt
     from app.core.services.quality_control import latest_dashboard_data
 
     data = latest_dashboard_data(lab_code)
+    if notification_date_from:
+        data["samples"] = [s for s in data["samples"] if s.sample_receipt_date and s.sample_receipt_date >= notification_date_from]
+        from app.core.services.quality_control import build_summary
+        data["summary"] = build_summary(data["samples"], date.today())
     batch = data["batch"]
     if batch is None:
         raise ValueError("Import a local status workbook before downloading the management brief.")
@@ -647,6 +666,7 @@ def build_portfolio_management_presentation(static_folder: str, reporting_week_e
 
 def build_sap_portfolio_management_presentation(
     static_folder: str, lab_codes: set[str] | None = None,
+    notification_date_from: date | None = None,
 ) -> tuple[BytesIO, str]:
     """Create the senior-management deck from the current SAP snapshots only."""
     from pptx import Presentation
@@ -655,7 +675,7 @@ def build_sap_portfolio_management_presentation(
         non_sap_register_data, sap_management_data,
     )
 
-    data = sap_management_data(lab_codes)
+    data = sap_management_data(lab_codes, notification_date_from)
     # The declared non-SAP register is read separately and stays separate: it
     # never enters the SAP counts, but it is the rest of the bench's load and
     # the management deck is now the only deck that carries it.
@@ -669,7 +689,8 @@ def build_sap_portfolio_management_presentation(
     scope_label = "All SAP laboratories" if lab_codes is None else ", ".join(lab["name"] for lab in scope_labs)
     chrome = _WeeklyReviewChrome(
         prs, static_folder,
-        f"Source: latest paired SAP Inspection Lots and Notifications exports · {data['source_as_of_label']}",
+        f"Source: latest paired SAP Inspection Lots and Notifications exports · {data['source_as_of_label']}"
+        + (f" · Notifications from {notification_date_from:%d %b %Y}" if notification_date_from else ""),
     )
     navy, blue, red, green, grey = chrome.NAVY, chrome.BLUE, chrome.RED, chrome.GREEN, chrome.GREY
 
