@@ -178,7 +178,7 @@ class _WeeklyReviewChrome(_DeckChrome):
     def header(self, slide, title, page):
         self.canvas_background(slide)
         self.add_text(slide, title, .52, .95, 12.1, .48, 25, self.TITLE_BLUE, True)
-        self.add_text(slide, self.source_line, .52, 7.15, 10.9, .15, 8, self.MODEL_RED)
+        self.add_text(slide, self.source_line, .52, 7.15, 10.9, .15, 8, self.TITLE_BLUE)
         self.add_text(slide, f"{page:02d}", 12.48, 7.15, .28, .15, 8, self.GREY)
 
     def cover(self, scope_label, as_of_label):
@@ -874,11 +874,41 @@ def build_sap_portfolio_management_presentation(
                     paragraph.font.size = Pt(8)
                     paragraph.font.color.rgb = chrome.color("FFFFFF" if row_index == 0 else navy)
                     paragraph.font.bold = row_index == 0
-        summary_bar_chart(
-            group_slide, "Samples by group",
-            [(label, values["total"]) for label, values in sorted(groups_by_label.items(), key=lambda pair: (-pair[1]["total"], pair[0].casefold()))],
-            7.15, 1.95, 5.5, green, label_width=2.3, max_rows=9,
+        chrome.add_text(group_slide, "Samples by group · status mix", 7.15, 1.95, 5.5, .24, 13, navy, True)
+        legend = [
+            ("Accepted", green), ("Rejected", red), ("Under Testing", blue),
+        ]
+        for index, (label, tone) in enumerate(legend):
+            x = 7.18 + index * 1.77
+            chrome.rectangle(group_slide, x, 2.29, .13, .13, tone)
+            chrome.add_text(group_slide, label, x + .19, 2.26, 1.52, .2, 8, grey)
+
+        ordered_groups = sorted(
+            groups_by_label.items(),
+            key=lambda pair: (-pair[1]["total"], pair[0].casefold()),
         )
+        max_group_total = max((values["total"] for _, values in ordered_groups), default=0)
+        chart_start_y = 2.68
+        chart_row_step = min(.43, 3.85 / max(1, len(ordered_groups)))
+        chart_label_x, bar_x, numbers_x = 7.15, 9.0, 10.9
+        max_bar_width = 1.62
+        for index, (label, values) in enumerate(ordered_groups):
+            row_y = chart_start_y + index * chart_row_step
+            chrome.add_text(group_slide, concise(label, 23), chart_label_x, row_y, 1.78, .2, 8, grey)
+            segment_x = bar_x
+            for status, tone in (("Accepted", green), ("Rejected", red), ("Under Testing", blue)):
+                count = values[status]
+                segment_width = max_bar_width * count / max_group_total if max_group_total else 0
+                if segment_width > 0:
+                    chrome.rectangle(group_slide, segment_x, row_y + .015, segment_width, .17, tone)
+                    segment_x += segment_width
+            for offset, (short_label, status, tone) in enumerate((
+                ("A", "Accepted", green), ("R", "Rejected", red), ("T", "Under Testing", blue),
+            )):
+                chrome.add_text(
+                    group_slide, f"{short_label} {values[status]}",
+                    numbers_x + offset * .56, row_y, .55, .2, 8, tone, True,
+                )
     else:
         chrome.add_text(group_slide, "No notifications match the selected date.", .8, 2.1, 10.5, .35, 18, green, True)
 
