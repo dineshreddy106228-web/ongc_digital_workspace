@@ -93,3 +93,16 @@ There is an additional local safety note at:
 
 Agents may read it for extra context, but the rules in this `AGENTS.md` are the
 minimum required behavior.
+
+## Low-Usage Verification Preference
+
+- After changing presentation-download or UI code, do not generate, download,
+  render, or visually inspect PowerPoint decks or other exported artifacts
+  unless the user explicitly asks.
+- Do not open or automate the local Flask website for verification unless the
+  user explicitly asks. The user will perform that verification.
+- Keep automated validation focused and lightweight. Run only checks needed to
+  catch syntax errors or likely regressions, and avoid repeated test cycles
+  after a successful check unless new changes or failures justify them.
+- Before any unusually heavy, broad, or artifact-generating verification, ask
+  the user first.
