@@ -711,14 +711,15 @@ def usage_decision_outcome(value: Any) -> str | None:
 
 
 def sap_turnaround_days(record: QCSAPRecord) -> int | None:
-    """Days from SAP receipt to SAP completion, or ``None`` if unmeasurable.
+    """Days from SAP notification creation to SAP completion, if measurable.
 
-    The window starts at SAP's receipt date — the notification date where no
-    inspection lot was matched — which is what the Corporate Specification
-    testing time is written against.  A completion recorded before the start
-    is a source-data fault, not a zero-day turnaround, so it stays unmeasured.
+    Notification creation is the common clock for every laboratory. Some
+    plants populate the inspection-lot start date later than the notification
+    date, so that date must not override it for completion-time reporting. Use
+    the inspection-lot date only when the notification date is unavailable. A
+    completion recorded before the start is a source-data fault, not zero days.
     """
-    start_date = record.start_inspection_date or record.notification_start_date
+    start_date = record.notification_start_date or record.start_inspection_date
     if not start_date or not record.completion_date:
         return None
     elapsed = (record.completion_date - start_date).days
