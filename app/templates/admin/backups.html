@@ -213,7 +213,7 @@
       <div class="card-body">
         <h2 class="backup-section-title">Ingest Backup Into Current Database</h2>
         <p class="backup-copy">
-          Upload a full backup bundle <code>.tar.gz</code> or a legacy <code>.sql</code>/<code>.sql.gz</code> file and restore it into the current <strong>{{ environment_name }}</strong> database.
+          Upload a full backup bundle <code>.tar.gz</code>/<code>.tar</code> or a legacy <code>.sql</code>/<code>.sql.gz</code> file and restore it into the current <strong>{{ environment_name }}</strong> database.
           <span class="text-danger" style="font-weight: 700;">This replaces the current data.</span>
         </p>
         <ol class="backup-flow">
@@ -227,14 +227,12 @@
 
           <div class="form-group" style="margin-bottom: 1rem;">
             <label class="form-label" for="backup_file">Select Backup File</label>
-            {# No `accept` filter on purpose. A .tar.gz bundle greys out in the native file
-               dialog whatever is listed here: the OS types it as a gzipped-tar, which is a
-               distinct type from a plain .gz, so neither ".tar.gz" nor ".gz" reliably matches
-               it. The file type is checked below before the confirmation step and enforced
-               again on the server, so the picker is left unfiltered rather than blocking the
-               one file this form exists to accept. #}
+            {# No `accept` filter on purpose. A .tar.gz bundle may grey out in the native
+               file dialog because the OS types it as a gzipped tar, while some browsers
+               save the same bundle as an uncompressed .tar. The file type is checked below
+               and enforced again on the server. #}
             <input type="file" id="backup_file" name="backup_file" class="form-control" required>
-            <div class="form-hint">Accepted formats: <code>.tar.gz</code>, <code>.sql.gz</code>, <code>.sql</code>. All files are shown in the picker; anything else is rejected when you continue. Full bundles restore the database and committee attachments; stored MSDS PDFs are not part of a bundle and need re-uploading afterwards. Legacy SQL restores the database only.</div>
+            <div class="form-hint">Accepted formats: <code>.tar.gz</code>, <code>.tar</code>, <code>.sql.gz</code>, <code>.sql</code>. All files are shown in the picker; anything else is rejected when you continue. Full bundles restore the database and committee attachments; stored MSDS PDFs are not part of a bundle and need re-uploading afterwards. Legacy SQL restores the database only.</div>
           </div>
 
           <div class="backup-meta-card" style="margin-bottom: 1rem;">
@@ -336,7 +334,7 @@
               );
             }
 
-            const SUPPORTED_SUFFIXES = ['.tar.gz', '.sql.gz', '.sql'];
+            const SUPPORTED_SUFFIXES = ['.tar.gz', '.tar', '.sql.gz', '.sql'];
 
             startBtn.addEventListener('click', function() {
               if (!fileInput.value) {
@@ -348,7 +346,7 @@
                 return chosen.toLowerCase().endsWith(suffix);
               });
               if (!supported) {
-                alert('"' + chosen + '" is not a backup file.\n\nChoose a file ending in .tar.gz, .sql.gz or .sql.');
+                alert('"' + chosen + '" is not a backup file.\n\nChoose a file ending in .tar.gz, .tar, .sql.gz or .sql.');
                 return;
               }
               selectedFile.textContent = fileInput.files.length ? fileInput.files[0].name : fileInput.value;

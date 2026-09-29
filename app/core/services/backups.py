@@ -21,7 +21,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from flask import current_app
 
 
-SUPPORTED_BACKUP_EXTENSIONS = (".sql", ".sql.gz", ".tar.gz")
+SUPPORTED_BACKUP_EXTENSIONS = (".sql", ".sql.gz", ".tar", ".tar.gz")
 SQL_PREVIEW_LINE_LIMIT = 5
 BUNDLE_MANIFEST_FILENAME = "manifest.json"
 BUNDLE_EXCLUDED_FILES_MEMBER = "excluded_files.json"
@@ -292,7 +292,7 @@ def _is_sql_backup_file(file_path: Path) -> bool:
 
 
 def _is_bundle_backup_file(file_path: Path) -> bool:
-    return file_path.name.endswith(".tar.gz")
+    return file_path.name.endswith((".tar", ".tar.gz"))
 
 
 def _committee_upload_dir() -> Path:
@@ -964,7 +964,7 @@ def _validate_sql_backup_file(path: Path) -> dict:
 
 def _validate_bundle_backup_file(path: Path) -> dict:
     try:
-        with tarfile.open(path, "r:gz") as archive:
+        with tarfile.open(path, "r:*") as archive:
             members = archive.getnames()
             if BUNDLE_DATABASE_MEMBER not in members:
                 raise BackupError(
@@ -996,7 +996,7 @@ def _validate_bundle_backup_file(path: Path) -> dict:
     return {
         "path": str(path),
         "format": "bundle",
-        "compressed": True,
+        "compressed": path.name.endswith(".tar.gz"),
         "size_bytes": path.stat().st_size,
         "preview_lines": preview_lines,
         "manifest": manifest,
@@ -1022,7 +1022,7 @@ def validate_backup_file(file_path: str | Path) -> dict:
     if not path.is_file():
         raise BackupError(f"Backup path is not a file: {path}")
     if not _is_supported_backup_file(path):
-        raise BackupError("Backup file must end with .sql, .sql.gz, or .tar.gz.")
+        raise BackupError("Backup file must end with .sql, .sql.gz, .tar, or .tar.gz.")
 
     if _is_bundle_backup_file(path):
         return _validate_bundle_backup_file(path)
@@ -1102,7 +1102,7 @@ def _restore_sql_backup_from_validation(validation: dict) -> dict:
 def _restore_backup_bundle_from_validation(validation: dict) -> dict:
     extract_dir = Path(tempfile.mkdtemp(prefix="ongc-backup-bundle-"))
     try:
-        with tarfile.open(validation["path"], "r:gz") as archive:
+        with tarfile.open(validation["path"], "r:*") as archive:
             _safe_extract_tar(archive, extract_dir)
 
         embedded_database_path = extract_dir / validation["database_backup_member"]

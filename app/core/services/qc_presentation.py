@@ -885,6 +885,17 @@ def build_sap_portfolio_management_presentation(
                 if has_completion else "No notification completions are recorded in this scope."
             )
             chrome.add_text(slide, message, .82, 5.55, 11.4, .3, 12, grey)
+        completed_without_ud = sum(
+            entry["record"].official_status == "completed"
+            and (entry["record"].usage_decision_code or "").strip().upper() not in {"A", "R"}
+            for entry in entries
+        )
+        if completed_without_ud:
+            chrome.add_text(
+                slide,
+                f"{completed_without_ud} SAP-complete notifications have no UD; included under Under Testing.",
+                .82, 6.68, 11.4, .19, 9, grey,
+            )
         return groups, completion_times
 
     def add_group_status(groups, page, title):
@@ -1005,8 +1016,8 @@ def build_sap_portfolio_management_presentation(
                 )
                 chrome.add_text(
                     slide,
-                    "SAP notifications · sorted latest first",
-                    .45, 1.39, 10.6, .1, 7, grey,
+                    "Latest notification first · Actual: notification to completion · STT: SAP receipt to due date (notification if receipt missing)",
+                    .45, 1.37, 11.8, .17, 8, grey,
                 )
                 rows = []
                 for item in entries:
@@ -1021,18 +1032,18 @@ def build_sap_portfolio_management_presentation(
                         stt_due = "STT not defined"
                     usage_decision = (record.usage_decision_code or "").strip().upper()
                     ud_label = {"A": "Accepted", "R": "Rejected"}.get(usage_decision, "Under Testing")
-                    if usage_decision in {"A", "R"}:
+                    if usage_decision in {"A", "R"} or record.official_status == "completed":
                         completion_date = record.completion_date
                         elapsed_days = sap_turnaround_days(record)
                         if completion_date:
-                            follow_up = f"Completed · {completion_date:%d %b %Y}"
-                            if elapsed_days is not None:
-                                day_word = "day" if elapsed_days == 1 else "days"
-                                follow_up += f" · {elapsed_days} {day_word}"
-                            else:
-                                follow_up += " · duration unavailable"
+                            follow_up = f"Completed {completion_date:%d %b %Y}"
+                            if usage_decision not in {"A", "R"}:
+                                follow_up += " · no UD"
                         else:
-                            follow_up = "Completed · date missing · duration unavailable"
+                            follow_up = "SAP complete · date missing"
+                        actual_days = f"Actual {elapsed_days} d" if elapsed_days is not None else "Actual unavailable"
+                        stt_days = f"STT {item['stt_days']} d" if item["stt_days"] is not None else "STT not defined"
+                        follow_up += f"\n{actual_days} · {stt_days}"
                     else:
                         follow_up = "Lab follow-up requested"
                     rows.append([
