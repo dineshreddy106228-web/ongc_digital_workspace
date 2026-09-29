@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 from io import BytesIO
 from pathlib import Path
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from app.models.quality_control.qc_sample import QCSample
 from app.models.quality_control.qc_testing_standard import QCTestingStandard
@@ -822,14 +823,14 @@ def build_sap_portfolio_management_presentation(
                     "R": "Rejected",
                 }.get(usage_decision, "Under Testing")
                 if usage_decision in {"A", "R"}:
-                    ud_date = record.end_inspection_date
+                    completion_date = record.completion_date
                     start_date = record.start_inspection_date or record.notification_start_date
-                    if ud_date:
-                        follow_up = f"Completed · {ud_date:%d %b %Y}"
-                        if start_date and ud_date >= start_date:
-                            follow_up += f" · {(ud_date - start_date).days} days"
+                    if completion_date:
+                        follow_up = f"Completed · {completion_date:%d %b %Y}"
+                        if start_date and completion_date >= start_date:
+                            follow_up += f" · {(completion_date - start_date).days} days"
                     else:
-                        follow_up = "Completed · UD date not recorded"
+                        follow_up = "Completed · completion date not recorded"
                 else:
                     follow_up = "Lab follow-up requested"
                 rows.append([
@@ -918,3 +919,33 @@ def build_sap_portfolio_management_presentation(
     else:
         filename_scope = f"{len(scope_labs)} SAP Laboratories"
     return output, f"{filename_scope} Management Review {filename_date}.pptx"
+
+
+def build_sap_portfolio_management_zip(
+    static_folder: str, notification_date_from: date | None = None,
+) -> tuple[BytesIO, str]:
+    """Package one SAP management presentation per reporting laboratory."""
+    from app.core.services.sap_quality_control import sap_management_data
+
+    data = sap_management_data()
+    lab_codes = [
+        review["laboratory"]["code"]
+        for review in data["laboratory_reviews"]
+        if review["batch"] is not None
+    ]
+    if not lab_codes:
+        raise ValueError("Import paired SAP exports for at least one laboratory before downloading a presentation.")
+
+    output = BytesIO()
+    with ZipFile(output, "w", compression=ZIP_DEFLATED) as archive:
+        for lab_code in lab_codes:
+            deck, filename = build_sap_portfolio_management_presentation(
+                static_folder, {lab_code}, notification_date_from,
+            )
+            archive.writestr(Path(filename).name, deck.getvalue())
+    output.seek(0)
+    filename_date = (
+        f"from-{notification_date_from:%Y-%m-%d}"
+        if notification_date_from else "latest"
+    )
+    return output, f"QC Management Reviews by Laboratory {filename_date}.zip"

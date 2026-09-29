@@ -770,7 +770,10 @@ def download_portfolio_management_presentation():
     query string asks for: the same deck a superuser would take to a review,
     narrowed to that bench rather than replaced by a different one.
     """
-    from app.core.services.qc_presentation import build_sap_portfolio_management_presentation
+    from app.core.services.qc_presentation import (
+        build_sap_portfolio_management_presentation,
+        build_sap_portfolio_management_zip,
+    )
     from app.core.services.sap_quality_control import SAP_REPORTING_LAB_CODES
 
     scope = _user_lab_scope()
@@ -778,16 +781,21 @@ def download_portfolio_management_presentation():
         fallback = url_for("quality_control.portfolio_management_review")
         lab_codes = None
         requested_lab_codes = [code for code in request.args.getlist("lab") if code]
+        separate_zip = "__separate__" in requested_lab_codes
         # The presentation selector submits one ``lab`` value for a single-lab
         # deck and no value for the all-laboratories deck.  Keep ``scope=labs``
         # compatible with existing bookmarked filtered-deck links.
         if request.args.get("scope") == "labs" or requested_lab_codes:
-            lab_codes = {code for code in requested_lab_codes if code in SAP_REPORTING_LAB_CODES}
-            if not lab_codes:
+            if separate_zip:
+                lab_codes = None
+            else:
+                lab_codes = {code for code in requested_lab_codes if code in SAP_REPORTING_LAB_CODES}
+            if not lab_codes and not separate_zip:
                 flash("Select at least one SAP laboratory, or choose the all-SAP deck.", "warning")
                 return redirect(fallback)
     elif scope in SAP_REPORTING_LAB_CODES:
         lab_codes = {scope}
+        separate_zip = False
         # A laboratory reader cannot reach the management review, so an error
         # has to land them back on a page they are allowed to open.
         fallback = url_for("quality_control.sap_lab_dashboard", lab_code=scope)
@@ -804,16 +812,23 @@ def download_portfolio_management_presentation():
         flash("Enter a valid notification start date.", "warning")
         return redirect(fallback)
     try:
-        output, filename = build_sap_portfolio_management_presentation(
-            current_app.static_folder, lab_codes, notification_date_from,
-        )
+        if separate_zip:
+            output, filename = build_sap_portfolio_management_zip(
+                current_app.static_folder, notification_date_from,
+            )
+            mimetype = "application/zip"
+        else:
+            output, filename = build_sap_portfolio_management_presentation(
+                current_app.static_folder, lab_codes, notification_date_from,
+            )
+            mimetype = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
     except ValueError as exc:
         flash(str(exc), "warning")
     except Exception:
         logger.exception("QC portfolio presentation export failed")
         flash("The portfolio presentation could not be generated. Please try again.", "danger")
     else:
-        return send_file(output, mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation", as_attachment=True, download_name=filename, max_age=0)
+        return send_file(output, mimetype=mimetype, as_attachment=True, download_name=filename, max_age=0)
     return redirect(fallback)
 
 
