@@ -81,13 +81,13 @@ class _DeckChrome:
         if self.corporate_chemistry_logo.exists():
             slide.shapes.add_picture(str(self.corporate_chemistry_logo), self._Inches(11.16), self._Inches(.53), width=self._Inches(1.05), height=self._Inches(1.05))
 
-    def header(self, slide, title, page):
+    def header(self, slide, title, page, source_line=None):
         from pptx.util import Inches
         self.canvas_background(slide)
         self.add_text(slide, "ONGC CORPORATE CHEMISTRY \u00b7 QC LABORATORY MONITORING", .42, .27, 7.4, .24, 11, self.BLUE, True)
         self.add_text(slide, title, .42, .7, 11.5, .46, 27, self.NAVY, True)
         self.add_header_branding(slide)
-        self.add_text(slide, self.source_line, .42, 7.08, 8.6, .16, 8, self.GREY)
+        self.add_text(slide, source_line if source_line is not None else self.source_line, .42, 7.08, 8.6, .16, 8, self.GREY)
         self.add_text(slide, f"{page:02d}", 12.5, 7.08, .25, .16, 8, self.GREY)
 
     def metric(self, slide, x, y, value, label, tone=None):
@@ -104,9 +104,9 @@ class _DeckChrome:
         self.add_text(slide, value, x, y, 2.7, .4, 27, tone, True)
         self.add_text(slide, label, x, y + .52, 3.0, .25, 13, self.NAVY, True)
 
-    def new_slide(self, title, page):
+    def new_slide(self, title, page, source_line=None):
         slide = self.prs.slides.add_slide(self.blank)
-        self.header(slide, title, page)
+        self.header(slide, title, page, source_line=source_line)
         return slide
 
 
@@ -175,12 +175,12 @@ class _WeeklyReviewChrome(_DeckChrome):
             )
         self._gradient_rule(slide, .76)
 
-    def header(self, slide, title, page):
+    def header(self, slide, title, page, source_line=None):
         from pptx.enum.text import PP_ALIGN
 
         self.canvas_background(slide)
         self.add_text(slide, title, .52, .95, 12.1, .48, 25, self.TITLE_BLUE, True)
-        self.add_text(slide, self.source_line, .52, 7.09, 11.1, .24, 10, self.TITLE_BLUE)
+        self.add_text(slide, source_line if source_line is not None else self.source_line, .52, 7.09, 11.1, .24, 10, self.TITLE_BLUE)
         page_number = self.add_text(slide, f"{page:02d}", 12.05, 7.09, .7, .24, 10, self.GREY)
         page_number.text_frame.word_wrap = False
         page_number.text_frame.paragraphs[0].alignment = PP_ALIGN.RIGHT
@@ -1097,56 +1097,41 @@ def build_sap_portfolio_management_presentation(
                         ])
                     table(detail_slide, ["Local reference", "Material / sample", "Declared stage", "Expected completion", "Owner / constraint"], rows, [2.0, 3.0, 2.2, 2.1, 3.15], y=1.55, font_size=9)
 
-    # Portfolio-wide comparison pages follow the individual laboratory packs.
-    # 05 · Position
-    kpis = data["kpis"]
-    slide = chrome.new_slide("Official SAP position", next_page_number())
-    cards = [
-        (kpis["total"], "SAP monitoring records", blue),
-        (kpis["actionable_open"], "Actionable SAP-open", red if kpis["actionable_open"] else green),
-        (kpis["stt_overdue"], "Past STT", red if kpis["stt_overdue"] else green),
-        (kpis["awaiting_lab"], "Awaiting lab follow-up", blue),
-        (f"{kpis['accepted']} / {kpis['rejected']}", "UD A / UD R", green),
-        (kpis["completed"], "Officially complete", green),
-    ]
-    for index, (value, label, tone) in enumerate(cards):
-        chrome.metric(slide, .7 + (index % 3) * 4.2, 1.65 + (index // 3) * 2.0, value, label, tone)
-    chrome.add_text(slide, f"Snapshot coverage: {data['reporting_labs']} of {data['configured_labs']} configured SAP laboratories. QC-admin exclusions: {kpis['excluded']}; exclusions requiring renewed review: {kpis['exclusion_review']}.", .75, 5.9, 11.6, .3, 13, grey)
-
-    # 06 · Laboratory overview
-    slide = chrome.new_slide("Laboratory SAP snapshot coverage", next_page_number())
-    lab_rows = []
-    for review in data["laboratory_reviews"]:
-        if review["batch"] is None:
-            lab_rows.append([review["laboratory"]["name"], "—", "Awaiting snapshot", "—", "—", "—", "—"])
-            continue
-        item = review["kpis"]
-        lab_rows.append([
-            review["laboratory"]["name"], review["batch"].plant_code,
-            review["batch"].as_of_date.strftime("%d %b %Y"), item["total"],
-            item["actionable_open"], item["stt_overdue"], item["awaiting_lab"],
-        ])
-    table(slide, ["Laboratory", "Plant", "SAP as of", "Records", "Actionable open", "Past STT", "Awaiting lab"], lab_rows, [2.8, 1.0, 1.45, 1.15, 1.65, 1.25, 1.15], y=1.55, font_size=9)
-
-    # 07 · Work-centre exposure
-    slide = chrome.new_slide("Open workload by SAP work center", next_page_number())
-    centre_rows = [[
-        item["name"], ", ".join(item["laboratories"]), item["open"],
-        item["stt_overdue"], item["awaiting_lab"],
-    ] for item in data["work_centers"][:14]]
-    table(slide, ["SAP work center", "Laboratories", "Open", "Past STT", "No lab update"], centre_rows, [3.7, 3.65, 1.35, 1.65, 2.1], y=1.55, font_size=10)
-
-    slide = chrome.new_slide("SAP usage decisions and daily movement", next_page_number())
-    for index, item in enumerate(data["usage_decisions"]):
-        tone = green if item["tone"] == "success" else red if item["tone"] == "danger" else navy
-        chrome.metric(slide, .8 + index * 3.7, 1.7, item["count"], item["label"], tone)
-    movement_rows = [[
-        item["laboratory"]["name"], item["batch"].as_of_date.strftime("%d %b"),
-        item["current_open"], item["previous_open"] if item["previous_open"] is not None else "—",
-        f"{item['open_change']:+d}" if item["open_change"] is not None else "First snapshot",
-    ] for item in data["trend"]]
-    chrome.add_text(slide, "Change from the previous SAP snapshot", .8, 3.55, 5.6, .3, 18, navy, True)
-    table(slide, ["Laboratory", "Current", "SAP-open", "Previous open", "Change"], movement_rows, [3.4, 2.0, 2.0, 2.35, 2.7], y=4.0, font_size=10)
+        # Leave an editable page for laboratory-declared work that is absent
+        # from SAP, even when no such samples are recorded in the application.
+        input_slide = chrome.new_slide(
+            f"{laboratory['name']} · Out-of-SAP sample details", next_page_number(),
+            source_line="Laboratory-declared Out-of-SAP input · separate from SAP snapshot",
+        )
+        chrome.add_text(
+            input_slide,
+            "Laboratory input · complete one row per sample without an SAP notification",
+            .55, 1.46, 11.8, .24, 12, grey,
+        )
+        chrome.add_text(
+            input_slide,
+            "Reporting date: ____________________     Prepared by: ______________________________",
+            .55, 1.83, 11.8, .25, 11, navy,
+        )
+        table(
+            input_slide,
+            ["Local reference", "Material / sample", "Received", "STT (days)",
+             "Declared status / result", "Expected / completed", "Lab follow-up / owner"],
+            [[""] * 7 for _ in range(8)],
+            [1.45, 2.65, 1.15, 1.0, 2.05, 1.65, 2.5],
+            y=2.23, height=4.12, font_size=9,
+        )
+        input_table = next(shape.table for shape in input_slide.shapes if shape.has_table)
+        for row_index, row in enumerate(list(input_table.rows)[1:], 1):
+            for cell in row.cells:
+                cell.fill.fore_color.rgb = chrome.color(
+                    "EAF1F7" if row_index % 2 else "F7FAFD"
+                )
+        chrome.add_text(
+            input_slide,
+            "Laboratory-declared information only · Keep these samples separate from SAP totals and SAP usage decisions.",
+            .55, 6.58, 11.8, .22, 10, grey,
+        )
 
     chrome.closing(next_page_number())
 
