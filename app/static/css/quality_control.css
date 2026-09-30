@@ -366,6 +366,15 @@ a.qc-age-distribution-item:hover { filter: brightness(.97); }
     display: inline-flex;
     align-items: end;
     gap: .5rem;
+    flex-wrap: wrap;
+}
+
+.qc-presentation-carryover-choice {
+    display: inline-flex !important;
+    align-items: center;
+    gap: .35rem !important;
+    padding-bottom: .55rem;
+    white-space: nowrap;
 }
 
 .qc-presentation-scope-form label {

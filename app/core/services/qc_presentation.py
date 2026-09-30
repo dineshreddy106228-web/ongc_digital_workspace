@@ -686,6 +686,7 @@ def build_portfolio_management_presentation(static_folder: str, reporting_week_e
 def build_sap_portfolio_management_presentation(
     static_folder: str, lab_codes: set[str] | None = None,
     notification_date_from: date | None = None,
+    open_notification_date_from: date | None = None,
 ) -> tuple[BytesIO, str]:
     """Create the senior-management deck from the current SAP snapshots only."""
     from pptx import Presentation
@@ -695,7 +696,15 @@ def build_sap_portfolio_management_presentation(
         sap_turnaround_days,
     )
 
-    data = sap_management_data(lab_codes, notification_date_from)
+    effective_date_from = notification_date_from or SAP_MONITORING_START_DATE
+    if effective_date_from < SAP_MONITORING_START_DATE:
+        raise ValueError(f"The notification start date cannot be before {SAP_MONITORING_START_DATE:%d %b %Y}.")
+    if open_notification_date_from and not SAP_MONITORING_START_DATE <= open_notification_date_from < effective_date_from:
+        raise ValueError(
+            f"The earlier open-notification date must be from {SAP_MONITORING_START_DATE:%d %b %Y} "
+            "and before the main notification start date."
+        )
+    data = sap_management_data(lab_codes, open_notification_date_from or effective_date_from)
     # The declared non-SAP register is read separately and stays separate: it
     # never enters the SAP counts, but it is the rest of the bench's load and
     # the management deck is now the only deck that carries it.
@@ -762,10 +771,6 @@ def build_sap_portfolio_management_presentation(
     chrome.cover(scope_label, cover_date, title="QC SAP Management Review")
 
     # 02 · Overall executive summary for the selected notification window.
-    effective_date_from = max(
-        SAP_MONITORING_START_DATE,
-        notification_date_from or SAP_MONITORING_START_DATE,
-    )
     def summary_bar_chart(slide, title, rows, x, y, width, color, *, label_width=1.65, max_rows=5):
         chrome.add_text(slide, title, x, y, width, .24, 13, navy, True)
         chart_rows = rows[:max_rows]
@@ -787,7 +792,14 @@ def build_sap_portfolio_management_presentation(
             entry for entry in review["records"]
             if entry["record"].notification_no
             and entry["record"].notification_start_date
-            and entry["record"].notification_start_date >= effective_date_from
+            and (
+                entry["record"].notification_start_date >= effective_date_from
+                or (
+                    open_notification_date_from is not None
+                    and entry["record"].notification_start_date >= open_notification_date_from
+                    and entry["record"].official_status == "open"
+                )
+            )
         ]
 
     def summarize_entries(entries):
@@ -817,11 +829,20 @@ def build_sap_portfolio_management_presentation(
 
     def add_executive_summary(entries, page, title, snapshot_note):
         status_counts, groups, completion_times = summarize_entries(entries)
+        carryover_count = sum(
+            entry["record"].notification_start_date < effective_date_from for entry in entries
+        )
+        if open_notification_date_from:
+            scope_note = (
+                f"Created from {effective_date_from:%d %b %Y}: {len(entries) - carryover_count:,} new"
+                f" + {carryover_count:,} SAP-open from {open_notification_date_from:%d %b %Y}"
+                f" = {len(entries):,} total"
+            )
+        else:
+            scope_note = f"Notifications created on or after {effective_date_from:%d %b %Y} · {len(entries):,} total"
         slide = chrome.new_slide(title, page)
         chrome.add_text(
-            slide,
-            f"Notifications created on or after {effective_date_from:%d %b %Y} · {len(entries):,} total",
-            .62, 1.43, 11.8, .22, 12, grey, True,
+            slide, scope_note, .62, 1.43, 11.8, .22, 11, grey, True,
         )
         chrome.add_text(slide, snapshot_note, .62, 1.66, 11.8, .22, 10, grey)
         cards = [
@@ -1016,6 +1037,8 @@ def build_sap_portfolio_management_presentation(
                 )
                 chrome.add_text(
                     slide,
+                    "Latest notification first · Earlier SAP-open rows marked carryover · Actual: notification to completion · STT: SAP receipt to due date"
+                    if open_notification_date_from else
                     "Latest notification first · Actual: notification to completion · STT: SAP receipt to due date (notification if receipt missing)",
                     .45, 1.37, 11.8, .17, 8, grey,
                 )
@@ -1046,9 +1069,12 @@ def build_sap_portfolio_management_presentation(
                         follow_up += f"\n{actual_days} · {stt_days}"
                     else:
                         follow_up = "Lab follow-up requested"
+                    notification_date_label = record.notification_start_date.strftime("%d %b %Y") if record.notification_start_date else "—"
+                    if open_notification_date_from and record.notification_start_date < effective_date_from:
+                        notification_date_label += "\nOpen carryover"
                     rows.append([
                         record.inspection_lot_number or "—", record.notification_no or "—",
-                        record.notification_start_date.strftime("%d %b %Y") if record.notification_start_date else "—",
+                        notification_date_label,
                         item["specification_chemical_name"] or record.material_description or "Material not stated in SAP",
                         concise(item["specification_no"] or "Not in Corporate Specification", 28),
                         stt_due, ud_label, follow_up,
@@ -1150,6 +1176,7 @@ def build_sap_portfolio_management_presentation(
 
 def build_sap_portfolio_management_zip(
     static_folder: str, notification_date_from: date | None = None,
+    open_notification_date_from: date | None = None,
 ) -> tuple[BytesIO, str]:
     """Package one SAP management presentation per reporting laboratory."""
     from app.core.services.sap_quality_control import sap_management_data
@@ -1167,7 +1194,7 @@ def build_sap_portfolio_management_zip(
     with ZipFile(output, "w", compression=ZIP_DEFLATED) as archive:
         for lab_code in lab_codes:
             deck, filename = build_sap_portfolio_management_presentation(
-                static_folder, {lab_code}, notification_date_from,
+                static_folder, {lab_code}, notification_date_from, open_notification_date_from,
             )
             archive.writestr(Path(filename).name, deck.getvalue())
     output.seek(0)
@@ -1175,4 +1202,5 @@ def build_sap_portfolio_management_zip(
         f"from-{notification_date_from:%Y-%m-%d}"
         if notification_date_from else "latest"
     )
-    return output, f"QC Management Reviews by Laboratory {filename_date}.zip"
+    carryover_suffix = f" open-from-{open_notification_date_from:%Y-%m-%d}" if open_notification_date_from else ""
+    return output, f"QC Management Reviews by Laboratory {filename_date}{carryover_suffix}.zip"

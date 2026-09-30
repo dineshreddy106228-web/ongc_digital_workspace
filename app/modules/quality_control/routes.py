@@ -776,7 +776,7 @@ def download_portfolio_management_presentation():
         build_sap_portfolio_management_presentation,
         build_sap_portfolio_management_zip,
     )
-    from app.core.services.sap_quality_control import SAP_REPORTING_LAB_CODES
+    from app.core.services.sap_quality_control import SAP_MONITORING_START_DATE, SAP_REPORTING_LAB_CODES
 
     scope = _user_lab_scope()
     if scope is None:
@@ -813,15 +813,33 @@ def download_portfolio_management_presentation():
     except ValueError:
         flash("Enter a valid notification start date.", "warning")
         return redirect(fallback)
+    effective_date_from = notification_date_from or SAP_MONITORING_START_DATE
+    if effective_date_from < SAP_MONITORING_START_DATE:
+        flash(f"The notification start date cannot be before {SAP_MONITORING_START_DATE:%d %b %Y}.", "warning")
+        return redirect(fallback)
+    open_notification_date_from = None
+    if request.args.get("include_open_carryover") == "1":
+        carryover_value = request.args.get("open_notification_date_from", "").strip()
+        try:
+            open_notification_date_from = date.fromisoformat(carryover_value)
+        except ValueError:
+            flash("Enter a valid start date for earlier open notifications.", "warning")
+            return redirect(fallback)
+        if not SAP_MONITORING_START_DATE <= open_notification_date_from < effective_date_from:
+            flash(
+                f"The earlier open-notification date must be from {SAP_MONITORING_START_DATE:%d %b %Y} "
+                "and before the main notification start date.", "warning",
+            )
+            return redirect(fallback)
     try:
         if separate_zip:
             output, filename = build_sap_portfolio_management_zip(
-                current_app.static_folder, notification_date_from,
+                current_app.static_folder, notification_date_from, open_notification_date_from,
             )
             mimetype = "application/zip"
         else:
             output, filename = build_sap_portfolio_management_presentation(
-                current_app.static_folder, lab_codes, notification_date_from,
+                current_app.static_folder, lab_codes, notification_date_from, open_notification_date_from,
             )
             mimetype = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
     except ValueError as exc:

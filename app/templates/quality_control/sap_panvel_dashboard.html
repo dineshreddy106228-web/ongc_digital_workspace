@@ -14,8 +14,8 @@
       <p class="mod-page-sub">Official inspection and notification status is read from SAP. Corporate Chemistry records the returned laboratory action; it never overwrites SAP.</p>
     </div>
     <div class="mod-page-actions">
-      {% if batch %}<form method="get" action="{{ url_for('quality_control.download_portfolio_management_presentation') }}" class="qc-presentation-scope-form"><input type="hidden" name="lab" value="{{ lab_code }}"><label><span>Notifications created on or after</span><input class="form-control" type="date" name="notification_date_from"></label><button class="btn btn-primary" type="submit"><i class="bi bi-file-earmark-ppt"></i> Download presentation</button></form>{% endif %}
-      {% if can_control and batch %}<form method="get" action="{{ url_for('quality_control.download_portfolio_management_presentation') }}" class="qc-presentation-scope-form"><label><span>Notifications created on or after</span><input class="form-control" type="date" name="notification_date_from"></label><button class="btn btn-secondary" type="submit"><i class="bi bi-buildings"></i> All-labs presentation</button></form>{% endif %}
+      {% if batch %}<form method="get" action="{{ url_for('quality_control.download_portfolio_management_presentation') }}" class="qc-presentation-scope-form"><input type="hidden" name="lab" value="{{ lab_code }}">{% include "quality_control/_sap_presentation_dates.html" %}<button class="btn btn-primary" type="submit"><i class="bi bi-file-earmark-ppt"></i> Download presentation</button></form>{% endif %}
+      {% if can_control and batch %}<form method="get" action="{{ url_for('quality_control.download_portfolio_management_presentation') }}" class="qc-presentation-scope-form">{% include "quality_control/_sap_presentation_dates.html" %}<button class="btn btn-secondary" type="submit"><i class="bi bi-buildings"></i> All-labs presentation</button></form>{% endif %}
     </div>
   </div>
 

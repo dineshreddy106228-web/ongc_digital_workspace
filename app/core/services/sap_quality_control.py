@@ -1975,6 +1975,7 @@ def sap_control_data() -> dict[str, Any]:
         batch = latest_sap_batch(lab_code)
         counts = _sap_monitoring_counts(lab_code, batch)
         sap_open = counts["sap_open"]
+        batch_summary = _batch_summary(batch) if batch else {}
         non_sap_pending = QCNonSAPSample.query.filter_by(lab_code=lab_code).filter(
             QCNonSAPSample.sample_receipt_date >= SAP_MONITORING_START_DATE,
             ~QCNonSAPSample.current_status.in_(NON_SAP_CLOSED_STATUSES)
@@ -1985,12 +1986,10 @@ def sap_control_data() -> dict[str, Any]:
             "record_count": financial_year_records(lab_code, batch).count() if batch else 0,
             # What the newest upload moved, so the reader can see the day's
             # work rather than only the standing position.
-            "changes": (
-                _batch_summary(batch).get("changes") or {}
-                if _batch_summary(batch).get("monitoring_start_date")
-                == financial_year_start(batch.as_of_date).isoformat()
-                else {}
-            ),
+            "changes": batch_summary.get("changes") or {}
+            if batch and batch_summary.get("monitoring_start_date")
+            == financial_year_start(batch.as_of_date).isoformat()
+            else {},
             "sap_open": sap_open,
             "excluded_from_monitoring": counts["excluded_from_monitoring"],
             "exclusion_review": counts["exclusion_review"],
